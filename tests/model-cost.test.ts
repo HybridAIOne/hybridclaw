@@ -12,10 +12,8 @@ vi.mock('../src/providers/model-catalog.js', () => ({
 
 const {
   estimateModelUsageCostUsd,
-  estimateRoutingSavingsUsd,
   extractExplicitUsageCostUsd,
   promptTokensIncludeCacheTokens,
-  resolveUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
 } = await import('../src/usage/model-cost.js');
 
@@ -67,11 +65,11 @@ test('extractExplicitUsageCostUsd reads provider supplied usage cost', () => {
   );
 });
 
-test('resolveUsageCostUsd keeps explicit provider cost authoritative', () => {
+test('cost resolution keeps explicit provider cost authoritative', async () => {
   mockPricing(0.00000003, 0.00000015);
 
   expect(
-    resolveUsageCostUsd({
+    await resolveUsageCostUsdAfterMetadataRefresh({
       model: 'xai/grok-4.20-0309-non-reasoning',
       tokenUsage: makeTokenUsage({ costUsd: 0 }),
       usage: { promptTokens: 1_000_000, completionTokens: 200_000 },
@@ -80,11 +78,11 @@ test('resolveUsageCostUsd keeps explicit provider cost authoritative', () => {
   expect(getModelCatalogMetadata).not.toHaveBeenCalled();
 });
 
-test('resolveUsageCostUsd estimates cost from model catalog pricing when usage has no cost', () => {
+test('cost resolution estimates cost from model catalog pricing when usage has no cost', async () => {
   mockPricing(0.00000003, 0.00000015);
 
   expect(
-    resolveUsageCostUsd({
+    await resolveUsageCostUsdAfterMetadataRefresh({
       model: 'xai/grok-4.20-0309-non-reasoning',
       tokenUsage: makeTokenUsage(),
       usage: { promptTokens: 1_000_000, completionTokens: 200_000 },
@@ -92,9 +90,9 @@ test('resolveUsageCostUsd estimates cost from model catalog pricing when usage h
   ).toBeCloseTo(0.06, 8);
 });
 
-test('resolveUsageCostUsd falls back to zero when pricing is unavailable', () => {
+test('cost resolution falls back to zero when pricing is unavailable', async () => {
   expect(
-    resolveUsageCostUsd({
+    await resolveUsageCostUsdAfterMetadataRefresh({
       model: 'unknown/model',
       tokenUsage: makeTokenUsage(),
       usage: { promptTokens: 1_000_000, completionTokens: 200_000 },
@@ -126,62 +124,6 @@ test('resolveUsageCostUsdAfterMetadataRefresh skips refresh when explicit cost e
     }),
   ).resolves.toBe(0.25);
   expect(refreshModelCatalogMetadata).not.toHaveBeenCalled();
-});
-
-test('estimateRoutingSavingsUsd prices the same successful tokens at the reference model', () => {
-  getModelCatalogMetadata.mockImplementation((model: string) => ({
-    pricingUsdPerToken:
-      model === 'frontier/model'
-        ? { input: 10 / 1_000_000, output: 30 / 1_000_000 }
-        : { input: 1 / 1_000_000, output: 3 / 1_000_000 },
-  }));
-
-  expect(
-    estimateRoutingSavingsUsd({
-      referenceModel: 'frontier/model',
-      referenceUsage: {
-        promptTokens: 1_000_000,
-        completionTokens: 200_000,
-      },
-      attempts: [
-        {
-          model: 'small/model',
-          promptTokens: 1_000_000,
-          completionTokens: 200_000,
-        },
-      ],
-    }),
-  ).toEqual({
-    actualCostUsd: 1.6,
-    counterfactualCostUsd: 16,
-    savedUsd: 14.4,
-  });
-});
-
-test('estimateRoutingSavingsUsd includes escalation overhead and permits negative savings', () => {
-  mockPricing(1 / 1_000_000, 1 / 1_000_000);
-
-  const estimate = estimateRoutingSavingsUsd({
-    referenceModel: 'frontier/model',
-    referenceUsage: { promptTokens: 100, completionTokens: 100 },
-    attempts: [
-      {
-        model: 'small/model',
-        promptTokens: 100,
-        completionTokens: 0,
-        costUsd: 0.001,
-      },
-      {
-        model: 'frontier/model',
-        promptTokens: 100,
-        completionTokens: 100,
-        costUsd: 0.002,
-      },
-    ],
-  });
-  expect(estimate?.actualCostUsd).toBeCloseTo(0.003, 10);
-  expect(estimate?.counterfactualCostUsd).toBeCloseTo(0.0002, 10);
-  expect(estimate?.savedUsd).toBeCloseTo(-0.0028, 10);
 });
 
 test('estimateModelUsageCostUsd carves cached tokens out of OpenAI-style prompt tokens', () => {
@@ -231,11 +173,11 @@ test('estimateModelUsageCostUsd bills cache tokens at the input price when no ca
   ).toBeCloseTo(2, 8);
 });
 
-test('resolveUsageCostUsd applies cache discounts from reported token usage', () => {
+test('cost resolution applies cache discounts from reported token usage', async () => {
   mockPricing(2 / 1_000_000, 10 / 1_000_000, { cacheRead: 0.2 / 1_000_000 });
 
   expect(
-    resolveUsageCostUsd({
+    await resolveUsageCostUsdAfterMetadataRefresh({
       model: 'hybridai/gpt-5',
       tokenUsage: makeTokenUsage({
         apiCacheUsageAvailable: true,

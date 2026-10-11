@@ -99,12 +99,6 @@ const KNOWN_TOOL_NAMES = new Set(
   TOOL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.trim())),
 );
 
-const TOOL_GROUP_BY_NAME = new Map([
-  ...TOOL_GROUPS.flatMap((group) =>
-    group.tools.map((tool) => [tool.trim(), group.label] as const),
-  ),
-]);
-
 function normalizeToolList(
   tools: readonly string[] | null | undefined,
 ): string[] {
@@ -137,10 +131,6 @@ export function listKnownToolNames(): string[] {
 
 export function isKnownToolName(name: string): boolean {
   return KNOWN_TOOL_NAMES.has(String(name || '').trim());
-}
-
-export function getKnownToolGroupLabel(name: string): string | null {
-  return TOOL_GROUP_BY_NAME.get(String(name || '').trim()) || null;
 }
 
 export function buildToolsSummary(options: ToolSummaryOptions = {}): string {

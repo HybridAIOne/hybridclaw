@@ -231,9 +231,6 @@ describe('runtime config revisions integration', () => {
         },
       ],
     });
-    expect(
-      configMod.resolveSkillAutonomyLevel(restored, 'writer', 'docs'),
-    ).toBe('full-autonomous');
   });
 
   it('migrates the revision store for typed runtime assets', () => {

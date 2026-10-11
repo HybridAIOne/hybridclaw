@@ -1029,16 +1029,6 @@ export interface RuntimeInstalledSkillManifest {
   updatedAt: string;
 }
 
-type RuntimeSkillAutonomyRuleIndex = Map<
-  string,
-  Map<string, SkillAutonomyLevel>
->;
-
-const skillAutonomyRuleIndexes = new WeakMap<
-  RuntimeSkillAutonomyConfig,
-  RuntimeSkillAutonomyRuleIndex
->();
-
 export interface RuntimeConfig {
   version: number;
   audit: RuntimeAuditConfig;
@@ -2459,25 +2449,6 @@ function normalizeSkillAutonomyConfig(
       return byAgent || a.skillName.localeCompare(b.skillName);
     }),
   };
-}
-
-function getSkillAutonomyRuleIndex(
-  autonomy: RuntimeSkillAutonomyConfig,
-): RuntimeSkillAutonomyRuleIndex {
-  const cached = skillAutonomyRuleIndexes.get(autonomy);
-  if (cached) return cached;
-
-  const index: RuntimeSkillAutonomyRuleIndex = new Map();
-  for (const rule of autonomy.rules) {
-    let skillRules = index.get(rule.agentId);
-    if (!skillRules) {
-      skillRules = new Map<string, SkillAutonomyLevel>();
-      index.set(rule.agentId, skillRules);
-    }
-    skillRules.set(rule.skillName, rule.level);
-  }
-  skillAutonomyRuleIndexes.set(autonomy, index);
-  return index;
 }
 
 function normalizeSkillChannelDisabled(
@@ -8653,25 +8624,6 @@ export function resolveDefaultAgentId(
       }) === configured,
   );
   return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
-}
-
-export function resolveSkillAutonomyLevel(
-  config: Pick<RuntimeConfig, 'skills'> = currentConfig,
-  agentId: string,
-  skillName: string,
-): SkillAutonomyLevel {
-  const defaultLevel = config.skills.autonomy.defaultLevel;
-  if (!agentId || !skillName) {
-    throw new Error(
-      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
-    );
-  }
-
-  return (
-    getSkillAutonomyRuleIndex(config.skills.autonomy)
-      .get(agentId)
-      ?.get(skillName) ?? defaultLevel
-  );
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

@@ -438,13 +438,6 @@ export function SelectGroupLabel({
   );
 }
 
-export function SelectSeparator({
-  className,
-  ...rest
-}: HTMLAttributes<HTMLHRElement>) {
-  return <hr className={cx(css.separator, className)} {...rest} />;
-}
-
 export function SelectEmpty({
   className,
   children,

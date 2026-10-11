@@ -1,12 +1,6 @@
-import { useSyncExternalStore } from 'react';
-
 const SESSION_KEY = 'hybridclaw_session';
 
-type Listener = () => void;
-
-const listeners = new Set<Listener>();
-
-export function getActiveSessionId(): string {
+function getActiveSessionId(): string {
   try {
     return localStorage.getItem(SESSION_KEY) ?? '';
   } catch {
@@ -26,20 +20,4 @@ export function setActiveSessionId(id: string): void {
   } catch {
     // ignore storage errors (private mode, quota, etc.)
   }
-  for (const listener of listeners) listener();
-}
-
-export function subscribeActiveSessionId(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export function useActiveSessionId(): string {
-  return useSyncExternalStore(
-    subscribeActiveSessionId,
-    getActiveSessionId,
-    getActiveSessionId,
-  );
 }

@@ -118,7 +118,3 @@ export function DropdownItem({
     </button>
   );
 }
-
-export function DropdownSeparator({ className = '' }: { className?: string }) {
-  return <hr className={className} />;
-}
