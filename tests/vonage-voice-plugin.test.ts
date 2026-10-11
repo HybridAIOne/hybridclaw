@@ -13,7 +13,8 @@ function createApi(overrides: Record<string, unknown> = {}) {
   const commands: PluginCommandDefinition[] = [];
   const services: PluginService[] = [];
   const api = {
-    config: { agents: { defaultAgentId: 'main' } },
+    config: {},
+    getDefaultAgentId: () => 'main',
     pluginConfig: {
       applicationId: 'app-id',
       fromNumber: '+14155550123',
