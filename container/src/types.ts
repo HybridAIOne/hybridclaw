@@ -215,7 +215,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see shared/ipc-output-files.js. */
+  /** Names this request's reply file; see shared/ipc-output-files.ts. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -225,7 +225,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * shared/ipc-input-auth.js).
+   * shared/ipc-input-auth.ts).
    */
   ipcAuthSecret?: string;
   baseUrl: string;

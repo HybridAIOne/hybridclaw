@@ -264,9 +264,6 @@ function describeExpressionProblem(
   );
 }
 
-// Returns a clause without a subject for the rule itself ("has unknown key
-// ...") and one that starts with its path for the `when` tree ("when.all[1]
-// ..."), so a consumer can prefix its own rule label.
 /**
  * Why a user-authored rule is unreadable, or '' when it is readable. The
  * problem reads after a rule label: `has unknown key "wehn" ...` or

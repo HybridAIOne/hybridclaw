@@ -8,7 +8,7 @@
  * Follow-up inputs live in a directory the agent's own tools can reach, so
  * `writeInput` wraps each one in an authenticity envelope keyed by the
  * per-worker secret the agent holds from stdin (container/shared/
- * ipc-input-auth.js). Health input carries only a liveness nonce and never
+ * ipc-input-auth.ts). Health input carries only a liveness nonce and never
  * drives a turn, so it is written plain.
  *
  * `readOutput` always settles, with the reply to its own request id, a

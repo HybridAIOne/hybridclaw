@@ -1,8 +1,9 @@
 /**
+ * Operator-owned MCP configuration, shared across the gateway/worker boundary.
  * Validates operator scheduling declarations at the config and IPC boundaries.
  * Server annotations cannot populate this config; approval is a separate policy.
  */
-/** Operator-owned MCP configuration, shared across the gateway/worker boundary. */
+
 export interface McpToolBehaviorConfig {
   trustAnnotations?: boolean;
   overrides?: Record<string, 'read-only' | 'mutation'>;

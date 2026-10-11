@@ -9,7 +9,7 @@
  *
  * `input.json` lives where this agent's own tools can write, so a follow-up is
  * honored only when its authenticity envelope verifies against the per-worker
- * secret received on stdin (`setIpcAuthSecret`, see shared/ipc-input-auth.js);
+ * secret received on stdin (`setIpcAuthSecret`, see shared/ipc-input-auth.ts);
  * an input that fails to verify is dropped, not run. `health-input.json` is
  * read as a liveness probe only: it yields a turn's input never — just the
  * nonce to echo — so an unauthenticated health file cannot become a turn.

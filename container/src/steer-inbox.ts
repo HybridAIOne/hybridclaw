@@ -9,7 +9,7 @@
  * the gateway delivered is never left behind by a turn that finished.
  *
  * NOT the gateway's half (src/infra/steer-inbox.ts) and NOT the on-disk
- * format (shared/steer-inbox.js). Notes of a turn that fails or is stopped
+ * format (shared/steer-inbox.ts). Notes of a turn that fails or is stopped
  * are dropped with it, as its other work is.
  */
 import fs from 'node:fs';

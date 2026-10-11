@@ -1,13 +1,11 @@
 /**
- * Mini-skill text is complete bounded guidance, never executable authority.
- * The host and worker share this limit; ordinary skill bodies still use reads.
- */
-
-/**
  * Shared host/worker skill catalog: admitted identities and complete mini-cards.
- * Ordinary instructions and credentials retain their existing access paths;
+ * Mini-skill text is complete bounded guidance, never executable authority;
+ * the host and worker share its limit, and ordinary skill bodies still use
+ * reads. Instructions and credentials retain their existing access paths:
  * this wire contract carries guidance, never capabilities or permissions.
  */
+
 export interface SessionSkillCatalogEntry {
   name: string;
   description: string;
