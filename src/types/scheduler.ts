@@ -19,6 +19,8 @@ export interface ScheduledTask {
   last_error: string | null;
   consecutive_errors: number;
   created_at: string;
+  /** Last change of any kind, a run's start or a pause included. */
+  updated_at?: string;
   /** Phone alert kind for a run whose reply is a list of items (`/schedule add --alert`). */
   alert?: string | null;
   /**

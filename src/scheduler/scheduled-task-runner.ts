@@ -35,6 +35,7 @@ import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { trackedTaskPrompt } from '../tracking/track-store.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import { taskCostFromUsage } from '../usage/task-cost.js';
 import {
   enqueueTokenUsage,
   readCacheTokenUsage,
@@ -51,6 +52,7 @@ import {
   dbTaskLabel,
   type SchedulerDispatchRequest,
 } from './scheduler.js';
+import { noteTaskRun } from './task-runs.js';
 
 // One day (engineering choice, 2026-10-03): background work must not use an old phone snapshot.
 const MAX_DEVICE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -68,6 +70,8 @@ export async function runIsolatedScheduledTask(params: {
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;
+  /** The run's row in its task's run history, if it has one. */
+  taskRunId?: number;
   onResult: (result: ProactiveMessagePayload) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {
@@ -246,6 +250,11 @@ export async function runIsolatedScheduledTask(params: {
       startedAt,
       usage,
     });
+    const costUsd = await resolveUsageCostUsdAfterMetadataRefresh({
+      model,
+      tokenUsage: output.tokenUsage,
+      usage,
+    });
     enqueueTokenUsage({
       sessionId: activeSessionId,
       agentId,
@@ -255,12 +264,16 @@ export async function runIsolatedScheduledTask(params: {
       totalTokens: usage.totalTokens,
       ...readCacheTokenUsage(usage),
       toolCalls: usage.toolCallCount,
-      costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
-        model,
-        tokenUsage: output.tokenUsage,
-        usage,
-      }),
+      costUsd,
       auditRunId: runId,
+    });
+    noteTaskRun(params.taskRunId, {
+      workId: runId,
+      cost: taskCostFromUsage({
+        model,
+        costUsd,
+        requests: output.tokenUsage?.modelCalls ?? null,
+      }),
     });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: activeSessionId,
@@ -322,7 +335,9 @@ export async function runIsolatedScheduledTask(params: {
       if (shown.emailDraft) {
         setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
       }
-      if (!isSilentReply(shown.content)) {
+      if (isSilentReply(shown.content)) {
+        noteTaskRun(params.taskRunId, { skipped: true });
+      } else {
         await onResult({
           text: shown.content,
           workId: runId,

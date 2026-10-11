@@ -219,6 +219,7 @@ export async function runScheduledTask(
     request.agentId,
     request.replyOnly || mainChat !== null,
     request.taskOwner,
+    request.taskRunId,
   );
   if (runError !== null) {
     throw runError instanceof Error ? runError : new Error(String(runError));
