@@ -115,18 +115,25 @@ describe('config seed', () => {
     plugins: [],
   };
 
-  it.each([
-    [
-      'an unknown config key',
-      { ...NO_OP_SEED, set: { ...NO_OP_SEED.set, 'deployment.nope': true } },
-    ],
-    ['an unknown tool', { ...NO_OP_SEED, disabledTools: ['no_such_tool'] }],
-  ])('fails on %s before writing anything', async (_label, seed) => {
+  it('fails on an unknown config key before writing anything', async () => {
     const { applyConfigSeed, getRuntimeConfig } = await importSeed();
     const before = JSON.stringify(getRuntimeConfig());
 
-    await expect(applyConfigSeed(seed)).rejects.toThrow();
+    await expect(
+      applyConfigSeed({
+        ...NO_OP_SEED,
+        set: { ...NO_OP_SEED.set, 'deployment.nope': true },
+      }),
+    ).rejects.toThrow();
     expect(JSON.stringify(getRuntimeConfig())).toBe(before);
+  });
+
+  it('disables a tool that is not built-in, for plugins registered later', async () => {
+    const { applyConfigSeed, getRuntimeConfig } = await importSeed();
+
+    await applyConfigSeed({ ...NO_OP_SEED, disabledTools: ['plugin_tool'] });
+
+    expect(getRuntimeConfig().tools.disabled).toContain('plugin_tool');
   });
 
   it('reads the seed from the environment', async () => {

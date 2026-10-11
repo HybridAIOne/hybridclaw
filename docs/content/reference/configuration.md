@@ -73,8 +73,10 @@ the seed to `config.json` at start, before it loads plugins:
 Each key behaves like its CLI command: `set` like `config set`,
 `disabledTools` like `tool disable`, `disabledSkills` like `skill disable`, and
 `plugins` like `plugin reinstall --yes`. Entries that already hold are skipped,
-and other disabled tools and skills are kept. An invalid seed, an unknown
-config key, or an unknown tool stops the gateway from starting.
+and other disabled tools and skills are kept. An invalid seed or an unknown
+config key stops the gateway from starting. Plugin tools register after the
+seed, so a `disabledTools` name that is not a built-in tool is written as given
+and logged as a warning.
 
 `pluginConfig` optionally maps installed plugin IDs to configuration objects.
 It merges the supplied top-level settings after installation and before plugins

@@ -1,4 +1,4 @@
-import { listKnownToolNames } from '../agent/tool-summary.js';
+import { isKnownToolName, listKnownToolNames } from '../agent/tool-summary.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
@@ -7,6 +7,14 @@ import {
 } from '../config/runtime-config.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printToolUsage } from './help.js';
+
+async function listPluginToolNames(): Promise<string[]> {
+  const { ensurePluginManagerInitialized } = await import(
+    '../plugins/plugin-manager.js'
+  );
+  const manager = await ensurePluginManagerInitialized();
+  return manager.getToolDefinitions().map((tool) => tool.name);
+}
 
 export async function handleToolCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
@@ -18,7 +26,11 @@ export async function handleToolCommand(args: string[]): Promise<void> {
   const sub = normalized[0].toLowerCase();
   if (sub === 'list') {
     const disabled = getRuntimeDisabledToolNames(getRuntimeConfig());
-    for (const toolName of listKnownToolNames()) {
+    const toolNames = [
+      ...listKnownToolNames(),
+      ...(await listPluginToolNames()),
+    ];
+    for (const toolName of toolNames) {
       console.log(
         `${toolName} [${disabled.has(toolName) ? 'disabled' : 'enabled'}]`,
       );
@@ -35,8 +47,10 @@ export async function handleToolCommand(args: string[]): Promise<void> {
       );
     }
 
-    const known = new Set(listKnownToolNames());
-    if (!known.has(toolName)) {
+    if (
+      !isKnownToolName(toolName) &&
+      !(await listPluginToolNames()).includes(toolName)
+    ) {
       throw new Error(`Unknown tool: ${toolName}`);
     }
 
