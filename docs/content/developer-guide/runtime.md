@@ -580,6 +580,14 @@ Runtime details:
   change, such as HybridAI catalog tools, reach a warm worker. A server that
   fails to answer keeps its previous tools.
 
+Provider tool caps are defined once in `container/src/tool-count-limit.ts`.
+A capped request whose tools would exceed the cap defers every MCP tool
+behind `tool_catalog`, and promotion of reviewed read tools stops at the cap.
+A request still over the cap fails without a model call. A provider `400`,
+such as OpenAI's `array_above_max_length`, is not retried, and the turn error
+carries the provider's message. Provider fallback reads the HTTP status, not
+numbers inside that message.
+
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools
 are exposed directly, smallest first, after reserving space for deferred names.
