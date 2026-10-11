@@ -853,11 +853,13 @@ test('picking up a call from Hy answers it, joins its chat and opens with why it
     'operator-1',
   );
   expect(sentInstructions(realtime)).toContain(
-    'You called the user. Reason: Your 7:00 brief. What to cover: Weather, then the 9:00 meeting.',
+    'You called the user. Reason: Your 7:00 brief. What to tell them: Weather, then the 9:00 meeting.',
   );
-  const opening = JSON.stringify(realtime.sentOfType('response.create'));
-  expect(opening).toContain("Hi, it's Hy. Your 7:00 brief.");
-  expect(opening).not.toContain('Hello from voice!');
+  const [first] = realtime.sentOfType('response.create');
+  expect(first.response).toEqual({
+    instructions:
+      'Start the call in the language of what follows: say "Hi, it\'s Hy. Your 7:00 brief.", then tell the user this, in natural spoken sentences and without changing the facts: Weather, then the 9:00 meeting.',
+  });
   // While the call is live no other call rings; hanging up ends it.
   expect(calls.phoneCallRefusal('operator-1')).toBe('busy');
   browser.close();

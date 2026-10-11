@@ -188,6 +188,44 @@ test('bridge configures a µ-law realtime session and speaks the greeting', () =
   });
 });
 
+test('on a call it placed, the voice says its opening and then what it called to tell', () => {
+  const placedCall = {
+    reason: 'Ein kurzer München-Fakt',
+    opening: 'Hi! Ein kleiner München-Fakt:',
+    notes: 'Das Glockenspiel am Marienplatz spielt täglich um 11 und 12 Uhr.',
+  };
+  const { socket } = createBridge({ surface: 'web', context: { placedCall } });
+  socket.open();
+  socket.serverEvent({ type: 'session.updated' });
+
+  const [first] = socket.sentOfType('response.create');
+  expect(first.response).toEqual({
+    instructions:
+      'Start the call in the language of what follows: say "Hi! Ein kleiner München-Fakt:", then tell the user this, in natural spoken sentences and without changing the facts: Das Glockenspiel am Marienplatz spielt täglich um 11 und 12 Uhr.',
+  });
+  expect(JSON.stringify(first)).not.toContain('Hi there!');
+  const [sessionUpdate] = socket.sentOfType('session.update');
+  const instructions = String(
+    (sessionUpdate.session as Record<string, unknown>).instructions,
+  );
+  expect(instructions).toContain(
+    'What to tell them: Das Glockenspiel am Marienplatz spielt täglich um 11 und 12 Uhr.',
+  );
+  expect(instructions).toContain('This is what you called to say, not background');
+
+  // A pinned language wins; without notes it says the opening alone.
+  const pinned = createBridge({
+    surface: 'web',
+    language: 'de',
+    context: { placedCall: { ...placedCall, notes: null } },
+  });
+  pinned.socket.open();
+  pinned.socket.serverEvent({ type: 'session.updated' });
+  expect(pinned.socket.sentOfType('response.create')[0].response).toEqual({
+    instructions: 'Start the call in German by saying: "Hi! Ein kleiner München-Fakt:"',
+  });
+});
+
 test('bridge forwards caller audio upstream and model audio downstream', () => {
   const { bridge, socket, sentAudio, states } = createBridge();
   socket.open();

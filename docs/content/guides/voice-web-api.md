@@ -118,8 +118,9 @@ Hy](web-notifications.md#calls-from-hy)), the phone app answers by starting a
 voice session with the push's `callId` in the `start` frame. If it names a
 ringing or answered call of the same operator, the call is answered, the
 session joins the call's `sessionId` and agent (whatever the frame says), and
-Hy opens with the call's opening line, or "Hi, it's Hy. <reason>.", instead of
-the configured greeting. Its instructions add why it called and what to cover.
+Hy opens with the call's opening line, or "Hi, it's Hy. <reason>.", and then
+tells the user the call's `notes`, instead of the configured greeting. Its
+instructions add why it called and that the notes are what to tell the user.
 Any other `callId` is ignored and the session is an ordinary call. Another call
 from Hy stays `busy` until the session ends.
 

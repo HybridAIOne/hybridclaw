@@ -10,7 +10,8 @@
  *
  * NOT the push path (`mobile-push.ts` rings the phones) nor the voice stream
  * (`webchat-voice.ts` joins an answered call); this only decides what state a
- * call is in and whether another may ring.
+ * call is in, whether another may ring, and whether a chat's alerts keep
+ * quiet because the user is on a call from it.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -42,11 +43,18 @@ export const PHONE_CALL_RING_MS = 40_000;
 const WAIT_GRACE_MS = 20_000;
 const UNANSWERED_LIMIT = 3;
 const UNANSWERED_WINDOW_MS = 60 * 60_000;
+// 2 min (live test, product owner, 2026-10-11): the turn that placed an
+// answered call ends with a short line seconds later, and its result rang the
+// phone the user was talking on. Alerts of the call's chat stay quiet while
+// the call is live and this long after it was answered, so a short call is
+// covered too.
+const ANSWERED_QUIET_MS = 2 * 60_000;
 
 interface Entry {
   call: PhoneCall;
   /** Voice streams joined to this call (`answered` only). */
   streams: number;
+  answeredAt: number | null;
   missTimer: NodeJS.Timeout | null;
   waiters: Array<(state: PhoneCallState) => void>;
 }
@@ -105,7 +113,13 @@ export function createPhoneCall(
     expiresAt: now + PHONE_CALL_RING_MS,
     state: 'ringing',
   };
-  const entry: Entry = { call, streams: 0, missTimer: null, waiters: [] };
+  const entry: Entry = {
+    call,
+    streams: 0,
+    answeredAt: null,
+    missTimer: null,
+    waiters: [],
+  };
   entry.missTimer = setTimeout(
     () => settle(entry, 'missed'),
     PHONE_CALL_RING_MS,
@@ -162,9 +176,26 @@ export function answerPhoneCall(
     return null;
   if (entry.call.state === 'ringing' && Date.now() >= entry.call.expiresAt)
     return null;
+  if (entry.call.state === 'ringing') entry.answeredAt = Date.now();
   settle(entry, 'answered');
   entry.streams += 1;
   return { ...entry.call };
+}
+
+/**
+ * Whether phone alerts of this chat keep quiet: the user is on a call from it,
+ * or picked one up moments ago. The chat still gets its messages.
+ */
+export function phoneCallQuietsAlerts(
+  sessionId: string,
+  now = Date.now(),
+): boolean {
+  for (const { call, streams, answeredAt } of entries.values()) {
+    if (call.sessionId !== sessionId || call.state !== 'answered') continue;
+    if (streams > 0 || (answeredAt && now - answeredAt < ANSWERED_QUIET_MS))
+      return true;
+  }
+  return false;
 }
 
 /** A joined voice stream ended; the call is over when the last one has. */

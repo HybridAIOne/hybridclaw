@@ -25,6 +25,7 @@ import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { recordWorkPush, skipWorkNotification } from '../work/work-delivery.js';
 import { waitWhileAtComputer } from './computer-presence.js';
+import { phoneCallQuietsAlerts } from './phone-calls.js';
 import {
   deleteMobilePushDevice,
   mobilePushDeviceApp,
@@ -248,6 +249,12 @@ export async function sendMobilePush(
     typeof message.data?.workId === 'string' ? message.data.workId : undefined;
   if (!targets.length) {
     skipWorkNotification(workId, 'no_devices');
+    return result;
+  }
+  // The user is on a call from this chat: its messages land there silently.
+  const sessionId = message.data?.sessionId;
+  if (typeof sessionId === 'string' && phoneCallQuietsAlerts(sessionId)) {
+    skipWorkNotification(workId, 'on_call');
     return result;
   }
   const apiKey = relayKey();

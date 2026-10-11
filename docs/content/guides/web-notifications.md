@@ -170,6 +170,12 @@ Apps](voice-web-api.md)), `declined` from `POST
 /api/chat/voice/calls/<callId>/decline`, `missed` after 40 seconds, or
 `failed` when no phone took the push. Calls live in gateway memory.
 
+While a call from Hy is live, and for two minutes after it was answered, the
+phone alerts of the call's chat stay quiet, such as the result of the turn
+that placed it; its messages still land in the chat. A call at a set time or
+after a delay is a one-shot scheduled task whose instruction says to call with
+`call_user` and `asked` true; the tool's description tells the model so.
+
 ## Operations and security
 
 The gateway creates one VAPID keypair on first enablement and stores it as

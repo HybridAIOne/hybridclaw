@@ -512,6 +512,33 @@ describe('calls from Hy', () => {
     expect(store.readMobilePushDevices(operator)).toEqual([]);
   });
 
+  test('the result of the turn that placed an answered call lands in the chat without ringing', async () => {
+    const { store, push, notifications, operator } = await modules();
+    const delivery = await import('../src/gateway/web-scheduled-delivery.js');
+    const phoneCalls = await import('../src/gateway/phone-calls.js');
+    phoneCalls.resetPhoneCallsForTests();
+    await command(push, `push register ${TOKEN} production turn,reminder,approval`);
+    const call = phoneCalls.createPhoneCall({ operatorId: operator, sessionId: 'session-a', agentId: 'agent-a', reason: 'A fact', opening: null, notes: null, asked: true });
+    expect(phoneCalls.answerPhoneCall(call.callId, operator)).not.toBeNull();
+    relay.mockClear();
+
+    // A scheduled run's reply and a chat turn's result, while the call is live.
+    mocks.storeMessage.mockReturnValueOnce(7);
+    delivery.deliverWebScheduledMessage('session-a', 'Called you with a fact.', 'schedule:12:system');
+    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'call me' }, { status: 'success', result: 'Called you about a fact.', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 8 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls()).toEqual([]);
+    expect(store.readWebNotificationState(operator).notifications.map((notice) => notice.id)).toEqual(['session-a:reminder:7', 'session-a:turn:8']);
+    // Other chats still ring.
+    store.bindWebNotificationSession('session-b', operator, 'hy');
+    expect(await push.notifySessionPhones('session-b', { kind: 'turn', title: 'Hy', data: { sessionId: 'session-b' } })).toEqual({ devices: 1, sent: 1 });
+
+    // Once the call has ended and two minutes have passed, the chat rings again.
+    phoneCalls.leavePhoneCall(call.callId);
+    expect(phoneCalls.phoneCallQuietsAlerts('session-a')).toBe(true);
+    expect(phoneCalls.phoneCallQuietsAlerts('session-a', Date.now() + 2 * 60_000)).toBe(false);
+  });
+
   test('a call rings call tokens as VoIP and Android as an alert, silent, kept 40 s, and never at a computer', async () => {
     const { store, push } = await modules();
     await command(push, `push register ${TOKEN} production turn,reminder,approval`);

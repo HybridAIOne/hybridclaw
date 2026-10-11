@@ -28,8 +28,8 @@
  * provider as ordinary conversation data, never system instructions.
  *
  * A start frame's `callId` answers a call Hy placed (`call-user.ts`): the
- * stream joins that call's chat and Hy opens with why it called instead of
- * the greeting. Only the operator the call rang can answer it.
+ * stream joins that call's chat and Hy opens with its opening line and what
+ * it called to tell, instead of the greeting. Only the operator the call rang can answer it.
  *
  * NOT the phone path: calls arrive through transport plugins
  * (`plugins/twilio-voice`, `plugins/vonage-voice`).
@@ -380,14 +380,12 @@ export class WebchatVoiceConnection {
     if (placedCall)
       context.placedCall = {
         reason: placedCall.reason,
+        opening: placedCallOpening(placedCall),
         notes: placedCall.notes,
       };
     this.bridge = new RealtimeCallBridge({
       connection: resolved.connection,
-      // Hy called, so it opens with why instead of the configured greeting.
-      config: placedCall
-        ? { ...voiceConfig, greeting: placedCallOpening(placedCall) }
-        : voiceConfig,
+      config: voiceConfig,
       caller: { from: '', to: '', callerName },
       surface: 'web',
       context,
