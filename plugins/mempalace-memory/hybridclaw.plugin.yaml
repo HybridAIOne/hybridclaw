@@ -12,6 +12,8 @@ requires:
       installUrl: https://github.com/milla-jovovich/mempalace
 pipDependencies:
   - mempalace
+commands:
+  - mempalace
 configSchema:
   type: object
   additionalProperties: false

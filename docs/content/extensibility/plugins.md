@@ -294,6 +294,12 @@ The manifest supports:
 - optional UI labels under `configUiHints`
 - top-level CLI commands under `cliCommands`, each with a `name` and a
   `description` (see `registerCliCommand` below)
+- gateway slash-command names under `commands` (for example
+  `commands: [voice]`). When the plugin is not installed, disabled, or failed
+  to load, `/voice` (and `hybridclaw gateway voice`) names the plugin and the
+  command that fixes it instead of answering `Unknown command`, and
+  `hybridclaw voice` points at `hybridclaw gateway voice`. A manifest that
+  declares `commands` cannot register a slash command missing from the list
 
 `memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
 only for plugins that should behave like a primary external memory system.

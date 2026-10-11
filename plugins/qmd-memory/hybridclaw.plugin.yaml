@@ -8,6 +8,8 @@ requires:
   bins:
     - name: qmd
       configKey: command
+commands:
+  - qmd
 configSchema:
   type: object
   additionalProperties: false
