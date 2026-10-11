@@ -1,5 +1,8 @@
 node_modules
 dist
+shared/*.js
+shared/*.d.ts
+**/*.tsbuildinfo
 .env
 .env.*
 .npmrc

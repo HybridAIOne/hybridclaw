@@ -44,6 +44,11 @@ const GATEWAY_BUILD_FILE_PAIRS: Array<{
     sourcePath: 'container/src/tools.ts',
     buildPath: 'container/dist/tools.js',
   },
+  {
+    name: 'container-shared',
+    sourcePath: 'container/shared/network-policy.ts',
+    buildPath: 'container/shared/network-policy.js',
+  },
 ];
 
 function readFileModifiedAt(

@@ -2,10 +2,10 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "target": "ES2024",
     "rootDir": "..",
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src/**/*", "../src/**/*.d.ts"]
+  "include": ["src/**/*", "../src/**/*.d.ts"],
+  "references": [{ "path": "../container/shared" }]
 }

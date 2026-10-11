@@ -60,6 +60,7 @@
           "container/tools/stubs/**/*",
           "container/tsconfig.json",
           "container/shared/**/*",
+          "!container/shared/*.tsbuildinfo",
           "container/src/**/*",
           "container/Dockerfile",
           "container/.dockerignore",

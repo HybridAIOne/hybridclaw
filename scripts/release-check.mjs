@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 
 const requiredExactPaths = [
   'package.json',
@@ -55,6 +56,12 @@ const requiredExactPaths = [
   'plugins/vonage-voice/package.json',
   'plugins/vonage-voice/src/index.js',
   'plugins/vonage-voice/src/runtime.js',
+  // The gateway imports container/shared as compiled JS; `tsc -b` emits it
+  // next to each source, outside git.
+  ...fs
+    .readdirSync('container/shared')
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.d.ts'))
+    .map((name) => `container/shared/${name.slice(0, -'.ts'.length)}.js`),
 ];
 
 const requiredPrefixes = [
@@ -64,7 +71,6 @@ const requiredPrefixes = [
   'docs/',
   'container/src/',
   'console/dist/',
-  'container/shared/',
 ];
 
 const forbiddenPathPatterns = [
@@ -77,6 +83,7 @@ const forbiddenPathPatterns = [
   /^tsconfig\.json$/,
   /^dist\/.*\.test\./,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,
+  /\.tsbuildinfo$/,
 ];
 
 function fail(message) {
