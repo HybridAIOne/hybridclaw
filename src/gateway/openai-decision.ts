@@ -45,6 +45,12 @@ export async function handleDecisionCompletion(params: {
       agentId: params.agentId,
       temperature: 0,
       allowFallback: false,
+    }).catch((error: unknown) => {
+      throw new OpenAICompatibleRequestError(
+        503,
+        error instanceof Error ? error.message : String(error),
+        { type: 'server_error', code: 'auxiliary_unavailable' },
+      );
     });
     ({ model, content, provider } = answer);
   } else {

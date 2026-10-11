@@ -903,6 +903,12 @@ async function resolveTextCallContext(
   );
   if (taskOverride) return taskOverride;
   if (params.allowFallback === false) {
+    // An unconfigured task uses the caller's own model, never a provider chain.
+    const ownModel = await resolveSessionFallbackContext({
+      params,
+      maxTokens: requestedMaxTokens,
+    });
+    if (ownModel) return ownModel;
     throw new Error(
       `${params.task} requires a configured auxiliary model when fallback is disabled.`,
     );

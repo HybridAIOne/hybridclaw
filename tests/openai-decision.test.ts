@@ -35,9 +35,10 @@ test('auxiliary completion returns its answer without implicit regular fallback'
   expect(mocks.regular).not.toHaveBeenCalled();
 });
 
-test('auxiliary failure propagates for the client to decide its next step', async () => {
+test('auxiliary failure is unavailable for the client to decide its next step', async () => {
   mocks.auxiliary.mockRejectedValue(new Error('unavailable'));
-  await expect(handleDecisionCompletion(request('auxiliary/eval_judge').params)).rejects.toThrow('unavailable');
+  await expect(handleDecisionCompletion(request('auxiliary/eval_judge').params))
+    .rejects.toMatchObject({ statusCode: 503, code: 'auxiliary_unavailable', message: 'unavailable' });
   expect(mocks.regular).not.toHaveBeenCalled();
 });
 
