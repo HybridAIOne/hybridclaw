@@ -125,7 +125,9 @@ eval "$__hybridclaw_command"
 __hybridclaw_ec=$?
 __hybridclaw_write_snapshot || true
 __hybridclaw_write_cwd || true
-exit $__hybridclaw_ec
+# Not the exit builtin: in a login shell it runs ~/.bash_logout, and under the
+# command's set -e a failing logout line would replace its status.
+(exit "$__hybridclaw_ec")
 `.trim();
 
 function getPersistentBashTempRoot(): string {
