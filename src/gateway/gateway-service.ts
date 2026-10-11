@@ -9416,6 +9416,7 @@ export async function handleGatewayCommand(
         const comment = req.args.slice(2).join(' ').trim() || null;
         const sourceSurface =
           parseSessionKey(session.id)?.channelKind ||
+          resolveChannelTargetKind(req.channelId) ||
           String(req.channelId || '').trim() ||
           'web';
         try {
