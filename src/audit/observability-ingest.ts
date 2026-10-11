@@ -80,6 +80,7 @@ interface TokenResolutionResult {
   token: string | null;
   source: 'cache' | 'created' | 'ensured' | null;
   reason: string | null;
+  statusCode?: number;
 }
 
 interface PreparedBatch {
@@ -615,6 +616,7 @@ async function resolveIngestToken(
           'failed to rotate observability ingest token',
           rotated,
         ),
+        statusCode: rotated.statusCode,
       };
     }
     if (!rotated.token) {
@@ -648,6 +650,7 @@ async function resolveIngestToken(
         'failed to ensure observability ingest token',
         granted,
       ),
+      statusCode: granted.statusCode,
     };
   }
   if (!granted.token) {
@@ -661,6 +664,7 @@ async function resolveIngestToken(
           'failed to rotate observability ingest token',
           rotated,
         ),
+        statusCode: rotated.statusCode,
       };
     }
     if (!rotated.token) {
@@ -770,6 +774,15 @@ function isPauseStatus(statusCode: number): boolean {
   );
 }
 
+function pauseIngest(statusCode: number, streamKey: string | null): void {
+  ingestState.paused = true;
+  ingestState.reason = `paused after status ${statusCode}`;
+  logger.error(
+    { streamKey, statusCode },
+    'Observability ingest paused; fix configuration/token and restart gateway',
+  );
+}
+
 async function flushObservability(reason: string): Promise<void> {
   const generation = flushGeneration;
   if (flushInProgress) return;
@@ -805,6 +818,10 @@ async function flushObservability(reason: string): Promise<void> {
         },
         'Observability ingest token unavailable',
       );
+      // A rejected API key fails identically every flush; retry on restart.
+      if (initialToken.statusCode && isPauseStatus(initialToken.statusCode)) {
+        pauseIngest(initialToken.statusCode, null);
+      }
       return;
     }
     let activeToken = initialToken.token;
@@ -918,15 +935,7 @@ async function flushObservability(reason: string): Promise<void> {
           );
         }
         if (isPauseStatus(result.statusCode)) {
-          ingestState.paused = true;
-          ingestState.reason = `paused after status ${result.statusCode}`;
-          logger.error(
-            {
-              streamKey,
-              statusCode: result.statusCode,
-            },
-            'Observability ingest paused; fix configuration/token and restart gateway',
-          );
+          pauseIngest(result.statusCode, streamKey);
         }
         if (result.statusCode === 500) {
           if (batch.eventCount === 1) {

@@ -45,3 +45,25 @@ test('observability baseUrl keeps the hybridai config default without env', asyn
     getRuntimeConfig().hybridai.baseUrl,
   );
 });
+
+test('a materialized default observability baseUrl follows HYBRIDAI_BASE_URL', async () => {
+  setupHome();
+  delete process.env.HYBRIDAI_BASE_URL;
+
+  const { getRuntimeConfig, saveRuntimeConfig, reloadRuntimeConfig } =
+    await import('../src/config/runtime-config.ts');
+  const runtimeConfig = getRuntimeConfig();
+  // Older releases wrote the default platform URL into both fields.
+  saveRuntimeConfig({
+    ...runtimeConfig,
+    observability: {
+      ...runtimeConfig.observability,
+      baseUrl: runtimeConfig.hybridai.baseUrl,
+    },
+  });
+  process.env.HYBRIDAI_BASE_URL = 'https://platform.example.test';
+
+  expect(reloadRuntimeConfig().observability.baseUrl).toBe(
+    'https://platform.example.test',
+  );
+});
