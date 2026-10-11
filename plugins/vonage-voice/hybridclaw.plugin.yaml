@@ -32,7 +32,7 @@ configSchema:
       default: turn
     maxConcurrentCalls:
       type: integer
-      default: 8
+      default: 5
       minimum: 1
       maximum: 100
 configUiHints:

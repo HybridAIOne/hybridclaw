@@ -132,7 +132,7 @@ Minimal config:
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
-    "maxConcurrentCalls": 8
+    "maxConcurrentCalls": 5
   }
 }
 ```
