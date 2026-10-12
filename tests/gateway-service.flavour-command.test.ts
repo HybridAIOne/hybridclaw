@@ -64,6 +64,7 @@ test('an app switches the agent between model flavours', async () => {
   offered.models = [
     'hybridai/gpt-6-luna',
     'hybridai/anthropic/claude-haiku-5-5',
+    'hybridai/mistral/mistral-large-latest',
     'hybridai/melious/glm-5.3-flash',
   ];
 
@@ -71,7 +72,7 @@ test('an app switches the agent between model flavours', async () => {
     version: 1,
     flavour: 'openai',
     model: 'gpt-6-luna',
-    available: ['openai', 'anthropic', 'eu'],
+    available: ['openai', 'anthropic', 'mistral', 'eu'],
   });
 
   // A model pinned in this chat would win over the agent's; setting a flavour
@@ -86,6 +87,9 @@ test('an app switches the agent between model flavours', async () => {
 
   await send('/flavour set Anthropic --json');
   expect(effectiveModel()).toBe('hybridai/anthropic/claude-haiku-5-5');
+
+  await send('/flavour set mistral --json');
+  expect(effectiveModel()).toBe('hybridai/mistral/mistral-large-latest');
 });
 
 test('a flavour HybridAI does not offer yet is refused and the agent stays', async () => {
@@ -99,5 +103,5 @@ test('a flavour HybridAI does not offer yet is refused and the agent stays', asy
   expect(refused.kind).toBe('error');
   expect(effectiveModel()).toBe('gpt-6-luna');
 
-  expect((await send('/flavour set mistral')).kind).toBe('error');
+  expect((await send('/flavour set gemini')).kind).toBe('error');
 });
