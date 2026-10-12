@@ -786,7 +786,8 @@ function buildSlashCommandCatalogDefinitions(
     {
       // Local chats only; companion apps set it from their settings with `--json`.
       name: 'flavour',
-      description: 'Which models the agent uses: show, set openai|anthropic|eu',
+      description:
+        'Which models the agent uses: show, set openai|anthropic|mistral|eu',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },
