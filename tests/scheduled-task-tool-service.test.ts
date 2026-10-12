@@ -113,6 +113,31 @@ test('add falls back to the session channel for delivery', async () => {
   ).toMatchObject({ channel_id: 'discord-channel-1', cron_expr: '0 7 * * *' });
 });
 
+test('add keeps the verified turn user as the owner, and only that user', async () => {
+  const { getAllJobs, runScheduledTaskToolAction } = await setup();
+  const { beginTurnUser } = await import('../src/session/turn-user.ts');
+  const add = (prompt: string) =>
+    runScheduledTaskToolAction({
+      action: 'add',
+      sessionId: 'session-1',
+      cronExpr: '0 7 * * *',
+      prompt,
+    });
+
+  add('Without a user.');
+  const endTurn = beginTurnUser('session-1', 'user-1');
+  add('With a user.');
+  endTurn();
+
+  expect(
+    Object.fromEntries(
+      getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' }).map(
+        (task) => [task.prompt, task.owner_user_id],
+      ),
+    ),
+  ).toEqual({ 'Without a user.': null, 'With a user.': 'user-1' });
+});
+
 test('add stores a valid cron timezone and rejects unknown ones', async () => {
   const { getAllJobs, runScheduledTaskToolAction } = await setup();
 

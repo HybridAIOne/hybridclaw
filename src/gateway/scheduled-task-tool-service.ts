@@ -25,6 +25,7 @@ import {
 } from '../memory/jobs.js';
 import { describeTrigger } from '../scheduler/event-triggers.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
+import { currentTurnUser } from '../session/turn-user.js';
 import { todoOwningTask } from '../todos/todo-store.js';
 import { trackedOwningTask } from '../tracking/track-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
@@ -301,6 +302,7 @@ export function runScheduledTaskToolAction(
     kind: 'scheduled_task',
     sessionId,
     channelId: fields.channelId,
+    ownerUserId: currentTurnUser(sessionId)?.userId,
     cronExpr: fields.cronExpr,
     tz: fields.tz || undefined,
     prompt: fields.prompt,
