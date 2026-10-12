@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.11',
+  version: '0.39.12',
   highlights: [
-    'Back-to-back calls free agent capacity',
-    'Large MCP toolsets fit provider limits',
-    'Plugin commands explain how to enable them',
-    'Observability follows your platform URL',
+    'Scheduled runs finish reliably',
+    'Daily and Ideas stay out of notifications',
+    'Conversation memory saves are verified',
   ],
 } as const;
 

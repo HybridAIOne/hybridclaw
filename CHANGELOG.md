@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.39.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.12) - 2026-10-12
+
+### Fixed
+
+- **Scheduled tool history**: Provider tool arguments are compared by value,
+  so equal JSON objects with different key order do not fail a completed turn.
+  Signed metadata stays intact, and genuine argument mismatches are rejected.
+- **Hy notifications**: Daily and Ideas replies stay in their hidden app chats
+  without creating browser or phone reminders. Structured reminders show
+  readable item titles. Hy keeps its notification name after importing another
+  agent's workspace; the separate runtime default agent is called main.
+- **Conversation memory**: Memory saves are verified against workspace files
+  before compaction or automatic reset. Failed saves retain the conversation,
+  and long instructions are preserved across batches instead of being clipped.
+
 ## [0.39.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.11) - 2026-10-11
 
 ### Changed
