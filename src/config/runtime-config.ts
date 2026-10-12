@@ -37,11 +37,13 @@ import {
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
   normalizeAgentBudgetConfig,
+  normalizeAgentChannelBindings,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
+  resolveConfiguredChannelAgentId,
   resolveConfiguredDefaultAgentId,
   resolveSnakeCamelAlias,
   validateAgentInheritance,
@@ -1486,6 +1488,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultAgentId: DEFAULT_AGENT_ID,
     defaults: {},
     list: [{ id: DEFAULT_AGENT_ID }],
+    channels: {},
   },
   skills: {
     // Implementation choice, 2026-09-10: start skills in full mode; curated skill stars deferred.
@@ -3082,6 +3085,7 @@ function normalizeAgentsConfig(
       : DEFAULT_AGENT_ID,
     defaults,
     list,
+    channels: normalizeAgentChannelBindings(raw.channels ?? fallback.channels),
   };
 }
 
@@ -8632,6 +8636,13 @@ export function resolveDefaultAgentId(
   config: Pick<RuntimeConfig, 'agents'> = currentConfig,
 ): string {
   return resolveConfiguredDefaultAgentId(config.agents);
+}
+
+export function resolveChannelAgentId(
+  kind: string,
+  config: Pick<RuntimeConfig, 'agents'> = currentConfig,
+): string {
+  return resolveConfiguredChannelAgentId(config.agents, kind);
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

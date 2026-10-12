@@ -9,6 +9,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
   getRuntimeConfig,
+  resolveChannelAgentId,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import type { Actor } from '../identity/actor.js';
@@ -416,15 +417,19 @@ export function getOrCreateSession(
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
   const requestedAgentId = agentId?.trim() || '';
-  const defaultAgentId = resolveDefaultAgentId(getRuntimeConfig());
+  const agents = getRuntimeConfig().agents;
   const forceNewCurrent = options?.forceNewCurrent === true;
   const touch = options?.touch !== false;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
     channelId,
-    agentId: requestedAgentId || defaultAgentId,
+    agentId: requestedAgentId || resolveDefaultAgentId({ agents }),
   });
+  const defaultAgentId = resolveChannelAgentId(
+    parseSessionKey(canonicalSessionKey)?.channelKind ?? '',
+    { agents },
+  );
   const mainSessionKey = resolveMainSessionKey(canonicalSessionKey);
   const exactSession = requestedSessionId
     ? selectSessionById(requestedSessionId)

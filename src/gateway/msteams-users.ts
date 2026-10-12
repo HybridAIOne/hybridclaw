@@ -12,7 +12,7 @@ import {
 import { MSTEAMS_TENANT_ID } from '../config/config.js';
 import {
   getRuntimeConfig,
-  resolveDefaultAgentId,
+  resolveChannelAgentId,
 } from '../config/runtime-config.js';
 import {
   listChannelUsers,
@@ -36,7 +36,7 @@ export function getAdminMSTeamsUsers() {
   const config = getRuntimeConfig();
   return {
     users: listMSTeamsUsers(),
-    defaultAgentId: resolveDefaultAgentId(config),
+    defaultAgentId: resolveChannelAgentId('msteams', config),
     personalAgentParent: config.msteams.personalAgentParent || null,
   };
 }

@@ -35,6 +35,10 @@ export const NON_SYSTEM_CHANNEL_KINDS = CHANNEL_KINDS.filter(
   (kind) => kind !== 'heartbeat' && kind !== 'scheduler',
 );
 
+export const EXTERNAL_CHANNEL_KINDS = NON_SYSTEM_CHANNEL_KINDS.filter(
+  (kind): kind is ExternalChannelKind => kind !== 'tui',
+);
+
 // TUI uses the global skill configuration scope.
 export const SKILL_CONFIG_CHANNEL_KINDS = NON_SYSTEM_CHANNEL_KINDS.filter(
   (kind) => kind !== 'tui',

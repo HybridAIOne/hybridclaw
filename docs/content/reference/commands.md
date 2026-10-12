@@ -280,7 +280,7 @@ hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--
 hybridclaw channels threema setup --identity <gateway-id> [--secret <gateway-secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
-hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+hybridclaw channels email setup [--agent <agent-id>] [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
 hybridclaw gateway voice info
 hybridclaw gateway voice call <number>
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
@@ -315,6 +315,7 @@ hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
 hybridclaw agent activate <agent-id>
+hybridclaw agent bind <agent-id> <channel>...
 hybridclaw agent uninstall <agent-id> [--yes]
 hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 ```
@@ -323,7 +324,12 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 sessions also expose `/agent install <source>` for the same archive flows
 against a running gateway.
 `agent activate <agent-id>` sets the default agent for new requests that do not
-pin an agent explicitly.
+pin an agent explicitly and for channels without a binding. Enabled channels
+without a binding are first bound to the agent they answered as, so a channel
+keeps its agent. `agent bind <agent-id> <channel>...` makes channels such as
+`msteams`, `email` or `telegram` answer as an agent (`agents.channels`).
+An agent that a channel is bound to cannot be uninstalled until the channel is
+bound elsewhere.
 
 `agent config` is the JSON provisioning path for generated agents. It upserts
 agent metadata directly, can overwrite top-level workspace markdown files, can

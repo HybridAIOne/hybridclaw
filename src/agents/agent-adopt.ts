@@ -1,7 +1,8 @@
 /**
  * Agent adoption — one agent takes over another's user: a copy of its
- * workspace, its sessions, tasks and agent-scoped memory, the default-agent
- * slot and its mailbox. The adopting agent never runs onboarding afterwards.
+ * workspace, its sessions, tasks and agent-scoped memory, the channels and
+ * mailbox bound to it, and the default-agent slot when it held it. The
+ * adopting agent never runs onboarding afterwards.
  *
  * Adoption happens once per pair (a marker in the adopting workspace makes a
  * repeat a no-op) and only when the old agent holds user data, so a new user
@@ -21,6 +22,7 @@ import {
 import { DATA_DIR } from '../config/config.js';
 import {
   getRuntimeConfig,
+  resolveDefaultAgentId,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { ACTIVE_AGENT_KEY_PREFIX } from '../gateway/agent-addressing.js';
@@ -444,14 +446,20 @@ function renameSessionFiles(
 
 function moveRuntimeConfig(from: string, to: string, fromWs: string): void {
   const toAgent = getAgentById(to);
-  if (toAgent) activateAgentInRuntimeConfig(toAgent);
+  if (toAgent && resolveDefaultAgentId() === from) {
+    activateAgentInRuntimeConfig(toAgent);
+  }
   const config = getRuntimeConfig();
+  const boundToFrom = Object.values(config.agents.channels ?? {}).includes(
+    from,
+  );
   const fromSkills = path.resolve(fromWs, 'skills');
   const isFromSkills = (dir: string) =>
     path.resolve(expandHomePath(dir)) === fromSkills;
   const fromMailbox = (agentId: string) =>
     (agentId.trim() || DEFAULT_AGENT_ID) === from;
   if (
+    !boundToFrom &&
     !config.email.accounts.some((account) => fromMailbox(account.agentId)) &&
     !config.skills.extraDirs.some(isFromSkills)
   ) {
@@ -459,6 +467,12 @@ function moveRuntimeConfig(from: string, to: string, fromWs: string): void {
   }
   updateRuntimeConfig(
     (draft) => {
+      const channels = draft.agents.channels ?? {};
+      for (const kind of Object.keys(channels) as Array<
+        keyof typeof channels
+      >) {
+        if (channels[kind] === from) channels[kind] = to;
+      }
       for (const account of draft.email.accounts) {
         if (fromMailbox(account.agentId)) account.agentId = to;
       }

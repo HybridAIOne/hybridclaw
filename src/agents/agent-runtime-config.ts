@@ -1,3 +1,4 @@
+import { EXTERNAL_CHANNEL_KINDS } from '../channels/channel.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -12,6 +13,7 @@ import {
   agentCvEquals,
   agentEscalationTargetEquals,
   agentProxyConfigEquals,
+  resolveConfiguredDefaultAgentId,
 } from './agent-types.js';
 
 function sameStringArray(a?: string[], b?: string[]): boolean {
@@ -71,8 +73,22 @@ function upsertActivatedAgentInList(
   return { changed: true, list: nextAgents };
 }
 
+// A new default must not move a running channel: each enabled channel without
+// a binding is bound to the agent it has been answering as.
+function bindEnabledChannelsToCurrentDefault(draft: RuntimeConfig): void {
+  const current = resolveConfiguredDefaultAgentId(draft.agents);
+  const sections = draft as unknown as Record<string, { enabled?: unknown }>;
+  draft.agents.channels ??= {};
+  const channels = draft.agents.channels;
+  for (const kind of EXTERNAL_CHANNEL_KINDS) {
+    if (sections[kind]?.enabled === true && !channels[kind]) {
+      channels[kind] = current;
+    }
+  }
+}
+
 function applyActivatedAgentToRuntimeConfigDraft(
-  draft: Pick<RuntimeConfig, 'agents'>,
+  draft: RuntimeConfig,
   agent: AgentConfig,
 ): boolean {
   draft.agents ??= {};
@@ -81,6 +97,7 @@ function applyActivatedAgentToRuntimeConfigDraft(
   if (!listResult.changed && !defaultChanged) {
     return false;
   }
+  if (defaultChanged) bindEnabledChannelsToCurrentDefault(draft);
   draft.agents.list = listResult.list;
   draft.agents.defaultAgentId = agent.id;
   return true;

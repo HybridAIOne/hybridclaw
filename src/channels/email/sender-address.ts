@@ -1,5 +1,5 @@
 import { getConfigSnapshot } from '../../config/config.js';
-import { resolveDefaultAgentId } from '../../config/runtime-config.js';
+import { resolveChannelAgentId } from '../../config/runtime-config.js';
 
 /**
  * The address the email channel sends from for an agent, picked the way the
@@ -11,7 +11,7 @@ export function resolveEmailSenderAddress(
 ): string | undefined {
   const config = getConfigSnapshot().email;
   if (!config.enabled) return undefined;
-  const defaultAgentId = resolveDefaultAgentId();
+  const defaultAgentId = resolveChannelAgentId('email');
   const accounts = config.accounts
     .map((account) => ({
       address: account.address.trim(),

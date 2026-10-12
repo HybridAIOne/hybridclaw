@@ -306,7 +306,7 @@ Commands:
   hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels line setup [--reset]
-  hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+  hybridclaw channels email setup [--agent <agent-id>] [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 
 Notes:
@@ -327,6 +327,7 @@ Notes:
   - With one or more \`--allow-from\` values, setup enables only those DMs.
   - Groups stay disabled by default.
   - Email setup saves \`EMAIL_PASSWORD\` only when \`--password\` is provided or pasted interactively.
+  - With \`--agent\`, email setup writes that agent's own mailbox (\`email.accounts\`) and saves its password as \`EMAIL_PASSWORD_<AGENT_ID>\`.
   - Email IMAP secure mode defaults to \`true\`.
   - Email SMTP secure mode defaults to \`false\` on port \`587\`; use \`--smtp-secure\` for implicit TLS on port \`465\`.
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
@@ -842,6 +843,7 @@ Commands:
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
   hybridclaw agent activate <agent-id>
+  hybridclaw agent bind <agent-id> <channel>...
   hybridclaw agent uninstall <agent-id> [--yes]
 
 Notes:
@@ -863,8 +865,9 @@ Notes:
   - \`install official:<agent-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
   - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - Direct \`https://.../*.claw\` URLs download the archive before installing it.
-  - \`activate\` makes an installed agent the default for new requests that do not specify an agent explicitly.
-  - \`adopt\` moves another agent's (default \`main\`) sessions, tasks and memory to an agent and copies its workspace files over; \`--session\` renames a thread on the way. Prints one JSON line.
+  - \`activate\` makes an installed agent the default for new requests that do not specify an agent explicitly and for channels without a binding. Enabled channels without a binding are first bound to the agent they answered as, so activating never moves a channel.
+  - \`bind\` makes channels (\`msteams\`, \`email\`, \`telegram\`, ...) answer as an agent, whatever the default is.
+  - \`adopt\` moves another agent's (default \`main\`) sessions, tasks, memory and channel bindings to an agent and copies its workspace files over; it takes the default slot only if the other agent held it. \`--session\` renames a thread on the way. Prints one JSON line.
   - Set \`"onboarding": false\` in a \`config\` or \`defaults\` payload to skip first-run onboarding for that agent for good.
   - \`uninstall\` removes a non-main agent registration and its workspace root.
   - Use \`--yes\` to skip the install or uninstall confirmation prompt.

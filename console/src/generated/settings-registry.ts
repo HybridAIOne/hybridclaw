@@ -173,6 +173,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: '',
     },
     {
+      path: 'agents.channels',
+      section: 'agents',
+      kind: 'object',
+      defaultValue: {},
+    },
+    {
       path: 'agents.defaultAgentId',
       section: 'agents',
       kind: 'string',
