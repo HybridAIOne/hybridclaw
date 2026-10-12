@@ -522,20 +522,6 @@ describe('config reload integration', () => {
         },
       ],
     });
-    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'docs')).toBe(
-      'full-autonomous',
-    );
-    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
-      'low-stakes-autonomous',
-    );
-    expect(() => configMod.resolveSkillAutonomyLevel(cfg, '', 'docs')).toThrow(
-      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
-    );
-    expect(() =>
-      configMod.resolveSkillAutonomyLevel(cfg, 'writer', ''),
-    ).toThrow(
-      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
-    );
     expect(warnSpy).toHaveBeenCalledWith(
       '[runtime-config] skipping skills.autonomy rule: expected an object',
     );
@@ -569,13 +555,21 @@ describe('config reload integration', () => {
     });
 
     const cfg = configMod.reloadRuntimeConfig('test');
-
-    expect(
-      configMod.resolveSkillAutonomyLevel(cfg, 'team\u0000alpha', 'docs'),
-    ).toBe('full-autonomous');
-    expect(
-      configMod.resolveSkillAutonomyLevel(cfg, 'team', 'alpha\u0000docs'),
-    ).toBe('low-stakes-autonomous');
+    expect(cfg.skills.autonomy.rules).toEqual(
+      expect.arrayContaining([
+        {
+          agentId: 'team\u0000alpha',
+          skillName: 'docs',
+          level: 'full-autonomous',
+        },
+        {
+          agentId: 'team',
+          skillName: 'alpha\u0000docs',
+          level: 'low-stakes-autonomous',
+        },
+      ]),
+    );
+    expect(cfg.skills.autonomy.rules).toHaveLength(2);
   });
 
   it('nested config updates do not clobber sibling keys', () => {

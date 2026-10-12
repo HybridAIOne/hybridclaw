@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Field, FieldDescription, FieldError, FieldLabel } from '../field';
-import { pattern } from '../field/validators';
 import { Input } from '../input';
 import { Switch } from '../switch';
 import { Form, FormField, useForm } from './index';
@@ -60,7 +59,10 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
         <Form form={form} aria-label="settings">
           <FormField<Draft, string>
             name="email"
-            rules={[pattern(/.+@.+/, 'Must look like an email.')]}
+            rules={[
+              (value) =>
+                /.+@.+/.test(value) ? null : 'Must look like an email.',
+            ]}
             render={({ field }) => (
               <Field>
                 <FieldLabel>Email</FieldLabel>

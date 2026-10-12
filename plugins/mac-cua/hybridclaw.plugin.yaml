@@ -6,6 +6,8 @@ description: Drives the operator's own macOS browser through the Cua Driver acce
 entrypoint: src/index.js
 requires:
   node: '>=22'
+commands:
+  - mac-cua
 configSchema:
   type: object
   additionalProperties: false

@@ -239,8 +239,7 @@ deps)` functions living in the domain modules, with the orchestrator remaining i
 ### End state
 
 `runtime-config.ts` keeps: singleton state (S8), load/apply/watcher/save (S31–S33,
-S36), public accessors (S34), skill/tool scope setters (which share the
-`WeakMap` autonomy-rule cache with `resolveSkillAutonomyLevel` — keep together),
+S36), public accessors (S34), skill/tool scope setters,
 the normalize orchestrator, the import-time `initializeRuntimeConfig()`, and the
 re-export barrel. Target < 1,500 LOC.
 

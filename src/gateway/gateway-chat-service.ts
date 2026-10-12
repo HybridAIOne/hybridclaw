@@ -154,7 +154,6 @@ import {
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
-import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
@@ -260,6 +259,7 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
+import { gatewaySessionQueue } from './session-worker-release.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsThinking,
@@ -635,8 +635,6 @@ function buildA2AChatThreadId(session: {
 }): string {
   return session.main_session_key || session.session_key || session.id;
 }
-
-const gatewaySessionQueue = new KeyedSerialQueue();
 
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';

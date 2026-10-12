@@ -21,7 +21,6 @@ const CLEAR_COMMAND = JSON.stringify({ action: 'clear' });
 export function createVonageRealtimeStreams(api, config) {
   const tokens = new Map();
   const activeStreams = new Set();
-  const agentId = api.config.agents?.defaultAgentId || 'main';
 
   function pruneTokens() {
     const now = Date.now();
@@ -66,7 +65,7 @@ export function createVonageRealtimeStreams(api, config) {
         session = api.createRealtimeVoiceSession({
           caller: { from: call.from, to: call.to },
           session: {
-            sessionId: buildVoiceSessionKey(agentId, call.uuid),
+            sessionId: buildVoiceSessionKey(call.agentId, call.uuid),
             channelId: `voice:${call.uuid}`,
             userId: call.from || call.uuid,
             username: call.from || call.uuid,

@@ -23,6 +23,7 @@ const AUX_TEXT_TASKS = [
   'second_opinion',
   'session_title',
   'cv_narration',
+  'quick_decision',
 ] as const satisfies readonly Exclude<AuxiliaryTask, 'vision'>[];
 
 type AuxTextTask = (typeof AUX_TEXT_TASKS)[number];

@@ -278,6 +278,10 @@ export function renderDoctorReport(report: DoctorReport): string {
 }
 
 export async function runDoctorCli(argv: string[]): Promise<number> {
+  // Findings are doctor's output; log lines (a stale plugin's load warning)
+  // share stdout and would break `--json`. HYBRIDCLAW_FORCE_LOG_LEVEL still wins.
+  const { setLoggerStartupLevel } = await import('./logger.js');
+  setLoggerStartupLevel('silent');
   try {
     const args = parseDoctorArgs(argv);
     const report = await runDoctor(args);

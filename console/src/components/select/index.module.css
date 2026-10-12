@@ -181,12 +181,6 @@
   letter-spacing: 0.01em;
 }
 
-.separator {
-  height: 1px;
-  margin: 4px 6px;
-  background: color-mix(in srgb, var(--text) 12%, transparent);
-}
-
 .empty {
   padding: 18px 12px;
   color: var(--muted-foreground);

@@ -162,6 +162,8 @@ any two turns:
   worker signature (switching models within one provider does not);
 - when a new worker needs a slot at `container.maxConcurrent` and the least
   recently used worker has been idle for 10 seconds;
+- when a plugin releases the session after its conversation ends (a voice
+  call hangs up), once the running and queued turns finish;
 - on a crash or a gateway restart.
 
 The next worker is rebuilt from `ContainerInput`, so anything a later turn
@@ -467,14 +469,17 @@ Session behavior matches the routing rules above:
   the stored message is tagged `app-notice` and `/api/history` leaves it out,
   as it does for approval answers, so clients never hide turns by their wording
 - Hy clients choose emoji reactions separately from the main chat model, using
-  the phone model first and `auxiliary/eval_judge` second. No suitable emoji is
+  the phone model first and `auxiliary/quick_decision` second. No suitable emoji is
   a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
   it) on a message in the caller's bound session: `role: "user"` is Hy's reaction;
   `role: "assistant"` (the default) is user feedback. Only feedback can become a
   👍/👎 response rating. The main chat model has no `react` tool, and emoji-only
   replies remain reply text. `/api/history` returns persisted reactions.
-- Raw, non-streaming `/v1/chat/completions` requests to `auxiliary/eval_judge`
-  use the auxiliary policy without provider fallback. `model: "regular"` uses
+- Raw, non-streaming `/v1/chat/completions` requests to
+  `auxiliary/quick_decision` (or `auxiliary/eval_judge` from older app builds)
+  use `auxiliaryModels.quick_decision` without provider fallback; with no model
+  configured they use the default model, and a failed call returns 503
+  `auxiliary_unavailable`. `model: "regular"` uses
   the default agent's regular model. Both use only the supplied messages and
   expose no tools. Avatar selection and idea categorization advance explicitly
   from the on-device model to auxiliary to regular when an answer fails validation;
@@ -576,6 +581,14 @@ Runtime details:
   its tools again first (5 s limit), so tools a server adds without a config
   change, such as HybridAI catalog tools, reach a warm worker. A server that
   fails to answer keeps its previous tools.
+
+Provider tool caps are defined once in `container/src/tool-count-limit.ts`.
+A capped request whose tools would exceed the cap defers every MCP tool
+behind `tool_catalog`, and promotion of reviewed read tools stops at the cap.
+A request still over the cap fails without a model call. A provider `400`,
+such as OpenAI's `array_above_max_length`, is not retried, and the turn error
+carries the provider's message. Provider fallback reads the HTTP status, not
+numbers inside that message.
 
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools
@@ -983,7 +996,11 @@ Container-side sandboxed tool families:
 
 Prompt and runtime internals:
 
-- session compaction with pre-compaction memory flush
+- session compaction with pre-compaction memory flush: complete instructions
+  are processed in bounded batches, duplicate failed requests are collapsed,
+  and completion requires an append confirmed in the daily note or an explicit
+  no-memory skip. Unverified saves defer compaction and automatic session reset;
+  model claims alone do not mark the flush complete.
 - prompt hook pipeline: `bootstrap`, `memory`, `safety`, `proactivity`
 - hook config lives in `config.promptHooks`
 - delegated agent runs persist request logs, audit tool events, and model

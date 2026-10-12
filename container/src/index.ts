@@ -137,6 +137,11 @@ import {
   withReplaySafeArguments,
 } from './tool-call-validation.js';
 import { CATALOG_SIBLING_NOT_EXECUTED, ToolCatalog } from './tool-catalog.js';
+import {
+  deferMcpToolsOverLimit,
+  resolveToolCountLimit,
+  toolCountLimitFailure,
+} from './tool-count-limit.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -1171,6 +1176,7 @@ async function processRequestInner(
     escalationTarget,
     approvedToolCall,
   } = params;
+  const toolLimit = resolveToolCountLimit(provider, model);
   const toolCatalog = isLocal
     ? new ToolCatalog(availableTools, localStarterTools, localDiscoveryDisabled)
     : deferredTools && !localDiscoveryDisabled
@@ -1181,6 +1187,7 @@ async function processRequestInner(
           // fail-closed check even when reconnecting changes the next toolset.
           (name) =>
             mcpClientManager?.getToolBehavior(name)?.parallelSafe === true,
+          toolLimit,
         ) ?? undefined)
       : undefined;
   const tools =
@@ -1188,6 +1195,8 @@ async function processRequestInner(
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
       : (toolCatalog?.tools ?? availableTools);
+  const overLimit = toolCountLimitFailure(tools, toolLimit, provider, model);
+  if (overLimit) return overLimit;
   const availableToolNames = new Set(
     availableTools.map((tool) => tool.function.name),
   );
@@ -2259,12 +2268,17 @@ function resolveDeferredTools(
   tools: ToolDefinition[],
 ): Set<string> | undefined {
   if (!mcpClientManager) return undefined;
-  const names =
+  const mcpNames = mcpClientManager
+    .getAllToolDefinitions()
+    .map((tool) => tool.function.name);
+  const names = deferMcpToolsOverLimit(
+    tools,
     input.mcpToolMode === 'deferred'
-      ? mcpClientManager
-          .getAllToolDefinitions()
-          .map((tool) => tool.function.name)
-      : mcpClientManager.getDeferLoadingToolNames(tools);
+      ? mcpNames
+      : mcpClientManager.getDeferLoadingToolNames(tools),
+    mcpNames,
+    resolveToolCountLimit(input.provider, input.model),
+  );
   return names.length > 0 ? new Set(names) : undefined;
 }
 

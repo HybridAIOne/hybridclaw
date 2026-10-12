@@ -259,6 +259,11 @@ saved revision history directly.
   servers stay loaded. Deferred tools are named in the prompt with their
   parameters, up to 40, so the model can call one without a list or describe
   step; the rest are found with `action=list`.
+  Whatever the mode, a request to a provider with a tool cap (128 for
+  HybridAI, `openai`, and `openai-codex`) that would exceed it defers every
+  MCP tool and logs it; if the tools left still exceed the cap, the turn fails
+  before the request is sent with the counts and a hint to disable an MCP
+  server or plugin or restrict the agent's tools.
   `agents.list[].mcpToolMode` overrides it per agent. Local model requests use
   `tools.localToolMode` instead.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets

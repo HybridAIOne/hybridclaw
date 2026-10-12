@@ -287,7 +287,7 @@
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
-    "maxConcurrentCalls": 8
+    "maxConcurrentCalls": 5
   },
   "speech": {
     "realtime": {
@@ -500,6 +500,11 @@
       "maxTokens": 0
     },
     "session_title": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "quick_decision": {
       "provider": "auto",
       "model": "",
       "maxTokens": 0

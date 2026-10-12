@@ -533,6 +533,7 @@ import {
   resolveGatewayLocalBackendsHealth,
 } from './gateway-health-service.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
+import { describeMissingPluginCommand } from './gateway-plugin-command-hint.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
   handlePluginGatewayCommand,
@@ -9178,7 +9179,7 @@ export async function prepareSessionAutoReset(params: {
     chatbotId: params.chatbotId,
   });
 
-  await runPreCompactionMemoryFlush({
+  const flushed = await runPreCompactionMemoryFlush({
     sessionId: existingSession.id,
     agentId: resolvedRuntime.agentId,
     chatbotId: resolvedRuntime.chatbotId,
@@ -9188,7 +9189,9 @@ export async function prepareSessionAutoReset(params: {
     sessionSummary: existingSession.session_summary,
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
-  return expiryEvaluation;
+  return flushed
+    ? expiryEvaluation
+    : { ...expiryEvaluation, isExpired: false, reason: null };
 }
 
 function buildGatewaySessionContextUsageSnapshot(
@@ -9416,6 +9419,7 @@ export async function handleGatewayCommand(
         const comment = req.args.slice(2).join(' ').trim() || null;
         const sourceSurface =
           parseSessionKey(session.id)?.channelKind ||
+          resolveChannelTargetKind(req.channelId) ||
           String(req.channelId || '').trim() ||
           'web';
         try {
@@ -12571,7 +12575,8 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Unknown Command',
-          `Unknown command: \`${cmd || '(empty)'}\`.`,
+          (await describeMissingPluginCommand(cmd)) ??
+            `Unknown command: \`${cmd || '(empty)'}\`.`,
         );
       }
     }

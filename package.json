@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.39.9",
+  "version": "0.39.12",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "license": "MIT",
@@ -82,6 +82,7 @@
   ],
   "scripts": {
     "check:node": "node ./scripts/check-node-version.mjs",
+    "check:plugin-catalog-urls": "tsx scripts/check-plugin-catalog-urls.ts",
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('console/dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});fs.rmSync('desktop/dist',{recursive:true,force:true});fs.rmSync('desktop/release',{recursive:true,force:true});\"",
     "build:console": "npm --workspace console run build",
     "generate:settings-registry": "tsx scripts/generate-settings-registry.ts",

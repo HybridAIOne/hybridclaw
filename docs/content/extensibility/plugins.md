@@ -294,6 +294,12 @@ The manifest supports:
 - optional UI labels under `configUiHints`
 - top-level CLI commands under `cliCommands`, each with a `name` and a
   `description` (see `registerCliCommand` below)
+- gateway slash-command names under `commands` (for example
+  `commands: [voice]`). When the plugin is not installed, disabled, or failed
+  to load, `/voice` (and `hybridclaw gateway voice`) names the plugin and the
+  command that fixes it instead of answering `Unknown command`, and
+  `hybridclaw voice` points at `hybridclaw gateway voice`. A manifest that
+  declares `commands` cannot register a slash command missing from the list
 
 `memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
 only for plugins that should behave like a primary external memory system.
@@ -618,6 +624,14 @@ on barge-in so the transport can drop what the far end has buffered.
 credentials are configured. The bundled `vonage-voice` (PCM) and
 `twilio-voice` (µ-law) plugins' realtime modes are the reference
 implementations.
+
+When a conversation is over, for example when a call hangs up, call
+`api.releaseSessionWorker(sessionId)` so the session's agent worker does not
+hold a `container.maxConcurrent` slot until the idle timeout. The release waits
+for the session's running and queued turns, so a reply still being stored or
+sent completes; it never aborts a turn. It resolves `true` when a worker was
+stopped and is a no-op for a session without one, so calling it once per
+terminal call state is safe.
 
 Phone transports share the core phone-channel settings. `api.getVoiceConfig()`
 returns the current `voice.*` config (caller policy, relay language and

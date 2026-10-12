@@ -340,7 +340,7 @@ const TRACKED_FILES = [
   'container/package-lock.json',
   'container/tsconfig.json',
 ];
-const TRACKED_SOURCE_ROOT = 'container/src';
+const TRACKED_SOURCE_ROOTS = ['container/src', 'container/shared'];
 
 function isSourceCheckout(cwd: string): boolean {
   return fs.existsSync(path.join(cwd, '.git'));
@@ -514,9 +514,10 @@ function computeContainerFingerprint(
       }
     }
 
-    const sourceRoot = path.join(cwd, TRACKED_SOURCE_ROOT);
     const sourceFiles: string[] = [];
-    collectFilesRecursive(sourceRoot, sourceFiles);
+    for (const sourceRoot of TRACKED_SOURCE_ROOTS) {
+      collectFilesRecursive(path.join(cwd, sourceRoot), sourceFiles);
+    }
     sourceFiles.sort((a, b) => a.localeCompare(b));
 
     for (const fullPath of sourceFiles) {
@@ -598,76 +599,8 @@ async function buildAndValidateImage(params: {
     fingerprint,
     fallbackToExistingImage = false,
   } = params;
-  if (
-    !ensureInteractiveAutoBuild(
-      commandName,
-      required && !fallbackToExistingImage,
-      reason,
-      hint,
-    )
-  ) {
-    if (fallbackToExistingImage) {
-      console.warn(
-        `${commandName}: Continuing with existing container image '${imageName}'.`,
-      );
-    }
-    return;
-  }
 
-  try {
-    let lastPullError: string | null = null;
-    if (
-      acquisitionMode === 'pull-or-build' ||
-      acquisitionMode === 'pull-only'
-    ) {
-      const pullImages = resolveContainerPullImages(imageName);
-      if (pullImages.length === 0) {
-        throw new Error(
-          [
-            `No pullable container image source is configured for '${imageName}'.`,
-            'Packaged installs only support pulling published runtime images.',
-            'Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config.',
-          ].join(' '),
-        );
-      }
-      const indicator = startProgressIndicator(
-        `${progressLabel} — downloading image…`,
-      );
-      try {
-        for (const pullImage of pullImages) {
-          try {
-            await pullContainerImage(pullImage);
-            await tagContainerImage(pullImage, imageName);
-            recordImageState(cwd, imageName, fingerprint);
-            indicator.succeed('Agent runtime ready.');
-            return;
-          } catch (err) {
-            lastPullError = err instanceof Error ? err.message : String(err);
-          }
-        }
-      } finally {
-        indicator.clear();
-      }
-      if (acquisitionMode === 'pull-only') {
-        throw new Error(
-          lastPullError || 'Published container image pull attempts failed.',
-        );
-      }
-    }
-
-    const indicator = startProgressIndicator(
-      `${progressLabel} — building image…`,
-    );
-    try {
-      await buildContainerImage(cwd, imageName);
-      recordImageState(cwd, imageName, fingerprint);
-      indicator.succeed('Agent runtime ready.');
-    } catch (buildError) {
-      throw buildErrorWithEarlierPullFailure(buildError, lastPullError);
-    } finally {
-      indicator.clear();
-    }
-  } catch (err) {
+  const handleFailure = (err: unknown): void => {
     const message = err instanceof Error ? err.message : String(err);
     if (fallbackToExistingImage) {
       console.warn(
@@ -686,6 +619,78 @@ async function buildAndValidateImage(params: {
       return;
     }
     throw new Error(`${hint} Details: ${message}`);
+  };
+
+  let lastPullError: string | null = null;
+  if (acquisitionMode === 'pull-or-build' || acquisitionMode === 'pull-only') {
+    const pullImages = resolveContainerPullImages(imageName);
+    if (pullImages.length === 0) {
+      return handleFailure(
+        new Error(
+          [
+            `No pullable container image source is configured for '${imageName}'.`,
+            'Packaged installs only support pulling published runtime images.',
+            'Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config.',
+          ].join(' '),
+        ),
+      );
+    }
+    const indicator = startProgressIndicator(
+      `${progressLabel} — downloading image…`,
+    );
+    try {
+      for (const pullImage of pullImages) {
+        try {
+          await pullContainerImage(pullImage);
+          await tagContainerImage(pullImage, imageName);
+          recordImageState(cwd, imageName, fingerprint);
+          indicator.succeed('Agent runtime ready.');
+          return;
+        } catch (err) {
+          lastPullError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    } finally {
+      indicator.clear();
+    }
+    if (acquisitionMode === 'pull-only') {
+      return handleFailure(
+        new Error(
+          lastPullError || 'Published container image pull attempts failed.',
+        ),
+      );
+    }
+  }
+
+  if (
+    !ensureInteractiveAutoBuild(
+      commandName,
+      required && !fallbackToExistingImage,
+      lastPullError
+        ? `${reason} Published image pull failed: ${lastPullError}`
+        : reason,
+      hint,
+    )
+  ) {
+    if (fallbackToExistingImage) {
+      console.warn(
+        `${commandName}: Continuing with existing container image '${imageName}'.`,
+      );
+    }
+    return;
+  }
+
+  const indicator = startProgressIndicator(
+    `${progressLabel} — building image…`,
+  );
+  try {
+    await buildContainerImage(cwd, imageName);
+    recordImageState(cwd, imageName, fingerprint);
+    indicator.succeed('Agent runtime ready.');
+  } catch (buildError) {
+    handleFailure(buildErrorWithEarlierPullFailure(buildError, lastPullError));
+  } finally {
+    indicator.clear();
   }
 }
 

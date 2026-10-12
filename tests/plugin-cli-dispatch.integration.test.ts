@@ -210,6 +210,16 @@ describe('plugin CLI commands of bundled plugins that are not installed', () => 
   }, 120_000);
 });
 
+// A plugin's gateway slash command typed at the top level (`browser-pool`
+// used to be a CLI command) points at its `hybridclaw gateway` form.
+test('a gateway slash command at the top level names its gateway form', async () => {
+  const result = await cli(makeTempDir(), ['browser-pool', 'doctor']);
+  expect(result.code).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('"managed-cloud"');
+  expect(result.stderr).toContain('`hybridclaw gateway browser-pool doctor`');
+}, 120_000);
+
 // A disabled plugin's `enabled: false` entry is not "not installed": the
 // hint must be the enable command, whether the plugin is bundled or a home
 // install, no plugin code may run, and following the hint must work.

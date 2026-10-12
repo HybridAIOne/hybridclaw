@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import type { ToolProgressEvent } from '../src/types/execution.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -124,8 +125,7 @@ useCleanMocks({
   restoreAllMocks: true,
   cleanup: async () => {
     vi.useRealTimers();
-    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
-    await flushAuditTrail();
+    await cleanupGatewayRuntime();
     runAgentMock.mockReset();
     stopSessionExecutionMock.mockReset();
     stopSessionExecutionMock.mockImplementation(() => false);
@@ -329,6 +329,10 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
 
   const runLogPath = path.join(fullAutoDir, runLogFilename || '');
   const runLogText = fs.readFileSync(runLogPath, 'utf8');
+  expect(
+    fullAutoFiles.filter((entry) => /^RUN_LOG_.+\.md$/.test(entry)),
+  ).toEqual([runLogFilename]);
+  expect(runLogText.match(/^# Full-Auto Run Log$/gm)).toHaveLength(1);
   expect(runLogText).toContain('# Full-Auto Run Log');
   expect(runLogText).toContain('run-started');
   expect(runLogText).toContain('turn-1');
@@ -846,7 +850,9 @@ test('a transient full-auto retry is a fresh turn that sees the tools the failed
     'Container exited before producing output (exit code 1). [tool] write result (532ms): wrote notes.txt';
   runAgentMock
     .mockImplementationOnce(
-      async (params: { onToolProgress?: (event: ToolProgressEvent) => void }) => {
+      async (params: {
+        onToolProgress?: (event: ToolProgressEvent) => void;
+      }) => {
         params.onToolProgress?.({
           sessionId: 'session-fullauto-retry',
           toolName: 'write',

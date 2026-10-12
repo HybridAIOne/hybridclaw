@@ -475,6 +475,51 @@ describe('ensureContainerImageReady', () => {
     expect(logSpy).not.toHaveBeenCalledWith('Agent runtime ready.');
   });
 
+  test('rebuilds after a container/shared edit in a source checkout', async () => {
+    const cwd = createTempDir();
+    const homeDir = createTempDir();
+    writeTrackedFiles(cwd);
+    const sharedFile = path.join(cwd, 'container', 'shared', 'regex.js');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, 'export const a = 1;\n');
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (command === 'docker' && args[0] === 'image') {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (command === 'npm' && args[1] === 'build:container') {
+        return makeSpawnResult({ code: 1, err: 'build failed' });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir,
+      spawnMock,
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const buildCalls = () =>
+      spawnMock.mock.calls.filter(([command]) => command === 'npm').length;
+
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    expect(buildCalls()).toBe(0);
+
+    fs.writeFileSync(sharedFile, 'export const a = 2;\n');
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    expect(buildCalls()).toBe(1);
+  });
+
   test('throws when the required image is missing and build fails', async () => {
     const cwd = createTempDir();
     writeTrackedFiles(cwd);
@@ -578,6 +623,131 @@ describe('ensureContainerImageReady', () => {
           args[0] === 'run' &&
           args[1] === 'build:container',
       ),
+    ).toBe(false);
+  });
+
+  test.each([
+    {
+      mode: 'pull-only',
+      pullImage: 'hybridaione/hybridclaw-agent:v0.4.1',
+      sourceCheckout: false,
+    },
+    {
+      mode: 'pull-or-build',
+      pullImage: 'ghcr.io/hybridaione/hybridclaw-agent:latest',
+      sourceCheckout: true,
+    },
+  ])('pulls and tags the missing image without a TTY ($mode)', async ({
+    pullImage,
+    sourceCheckout,
+  }) => {
+    const cwd = createTempDir();
+    if (sourceCheckout) {
+      writeTrackedFiles(cwd);
+      vi.stubEnv('HYBRIDCLAW_CONTAINER_PULL_IMAGE', pullImage);
+    }
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: undefined,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      if (command === 'docker' && args[0] === 'pull' && args[1] === pullImage) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (command === 'docker' && args[0] === 'tag') {
+        return makeSpawnResult({ code: 0 });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway start',
+        cwd,
+      }),
+    ).resolves.toBeUndefined();
+    expect(spawnMock).toHaveBeenCalledWith(
+      'docker',
+      ['pull', pullImage],
+      expect.anything(),
+    );
+    expect(spawnMock).toHaveBeenCalledWith(
+      'docker',
+      ['tag', pullImage, 'hybridclaw-agent'],
+      expect.anything(),
+    );
+  });
+
+  test('does not start a local build without a TTY when the pull fails', async () => {
+    const cwd = createTempDir();
+    writeTrackedFiles(cwd);
+    vi.stubEnv(
+      'HYBRIDCLAW_CONTAINER_PULL_IMAGE',
+      'ghcr.io/hybridaione/hybridclaw-agent:latest',
+    );
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: undefined,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      if (command === 'docker' && args[0] === 'pull') {
+        return makeSpawnResult({ code: 1, err: 'pull failed' });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    const error = await containerSetup
+      .ensureContainerImageReady({
+        commandName: 'hybridclaw gateway start',
+        cwd,
+      })
+      .catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      "hybridclaw gateway start: Required container image 'hybridclaw-agent' not found.",
+    );
+    expect((error as Error).message).toContain('pull failed');
+    expect(
+      spawnMock.mock.calls.some(([command]) => command === 'npm'),
     ).toBe(false);
   });
 

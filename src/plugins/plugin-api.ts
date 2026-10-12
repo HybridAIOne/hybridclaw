@@ -20,6 +20,7 @@ import {
 } from '../config/runtime-config.js';
 import { resolvePublicGatewayBaseUrl } from '../gateway/gateway-url-utils.js';
 import { notifySessionPhones } from '../gateway/mobile-push.js';
+import { releaseSessionWorker } from '../gateway/session-worker-release.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -97,6 +98,8 @@ export function createPluginApi(params: {
   declaredEnv: readonly string[];
   declaredCredentials?: readonly string[];
   declaredCliCommands?: readonly PluginManifestCliCommand[];
+  /** Undefined when the manifest has no `commands`: registration is unchecked. */
+  declaredCommands?: readonly string[];
   homeDir: string;
   cwd: string;
 }): HybridClawPluginApi {
@@ -208,6 +211,14 @@ export function createPluginApi(params: {
       params.manager.registerOutputGuard(params.pluginId, guard);
     },
     registerCommand(cmd: PluginCommandDefinition): void {
+      if (
+        params.declaredCommands &&
+        !params.declaredCommands.includes(cmd.name)
+      ) {
+        throw new Error(
+          `Plugin "${params.pluginId}" command "${cmd.name}" is not declared in the manifest's \`commands\`.`,
+        );
+      }
       params.manager.registerCommand(params.pluginId, cmd);
     },
     registerService(svc: PluginService): void {
@@ -269,6 +280,7 @@ export function createPluginApi(params: {
           params.manager.dispatchInboundMessage(params.pluginId, request),
       });
     },
+    releaseSessionWorker,
     on<K extends PluginHookName>(
       event: K,
       handler: PluginHookHandlerMap[K],

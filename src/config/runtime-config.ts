@@ -1030,16 +1030,6 @@ export interface RuntimeInstalledSkillManifest {
   updatedAt: string;
 }
 
-type RuntimeSkillAutonomyRuleIndex = Map<
-  string,
-  Map<string, SkillAutonomyLevel>
->;
-
-const skillAutonomyRuleIndexes = new WeakMap<
-  RuntimeSkillAutonomyConfig,
-  RuntimeSkillAutonomyRuleIndex
->();
-
 export interface RuntimeConfig {
   version: number;
   audit: RuntimeAuditConfig;
@@ -1210,6 +1200,7 @@ export interface RuntimeConfig {
     second_opinion: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
+    quick_decision: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -1748,7 +1739,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     callerPolicy: 'open',
     allowFrom: [],
-    maxConcurrentCalls: 8,
+    // 5 (engineering call, 2026-10-11, #1930): matches container.maxConcurrent so
+    // every call can hold a worker; a separate voice worker budget is deferred.
+    maxConcurrentCalls: 5,
   },
   speech: {
     realtime: {
@@ -1989,6 +1982,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     cv_narration: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    quick_decision: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -2460,25 +2458,6 @@ function normalizeSkillAutonomyConfig(
       return byAgent || a.skillName.localeCompare(b.skillName);
     }),
   };
-}
-
-function getSkillAutonomyRuleIndex(
-  autonomy: RuntimeSkillAutonomyConfig,
-): RuntimeSkillAutonomyRuleIndex {
-  const cached = skillAutonomyRuleIndexes.get(autonomy);
-  if (cached) return cached;
-
-  const index: RuntimeSkillAutonomyRuleIndex = new Map();
-  for (const rule of autonomy.rules) {
-    let skillRules = index.get(rule.agentId);
-    if (!skillRules) {
-      skillRules = new Map<string, SkillAutonomyLevel>();
-      index.set(rule.agentId, skillRules);
-    }
-    skillRules.set(rule.skillName, rule.level);
-  }
-  skillAutonomyRuleIndexes.set(autonomy, index);
-  return index;
 }
 
 function normalizeSkillChannelDisabled(
@@ -6792,6 +6771,14 @@ function normalizeRuntimeConfig(
     rawHybridAi.baseUrl,
     DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl,
   );
+  const platformBaseUrl = normalizeBaseUrl(
+    process.env.HYBRIDAI_BASE_URL,
+    hybridBaseUrl,
+  );
+  const observabilityBaseUrl = normalizeBaseUrl(
+    rawObservability.baseUrl,
+    platformBaseUrl,
+  );
   const hybridDefaultChatbotId = normalizeString(
     rawHybridAi.defaultChatbotId,
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
@@ -7958,10 +7945,12 @@ function normalizeRuntimeConfig(
       // baseUrl for LLM calls (see applyRuntimeConfig), so the ingest default
       // must follow it too — otherwise a deployment pointed elsewhere via env
       // silently reports to the default platform host with a foreign API key.
-      baseUrl: normalizeBaseUrl(
-        rawObservability.baseUrl,
-        normalizeBaseUrl(process.env.HYBRIDAI_BASE_URL, hybridBaseUrl),
-      ),
+      // A file value equal to hybridai.baseUrl is the materialized default,
+      // not a deliberate override, so it follows the env too.
+      baseUrl:
+        observabilityBaseUrl === hybridBaseUrl
+          ? platformBaseUrl
+          : observabilityBaseUrl,
       ingestPath: normalizeApiPath(
         rawObservability.ingestPath,
         DEFAULT_RUNTIME_CONFIG.observability.ingestPath,
@@ -8643,25 +8632,6 @@ export function resolveDefaultAgentId(
   config: Pick<RuntimeConfig, 'agents'> = currentConfig,
 ): string {
   return resolveConfiguredDefaultAgentId(config.agents);
-}
-
-export function resolveSkillAutonomyLevel(
-  config: Pick<RuntimeConfig, 'skills'> = currentConfig,
-  agentId: string,
-  skillName: string,
-): SkillAutonomyLevel {
-  const defaultLevel = config.skills.autonomy.defaultLevel;
-  if (!agentId || !skillName) {
-    throw new Error(
-      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
-    );
-  }
-
-  return (
-    getSkillAutonomyRuleIndex(config.skills.autonomy)
-      .get(agentId)
-      ?.get(skillName) ?? defaultLevel
-  );
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

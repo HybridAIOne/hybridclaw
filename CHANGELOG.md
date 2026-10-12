@@ -2,6 +2,107 @@
 
 ## Unreleased
 
+## [0.39.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.12) - 2026-10-12
+
+### Fixed
+
+- **Scheduled tool history**: Provider tool arguments are compared by value,
+  so equal JSON objects with different key order do not fail a completed turn.
+  Signed metadata stays intact, and genuine argument mismatches are rejected.
+- **Hy notifications**: Daily and Ideas replies stay in their hidden app chats
+  without creating browser or phone reminders. Structured reminders show
+  readable item titles. Hy keeps its notification name after importing another
+  agent's workspace; the separate runtime default agent is called main.
+- **Conversation memory**: Memory saves are verified against workspace files
+  before compaction or automatic reset. Failed saves retain the conversation,
+  and long instructions are preserved across batches instead of being clipped.
+
+## [0.39.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.11) - 2026-10-11
+
+### Changed
+
+- **Plugin command guidance**: Unavailable slash and CLI commands name their
+  plugin and explain how to install or enable it, or show its load error.
+  Gateway commands entered at the top level point to
+  `hybridclaw gateway <command>`.
+- **Voice capacity defaults**: `voice.maxConcurrentCalls` defaults to 5,
+  matching the default `container.maxConcurrent` limit.
+
+### Fixed
+
+- **Phone-call worker cleanup**: Twilio and Vonage release a call's agent
+  worker after its queued turns finish, freeing capacity for subsequent calls
+  without interrupting a reply. Vonage uses the current default agent for new
+  calls and retains that agent for the call's turns and hangup cleanup.
+- **Provider tool limits**: OpenAI, Codex and HybridAI requests automatically
+  defer MCP tools behind `tool_catalog` when needed to fit the 128-tool limit.
+  Requests still over the limit report the counts and remediation before
+  reaching the provider. A 400 response containing a tool count is not mistaken
+  for a server error.
+- **Observability ingestion**: A saved default observability URL follows
+  `HYBRIDAI_BASE_URL`, while distinct explicit overrides remain effective.
+  Rejected ingest-token requests pause ingestion until a configuration change
+  or restart instead of retrying every flush.
+- **Source-checkout container rebuilds**: Agent image fingerprints include
+  `container/shared/`, so changes to shared runtime code trigger a rebuild.
+
+### Upgrade Notes
+
+- If you raised `container.maxConcurrent`, explicitly set
+  `voice.maxConcurrentCalls` to your intended call capacity. Existing explicit
+  voice limits remain effective.
+
+## [0.39.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.10) - 2026-10-11
+
+### Added
+
+- **Calls from Hy**: With calls enabled in a compatible Hy app, `call_user`
+  rings the user's phone and opens a live voice call with the reason and notes.
+  Calls can be requested immediately or scheduled. Unrequested calls respect
+  active hours; three unanswered calls in an hour stop further calls.
+- **Scheduled-task run history**: `/schedule runs <id>` shows due and start
+  times, outcome, duration, cost and the posted message. `/schedule list --json`
+  includes a summary per task. Failed or missed runs produce a short chat
+  notice, at most once per routine a day; automatic pauses are reported at once.
+
+### Changed
+
+- **Approval mode responses**: `/approvals mode [ask|auto|full] --json` reports
+  the effective mode directly, including an active full-auto loop.
+- **App quick decisions**: Emoji reactions and other small app decisions use
+  `auxiliaryModels.quick_decision`, separate from evaluation. Unconfigured
+  decisions use the default model; failures return 503 `auxiliary_unavailable`.
+  Older apps can continue using the `auxiliary/eval_judge` request alias.
+
+### Fixed
+
+- **Image generation approvals**: HybridAI image generation and provider
+  listing run without an extra approval prompt, including in ask mode.
+  Other outbound actions retain their approval requirements.
+- **Cron timing**: Cron tasks firing exactly when due run on time. Due times
+  missed while the runtime is down are recorded, with only the latest caught up.
+- **Headless startup and Docker skills**: Headless gateways pull the published
+  agent runtime image when needed. The gateway image includes community skills,
+  allowing `skill import official/<name>` to work.
+- **Bash exit status**: A successful first agent command using `set -e` keeps
+  its exit status instead of failing because of the login shell's logout file.
+- **Plugin recovery and diagnostics**: `/plugin enable` finds disabled plugins
+  installed in the HybridClaw home directory. Doctor prints its findings without
+  raw plugin log lines, keeping `doctor --json` valid. The console hides LINE's
+  pairing hint when its plugin is missing or failed to load.
+- **Teams ratings**: `/thumbs` forwards the member's email to HybridAI instead
+  of their Entra ID.
+
+### Upgrade Notes
+
+- Incoming calls require a compatible phone app with calls enabled and call
+  push registration. iOS uses a separate PushKit token; Android registers the
+  `call` notification kind. The app answers with the push's `callId`.
+- To use a custom model for app quick decisions, configure
+  `auxiliaryModels.quick_decision`. An existing `auxiliaryModels.eval_judge`
+  setting continues to serve evaluation tasks and does not select the app's
+  quick-decision model.
+
 ## [0.39.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.9) - 2026-10-11
 
 ### Added

@@ -526,6 +526,7 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 !claw schedule list
 !claw schedule results <id> [--limit <n>]
+!claw schedule runs <id> [--limit <n>]
 !claw schedule remove <id>
 !claw schedule toggle <id>
 ```
@@ -538,6 +539,20 @@ default, at most 200) and only answers the chat that created the task and the
 main chat its replies go to, because a run can quote private data. Cron
 expressions run in UTC unless `--tz` names an IANA time zone; `--tz` must come
 before the schedule.
+
+`schedule runs` lists the task's run history, newest first (20 by default,
+the last 50 runs within 30 days are kept), readable by the same chats as
+`results`: when each run was due and started, how it ended (`done`, `failed`
+with a short error, `skipped` when it had nothing to post, `running`, or
+`missed`), how long it took, what it cost and the id of the message it posted.
+A cron due time the scheduler never ran, because the runtime was down or held
+back, is `missed`; catch-up still runs only the latest one. `schedule list
+--json` gives each task a `runs` summary: the last outcome and its due time,
+and how many runs failed or were missed in the last 24 hours. When a run fails
+or misses due times, the task's chat (a web task's main chat) gets one short
+message about it, at most once a routine a day; a routine paused after
+repeated failures says so at once. Notices that arrive together become one
+message.
 
 A web task replies in its agent's main chat: the web chat the HybridAI apps
 open with a session id starting with `main-` (the most recently active one, if
@@ -820,7 +835,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 |---|---|---|
 | `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents; web `/agent switch` starts hatching when `BOOTSTRAP.md` is active |
 | `/app <description>` or `/apps` | web chat | Start an app-building conversation or open the Apps gallery |
-| `/approvals mode [ask|auto|full]` | local and chat channels | Show or set how often this session asks for approval |
+| `/approvals mode [ask|auto|full] [--json]` | local and chat channels | Show or set how often this session asks for approval |
 | `/approvals rules [revoke <number|action>] [--json]` | local and chat channels | List or revoke the agent's "always allow" grants (`yes for agent`, `yes for all`) |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |

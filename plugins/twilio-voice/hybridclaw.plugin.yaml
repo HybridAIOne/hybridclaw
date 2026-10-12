@@ -8,6 +8,8 @@ requires:
   node: 22.x
 credentials:
   - TWILIO_AUTH_TOKEN
+commands:
+  - voice
 configSchema:
   type: object
   additionalProperties: false

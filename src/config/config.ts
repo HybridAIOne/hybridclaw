@@ -1,7 +1,7 @@
 /**
- * Resolved runtime exports are refreshed before secret-refresh subscribers run.
- * Unlike runtime-config's change events, explicit secret refreshes also notify
- * when config is unchanged; channel lifecycle decisions remain in the gateway.
+ * Resolved runtime exports reflect freshly loaded secrets on explicit refresh.
+ * Unlike runtime-config's change events, refresh does not change config;
+ * channel lifecycle decisions remain in the gateway.
  */
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -289,23 +289,9 @@ export let PERPLEXITY_API_KEY = '';
 export let TAVILY_API_KEY = '';
 syncRuntimeSecretExports();
 
-const runtimeSecretsRefreshListeners = new Set<() => void>();
-
-export function onRuntimeSecretsRefresh(listener: () => void): () => void {
-  runtimeSecretsRefreshListeners.add(listener);
-  return () => runtimeSecretsRefreshListeners.delete(listener);
-}
-
 export function refreshRuntimeSecretsFromEnv(): void {
   loadRuntimeSecrets();
   syncRuntimeSecretExports();
-  for (const listener of runtimeSecretsRefreshListeners) {
-    try {
-      listener();
-    } catch (error) {
-      logger.warn({ error }, 'Runtime secret refresh listener failed');
-    }
-  }
 }
 
 export let DISCORD_PREFIX = '!claw';

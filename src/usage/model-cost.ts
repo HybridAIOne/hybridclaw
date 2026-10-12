@@ -21,17 +21,6 @@ export interface ModelUsageTokenCounts {
   cacheWriteTokens?: number | null;
 }
 
-export interface RoutingCostAttempt extends ModelUsageTokenCounts {
-  model: string;
-  costUsd?: number;
-}
-
-export interface RoutingSavingsEstimate {
-  actualCostUsd: number;
-  counterfactualCostUsd: number;
-  savedUsd: number;
-}
-
 function readFiniteNonNegativeNumber(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return null;
@@ -108,56 +97,6 @@ function readCacheTokenCounts(
     cacheReadTokens: readFiniteNonNegativeNumber(usage.cacheReadTokens),
     cacheWriteTokens: readFiniteNonNegativeNumber(usage.cacheWriteTokens),
   };
-}
-
-export function estimateRoutingSavingsUsd(params: {
-  referenceModel: string;
-  referenceUsage: ModelUsageTokenCounts;
-  attempts: RoutingCostAttempt[];
-}): RoutingSavingsEstimate | null {
-  const counterfactualCostUsd = estimateModelUsageCostUsd({
-    ...params.referenceUsage,
-    model: params.referenceModel,
-  });
-  if (counterfactualCostUsd == null) return null;
-
-  let actualCostUsd = 0;
-  for (const attempt of params.attempts) {
-    const explicitCost = readFiniteNonNegativeNumber(attempt.costUsd);
-    const attemptCost = explicitCost ?? estimateModelUsageCostUsd(attempt);
-    if (attemptCost == null) return null;
-    actualCostUsd += attemptCost;
-  }
-
-  return {
-    actualCostUsd,
-    counterfactualCostUsd,
-    savedUsd: counterfactualCostUsd - actualCostUsd,
-  };
-}
-
-export function resolveUsageCostUsd(params: {
-  model: string;
-  tokenUsage?: TokenUsageStats;
-  usage: UsageTokenCounts;
-}): number {
-  const explicitCost = extractExplicitUsageCostUsd(params.tokenUsage);
-  if (explicitCost != null) return explicitCost;
-
-  const promptTokens = readFiniteNonNegativeNumber(params.usage.promptTokens);
-  const completionTokens = readFiniteNonNegativeNumber(
-    params.usage.completionTokens,
-  );
-  if (promptTokens == null || completionTokens == null) return 0;
-
-  return (
-    estimateModelUsageCostUsd({
-      model: params.model,
-      promptTokens,
-      completionTokens,
-      ...readCacheTokenCounts(params.tokenUsage, params.usage),
-    }) ?? 0
-  );
 }
 
 export async function resolveUsageCostUsdAfterMetadataRefresh(params: {

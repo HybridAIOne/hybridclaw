@@ -4,6 +4,8 @@ version: 0.1.0
 kind: middleware
 description: Output policy guard that scans final agent responses for banned phrases and rule violations, then rewrites, blocks, or flags before the message ships.
 entrypoint: src/index.js
+commands:
+  - output-guard
 configSchema:
   type: object
   additionalProperties: false

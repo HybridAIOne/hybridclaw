@@ -1,0 +1,50 @@
+name: Plugin Catalog URLs
+
+# A pinned release can be missing at merge (#1922) or deleted later, so check
+# on every catalog change and daily.
+on:
+  pull_request:
+    paths:
+      - src/channels/channel-plugin-catalog.ts
+      - scripts/check-plugin-catalog-urls.ts
+      - .github/workflows/plugin-catalog-urls.yml
+  push:
+    branches:
+      - main
+    paths:
+      - src/channels/channel-plugin-catalog.ts
+      - scripts/check-plugin-catalog-urls.ts
+      - .github/workflows/plugin-catalog-urls.yml
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            npm-shrinkwrap.json
+            package-lock.json
+
+      - name: Use npm 11
+        run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+
+      - name: Install dependencies without lifecycle scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Check pinned plugin install URLs
+        run: npm run check:plugin-catalog-urls

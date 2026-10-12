@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.9',
+  version: '0.39.12',
   highlights: [
-    'Edit email drafts and review approvals in chat',
-    'Choose the agent’s model family with /flavour',
-    'Import agents without restarting the gateway',
-    'Music generation needs no extra send approval',
+    'Scheduled runs finish reliably',
+    'Daily and Ideas stay out of notifications',
+    'Conversation memory saves are verified',
   ],
 } as const;
 

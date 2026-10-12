@@ -64,6 +64,26 @@ export function taskCostFromRoutingTrace(
   };
 }
 
+/**
+ * What one scheduled run cost. Such a run keeps no routing trace; it has its
+ * model, what that model's usage cost and how many requests it made.
+ */
+export function taskCostFromUsage(params: {
+  model: string;
+  costUsd: number;
+  requests: number | null;
+  isFree?: FreeTierCheck;
+}): TaskCost {
+  const free = (params.isFree ?? isDiscoveredHybridAIFreeTierModel)(
+    params.model,
+  );
+  return {
+    eur: free ? 0 : Math.round(toEur(params.costUsd) * 10_000) / 10_000,
+    free,
+    requests: params.requests,
+  };
+}
+
 // 2026-10-09: what one step of a tool loop adds to the context, what the model
 // writes per step, and how much of the re-sent context a provider's prompt
 // cache serves. The range around the middle covers lighter and heavier steps.

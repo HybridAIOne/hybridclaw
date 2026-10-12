@@ -169,6 +169,7 @@ COPY --link docs/ ./docs/
 # Runtime templates and skills
 COPY --link templates/ ./templates/
 COPY --link skills/ ./skills/
+COPY --link community-skills/ ./community-skills/
 COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 # Install-on-demand plugin sources, so `hybridclaw plugin install <id>` works
 # in the image; their dependencies are fetched only when installed.

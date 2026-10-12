@@ -7,6 +7,8 @@ description: Mirror HybridClaw turns into Mem0 cloud memory, inject prompt-time 
 entrypoint: src/index.js
 credentials:
   - MEM0_API_KEY
+commands:
+  - mem0
 configSchema:
   type: object
   additionalProperties: false

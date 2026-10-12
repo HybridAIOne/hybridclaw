@@ -56,7 +56,10 @@ import {
   setFullAutoRunHandler,
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
-import { resolveFullAutoPrompt } from './fullauto-workspace.js';
+import {
+  appendFullAutoRunLogEntry,
+  resolveFullAutoPrompt,
+} from './fullauto-workspace.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   classifyGatewayError,
@@ -222,34 +225,6 @@ function buildInitialFullAutoLearningState(
   ].join('\n');
 }
 
-function appendFullAutoRunLogEntry(params: {
-  session: Session;
-  heading: string;
-  lines: string[];
-}): void {
-  const workspace = getFullAutoWorkspaceState(params.session);
-  fs.mkdirSync(workspace.stateDirPath, { recursive: true });
-  if (!workspace.runLogExists) {
-    fs.writeFileSync(
-      workspace.runLogPath,
-      [
-        '# Full-Auto Run Log',
-        '',
-        `Run ID: ${workspace.runId}`,
-        `Started: ${params.session.full_auto_started_at || new Date().toISOString()}`,
-        '',
-      ].join('\n'),
-      'utf8',
-    );
-  }
-  const entry = [
-    `## ${new Date().toISOString()} - ${params.heading}`,
-    ...params.lines.filter((line) => line.trim().length > 0),
-    '',
-  ].join('\n');
-  fs.appendFileSync(workspace.runLogPath, entry, 'utf8');
-}
-
 function seedFullAutoWorkspaceState(
   session: Session,
   prompt: string | null,
@@ -295,33 +270,6 @@ function seedFullAutoWorkspaceState(
   }
 
   return { goalCreated, learningsCreated, runLogCreated };
-}
-
-export function describeFullAutoWorkspaceSummary(
-  session: Session,
-  seeded: {
-    goalCreated: boolean;
-    learningsCreated: boolean;
-    runLogCreated: boolean;
-  },
-): string {
-  const workspace = getFullAutoWorkspaceState(session);
-  const goalState = seeded.goalCreated
-    ? 'created'
-    : workspace.goalExists
-      ? 'present'
-      : 'missing';
-  const learningsState = seeded.learningsCreated
-    ? 'created'
-    : workspace.learningsExists
-      ? 'present'
-      : 'missing';
-  const runLogState = seeded.runLogCreated
-    ? 'created'
-    : workspace.runLogExists
-      ? 'present'
-      : 'missing';
-  return `Workspace files: fullauto/GOAL_${workspace.runId}.md ${goalState}, fullauto/LEARNING_${workspace.runId}.md ${learningsState}, fullauto/RUN_LOG_${workspace.runId}.md ${runLogState}`;
 }
 
 function readTextFileIfExists(filePath: string): string | null {

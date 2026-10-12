@@ -33,7 +33,7 @@ export type FieldContextValue = {
    * `true` once the user has blurred any descendant control of this Field.
    * Used by `<FieldError />` to suppress messages on freshly-mounted forms.
    * A surrounding `<Form>` can also force-reveal errors on submit attempt
-   * (see `useFormState().submitAttempted`).
+   * (see `useFormSignals().submitAttempted`).
    */
   touched: boolean;
   /** Mark this field touched. Called by Field's onBlur listener. */

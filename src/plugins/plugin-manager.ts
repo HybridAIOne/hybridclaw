@@ -73,6 +73,7 @@ import {
 import { createPluginApi } from './plugin-api.js';
 import {
   normalizeManifestCliCommands,
+  normalizeManifestCommands,
   PluginCliCommandRegistry,
 } from './plugin-cli-commands.js';
 import { validatePluginConfig } from './plugin-config-validation.js';
@@ -569,6 +570,7 @@ function normalizeManifest(input: unknown): PluginManifest {
       : undefined,
     configUiHints: normalizePluginConfigUiHints(input.configUiHints),
     cliCommands: normalizeManifestCliCommands(id, input.cliCommands),
+    commands: normalizeManifestCommands(id, input.commands),
   };
 }
 
@@ -1264,6 +1266,7 @@ export class PluginManager {
         declaredEnv: candidate.manifest.requires?.env || [],
         declaredCredentials: candidate.manifest.credentials || [],
         declaredCliCommands: candidate.manifest.cliCommands || [],
+        declaredCommands: candidate.manifest.commands,
         homeDir: this.homeDir,
         cwd: this.cwd,
       });
