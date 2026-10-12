@@ -1,10 +1,12 @@
 /**
  * Gateway build diagnostics — the `build` block of `gateway status`.
  *
- * Source-vs-build freshness is only judged in a source checkout. A packaged
- * install ships `container/src/` beside `container/dist/` for image builds,
- * and npm extraction stamps both with install-time mtimes, so comparing them
- * there reports staleness that cannot exist.
+ * Source-vs-build freshness and git metadata are only read in a source
+ * checkout. A packaged install ships `container/src/` beside `container/dist/`
+ * for image builds, and npm extraction stamps both with install-time mtimes,
+ * so comparing them there reports staleness that cannot exist. It also has no
+ * git metadata, and `/health` builds this block on every request, so spawning
+ * git there only blocks the event loop to learn nothing.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -108,20 +110,21 @@ function isStaleBuildStatus(status: GatewayBuildFileDiagnostics['status']) {
 export function getGatewayBuildDiagnostics(
   packageRoot: string,
 ): GatewayBuildDiagnostics {
-  const files = isSourceCheckout(packageRoot)
+  const sourceCheckout = isSourceCheckout(packageRoot);
+  const files = sourceCheckout
     ? GATEWAY_BUILD_FILE_PAIRS.map((filePair) =>
         getBuildFileStatus(packageRoot, filePair),
       )
     : [];
-  const gitBranch = readGitValue(packageRoot, [
-    'rev-parse',
-    '--abbrev-ref',
-    'HEAD',
-  ]);
+  const gitBranch = sourceCheckout
+    ? readGitValue(packageRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    : null;
 
   return {
     version: APP_VERSION,
-    gitCommit: readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD']),
+    gitCommit: sourceCheckout
+      ? readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD'])
+      : null,
     gitBranch: gitBranch === 'HEAD' ? null : gitBranch,
     packageRoot,
     entrypoint: process.argv[1] || null,
