@@ -36,8 +36,10 @@ test('buildToolsSummary groups the full tool catalog', () => {
   expect(summary).toContain('**Delegation**: `delegate`');
   expect(summary).toContain('**Skills**: `skills_list`');
   expect(summary).toContain('**Vision**: `vision_analyze`');
-  expect(summary).toContain('**Image Generation**: `image_generate`');
-  expect(summary).toContain('**Video Generation**: `video_generate`');
+  expect(summary).toContain(
+    '**Diagrams**: `diagram_create`, `diagram_update`, `diagram_validate`',
+  );
+  expect(summary).not.toContain('`image_generate`');
 });
 
 test('buildSystemPromptFromHooks reflects restricted tool availability', () => {

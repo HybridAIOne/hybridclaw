@@ -10,7 +10,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 
-import { listKnownToolNames } from '../agent/tool-summary.js';
+import { isKnownToolName } from '../agent/tool-summary.js';
 import { logger } from '../logger.js';
 import { reinstallPlugin } from '../plugins/plugin-install.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -108,12 +108,16 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
         seed.set[key],
       ),
   );
-  const knownTools = new Set(listKnownToolNames());
-  const unknownTools = seed.disabledTools.filter(
-    (name) => !knownTools.has(name),
+  // Plugin tools are not registered until after the seed, so a name that is
+  // not built-in is written as-is (owner call, 2026-10-11).
+  const unverifiedTools = seed.disabledTools.filter(
+    (name) => !isKnownToolName(name),
   );
-  if (unknownTools.length > 0) {
-    throw new Error(`Unknown tool in ${CONFIG_SEED_ENV}: ${unknownTools[0]}`);
+  if (unverifiedTools.length > 0) {
+    logger.warn(
+      { tools: unverifiedTools },
+      `${CONFIG_SEED_ENV} disables tools that are not built-in; they take effect only if a plugin registers them`,
+    );
   }
   const disabledTools = getRuntimeDisabledToolNames(current);
   const toolsToDisable = seed.disabledTools.filter(
