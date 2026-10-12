@@ -1,9 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.12',
+  version: '0.39.13',
   highlights: [
-    'Scheduled runs finish reliably',
-    'Daily and Ideas stay out of notifications',
-    'Conversation memory saves are verified',
+    'Mistral model flavour',
+    'Scheduled tasks retain their owner',
+    'Complete built-in and plugin tool controls',
   ],
 } as const;
 

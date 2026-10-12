@@ -275,7 +275,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.39.12](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.39.12).
+Latest release: [v0.39.13](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.39.13).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

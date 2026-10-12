@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## [0.39.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.13) - 2026-10-12
+
+### Added
+
+- **Mistral flavour**: `/flavour set mistral` selects Mistral Large through
+  HybridAI for the agent's chats and scheduled tasks. Availability follows the
+  model catalog, alongside the OpenAI, Anthropic and EU choices.
+
+### Fixed
+
+- **Scheduled-task ownership**: Tasks created with the `cron` tool retain the
+  verified user who requested them, allowing their runs to record work and
+  access that user's device data. Runs without a verified owner skip work-note
+  instructions instead of reporting an internal tool error.
+- **Tool controls**: `hybridclaw tool list|enable|disable` covers every built-in
+  tool, including diagram tools, and registered plugin tools. The admin Tools
+  page and agent tool summary use the shared built-in manifest, so plugin media
+  tools are listed only when installed. Config seeds can disable plugin tools
+  before registration without preventing gateway startup.
+
+### Upgrade Notes
+
+- Existing scheduled tasks are not assigned owners retroactively. Recreate a
+  task in a verified user chat if it needs work records or user device data.
+- Config-seed disabled tool names that are not built-in are preserved with a
+  warning and take effect only if a plugin registers them. Check spelling when
+  using `HYBRIDCLAW_CONFIG_SEED.disabledTools`.
+
 ## [0.39.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.12) - 2026-10-12
 
 ### Fixed
