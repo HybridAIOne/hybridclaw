@@ -82,8 +82,8 @@ test('a task added with --alert rings the phone with the first item its run list
     sessionId: APP_CHAT,
     count: 2,
   });
-  // The chat is the default agent's, which a phone knows as Hy.
-  expect(payload.aps.alert.title).toBe('Hy');
+  // The runtime default agent is separate from Hy.
+  expect(payload.aps.alert.title).toBe('main');
 
   // A run that lists nothing says nothing; neither does a task without --alert.
   deliverWebScheduledMessage(APP_CHAT, '[]', source);
@@ -128,7 +128,7 @@ test('a reminder rings with the assistant name and its text; an --alert task onl
   deliverWebScheduledMessage(APP_CHAT, 'huhu', 'schedule:7:system');
   const [reminder] = await alerts();
   expect(reminder).toMatchObject({
-    aps: { alert: { title: 'Hy', body: 'huhu' }, badge: 1 },
+    aps: { alert: { title: 'main', body: 'huhu' }, badge: 1 },
     kind: 'reminder',
     sessionId: APP_CHAT,
     agentId: 'main',
@@ -146,3 +146,24 @@ test('a reminder rings with the assistant name and its text; an --alert task onl
   const all = await alerts();
   expect(all.map((payload) => payload.kind)).toEqual(['reminder', 'proactive']);
 });
+
+test.each(['feed-example', 'ideas-example'])(
+  'a hidden %s chat stores its data without notifying browsers or phones',
+  async (sessionId) => {
+    const { run, alerts, deliverWebScheduledMessage } = await load('reminder,proactive');
+    const { memoryService } = await import('../src/memory/memory-service.ts');
+    const store = await import('../src/gateway/web-notification-store.ts');
+    const operator = store.notificationOperatorId('local-operator');
+    memoryService.getOrCreateSession(sessionId, null, 'web', 'main');
+    store.bindWebNotificationSession(sessionId, operator, 'hy');
+    const text = '[{"title":"A new discovery","summary":"Scientists published their findings."}]';
+    const added = await run([
+      'schedule', 'add', '--json', '--alert', 'proactive', '"*/30 * * * *"', PROMPT,
+    ]);
+    deliverWebScheduledMessage(sessionId, text, `schedule:${added.task.id}`);
+    deliverWebScheduledMessage(sessionId, text, 'schedule:7:system');
+    expect(memoryService.getRecentMessages(sessionId).map((message) => message.content)).toEqual([text, text]);
+    expect(store.readWebNotificationState(operator).notifications).toEqual([]);
+    expect(await alerts()).toEqual([]);
+  },
+);

@@ -117,7 +117,7 @@ test('a --reply-only run posts only its reply to the chat and rings with it', as
   ]);
   const [payload] = alerts();
   expect(payload).toMatchObject({
-    aps: { alert: { title: 'Hy', body: FIND }, 'thread-id': MAIN_CHAT },
+    aps: { alert: { title: 'main', body: FIND }, 'thread-id': MAIN_CHAT },
     kind: 'proactive',
     sessionId: MAIN_CHAT,
     messageId: chat[0].id,
