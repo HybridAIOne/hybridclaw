@@ -1,6 +1,7 @@
 import type { ApprovalMode } from '../shared/approval-mode.js';
 import type { ApprovalRule } from '../shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
+import type { ConnectorApproval } from '../shared/connector-approval.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
@@ -122,6 +123,7 @@ export interface ToolRunResult extends VisualAttachmentMessage {
   isError: boolean;
   /** The platform asks the user first; `output` is then only a placeholder. */
   boostOffer?: BoostOffer;
+  connectorApproval?: ConnectorApproval;
 }
 
 export interface ToolSchema {

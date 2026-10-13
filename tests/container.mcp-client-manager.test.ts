@@ -560,3 +560,67 @@ describe('McpClientManager deferred loading', () => {
     expect(exposed[0].guidance).toContain('- invoice__tool_07(query?)');
   });
 });
+
+test('only a configured broker can turn an error into a native approval; context coexists with boost metadata', async () => {
+  const manager = new McpClientManager();
+  const internals = manager as unknown as ManagerInternals & {
+    mapTools(
+      server: string,
+      namespace: string,
+      tools: unknown[],
+      seen: Set<string>,
+      trusted: boolean,
+    ): McpClientHandle['tools'];
+  };
+  const external = {
+    id: '0123456789abcdef',
+    connector_name: 'Todoist',
+    tool_name: 'update',
+    arguments_preview: '{"content":"Example task"}',
+    expires_at: Date.now() + 60_000,
+  };
+  const callTool = vi
+    .fn()
+    .mockResolvedValue({
+      isError: true,
+      content: [{ type: 'text', text: 'Approval required' }],
+      _meta: { 'hybridai/approval': external },
+    });
+  for (const trusted of [false, true]) {
+    const handle = makeHandle('hybridai', 'update');
+    handle.config.toolBehavior = { platformApprovals: trusted };
+    handle.client = { callTool } as never;
+    handle.tools = internals.mapTools(
+      'hybridai',
+      'hybridai',
+      [
+        {
+          name: 'update',
+          inputSchema: { type: 'object' },
+          _meta: { 'hybridai/approvalRequired': true },
+        },
+      ],
+      new Set(),
+      trusted,
+    );
+    internals.clients.set('hybridai', handle);
+    internals.configs.set('hybridai', handle.config);
+    internals.rebuildToolIndex();
+    manager.setApprovalContext({ session_id: 'web-test' });
+    const result = await manager.callToolDetailed('hybridai__update', {});
+    expect(result.connectorApproval).toEqual(trusted ? external : undefined);
+    expect(callTool.mock.lastCall?.[0]._meta).toEqual(
+      trusted
+        ? {
+            'hybridai/boostOffers': true,
+            'hybridai/approvalContext': { session_id: 'web-test' },
+          }
+        : { 'hybridai/boostOffers': true },
+    );
+    if (trusted) {
+      internals.configs.set('hybridai', makeConfig('node'));
+      expect(manager.getToolBehavior('hybridai__update')?.platformApproval).toBe(false);
+      expect((await manager.callToolDetailed('hybridai__update',{})).connectorApproval).toBeUndefined();
+    }
+  }
+});

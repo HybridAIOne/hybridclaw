@@ -24,6 +24,7 @@ export interface McpToolDefinition {
    * needed (`_meta` `DEFER_LOADING_META`), e.g. HybridAI's catalog tools.
    */
   deferLoading?: boolean;
+  platformApproval?: boolean;
 }
 
 /**
@@ -45,7 +46,7 @@ export const BOOST_META = 'hybridai/boost';
 /** Approval metadata plus an independent, operator-trusted scheduling decision. */
 export type McpToolBehavior = Pick<
   McpToolDefinition,
-  'kind' | 'annotations'
+  'kind' | 'annotations' | 'platformApproval'
 > & {
   parallelSafe?: boolean;
 };

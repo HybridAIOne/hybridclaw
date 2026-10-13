@@ -3,6 +3,7 @@
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
+
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,6 +28,7 @@ import {
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
 } from '../shared/browser-stealth-policy.js';
+import type { ConnectorApproval } from '../shared/connector-approval.js';
 import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
 import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
 import type {
@@ -75,7 +77,8 @@ import {
   type CheckoutAction,
   classifyBrowserCheckout,
 } from './browser-checkout.js';
-import { classifyMcpTool } from './mcp/tool-classifier.js';
+import { buildConnectorApproval } from './connector-approvals.js';
+import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
   loadSessionPendingApprovals,
@@ -107,6 +110,7 @@ import {
 } from './stakes-middleware.js';
 import { normalizeText } from './text-normalization.js';
 import { classifyInboxCleanup } from './tools/inbox-cleanup.js';
+import type { PendingApproval as ApprovalPrompt } from './types.js';
 import {
   type ChatMessage,
   type EscalationTarget,
@@ -2532,6 +2536,25 @@ export class TrustedAgentApprovalRuntime {
     };
   }
 
+  registerConnectorApproval(
+    approval: ConnectorApproval,
+    toolName: string,
+    argsJson: string,
+    originalPrompt: string,
+  ): ApprovalPrompt {
+    const { pending, promptCard } = buildConnectorApproval(
+      approval,
+      toolName,
+      argsJson,
+      originalPrompt,
+      this.sessionHash,
+      stableHash(`${toolName}|${argsJson}`),
+    );
+    this.pending.set(pending.id, pending);
+    this.persistPendingApprovals();
+    return promptCard;
+  }
+
   evaluateToolCall(params: {
     toolName: string;
     argsJson: string;
@@ -3584,106 +3607,12 @@ export class TrustedAgentApprovalRuntime {
       return this.classifyGenericBrowserAction(toolName, args);
     }
 
-    if (lowerTool.includes('__')) {
-      const behavior = this.mcpToolBehaviorResolver?.(toolName);
-      const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
-      const annotations = behavior?.annotations;
-      // A server can namespace its own tools (`hybridai__google__send_mail`),
-      // so the tool is everything after the first separator.
-      const separator = lowerTool.indexOf('__');
-      const serverName = lowerTool.slice(0, separator);
-      const rawToolName = lowerTool.slice(separator + 2);
-      const toolLabel = annotations?.title || rawToolName || lowerTool;
-      const actionKey = `mcp:${serverName || 'server'}:${kind}`;
-
-      if (kind === 'read' || kind === 'search' || kind === 'fetch') {
-        return {
-          tier: 'green',
-          actionKey,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied: 'I will continue without this MCP lookup.',
-          reason: annotations?.readOnlyHint
-            ? 'the MCP server marks this tool read-only'
-            : 'this MCP tool appears read-only',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: false,
-          promotableRed: false,
-          stickyYellow: false,
-        };
-      }
-
-      if (kind === 'delete' || kind === 'execute') {
-        const marked = annotations?.destructiveHint === true;
-        return {
-          tier: 'red',
-          actionKey,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied: marked
-            ? 'I will continue without making that change.'
-            : kind === 'delete'
-              ? 'I will continue without deleting anything.'
-              : 'I will continue without executing that action.',
-          reason: marked
-            ? 'the MCP server marks this tool destructive'
-            : kind === 'delete'
-              ? 'this MCP tool appears destructive'
-              : 'this MCP tool appears to execute commands or external actions',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: true,
-          promotableRed: false,
-          stickyYellow: false,
-        };
-      }
-
-      // A write that reaches outside (mail, an invite, a PR comment) asks in
-      // the default mode too; full access still runs it. Owner call,
-      // 2026-10-02: the Hy app promises to send nothing without approval, and
-      // scheduled runs read mail strangers wrote. The key names the tool, so
-      // trusting one send does not trust the server's other writes.
-      // Owner call, 2026-10-10: subscribed music generation creates a file
-      // for the user; contacting its provider is not sending or publishing.
-      if (
-        annotations?.openWorldHint === true &&
-        lowerTool !== 'hybridai__music_generate'
-      ) {
-        return {
-          tier: 'red',
-          actionKey: `${actionKey}:${rawToolName}`,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied:
-            'Nothing is sent or changed outside, and I will continue without this step.',
-          reason:
-            'the MCP server says this tool reaches outside, for example it sends or posts',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: true,
-          promotableRed: false,
-          stickyYellow: true,
-        };
-      }
-
-      return {
-        tier: 'yellow',
-        actionKey,
-        intent: `run MCP tool ${toolLabel}`,
-        consequenceIfDenied: 'I will continue without this MCP action.',
-        reason:
-          kind === 'edit'
-            ? 'this MCP tool appears to modify state'
-            : 'this MCP tool may have side effects',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
-        hostHints: [],
-        writeIntent: kind === 'edit',
-        promotableRed: false,
-        stickyYellow: false,
-      };
-    }
+    if (lowerTool.includes('__'))
+      return classifyMcpAction(
+        toolName,
+        normalizePreview(JSON.stringify(args)),
+        this.mcpToolBehaviorResolver?.(toolName),
+      );
 
     if (lowerTool === 'bash') {
       return this.classifyBashAction(args);
