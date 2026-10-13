@@ -86,6 +86,28 @@ Approvals also do not stand alone. Sandbox and mount permissions, local-only
 command availability, and provider/runtime internals unrelated to user tool
 calls are enforced by other layers.
 
+## Connector approval brokers
+
+The auto-configured HybridAI MCP gateway may mark a tool with
+`_meta["hybridai/approvalRequired"]`. Only a server explicitly configured as a
+`platformApprovals` broker can use this contract. Other MCP servers cannot
+bypass runtime approval by returning those fields, and overriding the broker
+URL disables automatic trust. Ordinary pinned denials still win.
+
+A marked call reaches the platform's one-shot gate first. A blocked response
+carries `hybridai/approval`, which ends the turn with the existing chat approval
+card. The worker persists the exact tool and arguments and offers no lasting
+trust choices. Full-auto does not bypass the platform gate. Reads and unmarked
+tools keep their existing runtime policy.
+
+Human chat answers for these cards are sent to the broker with a short-lived
+host-only HMAC proof. The worker API key cannot mint this proof. A broker panel
+may instead notify the gateway through `/api/connector-approvals/decision`,
+authenticated exclusively with `WEB_API_TOKEN`; the gateway validates the
+current pending request, restores its owning user and agent, and resumes the
+stored call. The callback is not retried automatically. A stale request,
+changed arguments, denial or a consumed grant cannot authorize another write.
+
 ## Traffic Lights
 
 | Tier | Default behavior | Typical examples | Notes |

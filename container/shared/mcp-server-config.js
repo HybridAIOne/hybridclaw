@@ -1,6 +1,6 @@
 /**
- * Validates operator scheduling declarations at the config and IPC boundaries.
- * Server annotations cannot populate this config; approval is a separate policy.
+ * Validates operator tool declarations at the config and IPC boundaries.
+ * Only a configured approval broker can delegate marked writes to its own gate.
  */
 /** The MCP server the runtime adds for the HybridAI platform's gateway tools. */
 export const HYBRIDAI_MCP_SERVER_NAME = 'hybridai';
@@ -12,7 +12,8 @@ export function parseMcpToolBehaviorConfig(value) {
   }
   if (
     Object.keys(value).some(
-      (key) => !['trustAnnotations', 'overrides'].includes(key),
+      (key) =>
+        !['trustAnnotations', 'overrides', 'platformApprovals'].includes(key),
     )
   ) {
     throw new Error('Unknown MCP toolBehavior field.');
@@ -23,6 +24,11 @@ export function parseMcpToolBehaviorConfig(value) {
   ) {
     throw new Error('MCP toolBehavior.trustAnnotations must be a boolean.');
   }
+  if (
+    value.platformApprovals !== undefined &&
+    typeof value.platformApprovals !== 'boolean'
+  )
+    throw new Error('MCP toolBehavior.platformApprovals must be a boolean.');
   const overrides = value.overrides;
   if (
     overrides !== undefined &&
@@ -39,6 +45,9 @@ export function parseMcpToolBehaviorConfig(value) {
     );
   }
   return {
+    ...(value.platformApprovals !== undefined
+      ? { platformApprovals: value.platformApprovals }
+      : {}),
     ...(value.trustAnnotations !== undefined
       ? { trustAnnotations: value.trustAnnotations }
       : {}),

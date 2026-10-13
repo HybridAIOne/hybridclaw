@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import * as yazl from 'yazl';
+import { platformApprovalId } from '../../container/shared/connector-approval.js';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
@@ -277,6 +278,8 @@ import {
   openChatStreamTurn,
   rejoinChatStreamTurn,
 } from './chat-stream-turns.js';
+import { forwardConnectorDecision } from './connector-approval.js';
+import { handleConnectorDecision } from './connector-approval-route.js';
 import { runCostEstimateToolAction } from './cost-estimate.js';
 import {
   DATA_CONTROLS_PATH,
@@ -3513,6 +3516,14 @@ async function handleApiChat(
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
     ...(body.appNotice === true ? { appNotice: true } : {}),
   };
+  if (!rejoin && approval && platformApprovalId(approval.approvalId)) {
+    if (authContext.kind === 'apiToken' && !authContext.tokenId)
+      throw new GatewayRequestError(
+        403,
+        'Connector approvals require a human chat session.',
+      );
+    await forwardConnectorDecision(approval, sessionId, chatRequest.userId);
+  }
   if (rejoin) {
     if (
       !rejoinChatStreamTurn(res, chatStreamTurnKey(operatorId, chatRequest))
@@ -11476,6 +11487,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
           if (pathname === '/api/admin/config/reload' && method === 'POST') {
             handleApiConfigReload(res);
+            return;
+          }
+          if (
+            pathname === '/api/connector-approvals/decision' &&
+            method === 'POST'
+          ) {
+            await handleConnectorDecision(req, res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {

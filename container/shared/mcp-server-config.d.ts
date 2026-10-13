@@ -1,6 +1,8 @@
 /** Operator-owned MCP configuration, shared across the gateway/worker boundary. */
 export interface McpToolBehaviorConfig {
   trustAnnotations?: boolean;
+  /** Delegate marked writes to the platform's one-shot approval gate. */
+  platformApprovals?: boolean;
   overrides?: Record<string, 'read-only' | 'mutation'>;
 }
 
@@ -15,7 +17,7 @@ export interface McpServerConfig {
   /** The gateway handles OAuth and injects fresh Authorization headers. */
   auth?: 'oauth';
   enabled?: boolean;
-  /** Scheduling declarations only; these never grant tool approval. */
+  /** Operator declarations; these never mint a platform approval grant. */
   toolBehavior?: McpToolBehaviorConfig;
 }
 

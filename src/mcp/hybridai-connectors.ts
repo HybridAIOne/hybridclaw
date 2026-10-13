@@ -76,6 +76,9 @@ export function withAutoHybridAIConnectorsMcpServer(
       enabled: true,
       toolBehavior: {
         ...existing?.toolBehavior,
+        platformApprovals:
+          !existing?.url?.trim() ||
+          existing.url.trim() === resolveGatewayUrl(options),
         overrides: {
           ...PLATFORM_READ_ONLY_TOOLS,
           ...existing?.toolBehavior?.overrides,
