@@ -157,9 +157,8 @@ COPY --link --from=builder /app/dist ./dist
 COPY --link --from=builder /app/bundle ./bundle
 COPY --link --from=builder /app/console/dist ./console/dist
 
-# Container agent runtime (host sandbox mode) + shared modules
+# Container agent runtime (host sandbox mode)
 COPY --link --from=builder /app/container/dist ./container/dist
-COPY --link --from=builder /app/container/shared ./container/shared
 
 # Gateway-served static content from docs/: /about (index.html), /agents
 # (agents.html), the /docs markdown site, and shared favicons/images.

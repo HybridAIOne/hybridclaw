@@ -10,12 +10,11 @@
   },
   "files": [
     "dist/",
-    "shared/",
     "Dockerfile"
   ],
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});\"",
-    "build": "tsc",
+    "build": "node scripts/bundle.mjs",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",
@@ -38,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "22.20.4",
+    "esbuild": "0.28.2",
     "typescript": "5.9.3"
   },
   "overrides": {

@@ -44,9 +44,10 @@ function writePackagedTrackedFiles(cwd: string): void {
     path.join(cwd, 'container', 'package-lock.json'),
     JSON.stringify({ name: 'hybridclaw-container', version: '0.4.1' }),
   );
+  fs.mkdirSync(path.join(cwd, 'container', 'scripts'), { recursive: true });
   fs.writeFileSync(
-    path.join(cwd, 'container', 'tsconfig.json'),
-    JSON.stringify({ compilerOptions: {} }),
+    path.join(cwd, 'container', 'scripts', 'bundle.mjs'),
+    'export {};\n',
   );
   fs.writeFileSync(
     path.join(cwd, 'container', 'src', 'index.ts'),
@@ -475,11 +476,14 @@ describe('ensureContainerImageReady', () => {
     expect(logSpy).not.toHaveBeenCalledWith('Agent runtime ready.');
   });
 
-  test('rebuilds after a container/shared edit in a source checkout', async () => {
+  test.each([
+    'container/shared/regex.js',
+    'container/scripts/bundle.mjs',
+  ])('rebuilds after a %s edit in a source checkout', async (input) => {
     const cwd = createTempDir();
     const homeDir = createTempDir();
     writeTrackedFiles(cwd);
-    const sharedFile = path.join(cwd, 'container', 'shared', 'regex.js');
+    const sharedFile = path.join(cwd, input);
     fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
     fs.writeFileSync(sharedFile, 'export const a = 1;\n');
     Object.defineProperty(process.stdin, 'isTTY', {

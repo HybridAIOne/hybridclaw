@@ -83,7 +83,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'console/dist/index.html',
     // Container runtime
     'container/dist/index.js',
-    'container/shared/model-names.js',
     'container/tools/package.json',
     // Agent templates and skills
     'templates/SOUL.md',

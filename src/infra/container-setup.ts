@@ -338,7 +338,7 @@ const TRACKED_FILES = [
   'container/Dockerfile',
   'container/package.json',
   'container/package-lock.json',
-  'container/tsconfig.json',
+  'container/scripts/bundle.mjs',
 ];
 const TRACKED_SOURCE_ROOTS = ['container/src', 'container/shared'];
 

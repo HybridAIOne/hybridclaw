@@ -7,6 +7,8 @@ const requiredPrefixes = ['dist/'];
 
 const forbiddenPathPatterns = [
   /^src\//,
+  // dist/index.js inlines the shared modules.
+  /^shared\//,
   /^scripts\//,
   /^tsconfig\.json$/,
   /^vitest\..*\.ts$/,

@@ -44,7 +44,7 @@ const GATEWAY_BUILD_FILE_PAIRS: Array<{
   {
     name: 'container-tools',
     sourcePath: 'container/src/tools.ts',
-    buildPath: 'container/dist/tools.js',
+    buildPath: 'container/dist/index.js',
   },
 ];
 
