@@ -1,11 +1,6 @@
 import { withMemoryDatabase } from './database.js';
 import { queryOne } from './sqlite.js';
 
-export interface ObservabilityIngestTokenRecord {
-  token: string;
-  updatedAt: string;
-}
-
 export function getObservabilityOffset(streamKey: string): number {
   return withMemoryDatabase((database) => {
     const normalized = streamKey.trim();
@@ -39,29 +34,18 @@ export function setObservabilityOffset(
   });
 }
 
-export function getObservabilityIngestTokenRecord(
-  tokenKey: string,
-): ObservabilityIngestTokenRecord | null {
+export function getObservabilityIngestToken(tokenKey: string): string | null {
   return withMemoryDatabase((database) => {
     const normalized = tokenKey.trim();
     if (!normalized) return null;
-    const row = queryOne<{ token: string; updated_at: string }, [string]>(
+    const row = queryOne<{ token: string }, [string]>(
       database,
-      'SELECT token, updated_at FROM observability_ingest_tokens WHERE token_key = ?',
+      'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
       normalized,
     );
     if (!row || typeof row.token !== 'string') return null;
-    const token = row.token.trim();
-    if (!token) return null;
-    return {
-      token,
-      updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
-    };
+    return row.token.trim() || null;
   });
-}
-
-export function getObservabilityIngestToken(tokenKey: string): string | null {
-  return getObservabilityIngestTokenRecord(tokenKey)?.token ?? null;
 }
 
 export function setObservabilityIngestToken(
