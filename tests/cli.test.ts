@@ -1298,6 +1298,7 @@ async function importFreshCli(options?: {
     return {
       APP_VERSION: '0.4.1',
       DATA_DIR: '/tmp/hybridclaw-data',
+      DISCORD_TOKEN: '',
       GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
       GATEWAY_CLIENT_BASE_URL: 'http://127.0.0.1:9090',
       MissingRequiredEnvVarError,

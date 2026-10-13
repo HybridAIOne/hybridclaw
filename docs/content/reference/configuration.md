@@ -295,8 +295,10 @@ saved revision history directly.
   `{"msteams": "team", "email": "team"}`. A bound channel answers as its agent
   whatever the default is: Teams users without a user mapping, the top-level
   email mailbox, and new chats on the other channels. Changing the default
-  first binds every enabled channel without a binding to the agent it answered
-  as, so activating an agent never moves a channel. Set bindings with
+  first binds every channel that is on and has no binding to the agent it
+  answered as, so activating an agent never moves a channel. A channel is on
+  when its `enabled` is true; Discord when `DISCORD_TOKEN` is set, WhatsApp once
+  linked. Set bindings with
   `hybridclaw agent bind <agent-id> <channel>...`
 - `agents.list[].extends` names a parent agent. Model, skills, tools, local
   and MCP tool modes, chatbot ID, RAG, web search, proxy, budget, and A2A

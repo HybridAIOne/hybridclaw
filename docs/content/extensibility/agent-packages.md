@@ -610,7 +610,8 @@ Support hierarchy:
 `hybridclaw agent activate <agent-id>`:
 
 1. validates that the agent exists
-2. binds every enabled channel without a binding to the current default agent
+2. binds every channel that is on (enabled, a Discord token set, WhatsApp
+   linked) and has no binding to the current default agent
    (`agents.channels`), so no channel changes agent
 3. writes `agents.defaultAgentId` into runtime config
 4. makes that agent the default for new requests, fresh web sessions, and

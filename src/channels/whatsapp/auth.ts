@@ -206,26 +206,41 @@ export async function resetWhatsAppAuthState(
   }
 }
 
-export async function getWhatsAppAuthStatus(
-  authDir = WHATSAPP_AUTH_DIR,
-): Promise<{
+type WhatsAppAuthStatus = {
   linked: boolean;
   jid: string | null;
-}> {
-  const credsPath = path.join(authDir, 'creds.json');
+};
+
+function parseWhatsAppAuthStatus(raw: string): WhatsAppAuthStatus {
+  const parsed = JSON.parse(raw) as {
+    registered?: unknown;
+    me?: { id?: unknown } | null;
+  };
+  const jid =
+    typeof parsed?.me?.id === 'string' && parsed.me.id.trim()
+      ? parsed.me.id.trim()
+      : null;
+  return { linked: jid != null || parsed?.registered === true, jid };
+}
+
+export async function getWhatsAppAuthStatus(
+  authDir = WHATSAPP_AUTH_DIR,
+): Promise<WhatsAppAuthStatus> {
   try {
-    const raw = await fs.readFile(credsPath, 'utf-8');
-    const parsed = JSON.parse(raw) as {
-      registered?: unknown;
-      me?: { id?: unknown } | null;
-    };
-    const jid =
-      typeof parsed?.me?.id === 'string' && parsed.me.id.trim()
-        ? parsed.me.id.trim()
-        : null;
-    const linked = jid != null || parsed?.registered === true;
-    return { linked, jid };
+    return parseWhatsAppAuthStatus(
+      await fs.readFile(path.join(authDir, 'creds.json'), 'utf-8'),
+    );
   } catch {
     return { linked: false, jid: null };
+  }
+}
+
+export function isWhatsAppLinked(authDir = WHATSAPP_AUTH_DIR): boolean {
+  try {
+    return parseWhatsAppAuthStatus(
+      fsSync.readFileSync(path.join(authDir, 'creds.json'), 'utf-8'),
+    ).linked;
+  } catch {
+    return false;
   }
 }
