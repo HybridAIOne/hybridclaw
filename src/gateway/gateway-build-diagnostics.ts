@@ -2,11 +2,11 @@
  * Gateway build diagnostics — the `build` block of `gateway status`.
  *
  * Source-vs-build freshness and git metadata are only read in a source
- * checkout. A packaged install ships `container/src/` beside `container/dist/`
- * for image builds, and npm extraction stamps both with install-time mtimes,
- * so comparing them there reports staleness that cannot exist. It also has no
- * git metadata, and `/health` builds this block on every request, so spawning
- * git there only blocks the event loop to learn nothing.
+ * checkout. A packaged install ships no sources to compare, and npm extraction
+ * stamps files with install-time mtimes, so comparing them there reports
+ * staleness that cannot exist. It also has no git metadata, and `/health`
+ * builds this block on every request, so spawning git there only blocks the
+ * event loop to learn nothing.
  */
 
 import { spawnSync } from 'node:child_process';
