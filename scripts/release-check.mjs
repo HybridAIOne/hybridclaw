@@ -14,6 +14,7 @@ const requiredExactPaths = [
   // Without this manifest the container bootstrap silently no-ops
   // ('missing-container-package'), shipping an empty container runtime.
   'container/package.json',
+  'container/dist/index.js',
   'container/npm-shrinkwrap.json',
   'plugins/connector-events/hybridclaw.plugin.yaml',
   'plugins/connector-events/package.json',
@@ -62,7 +63,6 @@ const requiredPrefixes = [
   'skills/',
   'templates/',
   'docs/',
-  'container/src/',
   'console/dist/',
   'container/shared/',
 ];
@@ -76,6 +76,8 @@ const forbiddenPathPatterns = [
   /^biome\.json$/,
   /^tsconfig\.json$/,
   /^dist\/.*\.test\./,
+  // Packaged installs pull the agent image; the host sandbox runs container/dist.
+  /^container\/src\//,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,
 ];
 
