@@ -1,7 +1,7 @@
 {
   "name": "@hybridaione/hybridclaw-console",
   "private": true,
-  "version": "0.39.13",
+  "version": "0.40.0",
   "license": "MIT",
   "type": "module",
   "scripts": {

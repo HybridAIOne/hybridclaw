@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.13',
+  version: '0.40.0',
   highlights: [
-    'Mistral model flavour',
-    'Scheduled tasks retain their owner',
-    'Complete built-in and plugin tool controls',
+    'Bind channels to their agent',
+    'Give each agent its own mailbox',
+    'Review connector changes in chat',
+    'Lighter runtime packages',
   ],
 } as const;
 

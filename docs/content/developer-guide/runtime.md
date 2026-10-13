@@ -758,7 +758,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - token source: `POST /api/v1/agent-observability/ingest-token:ensure`
 - source table: local `audit_events`, ordered by `id`
 - persisted cursor: `observability_offsets`
-- cached ingest tokens: `observability_ingest_tokens`
+- cached ingest tokens: `observability_ingest_tokens`, reused until ingest
+  answers 401/403, then rotated once with `rotate: true`
 
 Runtime diagnostics:
 
