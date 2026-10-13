@@ -6,6 +6,7 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-agent-config-command-',
+  envVars: ['DISCORD_TOKEN'],
 });
 
 function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
@@ -104,6 +105,36 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
   expect(
     fs.readFileSync(path.join(workspacePath, 'IDENTITY.md'), 'utf-8'),
   ).toBe('# Updated Felix\n');
+});
+
+test('activating an agent keeps Discord and WhatsApp on the agent they answered as', async () => {
+  setupHome({ DISCORD_TOKEN: 'discord-bot-token' });
+
+  const { handleAgentPackageCommand } = await import(
+    '../src/cli/agent-command.ts'
+  );
+  const { WHATSAPP_AUTH_DIR } = await import(
+    '../src/channels/whatsapp/auth.ts'
+  );
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  fs.mkdirSync(WHATSAPP_AUTH_DIR, { recursive: true });
+  fs.writeFileSync(
+    path.join(WHATSAPP_AUTH_DIR, 'creds.json'),
+    JSON.stringify({ me: { id: '4915112345678@s.whatsapp.net' } }),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await handleAgentPackageCommand([
+    'config',
+    JSON.stringify({ id: 'sales', name: 'Sales' }),
+    '--activate',
+  ]);
+
+  expect(getRuntimeConfig().agents.defaultAgentId).toBe('sales');
+  expect(getRuntimeConfig().agents.channels).toEqual({
+    discord: 'main',
+    whatsapp: 'main',
+  });
 });
 
 test('agent create registers an existing managed workspace', async () => {
