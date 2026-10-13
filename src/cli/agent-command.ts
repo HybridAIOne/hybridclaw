@@ -5,23 +5,16 @@ import { resolveInstallArchiveSource } from '../agents/agent-install-source.js';
 import { DATA_DIR } from '../config/config.js';
 import {
   ensureRuntimeConfigFile,
-  getRuntimeConfig,
   runtimeConfigPath,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { expandHomePath } from '../utils/path.js';
-import { normalizeArgs, parseValueFlag } from './common.js';
+import { loadAgentRegistry, normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
 
 async function ensureAgentPackagingRuntime(): Promise<void> {
   ensureRuntimeConfigFile();
-  const { initDatabase, isDatabaseInitialized } = await import(
-    '../memory/db.js'
-  );
-  const { initAgentRegistry } = await import('../agents/agent-registry.js');
-  if (!isDatabaseInitialized()) {
-    initDatabase({ quiet: true });
-  }
-  initAgentRegistry(getRuntimeConfig().agents);
+  await loadAgentRegistry();
 }
 
 function assertCreateAgentId(value: string): void {
@@ -822,6 +815,41 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     console.log(
       `🎯 Activated agent ${agent.id} as the default at ${runtimeConfigPath()}.`,
     );
+    return;
+  }
+
+  if (sub === 'bind') {
+    const [targetAgentId = '', ...kinds] = normalized.slice(1);
+    if (!targetAgentId || kinds.length === 0) {
+      printAgentUsage();
+      throw new Error(
+        'Usage: `hybridclaw agent bind <agent-id> <channel>...` requires an agent id and at least one channel.',
+      );
+    }
+    const { EXTERNAL_CHANNEL_KINDS } = await import('../channels/channel.js');
+    const unknown = kinds.filter(
+      (kind) => !(EXTERNAL_CHANNEL_KINDS as readonly string[]).includes(kind),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `Unknown channel: ${unknown.join(', ')}. Channels: ${EXTERNAL_CHANNEL_KINDS.join(', ')}.`,
+      );
+    }
+    const { getAgentById } = await import('../agents/agent-registry.js');
+    const agent = getAgentById(targetAgentId);
+    if (!agent || agent.archived) {
+      throw new Error(`Unknown agent: ${targetAgentId}`);
+    }
+    updateRuntimeConfig(
+      (draft) => {
+        draft.agents.channels = {
+          ...draft.agents.channels,
+          ...Object.fromEntries(kinds.map((kind) => [kind, agent.id])),
+        };
+      },
+      { route: `agents.channels#${agent.id}`, source: 'cli' },
+    );
+    console.log(`🔗 ${kinds.join(', ')} now answer as ${agent.id}.`);
     return;
   }
 

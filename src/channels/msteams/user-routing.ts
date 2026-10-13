@@ -4,14 +4,15 @@
  * Personal agents (children via `extends`) answer only in direct chats; in
  * group chats and channel threads their parent answers, so one shared
  * conversation never mixes several people's private agents. Without a
- * configured tenant (multi-tenant bot) routing always picks the default agent.
+ * configured tenant (multi-tenant bot) routing always picks the Teams channel's
+ * agent (`agents.channels.msteams`, else the default agent).
  * Session construction stays with inbound.ts; unavailable mappings fail closed.
  */
 import { getAgentById } from '../../agents/agent-registry.js';
 import { createPersonalAgent } from '../../agents/personal-agent.js';
 import {
   getRuntimeConfig,
-  resolveDefaultAgentId,
+  resolveChannelAgentId,
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import {
@@ -29,7 +30,7 @@ export function resolveMSTeamsUserAgent(
     ? getChannelUserMapping({ channelKind: 'msteams', tenantId, userId })
         ?.agentId
     : null;
-  if (!agentId) return resolveDefaultAgentId(getRuntimeConfig());
+  if (!agentId) return resolveChannelAgentId('msteams', getRuntimeConfig());
   const agent = getAgentById(agentId);
   if (!agent || agent.archived) {
     throw new Error(

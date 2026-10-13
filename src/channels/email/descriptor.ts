@@ -4,7 +4,7 @@
  * a channel merely because a caller classifies a target.
  */
 
-import { resolveConfiguredDefaultAgentId } from '../../agents/agent-types.js';
+import { resolveConfiguredChannelAgentId } from '../../agents/agent-types.js';
 import type { ChannelDescriptor } from '../channel-descriptor.js';
 import { emailRuntimeLoader } from '../channel-runtime-loaders.js';
 import { isEmailAddress } from './allowlist.js';
@@ -17,9 +17,9 @@ export const descriptor = {
     (await import('./proactive.js')).sendProactive(...args),
   start: async () => (await import('./gateway.js')).startEmailIntegration(),
   stop: emailRuntimeLoader.stop,
-  // Accounts without an agentId are bound to the default agent at start.
+  // Accounts without an agentId are bound to the email channel's agent at start.
   configChanged: (next, prev) =>
     JSON.stringify(next.email) !== JSON.stringify(prev.email) ||
-    resolveConfiguredDefaultAgentId(next.agents) !==
-      resolveConfiguredDefaultAgentId(prev.agents),
+    resolveConfiguredChannelAgentId(next.agents, 'email') !==
+      resolveConfiguredChannelAgentId(prev.agents, 'email'),
 } satisfies ChannelDescriptor;

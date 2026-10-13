@@ -288,8 +288,16 @@ saved revision history directly.
   `transformers-embeddings` plugin, which holds its own model settings); `0`
   disables scheduled runs, `24` matches `dream on`, and `dream now` triggers
   an immediate local consolidation run
-- `agents.defaultAgentId` for the default agent used by new requests and fresh
-  web sessions when no agent is pinned explicitly
+- `agents.defaultAgentId` for the default agent used by new requests, fresh
+  web sessions, and channels without a binding when no agent is pinned
+  explicitly
+- `agents.channels` binds channels to agents, for example
+  `{"msteams": "team", "email": "team"}`. A bound channel answers as its agent
+  whatever the default is: Teams users without a user mapping, the top-level
+  email mailbox, and new chats on the other channels. Changing the default
+  first binds every enabled channel without a binding to the agent it answered
+  as, so activating an agent never moves a channel. Set bindings with
+  `hybridclaw agent bind <agent-id> <channel>...`
 - `agents.list[].extends` names a parent agent. Model, skills, tools, local
   and MCP tool modes, chatbot ID, RAG, web search, proxy, budget, and A2A
   exposure resolve from the parent whenever the child leaves them unset, at

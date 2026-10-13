@@ -16,6 +16,11 @@ import {
   normalizeDiscordWebhookUrl,
 } from '../channels/discord-webhook/target.js';
 import {
+  agentEmailPasswordSecretId,
+  findAgentEmailAccount,
+  upsertAgentEmailAccount,
+} from '../channels/email/agent-account.js';
+import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
 } from '../channels/email/allowlist.js';
@@ -59,7 +64,7 @@ import {
 import { normalizePhoneNumber } from '../utils/phone-number.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
-import { normalizeArgs, parseValueFlag } from './common.js';
+import { loadAgentRegistry, normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 
 function resolveWhatsAppSetupSettleMs(): number {
@@ -951,6 +956,7 @@ function parseBooleanFlagValue(flagName: string, raw: string): boolean {
 }
 
 function parseEmailSetupArgs(args: string[]): {
+  agentId: string | null;
   address: string | null;
   password: string | null;
   imapHost: string | null;
@@ -965,6 +971,7 @@ function parseEmailSetupArgs(args: string[]): {
   textChunkLimit: number | null;
   mediaMaxMb: number | null;
 } {
+  let agentId: string | null = null;
   let address: string | null = null;
   let password: string | null = null;
   let imapHost: string | null = null;
@@ -1201,6 +1208,18 @@ function parseEmailSetupArgs(args: string[]): {
       );
       continue;
     }
+    const agentFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--agent',
+      placeholder: '<agent-id>',
+    });
+    if (agentFlag) {
+      agentId = agentFlag.value;
+      index = agentFlag.nextIndex;
+      continue;
+    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -1210,6 +1229,7 @@ function parseEmailSetupArgs(args: string[]): {
   }
 
   return {
+    agentId,
     address,
     password,
     imapHost,
@@ -1732,7 +1752,18 @@ function configureDiscordChannel(args: string[]): void {
 async function configureEmailChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseEmailSetupArgs(args);
-  const currentConfig = getRuntimeConfig().email;
+  const { agentId } = parsed;
+  if (agentId) {
+    await loadAgentRegistry();
+    const { getAgentById } = await import('../agents/agent-registry.js');
+    if (!getAgentById(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+  }
+  const passwordSecretId = agentId
+    ? agentEmailPasswordSecretId(agentId)
+    : 'EMAIL_PASSWORD';
+  const currentConfig =
+    (agentId && findAgentEmailAccount(getRuntimeConfig().email, agentId)) ||
+    getRuntimeConfig().email;
 
   const resolved = await resolveInteractiveEmailSetup({
     address: parsed.address || currentConfig.address,
@@ -1743,8 +1774,8 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
     password:
       parsed.password?.trim() ||
-      process.env.EMAIL_PASSWORD?.trim() ||
-      readStoredRuntimeSecret('EMAIL_PASSWORD') ||
+      (agentId ? '' : process.env.EMAIL_PASSWORD?.trim()) ||
+      readStoredRuntimeSecret(passwordSecretId) ||
       '',
     smtpHost: parsed.smtpHost || currentConfig.smtpHost,
     smtpPort: parsed.smtpPort || currentConfig.smtpPort,
@@ -1773,8 +1804,35 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     cursorBaselines = null;
   }
 
+  const shouldSavePassword =
+    resolved.passwordSource === 'prompt' || Boolean(parsed.password?.trim());
+  const hasStoredPassword = Boolean(readStoredRuntimeSecret(passwordSecretId));
+  // An agent's account refers to its secret, which must exist before the ref.
+  const secretsPath = shouldSavePassword
+    ? saveRuntimeSecrets({ [passwordSecretId]: resolved.password })
+    : runtimeSecretsPath();
+
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.email.enabled = true;
+    if (agentId) {
+      upsertAgentEmailAccount(draft.email, {
+        agentId,
+        address: resolved.address,
+        password: { source: 'store', id: passwordSecretId },
+        imapHost: resolved.imapHost,
+        imapPort: resolved.imapPort,
+        imapSecure: resolved.imapSecure,
+        smtpHost: resolved.smtpHost,
+        smtpPort: resolved.smtpPort,
+        smtpSecure: resolved.smtpSecure,
+        pollIntervalMs: parsed.pollIntervalMs || currentConfig.pollIntervalMs,
+        folders:
+          parsed.folders.length > 0 ? parsed.folders : currentConfig.folders,
+        allowFrom: resolved.allowFrom,
+        mediaMaxMb: parsed.mediaMaxMb || currentConfig.mediaMaxMb,
+      });
+      return;
+    }
     draft.email.address = resolved.address;
     draft.email.imapHost = resolved.imapHost;
     draft.email.imapPort = resolved.imapPort;
@@ -1792,15 +1850,8 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     draft.email.mediaMaxMb = parsed.mediaMaxMb || draft.email.mediaMaxMb;
   });
 
-  const shouldSavePassword =
-    resolved.passwordSource === 'prompt' || Boolean(parsed.password?.trim());
-  const hasStoredPassword = Boolean(readStoredRuntimeSecret('EMAIL_PASSWORD'));
-  const secretsPath = shouldSavePassword
-    ? saveRuntimeSecrets({ EMAIL_PASSWORD: resolved.password })
-    : runtimeSecretsPath();
-
   console.log(`Updated runtime config at ${runtimeConfigPath()}`);
-  if (shouldSavePassword || hasStoredPassword) {
+  if (!agentId && (shouldSavePassword || hasStoredPassword)) {
     setRuntimeConfigSecretInput(
       'email.password',
       {
@@ -1818,17 +1869,17 @@ async function configureEmailChannel(args: string[]): Promise<void> {
   } else {
     console.log(`Email password unchanged. Secrets path: ${secretsPath}`);
   }
+  const mailbox =
+    (agentId && findAgentEmailAccount(nextConfig.email, agentId)) ||
+    nextConfig.email;
   console.log('Email mode: enabled');
-  console.log(`Email address: ${nextConfig.email.address}`);
-  console.log(
-    `IMAP: ${nextConfig.email.imapHost}:${nextConfig.email.imapPort}`,
-  );
-  console.log(`IMAP secure: ${nextConfig.email.imapSecure}`);
-  console.log(
-    `SMTP: ${nextConfig.email.smtpHost}:${nextConfig.email.smtpPort}`,
-  );
-  console.log(`SMTP secure: ${nextConfig.email.smtpSecure}`);
-  console.log(`Folders: ${nextConfig.email.folders.join(', ')}`);
+  if (agentId) console.log(`Email agent: ${agentId}`);
+  console.log(`Email address: ${mailbox.address}`);
+  console.log(`IMAP: ${mailbox.imapHost}:${mailbox.imapPort}`);
+  console.log(`IMAP secure: ${mailbox.imapSecure}`);
+  console.log(`SMTP: ${mailbox.smtpHost}:${mailbox.smtpPort}`);
+  console.log(`SMTP secure: ${mailbox.smtpSecure}`);
+  console.log(`Folders: ${mailbox.folders.join(', ')}`);
   if (cursorBaselines) {
     for (const baseline of cursorBaselines) {
       console.log(
@@ -1841,21 +1892,21 @@ async function configureEmailChannel(args: string[]): Promise<void> {
       'Warning: could not reach the mailbox to seed poll cursors; mail that arrives before the gateway first polls may be skipped.',
     );
   }
-  if (nextConfig.email.allowFrom.length > 0) {
-    console.log(`Allowed senders: ${nextConfig.email.allowFrom.join(', ')}`);
+  if (mailbox.allowFrom.length > 0) {
+    console.log(`Allowed senders: ${mailbox.allowFrom.join(', ')}`);
   } else {
     console.log('Allowed senders: none (inbound email stays disabled)');
   }
-  console.log(`Poll interval: ${nextConfig.email.pollIntervalMs}ms`);
+  console.log(`Poll interval: ${mailbox.pollIntervalMs}ms`);
   console.log(`Text chunk limit: ${nextConfig.email.textChunkLimit}`);
-  console.log(`Media limit: ${nextConfig.email.mediaMaxMb}MB`);
+  console.log(`Media limit: ${mailbox.mediaMaxMb}MB`);
   console.log('Next:');
   console.log('  Restart the gateway to pick up email settings:');
   console.log('    hybridclaw gateway restart --foreground');
   console.log('    hybridclaw gateway status');
-  if (nextConfig.email.allowFrom.length > 0) {
+  if (mailbox.allowFrom.length > 0) {
     console.log(
-      `  Send a test message from an allowlisted sender to ${nextConfig.email.address}`,
+      `  Send a test message from an allowlisted sender to ${mailbox.address}`,
     );
   } else {
     console.log(

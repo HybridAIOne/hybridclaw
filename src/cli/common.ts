@@ -1,6 +1,18 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 
+export async function loadAgentRegistry(): Promise<void> {
+  const { initDatabase, isDatabaseInitialized } = await import(
+    '../memory/db.js'
+  );
+  if (!isDatabaseInitialized()) {
+    initDatabase({ quiet: true });
+  }
+  const { getRuntimeConfig } = await import('../config/runtime-config.js');
+  const { initAgentRegistry } = await import('../agents/agent-registry.js');
+  initAgentRegistry(getRuntimeConfig().agents);
+}
+
 export function makeLazyApi<T>(
   importer: () => Promise<T>,
   notInitializedMessage: string,

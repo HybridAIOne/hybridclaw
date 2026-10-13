@@ -915,6 +915,56 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   );
 });
 
+test('channels email setup --agent gives that agent its own mailbox beside the channel one', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  const setup = (...args: string[]) =>
+    cli.main([
+      'channels',
+      'email',
+      'setup',
+      '--imap-host',
+      'imap.example.com',
+      '--smtp-host',
+      'smtp.example.com',
+      ...args,
+    ]);
+
+  await setup('--address', 'team@example.com', '--password', 'team-password');
+  await cli.main(['agent', 'create', 'sales']);
+  await setup(
+    '--agent',
+    'sales',
+    '--address',
+    'sales@example.com',
+    '--password',
+    'sales-password',
+  );
+
+  const rawEmail = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ).email as Record<string, unknown>;
+  expect(rawEmail.address).toBe('team@example.com');
+  expect(rawEmail.accounts).toMatchObject([
+    {
+      agentId: 'sales',
+      address: 'sales@example.com',
+      password: { source: 'store', id: 'EMAIL_PASSWORD_SALES' },
+    },
+  ]);
+  const { readStoredRuntimeSecret } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  expect(readStoredRuntimeSecret('EMAIL_PASSWORD')).toBe('team-password');
+  expect(readStoredRuntimeSecret('EMAIL_PASSWORD_SALES')).toBe('sales-password');
+  const { resolveEmailSenderAddress } = await import(
+    '../src/channels/email/sender-address.ts'
+  );
+  expect(resolveEmailSenderAddress('main')).toBe('team@example.com');
+  expect(resolveEmailSenderAddress('sales')).toBe('sales@example.com');
+});
+
 test('channels email setup still succeeds when cursor seeding cannot reach IMAP', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir, { emailSeedError: true });

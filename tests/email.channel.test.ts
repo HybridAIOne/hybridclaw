@@ -1451,7 +1451,7 @@ describe('email runtime', () => {
     ]);
   });
 
-  test('routes the top-level mailbox to the configured default agent', async () => {
+  test("routes the top-level mailbox to the email channel's agent", async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
       DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
@@ -1468,7 +1468,7 @@ describe('email runtime', () => {
     }));
     vi.doMock('../src/config/runtime-config.ts', async () => ({
       ...(await vi.importActual('../src/config/runtime-config.ts')),
-      resolveDefaultAgentId: () => 'hy',
+      resolveChannelAgentId: () => 'hy',
     }));
     vi.doMock('nodemailer', () => ({
       default: {
