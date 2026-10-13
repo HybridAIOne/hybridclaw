@@ -35,7 +35,7 @@ function writeBuildOutputs(root: string): void {
     'dist/cli.js',
     'dist/gateway/gateway-service.js',
     'dist/gateway/gateway-http-proxy.js',
-    'container/dist/tools.js',
+    'container/dist/index.js',
   ]) {
     writeFile(root, buildPath, BUILD_TIME);
   }

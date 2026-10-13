@@ -1,6 +1,7 @@
 # --- Build stage ---
-# Runs on the build host's own architecture: tsc output is platform-independent
-# and runtime-lite installs its own deps, so arm64 need not compile under QEMU.
+# Runs on the build host's own architecture: the esbuild bundle is
+# platform-independent and runtime-lite installs its own deps, so arm64 need
+# not compile under QEMU.
 FROM --platform=$BUILDPLATFORM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
 WORKDIR /app
 
@@ -14,10 +15,10 @@ RUN printf '%s\n' \
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
-COPY tsconfig.json ./
+COPY scripts/bundle.mjs scripts/
 COPY shared/ shared/
 COPY src/ src/
-RUN npx tsc
+RUN node scripts/bundle.mjs
 
 # --- Runtime base (no LibreOffice) ---
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime-lite
@@ -104,7 +105,6 @@ USER node
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 
 COPY --link --chown=1000:1000 --from=builder /app/dist/ dist/
-COPY --link --chown=1000:1000 --from=builder /app/shared/ shared/
 
 # Declared last: an ARG invalidates every instruction after it, so a version
 # bump here would otherwise rebuild the whole runtime stage.
