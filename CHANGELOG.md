@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## [0.40.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.0) - 2026-10-13
+
+### Added
+
+- **Channel-to-agent bindings**: `hybridclaw agent bind <agent-id> <channel>...`
+  assigns channels through `agents.channels`. Activating another agent keeps
+  enabled channels on their previous agent, including token-configured Discord
+  and linked WhatsApp. Existing per-user Teams mappings remain authoritative.
+- **Per-agent mailboxes**: `hybridclaw channels email setup --agent <id>`
+  configures an agent's own mailbox and stores its password in the runtime
+  secret store.
+- **Connector approval cards**: Changes gated by a configured connector
+  approval broker can be reviewed in Hy's chat or the connector dashboard.
+  Each change requires a one-shot decision; the exact pending call survives
+  worker restarts, and full-auto cannot bypass the broker's approval gate.
+
+### Changed
+
+- **Agent adoption**: `agent adopt` transfers the source agent's channel
+  bindings and takes the default-agent slot only when the source held it.
+  Bound agents cannot be uninstalled until their channels are reassigned.
+- **Runtime packaging**: The npm package and desktop app omit the agent's
+  TypeScript sources and Dockerfile. Packaged installs use the published agent
+  image, and the agent runtime bundles its internal shared modules.
+- **Private security reporting**: Report vulnerabilities through GitHub's
+  private vulnerability reporting or `security@hybridai.one`.
+
+### Fixed
+
+- **Packaged gateway diagnostics**: Installed packages skip Git lookups,
+  while source-checkout Git metadata is cached for the process lifetime.
+- **Observability tokens**: The gateway reuses its cached ingest token instead
+  of rotating it every 20 minutes. A rejected token still triggers renewal
+  and a retry.
+
+### Upgrade Notes
+
+- Activating an agent preserves running channels' previous assignments. To
+  move a channel, run `hybridclaw agent bind <agent-id> <channel>...` explicitly.
+  Existing chats retain their agent.
+- Automation that activates an agent and then configures its mailbox must
+  pass `--agent <id>` to `hybridclaw channels email setup`. Without that flag,
+  setup configures the top-level mailbox, which keeps its channel binding.
+
 ## [0.39.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.13) - 2026-10-12
 
 ### Added
