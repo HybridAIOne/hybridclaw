@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-# Runs on the build host's own architecture: tsc and vite emit
+# Runs on the build host's own architecture: esbuild and vite emit
 # platform-independent JS, and compiling it under QEMU for arm64 took ~13 of
 # the ~17 minutes of a main build (2026-10-01). Install scripts are skipped
 # because nothing here loads a native addon; those come from `deps` below.
@@ -17,7 +17,6 @@ RUN npm --prefix container ci --ignore-scripts
 
 COPY . .
 RUN npm run build:console
-RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
 RUN node scripts/bundle-gateway.mjs
 RUN npm --prefix container run build
 
@@ -154,7 +153,6 @@ COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
 # Gateway compiled output + console SPA
 COPY --link --from=builder /app/dist ./dist
-COPY --link --from=builder /app/bundle ./bundle
 COPY --link --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode)
@@ -192,10 +190,10 @@ ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/ap
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
 # Agents and bundled skills call `hybridclaw ...` from the shell.
-RUN printf '#!/bin/sh\nexec node /app/bundle/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
+RUN printf '#!/bin/sh\nexec node /app/dist/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
   && chmod 755 /usr/local/bin/hybridclaw
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "bundle/cli.js", "gateway", "start", "--foreground"]
+CMD ["node", "dist/cli.js", "gateway", "start", "--foreground"]

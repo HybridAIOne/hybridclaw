@@ -361,6 +361,11 @@ The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
+The gateway (`dist/cli.js`) and the agent runtime (`container/dist/index.js`)
+are esbuild bundles, so stack traces name bundle chunks by default. Source maps
+ship beside them but are off because they slow startup; run with
+`NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
+
 ## Prompt Context Assembly
 
 HybridClaw separates the static system prompt from per-turn dynamic context.

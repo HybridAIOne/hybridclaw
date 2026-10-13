@@ -9,6 +9,10 @@ const requiredExactPaths = [
   'LICENSE',
   'THIRD_PARTY_NOTICES.md',
   'dist/cli.js',
+  'plugin-sdk.js',
+  'plugin-sdk.d.ts',
+  'dist/plugin-sdk.js',
+  'dist/plugin-sdk.d.ts',
   'console/dist/index.html',
   'scripts/postinstall-container.mjs',
   // Without this manifest the container bootstrap silently no-ops
@@ -75,7 +79,8 @@ const forbiddenPathPatterns = [
   /^vitest\..*\.ts$/,
   /^biome\.json$/,
   /^tsconfig\.json$/,
-  /^dist\/.*\.test\./,
+  // The bundle writes JS only to the top of dist/; tsc emits declarations only.
+  /^dist\/.+\/.*\.js$/,
   // Packaged installs pull the agent image; the host sandbox runs container/dist.
   /^container\/src\//,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,

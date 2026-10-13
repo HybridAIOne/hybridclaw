@@ -81,7 +81,9 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'docs/agents.html',
     // Admin console
     'console/dist/index.html',
-    // Container runtime
+    // Gateway and container runtime bundles
+    'dist/cli.js',
+    'dist/plugin-sdk.js',
     'container/dist/index.js',
     'container/tools/package.json',
     // Agent templates and skills

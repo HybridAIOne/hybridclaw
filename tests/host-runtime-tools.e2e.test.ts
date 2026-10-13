@@ -1,6 +1,5 @@
 import {
   type ChildProcess,
-  execFileSync,
   spawn,
   spawnSync,
 } from 'node:child_process';
@@ -22,7 +21,7 @@ import { cleanupTrackedTempDirs } from './test-utils.js';
 
 /**
  * Host-sandbox agents in the layouts the npm-install journey does not cover:
- * the gateway image runs bundle/cli.js with the shared skill libraries on its
+ * the gateway image runs dist/cli.js with the shared skill libraries on its
  * process NODE_PATH, and a checkout runs dist/cli.js and gets those libraries
  * through the gateway's `skill setup` command. The gateway, host agent, tools
  * and skill scripts are real; only the model is scripted (`RUN: <command>`
@@ -278,20 +277,16 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
     cleanupTrackedTempDirs(tempDirs);
   });
 
-  describe('gateway image layout: bundle/cli.js with the libraries on NODE_PATH', () => {
+  describe('gateway image layout: dist/cli.js with the libraries on NODE_PATH', () => {
     let gateway: Gateway | undefined;
     let workspace = '';
 
     beforeAll(async () => {
-      execFileSync(NODE, ['scripts/bundle-gateway.mjs'], {
-        cwd: repoRoot,
-        stdio: 'pipe',
-      });
       const home = path.join(tempRoot, 'image');
       fs.mkdirSync(home);
       gateway = await startGateway({
         home,
-        entry: path.join(repoRoot, 'bundle', 'cli.js'),
+        entry: path.join(repoRoot, 'dist', 'cli.js'),
         preferredPort: 19360,
         modelPort,
         env: { ...process.env, NODE_PATH: toolLibraries },

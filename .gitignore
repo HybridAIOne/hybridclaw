@@ -59,4 +59,3 @@ eval-harness/jevbench/results/
 __pycache__/
 *.py[cod]
 *$py.class
-bundle/

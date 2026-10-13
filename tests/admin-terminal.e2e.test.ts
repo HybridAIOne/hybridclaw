@@ -12,21 +12,16 @@ import {
 } from './helpers/docker-test-setup.js';
 import { cleanupTrackedTempDirs } from './test-utils.js';
 
-// Full-binary e2e for the admin terminal: boots the compiled gateway
-// (dist/cli.js, plus the esbuild bundle/cli.js the Docker image runs when it
-// has been built) in host-sandbox mode with an isolated data dir and HOME, then
+// Full-binary e2e for the admin terminal: boots the built gateway
+// (dist/cli.js) in host-sandbox mode with an isolated data dir and HOME, then
 // drives POST /api/admin/terminal and its websocket stream. Gated behind
 // HYBRIDCLAW_RUN_CLI_E2E=1; needs `npm run build`. The real-PTY cases run only
-// where node-pty's native addon loads; CI builds it, and the bundle, in a
-// separate step after the console e2e has booted a gateway without it.
+// where node-pty's native addon loads; CI builds it in a separate step after
+// the console e2e has booted a gateway without it.
 const RUN = process.env.HYBRIDCLAW_RUN_CLI_E2E === '1';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const DIST_CLI = path.join(REPO, 'dist', 'cli.js');
-const BUNDLE_CLI = path.join(REPO, 'bundle', 'cli.js');
-const ENTRYPOINTS = fs.existsSync(BUNDLE_CLI)
-  ? [DIST_CLI, BUNDLE_CLI]
-  : [DIST_CLI];
+const ENTRYPOINTS = [path.join(REPO, 'dist', 'cli.js')];
 const WEB_API_TOKEN = 'e2e-terminal-token';
 const STARTUP_TIMEOUT_MS = 45_000;
 const STOP_TIMEOUT_MS = 10_000;

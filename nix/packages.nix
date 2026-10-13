@@ -97,7 +97,7 @@
 
         # buildNpmPackage defaults to `npm run build`, which runs:
         #   prebuild:   npm run build:console  (vite build)
-        #   build:      npm --prefix container run build && tsc && chmod +x dist/cli.js
+        #   build:      npm --prefix container run build && tsc && node scripts/bundle-gateway.mjs
         # That is what we want.
 
         # Prune devDeps and testing-only stuff before the install phase copies
