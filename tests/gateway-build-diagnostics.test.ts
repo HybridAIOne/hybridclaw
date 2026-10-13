@@ -1,9 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { expect, test } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { getGatewayBuildDiagnostics } from '../src/gateway/gateway-build-diagnostics.js';
 import { useTempDir } from './test-utils.js';
+
+const spawnSyncMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:child_process', () => ({ spawnSync: spawnSyncMock }));
+
+beforeEach(() => {
+  spawnSyncMock.mockReset();
+  spawnSyncMock.mockImplementation((_command: string, args: string[]) => ({
+    status: 0,
+    stdout: args.includes('--abbrev-ref') ? 'main\n' : 'abc123\n',
+  }));
+});
 
 const makeTempDir = useTempDir('hybridclaw-build-diagnostics-');
 
@@ -46,6 +58,9 @@ test('packaged install is not stale even when shipped container sources look new
 
   expect(build.staleBuild).toBe(false);
   expect(build.files).toEqual([]);
+  expect(build.gitCommit).toBeNull();
+  expect(build.gitBranch).toBeNull();
+  expect(spawnSyncMock).not.toHaveBeenCalled();
 });
 
 test('source checkout edited after the build is stale', () => {
@@ -72,4 +87,6 @@ test('freshly built source checkout is not stale', () => {
   expect(build.staleBuild).toBe(false);
   expect(build.files).toHaveLength(4);
   expect(build.files.every((file) => file.status === 'ok')).toBe(true);
+  expect(build.gitCommit).toBe('abc123');
+  expect(build.gitBranch).toBe('main');
 });
