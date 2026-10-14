@@ -334,6 +334,7 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
   const observations = getSkillObservations({
     skillName: input.skillName,
     limit: config.maxEvidenceExamples,
+    excludeProtectedDeviceData: true,
   });
   const split = splitHeldOut(observations, config.heldOutRatio);
   const training = split.training.map(compactObservation);
@@ -404,9 +405,9 @@ export async function proposeAmendment(input: {
   metrics: SkillHealthMetrics;
   agentId: string;
 }): Promise<SkillAmendment> {
-  if (deviceDataExcludesImprovement()) {
+  if (deviceDataExcludesImprovement(input.agentId)) {
     throw new Error(
-      'Skill improvement is disabled for a runtime with Health or Contacts data.',
+      'Skill improvement is disabled for Hy with Health or Contacts data.',
     );
   }
   const skill = resolveSkillCatalogEntry(input.skillName);

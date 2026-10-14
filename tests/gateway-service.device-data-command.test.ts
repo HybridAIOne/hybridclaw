@@ -253,15 +253,19 @@ test.each(['health', 'contacts'])(
     const { deviceDataExcludesImprovement } = await import(
       '../src/memory/device-data-privacy.js'
     );
-    expect(deviceDataExcludesImprovement()).toBe(false);
+    expect(deviceDataExcludesImprovement('hy')).toBe(false);
     await send(`/device-data set ${payload({ calendar: CALENDAR })} --json`);
-    expect(deviceDataExcludesImprovement()).toBe(false);
+    expect(deviceDataExcludesImprovement('hy')).toBe(false);
     await send(
       `/device-data set ${payload({ [source]: 'Private sample data' })} --json`,
     );
-    expect(deviceDataExcludesImprovement()).toBe(true);
+    expect(deviceDataExcludesImprovement('hy')).toBe(true);
+    expect(deviceDataExcludesImprovement('main')).toBe(false);
+    expect(deviceDataExcludesImprovement('sales')).toBe(false);
     await send('/device-data clear --json');
-    expect(deviceDataExcludesImprovement()).toBe(true);
+    expect(deviceDataExcludesImprovement('hy')).toBe(true);
+    expect(deviceDataExcludesImprovement('main')).toBe(false);
+    expect(deviceDataExcludesImprovement('sales')).toBe(false);
   },
 );
 
@@ -279,7 +283,11 @@ test('existing protected source files and unreadable privacy state fail closed',
       users: { user_a: { health: { text: 'Daily steps: 5000' } } },
     }),
   );
-  expect(deviceDataExcludesImprovement()).toBe(true);
+  expect(deviceDataExcludesImprovement('hy')).toBe(true);
+  expect(deviceDataExcludesImprovement('main')).toBe(false);
+  expect(deviceDataExcludesImprovement('sales')).toBe(false);
   fs.writeFileSync(file, '{broken');
-  expect(deviceDataExcludesImprovement()).toBe(true);
+  expect(deviceDataExcludesImprovement('hy')).toBe(true);
+  expect(deviceDataExcludesImprovement('main')).toBe(false);
+  expect(deviceDataExcludesImprovement('sales')).toBe(false);
 });

@@ -22,6 +22,7 @@ useCleanMocks({
 });
 
 async function setup(options?: {
+  agentId?: string;
   apiKey?: string;
   authenticated?: boolean;
   hybridAIBaseUrl?: string;
@@ -59,10 +60,10 @@ async function setup(options?: {
   const dbPath = path.join(makeTempDir(), 'hybridclaw.db');
   dbModule.initDatabase({ quiet: true, dbPath });
   const session = dbModule.getOrCreateSession(
-    'agent:main:channel:web:chat:dm:peer:response-ratings',
+    `agent:${options?.agentId ?? 'main'}:channel:web:chat:dm:peer:response-ratings`,
     null,
     'web',
-    'main',
+    options?.agentId ?? 'main',
   );
   dbModule.updateSessionModel(session.id, options?.model ?? 'hybridai/gpt-5');
   if (options?.chatbotId !== undefined) {
@@ -79,7 +80,7 @@ async function setup(options?: {
     skillName: 'support',
     sessionId: session.id,
     runId: 'run_1',
-    agentId: 'main',
+    agentId: options?.agentId ?? 'main',
     outcome: 'success',
   });
   const assistantMessageId = dbModule.storeMessage(
@@ -88,7 +89,7 @@ async function setup(options?: {
     null,
     'assistant',
     'Hi there',
-    'main',
+    options?.agentId ?? 'main',
   );
 
   const service = await import('../src/gateway/response-ratings.js');
@@ -837,14 +838,18 @@ describe('response ratings', () => {
 test.each(['health', 'contacts'])(
   'protected %s content never enters rating pipelines, even after disconnect',
   async (source) => {
-    const service = await setup({ apiKey: 'test-key', chatbotId: 'bot_a' });
+    const service = await setup({
+      agentId: 'hy',
+      apiKey: 'test-key',
+      chatbotId: 'bot_a',
+    });
     const device = await import('../src/gateway/device-data.js');
     const privacy = await import('../src/memory/device-data-privacy.js');
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     device.writeDeviceSources('user_a', { [source]: 'Private sample data' });
     device.clearDeviceSources('user_a');
-    expect(privacy.deviceDataExcludesImprovement()).toBe(true);
+    expect(privacy.deviceDataExcludesImprovement('hy')).toBe(true);
     for (const sourceSurface of ['mobile', 'web', 'msteams']) {
       expect(
         service.submitResponseRating({
@@ -867,5 +872,44 @@ test.each(['health', 'contacts'])(
     expect(service.recordSkillFeedbackForObservation).not.toHaveBeenCalled();
     expect(service.recordAuditEvent).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+
+test.each(['main', 'sales-companion', 'leap-coach'])(
+  '%s keeps ratings, skill feedback and forwarding when Hy has protected data',
+  async (agentId) => {
+    const service = await setup({
+      agentId,
+      apiKey: 'test-key',
+      chatbotId: 'bot_a',
+    });
+    const device = await import('../src/gateway/device-data.js');
+    device.writeDeviceSources('user_a', { health: 'Daily steps: 5000' });
+    device.clearDeviceSources('user_a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201 });
+    vi.stubGlobal('fetch', fetchMock);
+    for (const sourceSurface of ['web', 'msteams']) {
+      expect(
+        service.submitResponseRating({
+          sessionId: service.sessionId,
+          messageId: service.assistantMessageId,
+          operatorUserId: 'user_a',
+          rating: 'up',
+          sourceSurface,
+        }).rating,
+      ).toBe('up');
+    }
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(service.recordSkillFeedbackForObservation).toHaveBeenCalledTimes(2);
+    expect(service.recordAuditEvent).toHaveBeenCalledTimes(2);
+    expect(
+      service
+        .getResponseRatingsForMessages({
+          sessionId: service.sessionId,
+          messageIds: [service.assistantMessageId],
+          operatorUserId: 'user_a',
+        })
+        .get(service.assistantMessageId),
+    ).toBe('up');
   },
 );

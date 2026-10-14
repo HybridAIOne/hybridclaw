@@ -143,7 +143,10 @@ function recordSkillExecutionObservation(
   event: SkillRunEvent,
 ): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled || deviceDataExcludesImprovement())
+  if (
+    !config.observationEnabled ||
+    deviceDataExcludesImprovement(event.agent_id)
+  )
     return null;
 
   const observation = insertSkillObservation({
@@ -263,7 +266,7 @@ export function recordSkillExecution(input: {
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
 }): SkillObservation | null {
-  if (deviceDataExcludesImprovement()) return null;
+  if (deviceDataExcludesImprovement(input.agentId)) return null;
   const skillName = input.skillName.trim();
   if (!skillName) return null;
 
@@ -331,8 +334,12 @@ export function recordSkillFeedback(input: {
   sentiment: SkillFeedbackSentiment;
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled || deviceDataExcludesImprovement())
-    return null;
+  if (!config.observationEnabled) return null;
+  const target = getSkillObservations({
+    sessionId: input.sessionId,
+    limit: 1,
+  })[0];
+  if (deviceDataExcludesImprovement(target?.agent_id)) return null;
   const observation = attachFeedbackToObservation({
     sessionId: input.sessionId,
     feedback: input.feedback,
@@ -367,8 +374,12 @@ export function recordSkillFeedbackForObservation(input: {
   sentiment: SkillFeedbackSentiment;
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled || deviceDataExcludesImprovement())
-    return null;
+  if (!config.observationEnabled) return null;
+  const target = getSkillObservations({
+    observationId: input.observationId,
+    limit: 1,
+  })[0];
+  if (deviceDataExcludesImprovement(target?.agent_id)) return null;
   const observation = attachFeedbackToObservationById({
     observationId: input.observationId,
     feedback: input.feedback,

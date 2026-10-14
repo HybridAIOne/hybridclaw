@@ -17,8 +17,8 @@ import path from 'node:path';
 import { logger } from '../logger.js';
 import {
   containsProtectedDeviceSources,
-  deviceDataExcludesImprovement,
   deviceDataStorePath,
+  hasProtectedHyDeviceData,
 } from '../memory/device-data-privacy.js';
 import { queuePhoneSourceChange } from '../scheduler/connector-events.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
@@ -83,8 +83,8 @@ function save(users: Map<string, DeviceSources>): void {
       temporary,
       JSON.stringify({
         version: 1,
-        excludeFromImprovement:
-          deviceDataExcludesImprovement() ||
+        excludeHyFromImprovement:
+          hasProtectedHyDeviceData() ||
           containsProtectedDeviceSources(users.values()),
         users: Object.fromEntries(users),
       }),

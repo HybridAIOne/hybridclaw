@@ -156,7 +156,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
   }
 
   // Consent lookup can yield while protected device data arrives.
-  if (deviceDataExcludesImprovement()) return;
+  if (deviceDataExcludesImprovement(input.target.agent_id)) return;
   const agentId = input.target.agent_id?.trim();
   const payload = {
     chatbot_id: chatbotId,
@@ -263,7 +263,7 @@ export function submitResponseRating(
     throw new Error('Only assistant responses can be rated.');
   }
 
-  if (deviceDataExcludesImprovement()) {
+  if (deviceDataExcludesImprovement(target.agent_id)) {
     return {
       sessionId,
       messageId: input.messageId,

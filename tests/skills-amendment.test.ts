@@ -19,7 +19,7 @@ afterEach(() => {
   context = null;
 });
 
-test('stages and rejects a proposed amendment', async () => {
+test('stages another agent amendment without reusing protected Hy observations', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -32,6 +32,18 @@ test('stages and rejects a proposed amendment', async () => {
     toolCallsFailed: 0,
     durationMs: 120,
   });
+
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'hy-session',
+    runId: 'hy-run',
+    agentId: 'hy',
+    outcome: 'failure',
+    errorDetail: 'PRIVATE_HY_EVIDENCE',
+  });
+  const device = await import('../src/gateway/device-data.js');
+  device.writeDeviceSources('user_a', { health: 'Daily steps: 5000' });
+  device.clearDeviceSources('user_a');
 
   runAgentMock.mockResolvedValueOnce({
     status: 'success',
@@ -61,6 +73,12 @@ Keep the response concise.
     agentId: 'main',
   });
 
+  expect(JSON.stringify(runAgentMock.mock.calls)).not.toContain(
+    'PRIVATE_HY_EVIDENCE',
+  );
+  expect(JSON.stringify(runAgentMock.mock.calls)).toContain(
+    'missed an important step',
+  );
   expect(amendment.status).toBe('staged');
   expect(amendment.guard_verdict).toBe('safe');
   expect(amendment.diff_summary).toBe('8 line(s) (was 7).');

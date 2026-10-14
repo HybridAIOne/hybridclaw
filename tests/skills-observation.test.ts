@@ -1859,7 +1859,7 @@ test('Health and Contacts exclude observations, old trajectories and skill impro
     '../src/skills/skills-amendment.js'
   );
   context.runtimeConfigModule.updateRuntimeConfig((draft) => {
-    draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = ['agent-1'];
+    draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = ['hy', 'main'];
     draft.adaptiveSkills.trajectoryCapture.storeDir = path.join(
       context!.homeDir,
       'trajectories',
@@ -1869,17 +1869,24 @@ test('Health and Contacts exclude observations, old trajectories and skill impro
     skillName: context.skillName,
     sessionId: 'private-session',
     runId: 'private-run',
-    agentId: 'agent-1',
+    agentId: 'hy',
     toolExecutions: [],
     outcome: 'success' as const,
     durationMs: 1,
     input: 'Sample request',
     output: 'Sample answer',
   };
-  recordSkillExecution(execution);
+  const hyObservation = recordSkillExecution(execution)!;
+  const otherExecution = {
+    ...execution,
+    agentId: 'main',
+    sessionId: 'teams-session',
+    runId: 'teams-run',
+  };
+  const otherObservation = recordSkillExecution(otherExecution)!;
   expect(
     getSkillRunTrajectories({ skillName: context.skillName }),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   const events = vi.fn();
   const unsubscribe = subscribeSkillRunEvents(events);
   try {
@@ -1898,20 +1905,45 @@ test('Health and Contacts exclude observations, old trajectories and skill impro
     ).toBeNull();
     expect(
       recordSkillFeedbackForObservation({
-        observationId: 1,
+        observationId: hyObservation.id,
         sessionId: 'private-session',
         feedback: 'Private feedback',
         sentiment: 'positive',
       }),
     ).toBeNull();
     expect(events).not.toHaveBeenCalled();
-    expect(getSkillRunTrajectories({ skillName: context.skillName })).toEqual(
-      [],
-    );
+    expect(getSkillRunTrajectories({ skillName: context.skillName })).toEqual([
+      expect.objectContaining({ agent_id: 'main' }),
+    ]);
+    expect(
+      getSkillRunTrajectories({ skillName: context.skillName, agentId: 'hy' }),
+    ).toEqual([]);
+    expect(
+      recordSkillExecution({ ...otherExecution, runId: 'teams-run-2' }),
+    ).not.toBeNull();
+    expect(
+      recordSkillFeedback({
+        sessionId: otherExecution.sessionId,
+        feedback: 'Helpful',
+        sentiment: 'positive',
+      }),
+    ).not.toBeNull();
+    expect(
+      recordSkillFeedbackForObservation({
+        observationId: otherObservation.id,
+        sessionId: otherExecution.sessionId,
+        feedback: 'Helpful',
+        sentiment: 'positive',
+      }),
+    ).not.toBeNull();
+    expect(events).toHaveBeenCalledOnce();
+    expect(
+      getSkillRunTrajectories({ skillName: context.skillName }),
+    ).toHaveLength(2);
     await expect(
       proposeAmendment({
         skillName: context.skillName,
-        agentId: 'agent-1',
+        agentId: 'hy',
         metrics: inspectSkill(context.skillName),
       }),
     ).rejects.toThrow('Health or Contacts');
