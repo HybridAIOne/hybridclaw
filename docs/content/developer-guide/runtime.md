@@ -373,8 +373,9 @@ or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
 The gateway (`dist/cli.js`) and the agent runtime (`container/dist/index.js`)
-are esbuild bundles, so stack traces name bundle chunks by default. Source maps
-ship beside them but are off because they slow startup; run with
+are esbuild bundles, so stack traces name bundle chunks by default. The npm
+package and the Docker image ship source maps beside them (desktop packages
+strip them), but they are off because they slow startup; run with
 `NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
 
 ## Prompt Context Assembly

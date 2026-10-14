@@ -45,9 +45,13 @@ const externalUnlessBundled = {
   },
 };
 
+// Chunk names are content hashes, so a rebuild would otherwise leave every
+// previous build's chunks beside the new ones. `tsc` runs after this.
+fs.rmSync('dist', { recursive: true, force: true });
+
 await build({
   entryPoints: {
-    cli: 'src/cli.ts',
+    cli: 'src/cli-entry.ts',
     'plugin-sdk': 'src/plugin-sdk.ts',
   },
   outdir: 'dist',

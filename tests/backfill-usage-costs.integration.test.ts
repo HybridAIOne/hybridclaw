@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
@@ -23,34 +25,61 @@ test('the source maintenance script runs without nested dist modules and default
     )`);
     database
       .prepare('INSERT INTO usage_events VALUES (?, ?, ?, ?, ?)')
-      .run(1, 'example/model', 100, 50, 0);
+      .run(1, 'hybridai/gpt-priced', 100, 50, 0);
   } finally {
     database.close();
   }
+  // A priced row the script could update, so dry-run must be what holds it back.
+  const catalog = http.createServer((_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        data: [
+          {
+            id: 'gpt-priced',
+            pricing: { prompt: '0.000002', completion: '0.00001' },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    catalog.listen(0, '127.0.0.1', resolve),
+  );
+  const { port } = catalog.address() as AddressInfo;
   fs.writeFileSync(
     path.join(data, 'config.json'),
-    JSON.stringify({ ops: { dbPath } }),
+    JSON.stringify({
+      ops: { dbPath },
+      hybridai: { baseUrl: `http://127.0.0.1:${port}` },
+    }),
   );
-  const { stdout } = await run(
-    process.execPath,
-    [path.join(REPO, 'scripts/backfill-usage-costs.mjs')],
-    {
-      cwd: root,
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: root,
-        HYBRIDCLAW_DATA_DIR: data,
-        HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
+  let stdout: string;
+  try {
+    ({ stdout } = await run(
+      process.execPath,
+      [path.join(REPO, 'scripts/backfill-usage-costs.mjs')],
+      {
+        cwd: root,
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: root,
+          HYBRIDCLAW_DATA_DIR: data,
+          HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
+          HYBRIDAI_API_KEY: 'test-key',
+        },
+        timeout: 15_000,
       },
-      timeout: 15_000,
-    },
-  );
+    ));
+  } finally {
+    catalog.close();
+  }
   const jsonStart = stdout.indexOf('{');
   expect(jsonStart).toBeGreaterThanOrEqual(0);
   expect(JSON.parse(stdout.slice(jsonStart))).toMatchObject({
     mode: 'dry-run',
-    candidateRows: 0,
-    updatableRows: 0,
+    candidateRows: 1,
+    updatableRows: 1,
   });
   const result = new Database(dbPath, { readonly: true });
   try {
