@@ -117,6 +117,12 @@ Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
 
+Session approval grants are written through to
+`.hybridclaw-runtime/sessions/<session-key>/approval-session-trust.json`.
+A replacement worker reloads them; switching sessions clears the prior session's
+grants. These files use the existing pinned approval-state protections.
+
+
 ### Auxiliary Model Routing
 
 Browser vision and auxiliary tools share one model context and task-policy store

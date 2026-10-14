@@ -14,10 +14,10 @@
 import fs from 'node:fs';
 import type { BoostOffer } from '../shared/boost-offer.js';
 import { parseBoostOffer } from '../shared/boost-offer.js';
+import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   type ApprovalPrelude,
   latestUserMessageText,
-  parseApprovalUserResponse,
 } from './approval-policy.js';
 import { approvalReviewArguments } from './approval-review.js';
 import { approvalOutputPresentation } from './chat-segments.js';
@@ -204,8 +204,10 @@ function parseBoostAnswer(
 export function handleBoostAnswer(
   sessionId: string,
   messages: ChatMessage[],
+  userText?: string | null,
 ): ApprovalPrelude | null {
-  const text = latestUserMessageText(messages);
+  const text =
+    userText === undefined ? latestUserMessageText(messages) : userText;
   if (!text) return null;
   const pending = readPendingBoost(sessionId);
   const live = pending && pending.expiresAtMs > Date.now() ? pending : null;

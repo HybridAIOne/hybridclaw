@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,
@@ -517,7 +518,8 @@ export interface PluginInboundProactiveMessage {
   artifacts?: ArtifactMetadata[];
 }
 
-export interface PluginDispatchInboundMessageRequest {
+export interface PluginDispatchInboundMessageRequest
+  extends ApprovalReplyContext {
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;

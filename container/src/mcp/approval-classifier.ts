@@ -1,11 +1,14 @@
 /** MCP effects keep ordinary policy rules; only configured brokers own marked write grants. */
+
 import type { ClassifiedAction } from '../approval-policy.js';
+import { isPersonalCalendarCreate } from './calendar-approval.js';
 import { classifyMcpTool } from './tool-classifier.js';
 import type { McpToolBehavior } from './types.js';
 export function classifyMcpAction(
   toolName: string,
   commandPreview: string,
   behavior: McpToolBehavior | undefined,
+  args: Record<string, unknown>,
 ): ClassifiedAction {
   const lowerTool = toolName.toLowerCase();
   const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
@@ -84,8 +87,12 @@ export function classifyMcpAction(
   // trusting one send does not trust the server's other writes.
   // Owner call, 2026-10-10: subscribed music generation creates a file
   // for the user; contacting its provider is not sending or publishing.
+  const personalCalendar =
+    annotations?.destructiveHint === false &&
+    isPersonalCalendarCreate(lowerTool, args);
   if (
     annotations?.openWorldHint === true &&
+    !personalCalendar &&
     lowerTool !== 'hybridai__music_generate'
   ) {
     return {
@@ -107,11 +114,14 @@ export function classifyMcpAction(
 
   return {
     tier: 'yellow',
-    actionKey,
+    actionKey: personalCalendar
+      ? `${actionKey}:${rawToolName}:personal`
+      : actionKey,
     intent: `run MCP tool ${toolLabel}`,
     consequenceIfDenied: 'I will continue without this MCP action.',
-    reason:
-      kind === 'edit'
+    reason: personalCalendar
+      ? 'this creates a primary-calendar entry without guests or notifications'
+      : kind === 'edit'
         ? 'this MCP tool appears to modify state'
         : 'this MCP tool may have side effects',
     commandPreview: commandPreview,

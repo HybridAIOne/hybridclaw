@@ -866,6 +866,7 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as Record<string, unknown>;
   expect(firstInput).toMatchObject({
+    approvalUserText: null,
     streamTextDeltas: false,
   });
 });

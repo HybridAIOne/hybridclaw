@@ -1,5 +1,16 @@
+/**
+ * Gateway approval metadata keeps the caller's input separate from task prompts.
+ * The worker or host connector bridge interprets consent; this module only passes
+ * provenance, presents pending requests and records interpretation audit events.
+ */
+
+import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import { recordAuditEvent } from '../audit/audit-events.js';
+import { isGoalContinuationSource } from '../goals/goal-runtime.js';
+import type { ContainerOutput } from '../types/container.js';
 import type {
   GatewayChatApprovalEvent,
+  GatewayChatRequest,
   GatewayChatResult,
 } from './gateway-types.js';
 
@@ -60,4 +71,40 @@ export function extractGatewayChatApprovalEvent(
       : {}),
     ...(approval.boost ? { boost: approval.boost } : {}),
   };
+}
+
+/** Background prompts and model-derived consults cannot manufacture user consent. */
+export function approvalReplyContext(
+  req: GatewayChatRequest,
+  userText: string,
+): ApprovalReplyContext {
+  const autonomous =
+    req.source === 'fullauto' ||
+    req.source === 'heartbeat' ||
+    req.source === 'scheduler' ||
+    isGoalContinuationSource(req.source);
+  return {
+    approvalUserId: req.userId,
+    approvalUserText: autonomous
+      ? null
+      : req.approvalUserText === undefined
+        ? userText
+        : req.approvalUserText,
+  };
+}
+
+export function recordApprovalReply(
+  sessionId: string,
+  runId: string,
+  output: ContainerOutput,
+): void {
+  if (output.approvalReply)
+    recordAuditEvent({
+      sessionId,
+      runId,
+      event: {
+        type: 'approval.interpretation',
+        ...output.approvalReply,
+      },
+    });
 }

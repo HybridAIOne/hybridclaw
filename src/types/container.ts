@@ -1,4 +1,8 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
+import type {
+  ApprovalReplyContext,
+  ApprovalReplyInterpretation,
+} from '../../container/shared/approval-reply.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
@@ -46,7 +50,9 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput extends SessionAttachmentAccess {
+export interface ContainerInput
+  extends SessionAttachmentAccess,
+    ApprovalReplyContext {
   healthCheck?: {
     nonce: string;
   };
@@ -114,6 +120,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
 }
 
 export interface ContainerOutput {
+  approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];

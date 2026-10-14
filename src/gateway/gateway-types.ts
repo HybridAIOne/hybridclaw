@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
 import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
@@ -292,7 +293,7 @@ export interface GatewayChatRequestBody {
   appNotice?: boolean;
 }
 
-export interface GatewayChatRequest {
+export interface GatewayChatRequest extends ApprovalReplyContext {
   /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
   msteamsTenantId?: string;
   appBuild?: boolean;
