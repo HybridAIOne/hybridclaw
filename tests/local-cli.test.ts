@@ -965,6 +965,40 @@ test('channels email setup --agent gives that agent its own mailbox beside the c
   expect(resolveEmailSenderAddress('sales')).toBe('sales@example.com');
 });
 
+test('channels email setup --agent moves an address from the agent that had it', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  const setup = (agentId: string) =>
+    cli.main([
+      'channels',
+      'email',
+      'setup',
+      '--agent',
+      agentId,
+      '--address',
+      'desk@example.com',
+      '--password',
+      'desk-password',
+      '--imap-host',
+      'imap.example.com',
+      '--smtp-host',
+      'smtp.example.com',
+    ]);
+
+  await cli.main(['agent', 'create', 'sales']);
+  await cli.main(['agent', 'create', 'support']);
+  await setup('sales');
+  await setup('support');
+
+  const rawEmail = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ).email as Record<string, unknown>;
+  expect(rawEmail.accounts).toMatchObject([
+    { agentId: 'support', address: 'desk@example.com' },
+  ]);
+});
+
 test('channels email setup still succeeds when cursor seeding cannot reach IMAP', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir, { emailSeedError: true });

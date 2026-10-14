@@ -26,6 +26,13 @@ export function upsertAgentEmailAccount(
   email: RuntimeEmailConfig,
   account: RuntimeEmailAccountConfig,
 ): void {
+  // An address answers as one agent, so setting it up for another moves it.
+  const address = account.address.trim().toLowerCase();
+  email.accounts = email.accounts.filter(
+    (entry) =>
+      entry.agentId === account.agentId ||
+      entry.address.trim().toLowerCase() !== address,
+  );
   const index = email.accounts.findIndex(
     (entry) => entry.agentId === account.agentId,
   );
