@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## [0.40.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.2) - 2026-10-14
+
+### Changed
+
+- **Mobile reactions**: Thumbs-up and thumbs-down remain ordinary emoji
+  reactions instead of creating response ratings or improvement feedback.
+- **Health and Contacts privacy**: Connecting either source excludes Hy from
+  response-rating collection and skill improvement pipelines, including after
+  disconnection. Other agents on the same runtime keep their existing behavior.
+
+### Fixed
+
+- **Natural approval replies**: Hy interprets voice and text confirmations
+  across languages, handles refusals and revisions, and preserves session
+  consent across worker restarts. Connector approvals remain one-shot.
+- **Personal calendar entries**: Creating an event on the primary calendar
+  without attendees or notifications avoids an extra runtime approval under
+  normal policy. Ask mode and connector broker requirements still apply.
+- **Email reassignment**: `hybridclaw channels email setup --agent <id>` moves
+  an address from its previous agent instead of leaving duplicate accounts that
+  stop the email channel.
+- **Shared audit logging**: The gateway refreshes its cached audit chain head
+  after another process appends, preventing stale sequence numbers and broken
+  hash links when CLI commands share an audit session.
+
+### Upgrade Notes
+
+- Existing audit-chain breaks are not repaired. Simultaneous writes from
+  separate processes can still race.
+- Historical improvement records are not deleted. Health or Contacts sources
+  disconnected before this protection recorded them cannot be reconstructed;
+  review historical data before reusing it for improvement.
+
 ## [0.40.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.1) - 2026-10-14
 
 ### Fixed
