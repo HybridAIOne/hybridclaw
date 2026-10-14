@@ -13085,6 +13085,32 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('connector callbacks require the host credential and resume the owning chat', async () => {
+    const state = await importFreshHealth({webApiToken:'host-only-test-token',apiTokens:{hck_phone:{id:'phone',label:'Device: phone',claims:{actions:['chat.send']}}}});
+    const pending = await import('../src/gateway/pending-approvals.js');
+    const approvalId='cc-0123456789abcdef';
+    await pending.setPendingApproval('web-test',{approvalId,prompt:'Approve the note update.',createdAt:Date.now(),expiresAt:Date.now()+60_000,userId:'test-user'});
+    const body={sessionId:'web-test',approvalId,decision:'approve'};
+    for (const token of ['hck_phone',DEFAULT_TEST_GATEWAY_API_TOKEN]) {
+      const req=makeRequest({method:'POST',url:'/api/connector-approvals/decision',headers:{authorization:`Bearer ${token}`},body});
+      const res=makeResponse(); state.handler(req as never,res as never);
+      await waitForResponse(res,next=>next.writableEnded);
+      expect(res.statusCode).toBe(403);
+    }
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    const req=makeRequest({method:'POST',url:'/api/connector-approvals/decision',headers:{authorization:'Bearer host-only-test-token'},body});
+    const res=makeResponse(); state.handler(req as never,res as never);
+    await waitForResponse(res,next=>next.writableEnded);
+    expect(res.statusCode).toBe(200);
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({sessionId:'web-test',agentId:'main',userId:'test-user',approval:{approvalId,decision:'yes'},content:`yes ${approvalId}`}));
+    const replayReq=makeRequest({method:'POST',url:'/api/connector-approvals/decision',headers:{authorization:'Bearer host-only-test-token'},body});
+    const replayRes=makeResponse(); state.handler(replayReq as never,replayRes as never);
+    await waitForResponse(replayRes,next=>next.writableEnded);
+    expect(replayRes.statusCode).toBe(409);
+    expect(state.handleGatewayMessage).toHaveBeenCalledTimes(1);
+    await pending.clearPendingApproval('web-test');
+  });
+
   test('handles /approve view from the web chat path', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(

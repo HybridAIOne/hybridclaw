@@ -17,7 +17,8 @@ import { cleanupTrackedTempDirs } from './test-utils.js';
 // drives POST /api/admin/terminal and its websocket stream. Gated behind
 // HYBRIDCLAW_RUN_CLI_E2E=1; needs `npm run build`. The real-PTY cases run only
 // where node-pty's native addon loads; CI builds it in a separate step after
-// the console e2e has booted a gateway without it.
+// the console e2e has booted a gateway without it. The installed image layout
+// without container/shared is covered by the bundle runtime integration test.
 const RUN = process.env.HYBRIDCLAW_RUN_CLI_E2E === '1';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));

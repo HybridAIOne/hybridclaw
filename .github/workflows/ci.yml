@@ -240,6 +240,7 @@ jobs:
           npm rebuild node-pty --ignore-scripts=false --no-audit --fund=false
           node -e "require('node-pty')"
           npx vitest run --project e2e tests/admin-terminal.e2e.test.ts
+          npx vitest run --project integration tests/gateway-bundle-runtime.integration.test.ts
 
   # The unit suite is CPU-bound on a 4-vCPU runner, so it runs in shards
   # whose blob reports (with coverage) are merged by the coverage job, which

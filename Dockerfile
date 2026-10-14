@@ -151,7 +151,8 @@ COPY --link --from=deps /app/container/package*.json container/
 COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
-# Gateway compiled output + console SPA
+# The image uses the gateway bundle for every CLI consumer, including the
+# package bin and embedded terminal, which both resolve dist/cli.js.
 COPY --link --from=builder /app/dist ./dist
 COPY --link --from=builder /app/console/dist ./console/dist
 

@@ -5,8 +5,10 @@
  * durable storage lives in the gateway or mounted workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
+
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
+import type { ConnectorApproval } from '../shared/connector-approval.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import {
@@ -33,6 +35,7 @@ import {
   outputPresentationForAssistantSegment,
   statusOutputPresentation,
 } from './chat-segments.js';
+import { connectorApprovalOutput } from './connector-approval-output.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -634,6 +637,7 @@ interface CompletedToolCallExecution {
   historyMessage: ChatMessage;
   artifacts: ArtifactMetadata[];
   boostOffer?: BoostOffer;
+  connectorApproval?: ConnectorApproval;
 }
 
 // Tool starts this process has reported; the gateway parses them as progress.
@@ -823,6 +827,9 @@ async function executePreparedToolCall(
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
+    ...('connectorApproval' in runtimeResult && runtimeResult.connectorApproval
+      ? { connectorApproval: runtimeResult.connectorApproval }
+      : {}),
     historyMessage: {
       role: 'tool',
       content: result,
@@ -1322,6 +1329,19 @@ async function processRequestInner(
       tokenUsage: finalizeTokenUsage(tokenUsage),
     });
 
+  const askConnector = (
+    completed: CompletedToolCallExecution,
+    external: ConnectorApproval,
+  ) =>
+    connectorApprovalOutput({
+      ...completed,
+      external,
+      originalPrompt: effectiveUserPrompt,
+      toolsUsed,
+      toolExecutions,
+      tokenUsage: finalizeTokenUsage(tokenUsage),
+    });
+
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
     if (!availableToolNames.has(approvedToolCall.toolName)) {
@@ -1416,6 +1436,8 @@ async function processRequestInner(
       toolCallHistory,
       toolCatalog,
     );
+    if (completed.connectorApproval)
+      return askConnector(completed, completed.connectorApproval);
     if (completed.boostOffer) return askBoost(completed, completed.boostOffer);
     appendCompletedToolCall({
       turnToolHistory,
@@ -2152,6 +2174,8 @@ async function processRequestInner(
         toolCallHistory,
         toolCatalog,
       );
+      if (completed.connectorApproval)
+        return askConnector(completed, completed.connectorApproval);
       if (completed.boostOffer)
         return askBoost(completed, completed.boostOffer);
       if (completed.succeeded) {
@@ -2223,6 +2247,14 @@ async function processRequestInner(
  * Main loop: read first request from stdin (with secrets), then poll IPC for follow-ups.
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
+  mcpClientManager?.setApprovalContext(
+    input.channelId === 'web'
+      ? {
+          session_id: input.sessionId,
+          ...(input.agentId ? { agent_id: input.agentId } : {}),
+        }
+      : undefined,
+  );
   const mcpTools = mcpClientManager?.getAllToolDefinitions() || [];
   const dynamicPluginTools = getPluginToolDefinitions();
   let tools = [...TOOL_DEFINITIONS, ...dynamicPluginTools, ...mcpTools];

@@ -77,6 +77,17 @@ Published images also include the built `/chat`, `/apps`, and `/agents`
 browser assets so the embedded web surfaces work from release images instead
 of source checkouts only.
 
+The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
+under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
+terminal all use `dist/cli.js`. Both gateway and agent bundles inline
+`container/shared`; the image does not ship that directory or plain gateway
+`tsc` output. Source builds, npm packages, and desktop packages also run the
+gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. There is no
+separate `bundle/` build or runtime directory.
+`tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
+layout and checks gateway startup, CLI loading, plugin SDK identity, and the
+embedded terminal when node-pty is available, without requiring Docker.
+
 ## Sandbox Modes
 
 HybridClaw can execute agent turns in two modes:
@@ -763,7 +774,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - token source: `POST /api/v1/agent-observability/ingest-token:ensure`
 - source table: local `audit_events`, ordered by `id`
 - persisted cursor: `observability_offsets`
-- cached ingest tokens: `observability_ingest_tokens`
+- cached ingest tokens: `observability_ingest_tokens`, reused until ingest
+  answers 401/403, then rotated once with `rotate: true`
 
 Runtime diagnostics:
 
