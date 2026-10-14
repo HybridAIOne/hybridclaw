@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import YAML from 'yaml';
+import { asRecord } from '../utils/type-guards.js';
 import {
-  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   type NetworkPolicyAction,
@@ -234,7 +234,7 @@ function buildWritablePolicyObject(params: {
   presets: string[];
 }): Record<string, unknown> {
   const next = { ...params.base };
-  const approval = asRecord(next.approval);
+  const approval = asRecord(next.approval) ?? {};
   delete approval.trusted_network_hosts;
   if (Object.keys(approval).length > 0) {
     next.approval = approval;
@@ -246,7 +246,7 @@ function buildWritablePolicyObject(params: {
     rules: params.rules.map((rule) => toYamlNetworkRule(rule)),
     presets: [...params.presets],
   };
-  if (Object.keys(asRecord(next.audit)).length === 0) {
+  if (Object.keys(asRecord(next.audit) ?? {}).length === 0) {
     delete next.audit;
   }
 
@@ -267,12 +267,12 @@ function toPolicyState(
   exists: boolean = fs.existsSync(policyPath),
 ): PolicyNetworkState {
   const config = readNetworkPolicyState(document);
-  const rawNetwork = asRecord(document.network);
+  const rawNetwork = asRecord(document.network) ?? {};
   const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : [];
   // Declared rules map 1:1 to config.rules, which keeps unreadable ones as deny.
   const rules = config.rules.map((rule, index) => {
     const managedByPreset = normalizeManagedByPreset(
-      asRecord(rawRules[index])[MANAGED_BY_PRESET_FIELD],
+      asRecord(rawRules[index])?.[MANAGED_BY_PRESET_FIELD],
     );
     return {
       ...rule,
@@ -299,11 +299,11 @@ function assertWritablePolicyRules(
   document: Record<string, unknown>,
   policyPath: string,
 ): void {
-  const rawNetwork = asRecord(document.network);
+  const rawNetwork = asRecord(document.network) ?? {};
   const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : null;
   if (rawRules === null) return;
   const invalidIndex = rawRules.findIndex(
-    (entry) => !normalizeNetworkRule(asRecord(entry)),
+    (entry) => !normalizeNetworkRule(asRecord(entry) ?? {}),
   );
   if (invalidIndex === -1) return;
   throw new Error(

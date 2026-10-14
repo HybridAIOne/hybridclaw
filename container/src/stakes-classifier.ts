@@ -1,3 +1,4 @@
+import { isRecord } from '../shared/primitive-values.js';
 import type {
   StakesClassificationInput,
   StakesClassifier,
@@ -223,10 +224,6 @@ function extractCurrencyAmounts(text: string): number[] {
 
 function uniqueReasons(signals: StakesSignal[]): string[] {
   return [...new Set(signals.map((signal) => signal.reason))];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeMlScore(score: unknown): StakesScore | null {

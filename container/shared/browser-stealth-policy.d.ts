@@ -17,7 +17,6 @@ export interface BrowserStealthPolicyAccessEvaluation {
   matchedRule?: PolicyRule<BrowserStealthPolicyDecision>;
 }
 
-export function asRecord(value: unknown): Record<string, unknown>;
 export function readBrowserStealthPolicyStateFromDocument(
   document: Record<string, unknown>,
 ): BrowserStealthPolicyState;

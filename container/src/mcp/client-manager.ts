@@ -40,6 +40,7 @@ import {
   buildMcpServerNamespaces,
   sanitizeMcpToolSegment,
 } from '../../shared/mcp-tool-namespaces.js';
+import { isRecord } from '../../shared/primitive-values.js';
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
@@ -143,10 +144,6 @@ function isAnsweredByServer(error: unknown): boolean {
     error.code !== ErrorCode.ConnectionClosed &&
     error.code !== ErrorCode.RequestTimeout
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeText(value: unknown): string {

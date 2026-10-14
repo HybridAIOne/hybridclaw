@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { RuntimeHttpRequestAuthRuleSecret } from '../config/runtime-config.js';
 import type { SecretRef } from '../security/secret-refs.js';
+import { asRecord } from '../utils/type-guards.js';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
 const MANAGED_BY_SECRET_ROUTE_FIELD = 'managed_by_secret_route';
@@ -22,12 +23,6 @@ export type SecretRoutePolicySnapshot = {
   exists: boolean;
   content: string | null;
 };
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function readRawPolicyObject(policyPath: string): Record<string, unknown> {
   if (!fs.existsSync(policyPath)) return {};
@@ -154,9 +149,9 @@ function isManagedSecretRouteRuleForRoute(
     header: string;
   },
 ): boolean {
-  const record = asRecord(rule);
+  const record = asRecord(rule) ?? {};
   if (record[MANAGED_BY_SECRET_ROUTE_FIELD] !== true) return false;
-  const when = asRecord(record.when);
+  const when = asRecord(record.when) ?? {};
   return (
     when.predicate === 'secret_resolve_allowed' &&
     when.sink === 'http' &&
@@ -180,7 +175,7 @@ export function allowHttpSecretRouteInWorkspacePolicy(params: {
   const agentId = params.agentId || DEFAULT_AGENT_ID;
   const policyPath = resolveWorkspacePolicyPath(params.workspacePath);
   const document = readRawPolicyObject(policyPath);
-  const secret = asRecord(document.secret);
+  const secret = asRecord(document.secret) ?? {};
   const rules = Array.isArray(secret.rules) ? [...secret.rules] : [];
   const nextRule = secretRouteRule({
     agentId,
@@ -215,7 +210,7 @@ export function removeHttpSecretRouteFromWorkspacePolicy(params: {
   const agentId = params.agentId || DEFAULT_AGENT_ID;
   const policyPath = resolveWorkspacePolicyPath(params.workspacePath);
   const document = readRawPolicyObject(policyPath);
-  const secret = asRecord(document.secret);
+  const secret = asRecord(document.secret) ?? {};
   const rules = Array.isArray(secret.rules) ? [...secret.rules] : [];
   const nextRules = rules.filter(
     (rule) =>

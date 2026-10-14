@@ -9,8 +9,9 @@ import {
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
-import { isRecord, normalizePositiveInteger } from './utils.js';
+import { isRecord } from './utils.js';
 
 const A2A_INBOX_DISPATCH_SCHEMA_VERSION = 1;
 export const A2A_INBOX_DISPATCH_DEFAULT_MAX_ATTEMPTS = 3;
@@ -126,10 +127,9 @@ function parseDispatchItem(
       parsed.attempts >= 0
         ? parsed.attempts
         : 0;
-    const maxAttempts = normalizePositiveInteger(
-      parsed.maxAttempts,
-      A2A_INBOX_DISPATCH_DEFAULT_MAX_ATTEMPTS,
-    );
+    const maxAttempts =
+      parsePositiveInteger(parsed.maxAttempts) ??
+      A2A_INBOX_DISPATCH_DEFAULT_MAX_ATTEMPTS;
     const nextAttemptAt =
       typeof parsed.nextAttemptAt === 'string' && parsed.nextAttemptAt.trim()
         ? parsed.nextAttemptAt
@@ -267,10 +267,9 @@ export function enqueueA2AInboxDispatch(
     status: 'pending',
     envelope: normalizedEnvelope,
     attempts: 0,
-    maxAttempts: normalizePositiveInteger(
-      options.maxAttempts,
+    maxAttempts:
+      parsePositiveInteger(options.maxAttempts) ??
       A2A_INBOX_DISPATCH_DEFAULT_MAX_ATTEMPTS,
-    ),
     nextAttemptAt: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,

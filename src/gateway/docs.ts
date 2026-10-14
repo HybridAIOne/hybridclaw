@@ -10,6 +10,7 @@ import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { isRecord } from '../utils/type-guards.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'content');
@@ -623,15 +624,11 @@ function readDevelopmentDoc(relativePath: string): DevelopmentDocPage | null {
   };
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function parseNavigationPage(
   raw: unknown,
   context: string,
 ): DevelopmentDocsNavigationPage {
-  if (!isJsonObject(raw)) {
+  if (!isRecord(raw)) {
     throw new Error(`Invalid docs navigation page at ${context}`);
   }
 
@@ -674,7 +671,7 @@ function readDevelopmentDocsNavigationManifest(): DevelopmentDocsNavigationManif
     throw new Error(`Invalid docs navigation manifest: ${message}`);
   }
 
-  if (!isJsonObject(parsed) || !Array.isArray(parsed.sections)) {
+  if (!isRecord(parsed) || !Array.isArray(parsed.sections)) {
     throw new Error(
       'Invalid docs navigation manifest: sections must be an array',
     );
@@ -682,7 +679,7 @@ function readDevelopmentDocsNavigationManifest(): DevelopmentDocsNavigationManif
 
   return {
     sections: parsed.sections.map((rawSection, sectionIndex) => {
-      if (!isJsonObject(rawSection)) {
+      if (!isRecord(rawSection)) {
         throw new Error(
           `Invalid docs navigation section at sections[${sectionIndex}]`,
         );

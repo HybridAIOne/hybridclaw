@@ -25,6 +25,7 @@ import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getResolvedSandboxMode } from '../config/config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { asRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export const TAKE_OVER_OPEN_PATH = '/api/browser/take-over';
@@ -63,12 +64,6 @@ const streamTokens = new Map<string, { id: string; expiresAt: number }>();
 export interface TakeOverAuditContext {
   actor?: string | null;
   sourceIp?: string | null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function text(value: unknown, max: number): string {
@@ -133,7 +128,7 @@ export async function handleApiTakeOverRuntime(
   res: ServerResponse,
   pathname: string,
 ): Promise<void> {
-  const body = asRecord(await readJsonBody(req));
+  const body = asRecord(await readJsonBody(req)) ?? {};
   if (pathname === TAKE_OVER_OPEN_PATH) {
     if (getResolvedSandboxMode() !== 'host') {
       throw new GatewayRequestError(
@@ -199,7 +194,7 @@ export async function handleApiTakeOver(
   context: TakeOverAuditContext,
 ): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
-  const body = asRecord(await readJsonBody(req));
+  const body = asRecord(await readJsonBody(req)) ?? {};
   if (pathname === TAKE_OVER_CONNECT_PATH) {
     const sessionId = text(body.sessionId, 256);
     prune();
@@ -352,7 +347,7 @@ const TOUCH_EVENTS = new Set([
 export function toBrowserInput(raw: string): Record<string, unknown> | null {
   let parsed: Record<string, unknown>;
   try {
-    parsed = asRecord(JSON.parse(raw));
+    parsed = asRecord(JSON.parse(raw)) ?? {};
   } catch {
     return null;
   }
@@ -403,8 +398,8 @@ export function toBrowserInput(raw: string): Record<string, unknown> | null {
       return null;
     }
     const touchPoints = parsed.touchPoints.slice(0, 5).flatMap((point) => {
-      const x = finite(asRecord(point).x, 0, 10_000);
-      const y = finite(asRecord(point).y, 0, 10_000);
+      const x = finite(asRecord(point)?.x, 0, 10_000);
+      const y = finite(asRecord(point)?.y, 0, 10_000);
       return x === null || y === null ? [] : [{ x, y }];
     });
     if (touchPoints.length === 0 && eventType !== 'touchEnd') return null;
@@ -423,12 +418,12 @@ export function toClientMessage(raw: string): Record<string, unknown> | null {
   if (raw.length > MAX_FRAME_BYTES) return null;
   let parsed: Record<string, unknown>;
   try {
-    parsed = asRecord(JSON.parse(raw));
+    parsed = asRecord(JSON.parse(raw)) ?? {};
   } catch {
     return null;
   }
   if (parsed.type === 'frame' && typeof parsed.data === 'string') {
-    const metadata = asRecord(parsed.metadata);
+    const metadata = asRecord(parsed.metadata) ?? {};
     return {
       type: 'frame',
       data: parsed.data,
@@ -437,7 +432,9 @@ export function toClientMessage(raw: string): Record<string, unknown> | null {
     };
   }
   if (parsed.type === 'tabs' && Array.isArray(parsed.tabs)) {
-    const active = parsed.tabs.map(asRecord).find((tab) => tab.active === true);
+    const active = parsed.tabs
+      .map(asRecord)
+      .find((tab) => tab?.active === true);
     if (!active) return null;
     const url = displayUrl(active.url);
     // A page without a title of its own is named by its whole address,

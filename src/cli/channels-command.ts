@@ -64,6 +64,7 @@ import {
 import { normalizePhoneNumber } from '../utils/phone-number.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
+import { asRecord } from '../utils/type-guards.js';
 import { loadAgentRegistry, normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 
@@ -2725,12 +2726,6 @@ function parseSlackRegisterCommandsArgs(args: string[]): {
     appId,
     configToken,
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 async function printSlackSlashCommandManifest(args: string[]): Promise<void> {

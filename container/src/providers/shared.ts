@@ -1,3 +1,4 @@
+import { isRecord } from '../../shared/primitive-values.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
@@ -255,10 +256,6 @@ export function emitRawNdjsonLineDebug(
   const normalized = rawLine.replace(/\r$/, '');
   if (!normalized.trim()) return;
   emitModelResponseDebugFileText(`${normalized}\n`);
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function readStringValue(value: unknown): string | null {

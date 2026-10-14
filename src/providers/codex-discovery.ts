@@ -4,13 +4,9 @@ import {
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { CODEX_CLIENT_VERSION } from './codex-constants.js';
-import {
-  createDiscoveryStore,
-  isRecord,
-  normalizeBaseUrl,
-  readPositiveInteger,
-} from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
 const CODEX_MODEL_PREFIX = 'openai-codex/';
 const CODEX_DISCOVERY_TIMEOUT_MS = 5_000;
@@ -97,21 +93,21 @@ function isCodexModelSupportedInApi(entry: Record<string, unknown>): boolean {
 
 function readCodexContextWindow(entry: Record<string, unknown>): number | null {
   return (
-    readPositiveInteger(entry.context_window) ??
-    readPositiveInteger(entry.contextWindow) ??
-    readPositiveInteger(entry.context_length) ??
-    readPositiveInteger(entry.contextLength) ??
-    readPositiveInteger(entry.max_context_length) ??
-    readPositiveInteger(entry.maxContextLength)
+    parsePositiveInteger(entry.context_window) ??
+    parsePositiveInteger(entry.contextWindow) ??
+    parsePositiveInteger(entry.context_length) ??
+    parsePositiveInteger(entry.contextLength) ??
+    parsePositiveInteger(entry.max_context_length) ??
+    parsePositiveInteger(entry.maxContextLength)
   );
 }
 
 function readCodexMaxTokens(entry: Record<string, unknown>): number | null {
   return (
-    readPositiveInteger(entry.max_output_tokens) ??
-    readPositiveInteger(entry.maxOutputTokens) ??
-    readPositiveInteger(entry.max_completion_tokens) ??
-    readPositiveInteger(entry.maxCompletionTokens)
+    parsePositiveInteger(entry.max_output_tokens) ??
+    parsePositiveInteger(entry.maxOutputTokens) ??
+    parsePositiveInteger(entry.max_completion_tokens) ??
+    parsePositiveInteger(entry.maxCompletionTokens)
   );
 }
 
