@@ -9,6 +9,7 @@ import {
   recordSkillObservation as insertSkillObservation,
   recomputeAgentSkillScore,
 } from '../memory/db.js';
+import { deviceDataExcludesImprovement } from '../memory/device-data-privacy.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type {
@@ -142,7 +143,8 @@ function recordSkillExecutionObservation(
   event: SkillRunEvent,
 ): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled) return null;
+  if (!config.observationEnabled || deviceDataExcludesImprovement())
+    return null;
 
   const observation = insertSkillObservation({
     skillName: event.skill_id,
@@ -261,6 +263,7 @@ export function recordSkillExecution(input: {
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
 }): SkillObservation | null {
+  if (deviceDataExcludesImprovement()) return null;
   const skillName = input.skillName.trim();
   if (!skillName) return null;
 
@@ -328,7 +331,8 @@ export function recordSkillFeedback(input: {
   sentiment: SkillFeedbackSentiment;
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled) return null;
+  if (!config.observationEnabled || deviceDataExcludesImprovement())
+    return null;
   const observation = attachFeedbackToObservation({
     sessionId: input.sessionId,
     feedback: input.feedback,
@@ -363,7 +367,8 @@ export function recordSkillFeedbackForObservation(input: {
   sentiment: SkillFeedbackSentiment;
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
-  if (!config.observationEnabled) return null;
+  if (!config.observationEnabled || deviceDataExcludesImprovement())
+    return null;
   const observation = attachFeedbackToObservationById({
     observationId: input.observationId,
     feedback: input.feedback,

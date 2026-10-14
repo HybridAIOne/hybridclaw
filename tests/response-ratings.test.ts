@@ -833,3 +833,39 @@ describe('response ratings', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+test.each(['health', 'contacts'])(
+  'protected %s content never enters rating pipelines, even after disconnect',
+  async (source) => {
+    const service = await setup({ apiKey: 'test-key', chatbotId: 'bot_a' });
+    const device = await import('../src/gateway/device-data.js');
+    const privacy = await import('../src/memory/device-data-privacy.js');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    device.writeDeviceSources('user_a', { [source]: 'Private sample data' });
+    device.clearDeviceSources('user_a');
+    expect(privacy.deviceDataExcludesImprovement()).toBe(true);
+    for (const sourceSurface of ['mobile', 'web', 'msteams']) {
+      expect(
+        service.submitResponseRating({
+          sessionId: service.sessionId,
+          messageId: service.assistantMessageId,
+          operatorUserId: 'user_a',
+          rating: 'up',
+          sourceSurface,
+          comment: 'Private sample derived from a connected source',
+        }).rating,
+      ).toBeNull();
+    }
+    expect(
+      service.getResponseRatingsForMessages({
+        sessionId: service.sessionId,
+        messageIds: [service.assistantMessageId],
+        operatorUserId: 'user_a',
+      }).size,
+    ).toBe(0);
+    expect(service.recordSkillFeedbackForObservation).not.toHaveBeenCalled();
+    expect(service.recordAuditEvent).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);

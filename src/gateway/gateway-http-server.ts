@@ -10691,18 +10691,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === CHAT_REACTION_PATH && method === 'POST') {
             if (operatorId) {
-              await handleChatReactionRoute(
-                req,
-                res,
-                operatorId,
-                (requestedUserId) =>
-                  resolveGatewayRequestUserId({
-                    req,
-                    channelId: 'web',
-                    requestedUserId,
-                    fallbackUserId: 'web',
-                  }) || 'web',
-              );
+              await handleChatReactionRoute(req, res, operatorId);
             } else {
               sendJson(res, 404, { error: 'Message not found.' });
             }

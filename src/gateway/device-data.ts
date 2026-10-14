@@ -14,8 +14,12 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
+import {
+  containsProtectedDeviceSources,
+  deviceDataExcludesImprovement,
+  deviceDataStorePath,
+} from '../memory/device-data-privacy.js';
 import { queuePhoneSourceChange } from '../scheduler/connector-events.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 
@@ -53,7 +57,7 @@ export function deviceSourceLimit(source: string): number {
 }
 
 // Resolved on use: the data directory follows the runtime config.
-const storePath = () => path.join(DATA_DIR, 'device-data.json');
+const storePath = deviceDataStorePath;
 
 function load(): Map<string, DeviceSources> {
   try {
@@ -77,7 +81,13 @@ function save(users: Map<string, DeviceSources>): void {
   try {
     fs.writeFileSync(
       temporary,
-      JSON.stringify({ version: 1, users: Object.fromEntries(users) }),
+      JSON.stringify({
+        version: 1,
+        excludeFromImprovement:
+          deviceDataExcludesImprovement() ||
+          containsProtectedDeviceSources(users.values()),
+        users: Object.fromEntries(users),
+      }),
       { mode: 0o600, flag: 'wx' },
     );
     fs.renameSync(temporary, file);
