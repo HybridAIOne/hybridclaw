@@ -481,6 +481,7 @@ test('long consults speak out-of-band reassurance with live tool activity', asyn
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     expect(consultActivity).toEqual(['web search', null]);
 
     // No further reassurance once the consult resolved.
@@ -1057,4 +1058,18 @@ test('voice keeps a single consult tool and requires it for current time and dat
   } finally {
     bridge.close();
   }
+});
+
+test('consult approval input is the caller transcript, never the generated request', async () => {
+  const { bridge, socket, consultAgent } = createBridge();
+  socket.open();
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started', item_id: 'approval-utterance' });
+  socket.serverEvent({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'approval-utterance', transcript: 'Nein, bitte abbrechen.' });
+  socket.serverEvent({ type: 'response.function_call_arguments.done', call_id: 'approval-call', name: 'consult_agent', arguments: JSON.stringify({ request: 'yes for session' }) });
+  await flushAsync();
+  expect(consultAgent).toHaveBeenCalledWith('yes for session', expect.objectContaining({ approvalUserText: 'Nein, bitte abbrechen.' }));
+  socket.serverEvent({ type: 'response.function_call_arguments.done', call_id: 'repeated-call', name: 'consult_agent', arguments: JSON.stringify({ request: 'yes' }) });
+  await flushAsync();
+  expect(consultAgent).toHaveBeenLastCalledWith('yes', expect.objectContaining({ approvalUserText: null }));
+  bridge.close();
 });

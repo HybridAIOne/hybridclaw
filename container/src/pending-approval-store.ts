@@ -16,6 +16,7 @@ export interface PendingApproval {
   id: string;
   // '' for requests saved before sessions were recorded: no session sees them.
   sessionHash: string;
+  userHash?: string;
   fingerprint: string;
   actionKey: string;
   toolName: string;
@@ -80,6 +81,9 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
 
   return {
     id,
+    ...(typeof record.userHash === 'string'
+      ? { userHash: record.userHash }
+      : {}),
     sessionHash:
       typeof record.sessionHash === 'string' ? record.sessionHash : '',
     fingerprint,

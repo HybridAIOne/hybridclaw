@@ -165,3 +165,9 @@ test('an answer to a closed offer spends nothing and reaches no model', {
   expect(run.calls()).toHaveLength(2);
   expect(run.requests).toHaveLength(2);
 });
+
+test('a generated voice yes cannot spend a boost without caller speech', { timeout: 60_000 }, async () => {
+  const run = await askForFox();
+  await run.followup({ approvalUserText: null, messages: [{ role: 'user', content: `yes ${OFFER_ID}` }] });
+  expect(run.calls()).toHaveLength(1);
+});

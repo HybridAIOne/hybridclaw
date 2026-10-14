@@ -11,6 +11,8 @@ import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
+import { resolveApprovalPrelude } from './approval-prelude.js';
+import { withApprovalReplyUsage } from './approval-reply.js';
 import {
   setApprovalEmailSender,
   setUserMailContext,
@@ -18,11 +20,7 @@ import {
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
 import { compileBlockedTools } from './blocked-tools.js';
-import {
-  boostApprovalOutput,
-  dropPendingBoost,
-  handleBoostAnswer,
-} from './boost-offers.js';
+import { boostApprovalOutput, dropPendingBoost } from './boost-offers.js';
 import {
   BROWSER_CACHE_DIRS,
   cleanupAllBrowserSessions,
@@ -2367,7 +2365,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
-  approvalRuntime.setSession(firstInput.sessionId);
+  approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
@@ -2415,9 +2413,7 @@ async function main(): Promise<void> {
     media: firstInput.media,
     audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
-  const firstPrelude =
-    handleBoostAnswer(firstInput.sessionId, firstMessages) ??
-    approvalRuntime.handleApprovalResponse(firstMessages);
+  const firstPrelude = await resolveApprovalPrelude(firstInput, firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
   const firstApprovedToolCall = firstPrelude?.approvedToolCall;
   const firstPreparedMessages = firstPromptOverride
@@ -2434,6 +2430,7 @@ async function main(): Promise<void> {
     firstOutput = {
       status: 'success',
       result: firstPrelude.immediateMessage,
+      pendingApproval: firstPrelude.pendingApproval,
       toolsUsed: [],
       toolExecutions: [],
       effectiveUserPrompt: latestUserPrompt(firstMessagesForRequest),
@@ -2476,7 +2473,10 @@ async function main(): Promise<void> {
     });
   }
 
-  await replyToRequest(firstInput, firstOutput);
+  await replyToRequest(
+    firstInput,
+    withApprovalReplyUsage(firstOutput, firstPrelude),
+  );
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2536,7 +2536,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
-    approvalRuntime.setSession(input.sessionId);
+    approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
@@ -2591,9 +2591,7 @@ async function main(): Promise<void> {
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
-    const prelude =
-      handleBoostAnswer(input.sessionId, preparedMessages) ??
-      approvalRuntime.handleApprovalResponse(preparedMessages);
+    const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;
     const approvedToolCall = prelude?.approvedToolCall;
     const messagesForRequest = promptOverride
@@ -2606,11 +2604,12 @@ async function main(): Promise<void> {
       const immediate: ContainerOutput = {
         status: 'success',
         result: prelude.immediateMessage,
+        pendingApproval: prelude.pendingApproval,
         toolsUsed: [],
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      await replyToRequest(input, immediate);
+      await replyToRequest(input, withApprovalReplyUsage(immediate, prelude));
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2651,7 +2650,7 @@ async function main(): Promise<void> {
       approvedToolCall,
     });
 
-    await replyToRequest(input, output);
+    await replyToRequest(input, withApprovalReplyUsage(output, prelude));
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

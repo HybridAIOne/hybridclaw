@@ -3498,6 +3498,9 @@ async function handleApiChat(
     username: body.username ?? 'web',
     content,
     ...(approval ? { approval } : {}),
+    ...(authContext.kind === 'apiToken' && !authContext.tokenId
+      ? { approvalUserText: null }
+      : {}),
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     ...(body.scope !== undefined ? { scope: body.scope } : {}),
