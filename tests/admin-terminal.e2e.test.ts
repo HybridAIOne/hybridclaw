@@ -13,12 +13,13 @@ import {
 import { cleanupTrackedTempDirs } from './test-utils.js';
 
 // Full-binary e2e for the admin terminal: boots the compiled gateway
-// (dist/cli.js, plus the esbuild bundle/cli.js the Docker image runs when it
-// has been built) in host-sandbox mode with an isolated data dir and HOME, then
+// (dist/cli.js, plus the staging esbuild bundle when it has been built) in
+// host-sandbox mode with an isolated data dir and HOME, then
 // drives POST /api/admin/terminal and its websocket stream. Gated behind
 // HYBRIDCLAW_RUN_CLI_E2E=1; needs `npm run build`. The real-PTY cases run only
 // where node-pty's native addon loads; CI builds it, and the bundle, in a
-// separate step after the console e2e has booted a gateway without it.
+// separate step after the console e2e has booted a gateway without it. The
+// installed image's bundle under dist/ is covered by the bundle runtime test.
 const RUN = process.env.HYBRIDCLAW_RUN_CLI_E2E === '1';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
