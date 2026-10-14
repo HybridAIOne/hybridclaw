@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.40.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.1) - 2026-10-14
+
+### Fixed
+
+- **Connector write approvals**: Hy shows connector approval cards in chat
+  and resumes the requested change after a one-shot approval. Blocked MCP calls
+  retain their approval metadata through tool dispatch.
+- **Docker gateway startup**: The gateway image uses the bundled runtime for
+  Docker startup, the shell CLI, the package bin, and the embedded terminal,
+  preventing missing-module errors.
+
 ## [0.40.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.0) - 2026-10-13
 
 ### Added
