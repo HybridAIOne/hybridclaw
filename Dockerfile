@@ -159,6 +159,9 @@ COPY --link --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode)
 COPY --link --from=builder /app/container/dist ./container/dist
+# The agent bundle inlines container/shared, but the gateway's own dist/ is
+# plain tsc output that still imports it by relative path at runtime.
+COPY --link --from=builder /app/container/shared ./container/shared
 
 # Gateway-served static content from docs/: /about (index.html), /agents
 # (agents.html), the /docs markdown site, and shared favicons/images.
