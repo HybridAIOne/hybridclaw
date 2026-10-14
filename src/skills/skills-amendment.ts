@@ -16,6 +16,7 @@ import {
   recordSkillOptLiteRejectedEdits,
   updateAmendmentStatus,
 } from '../memory/db.js';
+import { deviceDataExcludesImprovement } from '../memory/device-data-privacy.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
 import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
@@ -333,6 +334,7 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
   const observations = getSkillObservations({
     skillName: input.skillName,
     limit: config.maxEvidenceExamples,
+    excludeProtectedDeviceData: true,
   });
   const split = splitHeldOut(observations, config.heldOutRatio);
   const training = split.training.map(compactObservation);
@@ -403,6 +405,11 @@ export async function proposeAmendment(input: {
   metrics: SkillHealthMetrics;
   agentId: string;
 }): Promise<SkillAmendment> {
+  if (deviceDataExcludesImprovement(input.agentId)) {
+    throw new Error(
+      'Skill improvement is disabled for Hy with Health or Contacts data.',
+    );
+  }
   const skill = resolveSkillCatalogEntry(input.skillName);
   const originalContent = fs.readFileSync(skill.filePath, 'utf-8');
   const optimizationConfig = getRuntimeConfig().adaptiveSkills.optimization;
