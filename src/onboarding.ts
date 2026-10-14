@@ -15,7 +15,16 @@ import {
   getCodexAuthStatus,
   loginCodexInteractive,
 } from './auth/codex-auth.js';
-import { selectDefaultHybridAILoginMethod } from './auth/hybridai-auth.js';
+import {
+  DEFAULT_LOGIN_PATH,
+  extractApiKeyFromInput,
+  normalizeBaseUrl,
+  promptYesNo as promptHybridAIYesNo,
+  readResponsePayload,
+  resolveUrl,
+  selectDefaultHybridAILoginMethod,
+  validateApiKey,
+} from './auth/hybridai-auth.js';
 import {
   ensureFreshHybridAIAccessToken,
   HybridAIOAuthUnavailableError,
@@ -223,116 +232,18 @@ const ICON_KEYBOARD = '⌨️';
 const ICON_SUCCESS = '✅';
 const ICON_ERROR = '❌';
 
-const DEFAULT_BASE_URL = 'https://hybridai.one';
 const DEFAULT_REGISTER_PATH = '/register?context=hybridclaw';
-const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const DEFAULT_VERIFY_PATH = '/verify_code';
-const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const BOT_ME_PATH = '/api/v1/bot-management/me';
-const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
 
-function normalizeBaseUrl(raw: string): string {
-  return raw.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
-}
-
-function resolveUrl(baseUrl: string, routeOrUrl: string): string {
-  const trimmed = routeOrUrl.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (!trimmed) return baseUrl;
-  return `${baseUrl}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
-}
-
-function parseErrorMessage(payload: unknown, fallback: string): string {
-  if (!payload) return fallback;
-  if (typeof payload === 'string') return payload || fallback;
-  if (typeof payload !== 'object') return fallback;
-
-  const asRecord = payload as Record<string, unknown>;
-  if (typeof asRecord.message === 'string' && asRecord.message.trim())
-    return asRecord.message;
-  if (typeof asRecord.error === 'string' && asRecord.error.trim())
-    return asRecord.error;
-  if (asRecord.error && typeof asRecord.error === 'object') {
-    const nested = asRecord.error as Record<string, unknown>;
-    if (typeof nested.message === 'string' && nested.message.trim())
-      return nested.message;
-  }
-
-  return fallback;
-}
-
-async function readResponsePayload(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return response.json().catch(() => null);
-  }
-
-  const text = await response.text().catch(() => '');
-  if (!text) return null;
-
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
-}
-
-function extractApiKeyFromInput(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  const directMatch = trimmed.match(API_KEY_RE);
-  if (directMatch?.[0]) return directMatch[0];
-
-  try {
-    const parsed = new URL(trimmed);
-    const queryCandidates = [
-      parsed.searchParams.get('api_key'),
-      parsed.searchParams.get('token'),
-      parsed.searchParams.get('key'),
-    ];
-    for (const candidate of queryCandidates) {
-      if (!candidate) continue;
-      const nestedMatch = candidate.match(API_KEY_RE);
-      if (nestedMatch?.[0]) return nestedMatch[0];
-      if (candidate.startsWith('hai-')) return candidate;
-    }
-  } catch {
-    // Not a URL; fall back to plain-text heuristics.
-  }
-
-  if (trimmed.startsWith('hai-')) return trimmed;
-  return null;
-}
-
-async function validateApiKey(
+async function validateApiKeyAndLoadBots(
   baseUrl: string,
   apiKey: string,
 ): Promise<ApiKeyValidationResult> {
-  let response: Response;
-  try {
-    response = await fetch(resolveUrl(baseUrl, BOT_LIST_PATH), {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      bots: [],
-      error: `Could not validate API key (${err instanceof Error ? err.message : String(err)}).`,
-    };
-  }
-
-  const payload = await readResponsePayload(response);
-  if (!response.ok) {
-    return {
-      ok: false,
-      bots: [],
-      error: parseErrorMessage(
-        payload,
-        `Validation failed with HTTP ${response.status}.`,
-      ),
-    };
+  const validation = await validateApiKey(baseUrl, apiKey);
+  if (!validation.ok) {
+    return { ok: false, bots: [], error: validation.error };
   }
 
   let accountChatbotId = '';
@@ -351,7 +262,7 @@ async function validateApiKey(
 
   return {
     ok: true,
-    bots: normalizeBots(payload),
+    bots: normalizeBots(validation.payload),
     accountChatbotId,
   };
 }
@@ -618,22 +529,15 @@ async function promptOptional(
     : (await rl.question(prompt)).trim();
 }
 
-async function promptYesNo(
+function promptYesNo(
   rl: readline.Interface,
   question: string,
   defaultYes = true,
   icon = ICON_PROMPT,
 ): Promise<boolean> {
-  const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
-  const raw = (
-    await rl.question(styledPromptWithIcon(`${question}${suffix}`, icon))
-  )
-    .trim()
-    .toLowerCase();
-  if (!raw) return defaultYes;
-  if (raw === 'y' || raw === 'yes') return true;
-  if (raw === 'n' || raw === 'no') return false;
-  return defaultYes;
+  return promptHybridAIYesNo(rl, question, defaultYes, (text) =>
+    styledPromptWithIcon(text, icon),
+  );
 }
 
 const SPEECH_TO_TEXT_SECRET_BY_PROVIDER: Record<SpeechToTextProvider, string> =
@@ -1039,7 +943,7 @@ async function runHybridAIOnboarding(params: {
 }): Promise<void> {
   const { rl, commandLabel, existingKey } = params;
   const baseUrl = normalizeBaseUrl(
-    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
+    params.baseUrl || getRuntimeConfig().hybridai.baseUrl,
   );
   printMeta('HYBRIDAI_BASE_URL', baseUrl);
   if (!existingKey) {
@@ -1095,7 +999,10 @@ async function runHybridAIOnboarding(params: {
       ? `Signed in as ${signIn.account.email}.`
       : 'Signed in to HybridAI.',
   );
-  const validation = await validateApiKey(baseUrl, signIn.accessToken);
+  const validation = await validateApiKeyAndLoadBots(
+    baseUrl,
+    signIn.accessToken,
+  );
   if (!validation.ok) {
     printWarn(`Could not load your bots: ${validation.error}`);
   }
@@ -1141,7 +1048,7 @@ async function runHybridAIApiKeyOnboarding(params: {
 }): Promise<void> {
   const { rl, commandLabel } = params;
   const baseUrl = normalizeBaseUrl(
-    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
+    params.baseUrl || getRuntimeConfig().hybridai.baseUrl,
   );
   const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
@@ -1242,7 +1149,7 @@ async function runHybridAIApiKeyOnboarding(params: {
       apiKey = extractApiKeyFromInput(entered) || entered;
     }
 
-    validation = await validateApiKey(baseUrl, apiKey);
+    validation = await validateApiKeyAndLoadBots(baseUrl, apiKey);
     if (validation.ok) {
       printSuccess('API key validated successfully.');
       console.log();
@@ -1978,7 +1885,7 @@ export async function ensureRuntimeCredentials(
       baseUrl: normalizeBaseUrl(
         refreshedRuntimeConfig.hybridai.baseUrl ||
           process.env.HYBRIDAI_BASE_URL ||
-          DEFAULT_BASE_URL,
+          '',
       ),
       commandLabel,
       existingKey: refreshedExistingKey,
