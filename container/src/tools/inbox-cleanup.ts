@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../shared/atomic-write.js';
 
 import type { ClassifiedAction } from '../approval-policy.js';
 import { WORKSPACE_ROOT } from '../runtime-paths.js';
@@ -185,11 +186,7 @@ function readPlan(id: unknown): Plan {
 }
 
 function writePlan(plan: Plan): void {
-  fs.mkdirSync(plansDir(), { recursive: true });
-  const file = planPath(plan.id);
-  const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(plan));
-  fs.renameSync(temp, file);
+  writeFileAtomic(planPath(plan.id), JSON.stringify(plan));
 }
 
 function pruneOldPlans(now: number): void {

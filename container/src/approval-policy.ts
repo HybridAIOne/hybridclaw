@@ -21,6 +21,7 @@ import {
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
 } from '../shared/approval-rules.js';
+import { writeFileAtomic } from '../shared/atomic-write.js';
 import type { BoostAnswer } from '../shared/boost-offer.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
@@ -2317,14 +2318,7 @@ export class TrustedAgentApprovalRuntime {
 
   private persistTrustStore(trust: DurableTrust): void {
     try {
-      fs.mkdirSync(path.dirname(trust.path), { recursive: true });
-      const tmpPath = `${trust.path}.tmp`;
-      fs.writeFileSync(
-        tmpPath,
-        serializeApprovalTrustStore(trust.store),
-        'utf-8',
-      );
-      fs.renameSync(tmpPath, trust.path);
+      writeFileAtomic(trust.path, serializeApprovalTrustStore(trust.store));
       trust.version = trustStoreVersion(trust.path);
     } catch {
       // ignore persistence failures and continue with in-memory trust
