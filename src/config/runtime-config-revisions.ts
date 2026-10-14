@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -829,13 +830,7 @@ export function restoreRuntimeAssetRevision(
     );
   }
 
-  fs.mkdirSync(path.dirname(assetPath), { recursive: true });
-  const tmpPath = `${assetPath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, revision.content, {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
-  fs.renameSync(tmpPath, assetPath);
+  writeFileAtomic(assetPath, revision.content, { mode: 0o600 });
   syncRuntimeAssetRevisionState(assetType, assetPath, meta, {
     exists: true,
     content: revision.content,

@@ -4,9 +4,10 @@
  * exposed to tools; browser requests cannot choose another operator's identity.
  * Recording an alert reads and commits once, returning its delivery snapshot.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import type {
   MobilePushDevice,
   WebNotification,
@@ -32,7 +33,6 @@ interface NotificationStore {
 }
 
 const storePath = path.join(DATA_DIR, 'web-notifications.json');
-let directoryReady = false;
 
 function readStore(): NotificationStore {
   try {
@@ -44,20 +44,10 @@ function readStore(): NotificationStore {
 }
 
 function writeStore(store: NotificationStore): void {
-  if (!directoryReady) {
-    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-    directoryReady = true;
-  }
-  const temporary = `${storePath}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(store), {
-      mode: 0o600,
-      flag: 'wx',
-    });
-    fs.renameSync(temporary, storePath);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(storePath, JSON.stringify(store), {
+    mode: 0o600,
+    dirMode: 0o700,
+  });
 }
 
 export function notificationOperatorId(actor: string): string {

@@ -3,13 +3,13 @@
  * Configuration activates after local checks pass; serving never installs or
  * selects another model and has no cloud fallback.
  */
-
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import {
   detectMacHardware,
   estimateMacModels,
@@ -27,8 +27,7 @@ import {
 } from './mlx-runtime.js';
 
 function privateWrite(file: string, content: string): void {
-  fs.writeFileSync(`${file}.tmp`, content, { mode: 0o600 });
-  fs.renameSync(`${file}.tmp`, file);
+  writeFileAtomic(file, content, { mode: 0o600 });
 }
 async function setup(args: string[]) {
   const hardware = detectMacHardware();

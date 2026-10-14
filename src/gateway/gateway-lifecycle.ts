@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { DATA_DIR } from '../config/config.js';
 
 export interface GatewayPidState {
@@ -30,10 +31,7 @@ export function ensureGatewayRunDir(): void {
 }
 
 export function writeGatewayPid(state: GatewayPidState): void {
-  ensureGatewayRunDir();
-  const tmp = `${GATEWAY_PID_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, GATEWAY_PID_PATH);
+  writeFileAtomic(GATEWAY_PID_PATH, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 export function removeGatewayPidFile(): void {
