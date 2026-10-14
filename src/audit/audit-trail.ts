@@ -4,13 +4,16 @@
  * Appends never block the event loop: they queue in call order and are
  * group-committed per session file on the libuv pool. `seq` and `_prevHash`
  * are assigned at commit time, so a failed write leaves the chain as it was,
- * and `appendAuditEvent` resolves only after its line is fsynced. Mirrors of a
+ * and `appendAuditEvent` resolves only after its line is fsynced. Other
+ * processes sharing the data dir (CLI runs) append to the same files, so a
+ * cached chain head is reused only while the file is the size this process
+ * left it; otherwise the head is re-read. Mirrors of a
  * record (the SQLite `audit_events` row in `audit-events.ts`) are written after
  * that promise resolves, never before. This module never touches SQLite.
  */
 import { hash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { type FileHandle, mkdir, open } from 'node:fs/promises';
+import { type FileHandle, mkdir, open, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
@@ -64,6 +67,8 @@ interface SessionAuditState {
   filePath: string;
   seq: number;
   lastHash: string;
+  // Wire file size when this process last read or wrote it.
+  size: number;
 }
 
 interface QueuedAppend extends AppendAuditEventInput {
@@ -129,18 +134,20 @@ export function getAuditWirePath(sessionId: string): string {
   return path.join(getAuditSessionDir(sessionId), WIRE_FILE_NAME);
 }
 
-async function appendLines(filePath: string, lines: string[]): Promise<void> {
+async function appendLines(filePath: string, lines: string[]): Promise<number> {
+  const text = `${lines.join('\n')}\n`;
   const handle = await open(
     filePath,
     fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_WRONLY,
     0o600,
   );
   try {
-    await handle.appendFile(`${lines.join('\n')}\n`, 'utf-8');
+    await handle.appendFile(text, 'utf-8');
     await handle.sync();
   } finally {
     await handle.close();
   }
+  return Buffer.byteLength(text);
 }
 
 function computeMetadataHash(metadata: WireMetadataRecord): string {
@@ -191,8 +198,11 @@ function chainRootHash(firstLine: string, sessionId: string): string {
   return FALLBACK_PREV_HASH;
 }
 
-async function* readLinesFromEnd(handle: FileHandle): AsyncGenerator<string> {
-  let position = (await handle.stat()).size;
+async function* readLinesFromEnd(
+  handle: FileHandle,
+  size: number,
+): AsyncGenerator<string> {
+  let position = size;
   // Bytes of the line that straddles the chunk boundary, in file order.
   let carried: Buffer[] = [];
   while (position > 0) {
@@ -229,15 +239,21 @@ async function readChainHead(
     throw error;
   }
   try {
+    const { size } = await handle.stat();
     let firstLine: string | null = null;
-    for await (const line of readLinesFromEnd(handle)) {
+    for await (const line of readLinesFromEnd(handle, size)) {
       if (!line) continue;
       const link = parseChainLink(line);
-      if (link) return { filePath, ...link };
+      if (link) return { filePath, size, ...link };
       firstLine = line;
     }
     if (firstLine === null) return null;
-    return { filePath, seq: 0, lastHash: chainRootHash(firstLine, sessionId) };
+    return {
+      filePath,
+      size,
+      seq: 0,
+      lastHash: chainRootHash(firstLine, sessionId),
+    };
   } finally {
     await handle.close();
   }
@@ -245,7 +261,13 @@ async function readChainHead(
 
 async function loadSessionState(sessionId: string): Promise<SessionAuditState> {
   const existing = sessionStateCache.get(sessionId);
-  if (existing) return existing;
+  if (existing) {
+    const size = await stat(existing.filePath).then(
+      (stats) => stats.size,
+      () => -1,
+    );
+    if (size === existing.size) return existing;
+  }
 
   const sessionDir = getAuditSessionDir(sessionId);
   await mkdir(sessionDir, { recursive: true });
@@ -258,8 +280,8 @@ async function loadSessionState(sessionId: string): Promise<SessionAuditState> {
       sessionId,
       createdAt: new Date().toISOString(),
     };
-    await appendLines(filePath, [JSON.stringify(metadata)]);
-    state = { filePath, seq: 0, lastHash: computeMetadataHash(metadata) };
+    const size = await appendLines(filePath, [JSON.stringify(metadata)]);
+    state = { filePath, size, seq: 0, lastHash: computeMetadataHash(metadata) };
   }
   sessionStateCache.set(sessionId, state);
   return state;
@@ -371,8 +393,9 @@ async function commitSessionAppends(
   }
   if (lines.length === 0) return;
 
+  let written: number;
   try {
-    await appendLines(state.filePath, lines);
+    written = await appendLines(state.filePath, lines);
   } catch (error) {
     // Part of the batch may have landed; re-read the chain head next time.
     sessionStateCache.delete(sessionId);
@@ -381,6 +404,7 @@ async function commitSessionAppends(
   }
   state.seq = seq;
   state.lastHash = lastHash;
+  state.size += written;
   for (const { entry, record } of committed) entry.resolve(record);
 }
 
