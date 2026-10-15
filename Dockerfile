@@ -175,6 +175,7 @@ COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 # in the image; their dependencies are fetched only when installed.
 COPY --link --from=builder /app/plugins/distill ./plugins/distill
 COPY --link --from=builder /app/plugins/media-tools ./plugins/media-tools
+COPY --link --from=builder /app/plugins/public-warnings ./plugins/public-warnings
 COPY --link --from=builder /app/plugins/transformers-embeddings ./plugins/transformers-embeddings
 # Browser provider plugins: an upgraded config that selected one enables it,
 # so its source must be here (camofox fetches its dependencies on install).

@@ -2948,6 +2948,8 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
+      // Public warning lookups; watching only saves the user's place list.
+      lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&

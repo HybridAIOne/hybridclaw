@@ -37,6 +37,8 @@ plugins/*
 !plugins/managed-cloud/**
 !plugins/media-tools/
 !plugins/media-tools/**
+!plugins/public-warnings/
+!plugins/public-warnings/**
 !plugins/tier-router/
 !plugins/tier-router/**
 !plugins/transformers-embeddings/

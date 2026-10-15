@@ -46,6 +46,7 @@
     "plugins/connector-events/",
     "plugins/distill/",
     "plugins/media-tools/",
+    "plugins/public-warnings/",
     "plugins/line/",
     "plugins/mac-cua/",
     "plugins/managed-cloud/",
