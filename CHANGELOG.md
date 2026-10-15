@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## [0.40.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.3) - 2026-10-15
+
+### Added
+
+- **Discord sender allowlist**: `discord.allowFrom` limits agent access to
+  listed Discord user IDs across messages, DMs, edits, slash commands, buttons,
+  and reactions. Configure it in the admin console or runtime config. An empty
+  list preserves existing access; bot messages retain their channel policy.
+
+### Changed
+
+- **Strict numeric settings**: Shared integer parsing rejects fractional,
+  unsafe, and partially numeric values in settings and provider metadata instead
+  of rounding or accepting their leading digits. Valid integer strings are
+  accepted consistently.
+
+### Fixed
+
+- **Concurrent state-file writes**: Approval trust, pending approvals, session
+  state, MLX setup, and other state files use unique temporary paths, preventing
+  concurrent writers from overwriting each other's staged content or failing
+  when another writer renames the shared temporary file.
+
+### Upgrade Notes
+
+- Replace fractional or partially numeric integer settings such as `1.5` or
+  `12abc` with whole numbers. Invalid values fall back to defaults.
+- Atomic replacement does not serialize read-modify-write operations: the last
+  complete write still wins.
+
 ## [0.40.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.2) - 2026-10-14
 
 ### Changed

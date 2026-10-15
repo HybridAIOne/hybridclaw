@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.2',
+  version: '0.40.3',
   highlights: [
-    'Multilingual voice and text approvals',
-    'Health and Contacts privacy protection',
-    'Reliable email reassignment',
-    'Shared audit logging fixes',
+    'Discord sender allowlist',
+    'Safer concurrent state-file writes',
+    'Consistent integer settings validation',
   ],
 } as const;
 
