@@ -448,6 +448,16 @@ export function listUsageEventsByBatchId(
 // operator who leaves request logging on otherwise grows the database forever.
 const REQUEST_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
+export function requestLogCutoff(nowMs = Date.now()): string {
+  return new Date(nowMs - REQUEST_LOG_RETENTION_MS).toISOString();
+}
+
+export function deleteExpiredRequestLogs(database: Database.Database): number {
+  return database
+    .prepare('DELETE FROM request_log WHERE created_at < ?')
+    .run(requestLogCutoff()).changes;
+}
+
 function serializeRequestLogJson(value: unknown): string | null {
   if (value == null) return null;
   try {
@@ -480,8 +490,7 @@ export function recordRequestLog(params: {
     typeof params.durationMs === 'number' && Number.isFinite(params.durationMs)
       ? Math.max(0, Math.trunc(params.durationMs))
       : null;
-  const now = Date.now();
-  const createdAt = new Date(now).toISOString();
+  const createdAt = new Date().toISOString();
   const database = getUsageDatabase();
 
   database
@@ -513,9 +522,7 @@ export function recordRequestLog(params: {
       durationMs,
       createdAt,
     );
-  database
-    .prepare('DELETE FROM request_log WHERE created_at < ?')
-    .run(new Date(now - REQUEST_LOG_RETENTION_MS).toISOString());
+  deleteExpiredRequestLogs(database);
 }
 
 export function getUsageTotals(params?: {
