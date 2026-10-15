@@ -72,7 +72,11 @@ function applyOverlay(
 ): void {
   for (const [key, value] of Object.entries(overlay)) {
     const keyPath = [...pathParts, key].join('.');
-    if (!(key in base)) {
+    if (
+      key === '__proto__' ||
+      key === 'constructor' ||
+      !Object.hasOwn(base, key)
+    ) {
       throw new Error(
         `Example overlay key \`${keyPath}\` is not in DEFAULT_RUNTIME_CONFIG.`,
       );
