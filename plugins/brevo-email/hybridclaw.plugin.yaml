@@ -10,6 +10,8 @@ requires:
     - BREVO_SMTP_KEY
     - BREVO_WEBHOOK_SECRET
     - HYBRIDAI_API_KEY
+commands:
+  - brevo
 configSchema:
   type: object
   additionalProperties: false

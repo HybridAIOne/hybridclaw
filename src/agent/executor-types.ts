@@ -1,4 +1,5 @@
 import type { ApprovalMode } from '#shared/approval-mode.js';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
@@ -18,7 +19,9 @@ import type {
 } from '../types/execution.js';
 import type { PromptClient } from './prompt-hooks.js';
 
-export interface ExecutorRequest extends SessionAttachmentAccess {
+export interface ExecutorRequest
+  extends SessionAttachmentAccess,
+    ApprovalReplyContext {
   sessionId: string;
   runId?: string;
   messages: ChatMessage[];

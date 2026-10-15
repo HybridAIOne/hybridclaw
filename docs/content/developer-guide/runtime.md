@@ -77,6 +77,15 @@ Published images also include the built `/chat`, `/apps`, and `/agents`
 browser assets so the embedded web surfaces work from release images instead
 of source checkouts only.
 
+The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
+under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
+terminal all use `dist/cli.js`. Both gateway and agent bundles inline
+`container/shared`; the image does not ship that directory or plain gateway
+`tsc` output. Source builds and npm packages retain their existing build layout.
+`tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
+layout and checks gateway startup, CLI loading, plugin SDK identity, and the
+embedded terminal when node-pty is available, without requiring Docker.
+
 ## Sandbox Modes
 
 HybridClaw can execute agent turns in two modes:
@@ -107,6 +116,12 @@ another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
+
+Session approval grants are written through to
+`.hybridclaw-runtime/sessions/<session-key>/approval-session-trust.json`.
+A replacement worker reloads them; switching sessions clears the prior session's
+grants. These files use the existing pinned approval-state protections.
+
 
 ### Auxiliary Model Routing
 
@@ -162,6 +177,8 @@ any two turns:
   worker signature (switching models within one provider does not);
 - when a new worker needs a slot at `container.maxConcurrent` and the least
   recently used worker has been idle for 10 seconds;
+- when a plugin releases the session after its conversation ends (a voice
+  call hangs up), once the running and queued turns finish;
 - on a crash or a gateway restart.
 
 The next worker is rebuilt from `ContainerInput`, so anything a later turn
@@ -580,6 +597,14 @@ Runtime details:
   change, such as HybridAI catalog tools, reach a warm worker. A server that
   fails to answer keeps its previous tools.
 
+Provider tool caps are defined once in `container/src/tool-count-limit.ts`.
+A capped request whose tools would exceed the cap defers every MCP tool
+behind `tool_catalog`, and promotion of reviewed read tools stops at the cap.
+A request still over the cap fails without a model call. A provider `400`,
+such as OpenAI's `array_above_max_length`, is not retried, and the turn error
+carries the provider's message. Provider fallback reads the HTTP status, not
+numbers inside that message.
+
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools
 are exposed directly, smallest first, after reserving space for deferred names.
@@ -748,7 +773,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - token source: `POST /api/v1/agent-observability/ingest-token:ensure`
 - source table: local `audit_events`, ordered by `id`
 - persisted cursor: `observability_offsets`
-- cached ingest tokens: `observability_ingest_tokens`
+- cached ingest tokens: `observability_ingest_tokens`, reused until ingest
+  answers 401/403, then rotated once with `rotate: true`
 
 Runtime diagnostics:
 
@@ -986,7 +1012,11 @@ Container-side sandboxed tool families:
 
 Prompt and runtime internals:
 
-- session compaction with pre-compaction memory flush
+- session compaction with pre-compaction memory flush: complete instructions
+  are processed in bounded batches, duplicate failed requests are collapsed,
+  and completion requires an append confirmed in the daily note or an explicit
+  no-memory skip. Unverified saves defer compaction and automatic session reset;
+  model claims alone do not mark the flush complete.
 - prompt hook pipeline: `bootstrap`, `memory`, `safety`, `proactivity`
 - hook config lives in `config.promptHooks`
 - delegated agent runs persist request logs, audit tool events, and model

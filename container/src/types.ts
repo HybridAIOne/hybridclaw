@@ -1,6 +1,11 @@
 import type { ApprovalMode } from '#shared/approval-mode.js';
+import type {
+  ApprovalReplyContext,
+  ApprovalReplyInterpretation,
+} from '#shared/approval-reply.js';
 import type { ApprovalRule } from '#shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '#shared/boost-offer.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
@@ -122,6 +127,7 @@ export interface ToolRunResult extends VisualAttachmentMessage {
   isError: boolean;
   /** The platform asks the user first; `output` is then only a placeholder. */
   boostOffer?: BoostOffer;
+  connectorApproval?: ConnectorApproval;
 }
 
 export interface ToolSchema {
@@ -209,7 +215,9 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput extends SessionAttachmentAccess {
+export interface ContainerInput
+  extends SessionAttachmentAccess,
+    ApprovalReplyContext {
   healthCheck?: {
     nonce: string;
   };
@@ -454,6 +462,7 @@ export interface OutputPresentationMetadata {
 }
 
 export interface ContainerOutput {
+  approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];

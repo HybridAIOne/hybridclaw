@@ -100,12 +100,24 @@ additional mailbox row loads the preconfigured HybridAI postbox for that row's
 agent, using the agent `chatbotId` when set and the agent id otherwise.
 
 For separate mailbox credentials per agent, set `email.accounts`. HybridClaw
-continues polling the top-level `email.address` account as the main agent's
-mailbox and also polls the `email.accounts` entries. An `email.accounts` entry
-for agent `main` or for the same mailbox address overrides the top-level
-mailbox to avoid polling it twice. Each account can inherit shared IMAP/SMTP
-defaults from the top-level `email.*` fields and override only the mailbox,
-password, folders, allowlist, and target agent:
+keeps polling the top-level `email.address` account as the email channel's
+agent (`agents.channels.email`, else the default agent) and also polls the
+`email.accounts` entries. An `email.accounts` entry for that agent or for the
+same mailbox address overrides the top-level mailbox to avoid polling it twice.
+
+`channels email setup --agent <agent-id>` writes that agent's `email.accounts`
+entry instead of the top-level mailbox and stores its password as
+`EMAIL_PASSWORD_<AGENT_ID>`:
+
+```bash
+hybridclaw channels email setup --agent sales --address sales@example.com \
+  --imap-host imap.example.com --smtp-host smtp.example.com \
+  --allow-from '*@customer.example'
+```
+
+Each account can inherit shared IMAP/SMTP defaults from the top-level
+`email.*` fields and override only the mailbox, password, folders, allowlist,
+and target agent:
 
 ```text
 /secret set SALES_EMAIL_PASSWORD <sales-mail-password>

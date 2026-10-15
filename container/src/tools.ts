@@ -2956,15 +2956,11 @@ async function executeToolInternal(
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
       return failTool('Error: MCP tool arguments must be a JSON object');
     }
-    const result = await mcpClientManager.callToolDetailed(
+    return mcpClientManager.callToolDetailed(
       name,
       args as Record<string, unknown>,
       boost,
     );
-    if (result.isError) {
-      return failTool(result.output);
-    }
-    return result.boostOffer ? result : result.output;
   }
 
   if (getPluginToolDefinition(name)) {

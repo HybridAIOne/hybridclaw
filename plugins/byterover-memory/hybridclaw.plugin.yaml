@@ -20,6 +20,8 @@ externalDependencies:
     check: brv --version
     installHint: npm install -g byterover-cli
     installUrl: https://github.com/campfirein/byterover-cli
+commands:
+  - byterover
 configSchema:
   type: object
   additionalProperties: false

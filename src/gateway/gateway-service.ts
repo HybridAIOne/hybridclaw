@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ApprovalMode } from '#shared/approval-mode.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { isDynamicContextMessageText } from '#shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '#shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '#shared/reasoning-effort.js';
@@ -533,6 +534,7 @@ import {
   resolveGatewayLocalBackendsHealth,
 } from './gateway-health-service.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
+import { describeMissingPluginCommand } from './gateway-plugin-command-hint.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
   handlePluginGatewayCommand,
@@ -1831,10 +1833,7 @@ function writeGatewayAdminAgentMarkdownFileContent(
   if (typeof options?.sizeBytes !== 'number') {
     assertGatewayAdminAgentMarkdownContentSize(content);
   }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, content, 'utf-8');
-  fs.renameSync(tempPath, filePath);
+  writeFileAtomic(filePath, content);
   return getGatewayAdminAgentMarkdownFileStats(filePath);
 }
 
@@ -1960,16 +1959,8 @@ function writeGatewayAdminAgentMarkdownRevision(params: {
     sha256: revision.sha256,
     source: revision.source,
   };
-  const tempContentPath = `${contentPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempContentPath, revision.content, 'utf-8');
-  fs.renameSync(tempContentPath, contentPath);
-  const tempMetadataPath = `${revisionPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(
-    tempMetadataPath,
-    JSON.stringify(metadata, null, 2),
-    'utf-8',
-  );
-  fs.renameSync(tempMetadataPath, revisionPath);
+  writeFileAtomic(contentPath, revision.content);
+  writeFileAtomic(revisionPath, JSON.stringify(metadata, null, 2));
   trimGatewayAdminAgentMarkdownRevisions(params);
   return metadata;
 }
@@ -9178,7 +9169,7 @@ export async function prepareSessionAutoReset(params: {
     chatbotId: params.chatbotId,
   });
 
-  await runPreCompactionMemoryFlush({
+  const flushed = await runPreCompactionMemoryFlush({
     sessionId: existingSession.id,
     agentId: resolvedRuntime.agentId,
     chatbotId: resolvedRuntime.chatbotId,
@@ -9188,7 +9179,9 @@ export async function prepareSessionAutoReset(params: {
     sessionSummary: existingSession.session_summary,
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
-  return expiryEvaluation;
+  return flushed
+    ? expiryEvaluation
+    : { ...expiryEvaluation, isExpired: false, reason: null };
 }
 
 function buildGatewaySessionContextUsageSnapshot(
@@ -12572,7 +12565,8 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Unknown Command',
-          `Unknown command: \`${cmd || '(empty)'}\`.`,
+          (await describeMissingPluginCommand(cmd)) ??
+            `Unknown command: \`${cmd || '(empty)'}\`.`,
         );
       }
     }

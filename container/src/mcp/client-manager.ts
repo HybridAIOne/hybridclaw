@@ -6,6 +6,7 @@
  * boost handshake; an offer comes back as `boostOffer`, and the caller, not
  * this manager, decides when to send the user's answer.
  */
+
 import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -25,6 +26,12 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { type BoostAnswer, parseBoostOffer } from '#shared/boost-offer.js';
+import {
+  CONNECTOR_APPROVAL_CONTEXT_META,
+  CONNECTOR_APPROVAL_META,
+  CONNECTOR_APPROVAL_REQUIRED_META,
+  parseConnectorApproval,
+} from '#shared/connector-approval.js';
 import {
   HYBRIDAI_MCP_SERVER_NAME,
   parseMcpToolBehaviorConfig,
@@ -246,6 +253,10 @@ export class McpClientManager {
     return (
       entry && {
         kind: entry.kind,
+        platformApproval:
+          entry.platformApproval === true &&
+          handle?.config.toolBehavior?.platformApprovals === true &&
+          config?.toolBehavior?.platformApprovals === true,
         annotations: entry.annotations,
         parallelSafe:
           !!handle &&
@@ -575,6 +586,7 @@ export class McpClientManager {
           serverNamespace,
           result.tools,
           seenNames,
+          handle.config.toolBehavior?.platformApprovals === true,
         ),
       );
       cursor = result.nextCursor;
@@ -583,11 +595,22 @@ export class McpClientManager {
     return tools;
   }
 
+  private approvalContext:
+    | { session_id: string; agent_id?: string }
+    | undefined;
+
+  setApprovalContext(
+    context: { session_id: string; agent_id?: string } | undefined,
+  ): void {
+    this.approvalContext = context;
+  }
+
   private mapTools(
     serverName: string,
     serverNamespace: string,
     tools: SdkTool[],
     seenNames: Set<string>,
+    platformApprovals = false,
   ): McpToolDefinition[] {
     return tools.map((tool) => {
       const namespacedName = buildNamespacedToolName(
@@ -607,6 +630,9 @@ export class McpClientManager {
         inputSchema: rawSchema,
         kind: classifyMcpTool(tool.name, tool.annotations),
         annotations: tool.annotations,
+        platformApproval:
+          platformApprovals &&
+          tool._meta?.[CONNECTOR_APPROVAL_REQUIRED_META] === true,
         ...(tool._meta?.[DEFER_LOADING_META] === true
           ? { deferLoading: true }
           : {}),
@@ -634,11 +660,23 @@ export class McpClientManager {
         {
           name: toolName,
           arguments: args,
-          ...(isHybridAI
+          ...(isHybridAI ||
+          (this.getToolBehavior(namespacedName)?.platformApproval &&
+            this.approvalContext)
             ? {
                 _meta: {
-                  [BOOST_OFFERS_META]: true,
-                  ...(boost ? { [BOOST_META]: boost } : {}),
+                  ...(this.getToolBehavior(namespacedName)?.platformApproval &&
+                  this.approvalContext
+                    ? {
+                        [CONNECTOR_APPROVAL_CONTEXT_META]: this.approvalContext,
+                      }
+                    : {}),
+                  ...(isHybridAI
+                    ? {
+                        [BOOST_OFFERS_META]: true,
+                        ...(boost ? { [BOOST_META]: boost } : {}),
+                      }
+                    : {}),
                 },
               }
             : {}),
@@ -660,9 +698,14 @@ export class McpClientManager {
         isHybridAI && !boost && !result.isError
           ? parseBoostOffer(result._meta?.[BOOST_OFFER_META])
           : null;
+      const connectorApproval =
+        this.getToolBehavior(namespacedName)?.platformApproval && result.isError
+          ? parseConnectorApproval(result._meta?.[CONNECTOR_APPROVAL_META])
+          : null;
       return {
         output: rendered,
         isError: result.isError === true,
+        ...(connectorApproval ? { connectorApproval } : {}),
         ...(boostOffer ? { boostOffer } : {}),
       };
     } catch (error) {
@@ -720,6 +763,7 @@ export class McpClientManager {
           toolName: tool.originalName,
           kind: tool.kind,
           annotations: tool.annotations,
+          platformApproval: tool.platformApproval,
         });
       }
     }

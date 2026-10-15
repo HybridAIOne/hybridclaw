@@ -90,6 +90,22 @@ describe('database session integration', () => {
     expect(session.channel_id).toBe('channel-1');
   });
 
+  it('a new chat on a bound channel starts with its agent, other channels with the default', async () => {
+    const { updateRuntimeConfig } = await import(
+      '../src/config/runtime-config.js'
+    );
+    updateRuntimeConfig((draft) => {
+      draft.agents.channels = { telegram: 'support' };
+    });
+    expect(
+      getOrCreateSession('agent:main:telegram:dm:42', null, 'telegram:42')
+        .agent_id,
+    ).toBe('support');
+    expect(
+      getOrCreateSession('agent:main:slack:dm:U42', null, 'slack:U42').agent_id,
+    ).toBe('main');
+  });
+
   it('storeMessage persists and retrieves messages in order', () => {
     const session = getOrCreateSession(
       'test-session-msg',

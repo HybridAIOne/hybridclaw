@@ -249,6 +249,25 @@ test('an import restarts the email channel onto the new default agent', async ()
   expect(restartedFor).toEqual(['hy']);
 });
 
+test('adopting an agent that is not the default takes its channels, not the default', async () => {
+  const ctx = await setup();
+  useMain(ctx);
+  await ctx.handleAgentPackageCommand([
+    'config',
+    JSON.stringify({ id: 'team' }),
+    '--activate',
+  ]);
+  await ctx.handleAgentPackageCommand(['bind', 'main', 'msteams']);
+
+  await ctx.adoptAgent({ to: 'hy', sessions: [{ from: OLD, to: NEW }] });
+
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  expect(getRuntimeConfig().agents).toMatchObject({
+    defaultAgentId: 'team',
+    channels: { msteams: 'hy' },
+  });
+});
+
 test('CLI confirms, sends the contract body and prints one JSON line', async () => {
   const ctx = await setup();
   await expect(ctx.handleAgentPackageCommand(['adopt', 'hy'])).rejects.toThrow('interactive');

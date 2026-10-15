@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,
@@ -109,6 +110,8 @@ export interface PluginManifest {
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
   cliCommands?: PluginManifestCliCommand[];
+  /** Gateway slash commands (`registerCommand`) the plugin provides. */
+  commands?: string[];
 }
 
 /** A top-level `hybridclaw <name>` command the plugin's manifest declares. */
@@ -515,7 +518,8 @@ export interface PluginInboundProactiveMessage {
   artifacts?: ArtifactMetadata[];
 }
 
-export interface PluginDispatchInboundMessageRequest {
+export interface PluginDispatchInboundMessageRequest
+  extends ApprovalReplyContext {
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
@@ -742,6 +746,13 @@ export interface HybridClawPluginApi {
   createRealtimeVoiceSession(
     options: PluginRealtimeVoiceSessionOptions,
   ): PluginRealtimeVoiceSession;
+  /**
+   * Stops the session's agent worker once its running and queued turns
+   * finish, without aborting them; call it when a conversation is over (a
+   * call hung up). Resolves true when a worker was stopped; a session
+   * without one is a no-op.
+   */
+  releaseSessionWorker(sessionId: string): Promise<boolean>;
   on<K extends PluginHookName>(
     event: K,
     handler: PluginHookHandlerMap[K],

@@ -48,4 +48,28 @@ describe.sequential('container MCP tool dispatch', () => {
       undefined,
     );
   });
+
+  test('preserves connector approval metadata on a blocked MCP call', async () => {
+    const { executeToolWithMetadata, setMcpClientManager } = await import(
+      '../container/src/tools.js'
+    );
+    const connectorApproval = {
+      id: '0123456789abcdef',
+      connector_name: 'Todoist',
+      tool_name: 'add-tasks',
+      arguments_preview: '{"tasks":[{"content":"Review example"}]}',
+      expires_at: Date.now() + 60_000,
+    };
+    setMcpClientManager({
+      isKnownTool: vi.fn().mockReturnValue(true),
+      callToolDetailed: vi.fn().mockResolvedValue({
+        output: 'Approval required',
+        isError: true,
+        connectorApproval,
+      }),
+    } as never);
+
+    expect(await executeToolWithMetadata('hybridai__todoist__add-tasks', '{}'))
+      .toEqual({ output: 'Approval required', isError: true, connectorApproval });
+  });
 });

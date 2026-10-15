@@ -8,6 +8,8 @@ requires:
   node: '>=22'
 credentials:
   - MANAGED_BROWSER_POOL_TOKEN
+commands:
+  - browser-pool
 configSchema:
   type: object
   additionalProperties: false

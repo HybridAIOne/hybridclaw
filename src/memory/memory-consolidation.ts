@@ -5,10 +5,10 @@
  * cleanup across restarts. Committed changes are recorded in dreams/ journals.
  * Non-managed text is preserved; external editors do not take this lock.
  */
-
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   DAILY_MEMORY_MAX_CHARS,
   readDailyMemoryFile,
@@ -752,9 +752,7 @@ function readCleanupFingerprint(statePath: string): string | null {
 }
 
 function writeCleanupFingerprint(statePath: string, fingerprint: string): void {
-  const tempPath = `${statePath}.tmp-${process.pid}`;
-  fs.writeFileSync(tempPath, `${fingerprint}\n`, 'utf-8');
-  fs.renameSync(tempPath, statePath);
+  writeFileAtomic(statePath, `${fingerprint}\n`);
 }
 
 export class MemoryConsolidationEngine {

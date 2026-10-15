@@ -77,6 +77,16 @@ export function createTwilioVoiceRuntime(api) {
   const logger = api.logger;
   const sessions = createSessionStore({
     resolveAgentId: () => api.getDefaultAgentId(),
+    onCallEnded: (session) => {
+      api
+        .releaseSessionWorker(session.gatewaySessionId)
+        .catch((error) =>
+          logger.warn(
+            { error, callSid: session.callSid },
+            'Failed to release voice call worker',
+          ),
+        );
+    },
   });
   const replay = createReplayProtector(REPLAY_TTL_MS);
   let stopping = false;

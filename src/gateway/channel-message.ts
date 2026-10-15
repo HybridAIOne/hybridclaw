@@ -335,6 +335,7 @@ export async function executeTextChannelGatewayTurn(params: {
   content: string;
   media: GatewayChatRequest['media'];
   source: string;
+  approvalUserText?: GatewayChatRequest['approvalUserText'];
   reply: ReplyFn;
   abortSignal?: GatewayChatRequest['abortSignal'];
   onTextDelta?: GatewayChatRequest['onTextDelta'];
@@ -369,6 +370,7 @@ export async function executeTextChannelGatewayTurn(params: {
       onToolProgress: params.onToolProgress,
       onProactiveMessage: params.onProactiveMessage,
       source: params.source,
+      approvalUserText: params.approvalUserText,
     }),
   );
   return params.resultTransform ? params.resultTransform(result) : result;

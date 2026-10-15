@@ -297,9 +297,10 @@ If compromise is suspected:
 
 Do not report security vulnerabilities in public GitHub issues or Discussions.
 
-Report vulnerabilities privately to
-[support@hybridai.one](mailto:support@hybridai.one?subject=HybridClaw%20security%20report)
-with:
+Report vulnerabilities privately through
+[GitHub private vulnerability reporting](https://github.com/HybridAIOne/hybridclaw/security/advisories/new),
+or by email to [security@hybridai.one](mailto:security@hybridai.one?subject=HybridClaw%20security%20report).
+Include:
 
 - affected HybridClaw version
 - deployment details and operating system

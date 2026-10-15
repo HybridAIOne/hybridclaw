@@ -3,6 +3,7 @@
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
+
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,6 +11,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
 import type { ApprovalMode as SessionApprovalMode } from '#shared/approval-mode.js';
+import type { ApprovalReplyInterpretation } from '#shared/approval-reply.js';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -19,6 +21,7 @@ import {
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
 } from '#shared/approval-rules.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import type { BoostAnswer } from '#shared/boost-offer.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '#shared/browser-navigation.js';
 import {
@@ -27,6 +30,7 @@ import {
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
 } from '#shared/browser-stealth-policy.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
 import type { ClassifierMiddlewareSkill } from '#shared/middleware-contract.js';
 import { applyClassifierMiddlewareSync } from '#shared/middleware-runner.js';
 import type {
@@ -42,6 +46,7 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '#shared/network-policy.js';
+import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   messageToolEmailTarget,
   messageToolTarget,
@@ -75,7 +80,8 @@ import {
   type CheckoutAction,
   classifyBrowserCheckout,
 } from './browser-checkout.js';
-import { classifyMcpTool } from './mcp/tool-classifier.js';
+import { buildConnectorApproval } from './connector-approvals.js';
+import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
   loadSessionPendingApprovals,
@@ -107,6 +113,7 @@ import {
 } from './stakes-middleware.js';
 import { normalizeText } from './text-normalization.js';
 import { classifyInboxCleanup } from './tools/inbox-cleanup.js';
+import type { PendingApproval as ApprovalPrompt } from './types.js';
 import {
   type ChatMessage,
   type EscalationTarget,
@@ -122,6 +129,7 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '#shared/network-policy.js';
+export { parseApprovalUserResponse } from './approval-directive.js';
 export type {
   StakesClassificationInput,
   StakesClassifier,
@@ -228,7 +236,10 @@ export interface ClassifiedAction {
 }
 
 export interface ApprovalPrelude {
+  interpretation?: ApprovalReplyInterpretation;
+  modelResponse?: import('./types.js').ChatCompletionResponse;
   immediateMessage?: string;
+  pendingApproval?: import('./types.js').PendingApproval;
   replayPrompt?: string;
   approvedToolCall?: {
     toolName: string;
@@ -495,9 +506,6 @@ const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const HOST_RE =
   /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
-const APPROVE_RE =
-  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
-const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 const registeredApprovalRuleNames = new Set<string>(
   DEFAULT_APPROVAL_RULE_ORDER,
 );
@@ -1341,91 +1349,6 @@ function primaryPathKey(rawPath: string): string {
   return first || 'root';
 }
 
-function parseModeFromApproveMatch(
-  match: RegExpMatchArray | null,
-): ApprovalMode {
-  const scope = String(match?.[2] || '').toLowerCase();
-  if (scope.includes('all')) return 'all';
-  if (scope.includes('agent')) return 'agent';
-  if (scope.includes('session')) return 'session';
-  return 'once';
-}
-
-function parseApprovalDirective(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
-  const normalized = input.trim();
-  if (!normalized) return null;
-
-  const directiveCandidates = [
-    normalized,
-    normalized.replace(/^(?:<@!?\d+>\s*)+/, ''),
-  ];
-
-  for (const candidate of directiveCandidates) {
-    if (!candidate) continue;
-    const approveMatch = candidate.match(APPROVE_RE);
-    if (approveMatch) {
-      return {
-        kind: 'approve',
-        mode: parseModeFromApproveMatch(approveMatch),
-        requestId: String(approveMatch[1] || '').trim(),
-      };
-    }
-
-    const denyMatch = candidate.match(DENY_RE);
-    if (denyMatch) {
-      return {
-        kind: 'deny',
-        requestId: String(denyMatch[1] || '').trim(),
-      };
-    }
-  }
-
-  return null;
-}
-
-export function parseApprovalUserResponse(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
-  const normalized = input.trim();
-  if (!normalized) return null;
-
-  const candidates: string[] = [];
-  const pushCandidate = (value: string): void => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (candidates.includes(trimmed)) return;
-    candidates.push(trimmed);
-  };
-
-  pushCandidate(normalized);
-  pushCandidate(normalized.replace(/^(?:<@!?\d+>\s*)+/, ''));
-
-  const batchTailMatch = normalized.match(/Message\s+\d+\s*:\s*([\s\S]+)$/i);
-  if (batchTailMatch?.[1]) {
-    pushCandidate(batchTailMatch[1]);
-  }
-
-  const lines = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length > 0) {
-    pushCandidate(lines[lines.length - 1]);
-  }
-
-  for (const candidate of candidates) {
-    const parsed = parseApprovalDirective(candidate);
-    if (parsed) return parsed;
-  }
-  return null;
-}
-
 function nextRule(): NextRule {
   return NEXT_RULE;
 }
@@ -2110,7 +2033,9 @@ export class TrustedAgentApprovalRuntime {
   private readonly actionExecutionCounts = new Map<string, number>();
   private readonly explicitApprovalCounts = new Map<string, number>();
   private readonly oneShotFingerprints = new Set<string>();
-  private readonly sessionTrustedActions = new Set<string>();
+  private readonly sessionTrustedActions = new SessionStateSet(
+    'approval-session-trust.json',
+  );
   // `yes for agent` and `yes for all` grants. The gateway revokes them by
   // rewriting the files, so they are read again whenever a file changes.
   private readonly agentTrust: DurableTrust;
@@ -2129,6 +2054,7 @@ export class TrustedAgentApprovalRuntime {
   private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
+  private userHash = '';
   // The request's browser.provider. A warm or long-lived worker outlives a
   // provider switch, so its spawn environment is not evidence.
   private browserProvider = '';
@@ -2200,11 +2126,14 @@ export class TrustedAgentApprovalRuntime {
   }
 
   /** Loads the session's persisted state; call before each turn. */
-  setSession(sessionId: string): void {
+  setSession(sessionId: string, userId?: string): void {
+    this.userHash = userId ? sessionStateKey(userId) : '';
     this.sessionId = sessionId;
     this.fetchedFiles.bindSession(sessionId);
+    this.sessionTrustedActions.bindSession(sessionId);
     const sessionHash = sessionId ? sessionStateKey(sessionId) : '';
     if (sessionHash === this.sessionHash) return;
+    this.oneShotFingerprints.clear();
     this.sessionHash = sessionHash;
     this.loadPersistedPendingApprovals();
   }
@@ -2389,14 +2318,7 @@ export class TrustedAgentApprovalRuntime {
 
   private persistTrustStore(trust: DurableTrust): void {
     try {
-      fs.mkdirSync(path.dirname(trust.path), { recursive: true });
-      const tmpPath = `${trust.path}.tmp`;
-      fs.writeFileSync(
-        tmpPath,
-        serializeApprovalTrustStore(trust.store),
-        'utf-8',
-      );
-      fs.renameSync(tmpPath, trust.path);
+      writeFileAtomic(trust.path, serializeApprovalTrustStore(trust.store));
       trust.version = trustStoreVersion(trust.path);
     } catch {
       // ignore persistence failures and continue with in-memory trust
@@ -2450,14 +2372,37 @@ export class TrustedAgentApprovalRuntime {
     const parsedResponse = parseApprovalUserResponse(latest);
     if (!parsedResponse) return null;
 
-    // "no facade" or "yes 2024-10-09" names no pending request; it is a
-    // message for the agent, not an answer, as with boost questions.
-    const target = this.resolvePendingTarget(parsedResponse.requestId);
-    if (!target) return null;
+    if (!this.resolvePendingTarget(parsedResponse.requestId)) return null;
+    return this.resolveApprovalResponse(parsedResponse);
+  }
 
-    if (parsedResponse.kind === 'deny') {
+  getPendingApprovals(): PendingApproval[] {
+    this.cleanupExpiredPending();
+    return [...this.pending.values()]
+      .filter(
+        (pending) => !pending.userHash || pending.userHash === this.userHash,
+      )
+      .map((pending) => ({ ...pending }));
+  }
+
+  resolveApprovalResponse(parsedResponse: {
+    kind: 'approve' | 'deny' | 'revise';
+    requestId: string;
+    mode?: ApprovalMode;
+  }): ApprovalPrelude | null {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    const target = this.resolvePendingTarget(parsedResponse.requestId);
+    if (!target)
+      return {
+        immediateMessage:
+          'That approval is no longer pending. Please request the action again.',
+      };
+
+    if (parsedResponse.kind === 'deny' || parsedResponse.kind === 'revise') {
       this.pending.delete(target.id);
       this.persistPendingApprovals();
+      if (parsedResponse.kind === 'revise') return null;
       return {
         immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
       };
@@ -2530,6 +2475,26 @@ export class TrustedAgentApprovalRuntime {
         ? undefined
         : `Approved \`${target.intent}\` (${modeSummary}).`,
     };
+  }
+
+  registerConnectorApproval(
+    approval: ConnectorApproval,
+    toolName: string,
+    argsJson: string,
+    originalPrompt: string,
+  ): ApprovalPrompt {
+    const { pending, promptCard } = buildConnectorApproval(
+      approval,
+      toolName,
+      argsJson,
+      originalPrompt,
+      this.sessionHash,
+      stableHash(`${toolName}|${argsJson}`),
+    );
+    pending.userHash = this.userHash;
+    this.pending.set(pending.id, pending);
+    this.persistPendingApprovals();
+    return promptCard;
   }
 
   evaluateToolCall(params: {
@@ -2638,13 +2603,18 @@ export class TrustedAgentApprovalRuntime {
     >,
   ): PendingApproval {
     for (const pending of this.pending.values()) {
-      if (pending.fingerprint === input.fingerprint) return pending;
+      if (
+        pending.fingerprint === input.fingerprint &&
+        (!pending.userHash || pending.userHash === this.userHash)
+      )
+        return pending;
     }
     const createdAtMs = Date.now();
     const pending: PendingApproval = {
       ...input,
       id: randomUUID().slice(0, 8),
       sessionHash: this.sessionHash,
+      userHash: this.userHash,
       createdAtMs,
       expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
     };
@@ -2656,14 +2626,12 @@ export class TrustedAgentApprovalRuntime {
   private resolvePendingTarget(requestedId: string): PendingApproval | null {
     if (requestedId) {
       const direct = this.pending.get(requestedId);
-      if (direct) return direct;
+      if (direct && (!direct.userHash || direct.userHash === this.userHash))
+        return direct;
       return null;
     }
-    let latest: PendingApproval | null = null;
-    for (const pending of this.pending.values()) {
-      if (!latest || pending.createdAtMs > latest.createdAtMs) latest = pending;
-    }
-    return latest;
+    const own = this.getPendingApprovals();
+    return own.length === 1 ? own[0] : null;
   }
 
   private cleanupExpiredPending(): void {
@@ -3584,106 +3552,13 @@ export class TrustedAgentApprovalRuntime {
       return this.classifyGenericBrowserAction(toolName, args);
     }
 
-    if (lowerTool.includes('__')) {
-      const behavior = this.mcpToolBehaviorResolver?.(toolName);
-      const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
-      const annotations = behavior?.annotations;
-      // A server can namespace its own tools (`hybridai__google__send_mail`),
-      // so the tool is everything after the first separator.
-      const separator = lowerTool.indexOf('__');
-      const serverName = lowerTool.slice(0, separator);
-      const rawToolName = lowerTool.slice(separator + 2);
-      const toolLabel = annotations?.title || rawToolName || lowerTool;
-      const actionKey = `mcp:${serverName || 'server'}:${kind}`;
-
-      if (kind === 'read' || kind === 'search' || kind === 'fetch') {
-        return {
-          tier: 'green',
-          actionKey,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied: 'I will continue without this MCP lookup.',
-          reason: annotations?.readOnlyHint
-            ? 'the MCP server marks this tool read-only'
-            : 'this MCP tool appears read-only',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: false,
-          promotableRed: false,
-          stickyYellow: false,
-        };
-      }
-
-      if (kind === 'delete' || kind === 'execute') {
-        const marked = annotations?.destructiveHint === true;
-        return {
-          tier: 'red',
-          actionKey,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied: marked
-            ? 'I will continue without making that change.'
-            : kind === 'delete'
-              ? 'I will continue without deleting anything.'
-              : 'I will continue without executing that action.',
-          reason: marked
-            ? 'the MCP server marks this tool destructive'
-            : kind === 'delete'
-              ? 'this MCP tool appears destructive'
-              : 'this MCP tool appears to execute commands or external actions',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: true,
-          promotableRed: false,
-          stickyYellow: false,
-        };
-      }
-
-      // A write that reaches outside (mail, an invite, a PR comment) asks in
-      // the default mode too; full access still runs it. Owner call,
-      // 2026-10-02: the Hy app promises to send nothing without approval, and
-      // scheduled runs read mail strangers wrote. The key names the tool, so
-      // trusting one send does not trust the server's other writes.
-      // Owner call, 2026-10-10: subscribed music generation creates a file
-      // for the user; contacting its provider is not sending or publishing.
-      if (
-        annotations?.openWorldHint === true &&
-        lowerTool !== 'hybridai__music_generate'
-      ) {
-        return {
-          tier: 'red',
-          actionKey: `${actionKey}:${rawToolName}`,
-          intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied:
-            'Nothing is sent or changed outside, and I will continue without this step.',
-          reason:
-            'the MCP server says this tool reaches outside, for example it sends or posts',
-          commandPreview: normalizePreview(JSON.stringify(args)),
-          pathHints: [],
-          hostHints: [],
-          writeIntent: true,
-          promotableRed: false,
-          stickyYellow: true,
-        };
-      }
-
-      return {
-        tier: 'yellow',
-        actionKey,
-        intent: `run MCP tool ${toolLabel}`,
-        consequenceIfDenied: 'I will continue without this MCP action.',
-        reason:
-          kind === 'edit'
-            ? 'this MCP tool appears to modify state'
-            : 'this MCP tool may have side effects',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
-        hostHints: [],
-        writeIntent: kind === 'edit',
-        promotableRed: false,
-        stickyYellow: false,
-      };
-    }
+    if (lowerTool.includes('__'))
+      return classifyMcpAction(
+        toolName,
+        normalizePreview(JSON.stringify(args)),
+        this.mcpToolBehaviorResolver?.(toolName),
+        args,
+      );
 
     if (lowerTool === 'bash') {
       return this.classifyBashAction(args);

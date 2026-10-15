@@ -1,10 +1,10 @@
 /**
  * `/flavour` — which model family the agent thinks with: `openai`,
- * `anthropic`, or `eu` for an open-weight model hosted in the EU. It sets the
- * agent's own model, so every chat and scheduled task of the agent follows,
- * and leaves the auxiliary model alone. Companion apps read and set it from
- * their settings with `--json`, answered in one line that survives a chat
- * relay (`chatSafeJson`).
+ * `anthropic`, `mistral`, or `eu` for an open-weight model hosted in the EU.
+ * It sets the agent's own model, so every chat and scheduled task of the
+ * agent follows, and leaves the auxiliary model alone. Companion apps read and
+ * set it from their settings with `--json`, answered in one line that survives
+ * a chat relay (`chatSafeJson`).
  */
 import { stripHybridAIModelPrefix } from '#shared/model-names.js';
 import {
@@ -27,6 +27,7 @@ import { chatSafeJson } from './schedule-command.js';
 export const FLAVOUR_MODELS = {
   openai: 'hybridai/gpt-6-luna',
   anthropic: 'hybridai/anthropic/claude-haiku-5-5',
+  mistral: 'hybridai/mistral/mistral-large-latest',
   eu: 'hybridai/melious/glm-5.3-flash',
 } as const;
 
@@ -34,7 +35,7 @@ type Flavour = keyof typeof FLAVOUR_MODELS;
 const FLAVOURS = Object.keys(FLAVOUR_MODELS) as Flavour[];
 
 const USAGE =
-  'Usage: `/flavour` shows which models the agent uses, `/flavour set openai|anthropic|eu` changes it. Add `--json` for a machine-readable answer.';
+  'Usage: `/flavour` shows which models the agent uses, `/flavour set openai|anthropic|mistral|eu` changes it. Add `--json` for a machine-readable answer.';
 
 // `gpt-6-luna` and `hybridai/gpt-6-luna` name the same model.
 const modelKey = (model: string) =>
@@ -75,7 +76,7 @@ async function answer(
   return plainCommand(
     flavour
       ? `The agent uses ${flavour} models (${model}).`
-      : `The agent uses ${model}, which isn't one of the flavours. Pick one with \`/flavour set openai|anthropic|eu\`.`,
+      : `The agent uses ${model}, which isn't one of the flavours. Pick one with \`/flavour set openai|anthropic|mistral|eu\`.`,
   );
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
@@ -265,20 +266,8 @@ function writeNewLocalInstanceIdState(
   statePath: string,
   state: LocalInstanceIdState,
 ): void {
-  const stateDir = path.dirname(statePath);
-  fs.mkdirSync(stateDir, { recursive: true });
-  const tempPath = path.join(stateDir, `.instance-id-${randomUUID()}.tmp`);
-  try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
-      encoding: 'utf-8',
-      flag: 'wx',
-    });
-    // Hard-linking creates the target only after the complete temp file exists
-    // and fails with EEXIST instead of overwriting a concurrently-created id.
-    fs.linkSync(tempPath, statePath);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
-  }
+  // Fails with EEXIST instead of overwriting a concurrently-created id.
+  writeFileAtomicExclusive(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 export function resolveLocalInstanceId(

@@ -217,6 +217,7 @@ export function createPluginRealtimeVoiceSession(
         userId: identity.userId,
         username: identity.username,
         content: request,
+        approvalUserText: hooks.approvalUserText ?? null,
         agentId: deps.agentId,
         abortSignal: hooks.abortSignal,
         onToolProgress: (event) => hooks.onToolProgress(event),

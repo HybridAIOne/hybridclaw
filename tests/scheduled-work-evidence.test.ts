@@ -55,3 +55,21 @@ test.each([false, true])('a run links evidence, actions, files and chat even if 
   }
   expect(tool.runWorkTool({ sessionId: work.runSessionId, action: 'get', id: workId }).ok).toBe(false);
 });
+
+test('a run without a verified owner is not told to record its work', async () => {
+  setupHome();
+  const db = await import('../src/memory/db.js');
+  const jobs = await import('../src/memory/jobs.js');
+  const runner = await import('../src/scheduler/scheduled-task-runner.js');
+  db.initDatabase({ quiet: true });
+  const session = db.getOrCreateSession('tui-chat', null, 'tui', 'main');
+  const taskId = jobs.createJob({ kind: 'scheduled_task', sessionId: session.id,
+    channelId: 'tui', cronExpr: '0 9 * * *', prompt: 'Check the weather' });
+  runAgent.mockResolvedValue({ status: 'success', result: 'Sunny.', toolExecutions: [] });
+  await runner.runIsolatedScheduledTask({ taskId, prompt: 'Check the weather', agentId: 'main',
+    channelId: 'tui', chatbotId: 'test', model: 'gpt-4o-mini', originSessionId: session.id,
+    onError: vi.fn(), onResult: vi.fn() });
+  const prompt = runAgent.mock.calls[0][0].messages.at(-1).content;
+  expect(prompt).toContain('Check the weather');
+  expect(prompt).not.toContain('work(record)');
+});

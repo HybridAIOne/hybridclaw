@@ -3,6 +3,7 @@
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
  */
+import { isDeepStrictEqual } from 'node:util';
 import type { VisualAttachmentMessage } from './visual-snapshots.js';
 import { validateVisualAttachments } from './visual-snapshots.js';
 
@@ -142,8 +143,10 @@ export function validateToolHistory(value: unknown): HistoryMessage[] {
                   !call ||
                   nativeIds.has(block.id) ||
                   call.function.name !== block.name ||
-                  JSON.stringify(JSON.parse(call.function.arguments)) !==
-                    JSON.stringify(block.input)
+                  !isDeepStrictEqual(
+                    JSON.parse(call.function.arguments),
+                    block.input,
+                  )
                 ) {
                   throw new Error(
                     'Historical Anthropic tool metadata does not match its calls.',

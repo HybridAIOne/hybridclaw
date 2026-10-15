@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
 import { DATA_DIR } from '../config/config.js';
 import { interruptGatewaySessionExecution } from '../gateway/gateway-request-runtime.js';
@@ -33,11 +34,7 @@ function defaultPath(agentId: string): string {
 export function saveAgentDefaults(rawJson: string): string {
   const validated = validateAgentDefaultJson(rawJson);
   const { agent } = JSON.parse(validated) as { agent: { id: string } };
-  const file = defaultPath(agent.id);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(temporary, validated, { mode: 0o600 });
-  fs.renameSync(temporary, file);
+  writeFileAtomic(defaultPath(agent.id), validated, { mode: 0o600 });
   return agent.id;
 }
 

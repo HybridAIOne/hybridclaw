@@ -20,7 +20,7 @@ import { logger } from '../logger.js';
 import { getStructuredAuditAfterId } from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
-  getObservabilityIngestTokenRecord,
+  getObservabilityIngestToken,
   getObservabilityOffset,
   setObservabilityIngestToken,
   setObservabilityOffset,
@@ -39,8 +39,6 @@ const FETCH_LIMIT_FACTOR = 4;
 const TOKEN_ADMIN_PATH = '/api/v1/agent-observability/ingest-token:ensure';
 const OBSERVABILITY_TRANSIENT_WARN_WINDOW_MS = 60_000;
 const OBSERVABILITY_TRANSIENT_WARN_LIMIT = 1;
-const OBSERVABILITY_INGEST_TOKEN_MAX_CACHE_AGE_MS = 20 * 60 * 1000;
-const OBSERVABILITY_INGEST_TOKEN_FUTURE_SKEW_MS = 60 * 1000;
 
 interface ResolvedIngestConfig {
   enabled: boolean;
@@ -80,6 +78,7 @@ interface TokenResolutionResult {
   token: string | null;
   source: 'cache' | 'created' | 'ensured' | null;
   reason: string | null;
+  statusCode?: number;
 }
 
 interface PreparedBatch {
@@ -463,22 +462,6 @@ function formatGrantError(prefix: string, grant: TokenGrantResult): string {
   return `${prefix}: HTTP ${grant.statusCode}`;
 }
 
-function parseIngestTokenUpdatedMs(updatedAt: string): number {
-  const trimmed = updatedAt.trim();
-  if (!trimmed) return Number.NaN;
-  const sqliteUtcMatch = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed);
-  return Date.parse(sqliteUtcMatch ? `${trimmed.replace(' ', 'T')}Z` : trimmed);
-}
-
-function isFreshIngestToken(updatedAt: string, now = Date.now()): boolean {
-  const updatedMs = parseIngestTokenUpdatedMs(updatedAt);
-  if (!Number.isFinite(updatedMs)) return false;
-  if (updatedMs - now > OBSERVABILITY_INGEST_TOKEN_FUTURE_SKEW_MS) {
-    return false;
-  }
-  return now - updatedMs < OBSERVABILITY_INGEST_TOKEN_MAX_CACHE_AGE_MS;
-}
-
 async function requestIngestToken(
   config: ResolvedIngestConfig,
   rotate = false,
@@ -583,25 +566,10 @@ async function resolveIngestToken(
 
   const tokenKey = buildTokenCacheKey(config);
   if (!forceRefresh) {
-    const cached = getObservabilityIngestTokenRecord(tokenKey);
-    if (cached && isFreshIngestToken(cached.updatedAt)) {
-      return { ok: true, token: cached.token, source: 'cache', reason: null };
-    }
+    // Tokens do not expire; a 401/403 from ingest forces the refresh below.
+    const cached = getObservabilityIngestToken(tokenKey);
     if (cached) {
-      const rotated = await requestIngestToken(config, true);
-      if (!rotated.ok) {
-        return { ok: true, token: cached.token, source: 'cache', reason: null };
-      }
-      if (!rotated.token) {
-        return { ok: true, token: cached.token, source: 'cache', reason: null };
-      }
-      setObservabilityIngestToken(tokenKey, rotated.token);
-      return {
-        ok: true,
-        token: rotated.token,
-        source: 'created',
-        reason: null,
-      };
+      return { ok: true, token: cached, source: 'cache', reason: null };
     }
   } else {
     deleteObservabilityIngestToken(tokenKey);
@@ -615,6 +583,7 @@ async function resolveIngestToken(
           'failed to rotate observability ingest token',
           rotated,
         ),
+        statusCode: rotated.statusCode,
       };
     }
     if (!rotated.token) {
@@ -648,6 +617,7 @@ async function resolveIngestToken(
         'failed to ensure observability ingest token',
         granted,
       ),
+      statusCode: granted.statusCode,
     };
   }
   if (!granted.token) {
@@ -661,6 +631,7 @@ async function resolveIngestToken(
           'failed to rotate observability ingest token',
           rotated,
         ),
+        statusCode: rotated.statusCode,
       };
     }
     if (!rotated.token) {
@@ -770,6 +741,15 @@ function isPauseStatus(statusCode: number): boolean {
   );
 }
 
+function pauseIngest(statusCode: number, streamKey: string | null): void {
+  ingestState.paused = true;
+  ingestState.reason = `paused after status ${statusCode}`;
+  logger.error(
+    { streamKey, statusCode },
+    'Observability ingest paused; fix configuration/token and restart gateway',
+  );
+}
+
 async function flushObservability(reason: string): Promise<void> {
   const generation = flushGeneration;
   if (flushInProgress) return;
@@ -805,6 +785,10 @@ async function flushObservability(reason: string): Promise<void> {
         },
         'Observability ingest token unavailable',
       );
+      // A rejected API key fails identically every flush; retry on restart.
+      if (initialToken.statusCode && isPauseStatus(initialToken.statusCode)) {
+        pauseIngest(initialToken.statusCode, null);
+      }
       return;
     }
     let activeToken = initialToken.token;
@@ -918,15 +902,7 @@ async function flushObservability(reason: string): Promise<void> {
           );
         }
         if (isPauseStatus(result.statusCode)) {
-          ingestState.paused = true;
-          ingestState.reason = `paused after status ${result.statusCode}`;
-          logger.error(
-            {
-              streamKey,
-              statusCode: result.statusCode,
-            },
-            'Observability ingest paused; fix configuration/token and restart gateway',
-          );
+          pauseIngest(result.statusCode, streamKey);
         }
         if (result.statusCode === 500) {
           if (batch.eventCount === 1) {

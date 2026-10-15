@@ -1,3 +1,7 @@
+import {
+  EXTERNAL_CHANNEL_KINDS,
+  type ExternalChannelKind,
+} from '../channels/channel.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
 import { parseUserId } from '../identity/user-id.js';
 import {
@@ -113,6 +117,8 @@ export interface AgentsConfig {
   defaultAgentId?: string;
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
+  /** The agent each channel answers as; unbound channels follow the default. */
+  channels?: Partial<Record<ExternalChannelKind, string>>;
 }
 
 // Kept free of runtime-config so channel descriptors can compare configs
@@ -125,6 +131,29 @@ export function resolveConfiguredDefaultAgentId(agents: AgentsConfig): string {
   )
     ? configured
     : DEFAULT_AGENT_ID;
+}
+
+export function normalizeAgentChannelBindings(
+  value: unknown,
+): AgentsConfig['channels'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  return Object.fromEntries(
+    EXTERNAL_CHANNEL_KINDS.flatMap((kind) => {
+      const agentId = normalizeTrimmedString(raw[kind]);
+      return agentId ? [[kind, agentId]] : [];
+    }),
+  );
+}
+
+export function resolveConfiguredChannelAgentId(
+  agents: AgentsConfig,
+  kind: string,
+): string {
+  return (
+    normalizeTrimmedString(agents.channels?.[kind as ExternalChannelKind]) ||
+    resolveConfiguredDefaultAgentId(agents)
+  );
 }
 
 export function normalizeAgentIdentityFields(params: {

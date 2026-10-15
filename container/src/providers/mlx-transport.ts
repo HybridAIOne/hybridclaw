@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   fetchMlxWithIdleTimeout,
   MLX_IDLE_TIMEOUT_MS,
@@ -53,13 +54,11 @@ export async function fetchMlx(
   const requestPath = `${prefix}.request`;
   const responsePath = `${prefix}-${id}.response`;
   const cancelPath = `${prefix}-${id}.cancel`;
-  const temporary = `${prefix}-${id}.tmp`;
-  fs.writeFileSync(
-    temporary,
+  writeFileAtomic(
+    requestPath,
     JSON.stringify({ id, body: JSON.parse(init.body) }),
-    { mode: 0o600, flag: 'wx' },
+    { mode: 0o600 },
   );
-  fs.renameSync(temporary, requestPath);
   let offset = 0;
   let pending = '';
   let finished = false;

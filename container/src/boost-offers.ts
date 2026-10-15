@@ -12,12 +12,13 @@
  * becomes session, agent or workspace trust.
  */
 import fs from 'node:fs';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import type { BoostOffer } from '#shared/boost-offer.js';
 import { parseBoostOffer } from '#shared/boost-offer.js';
+import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   type ApprovalPrelude,
   latestUserMessageText,
-  parseApprovalUserResponse,
 } from './approval-policy.js';
 import { approvalReviewArguments } from './approval-review.js';
 import { approvalOutputPresentation } from './chat-segments.js';
@@ -77,11 +78,9 @@ function writePendingBoost(sessionId: string, pending: PendingBoost): void {
   const filePath = sessionStatePath(sessionId, PENDING_BOOST_FILE);
   try {
     ensureSessionStateDir(filePath);
-    const tmpPath = `${filePath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify({ version: 1, ...pending }), {
+    writeFileAtomic(filePath, JSON.stringify({ version: 1, ...pending }), {
       mode: 0o600,
     });
-    fs.renameSync(tmpPath, filePath);
   } catch (error) {
     // The answer then finds no open question, so no boost is spent.
     console.error('[boost] failed to persist the open question:', error);
@@ -204,8 +203,10 @@ function parseBoostAnswer(
 export function handleBoostAnswer(
   sessionId: string,
   messages: ChatMessage[],
+  userText?: string | null,
 ): ApprovalPrelude | null {
-  const text = latestUserMessageText(messages);
+  const text =
+    userText === undefined ? latestUserMessageText(messages) : userText;
   if (!text) return null;
   const pending = readPendingBoost(sessionId);
   const live = pending && pending.expiresAtMs > Date.now() ? pending : null;

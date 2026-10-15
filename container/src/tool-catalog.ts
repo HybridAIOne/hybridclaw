@@ -117,6 +117,7 @@ export class ToolCatalog {
 
   /**
    * Expose small connector schemas directly; defer overflow and bulky tools.
+   * Promotion stops before the exposed tools, catalog included, pass maxTools.
    * Returns null when none of the named tools is available, preserving the
    * plain tool array for requests without deferred connectors.
    */
@@ -124,6 +125,7 @@ export class ToolCatalog {
     availableTools: ToolDefinition[],
     deferredTools: ReadonlySet<string>,
     isReviewedRead: (name: string) => boolean,
+    maxTools = Number.POSITIVE_INFINITY,
   ): ToolCatalog | null {
     const names = availableTools.map((tool) => tool.function.name);
     if (!names.some((name) => deferredTools.has(name))) return null;
@@ -157,6 +159,7 @@ export class ToolCatalog {
       )) {
       const size = JSON.stringify(tool).length;
       const reserved = directorySummary(tool).length + 1;
+      if (starters.size + 1 >= maxTools) break;
       if (size > MAX_INLINE_SCHEMA_CHARS || size - reserved > budget) continue;
       starters.add(tool.function.name);
       budget -= size - reserved;

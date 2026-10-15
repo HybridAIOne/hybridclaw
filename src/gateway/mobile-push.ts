@@ -437,7 +437,12 @@ export function reminderAlert(options: {
   workId?: string;
 }): MobilePushMessage {
   const { notification } = options;
-  const body = options.text.trim();
+  const titles = listedTitles(options.text);
+  const body = titles.length
+    ? titles.length > 1
+      ? `${titles[0]} (+${titles.length - 1} more)`
+      : titles[0]
+    : options.text.trim();
   return {
     kind: 'reminder',
     title: options.assistant,
@@ -455,15 +460,16 @@ export function reminderAlert(options: {
 }
 
 /**
- * What a phone calls the assistant in an alert's title. The phone app knows
- * the default agent as Hy, whatever it is called here; any other agent goes by
- * its display name or name, and is Hy too without either, never the runtime.
+ * Hy's phone name is fixed even when its workspace has an imported display
+ * name. The runtime's default agent is separate and called main in the app.
+ * Other agents use their display name or name; an absent name falls back to Hy.
  */
 export function phoneAssistantName(
   agentId: string | null | undefined,
   agent: { name?: string; displayName?: string } | null,
 ): string {
-  if (!agentId || agentId === DEFAULT_AGENT_ID) return 'Hy';
+  if (!agentId || agentId === 'hy') return 'Hy';
+  if (agentId === DEFAULT_AGENT_ID) return 'main';
   return agent?.displayName || agent?.name || 'Hy';
 }
 

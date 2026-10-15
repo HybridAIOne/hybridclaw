@@ -152,14 +152,14 @@ COPY --link --from=deps /app/container/package*.json container/
 COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
-# Gateway compiled output + console SPA
-COPY --link --from=builder /app/dist ./dist
-COPY --link --from=builder /app/bundle ./bundle
+# The image uses the gateway bundle for every CLI consumer, including the
+# package bin and embedded terminal, which both resolve dist/cli.js. Do not
+# ship plain tsc output: its relative imports still need container/shared.
+COPY --link --from=builder /app/bundle ./dist
 COPY --link --from=builder /app/console/dist ./console/dist
 
-# Container agent runtime (host sandbox mode) + shared modules
+# Container agent runtime (host sandbox mode)
 COPY --link --from=builder /app/container/dist ./container/dist
-COPY --link --from=builder /app/container/shared/dist ./container/shared/dist
 
 # Gateway-served static content from docs/: /about (index.html), /agents
 # (agents.html), the /docs markdown site, and shared favicons/images.
@@ -193,10 +193,10 @@ ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/ap
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
 # Agents and bundled skills call `hybridclaw ...` from the shell.
-RUN printf '#!/bin/sh\nexec node /app/bundle/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
+RUN printf '#!/bin/sh\nexec node /app/dist/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
   && chmod 755 /usr/local/bin/hybridclaw
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "bundle/cli.js", "gateway", "start", "--foreground"]
+CMD ["node", "dist/cli.js", "gateway", "start", "--foreground"]

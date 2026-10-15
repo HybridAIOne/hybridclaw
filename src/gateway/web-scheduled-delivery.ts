@@ -152,6 +152,11 @@ export function deliverWebScheduledMessage(
       work.messageId = messageId;
       work.savedAt ??= new Date().toISOString();
     });
+  // Feed and Ideas replies are app data, never reminders for the user.
+  if (isAppDataChat(session.session_key)) {
+    skipWorkNotification(workId, 'not_requested');
+    return { status: 'delivered' };
+  }
   const delivery = notifyWebSession(
     session.id,
     'reminder',

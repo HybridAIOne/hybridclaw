@@ -24,6 +24,51 @@ user explicitly approves or denies it.
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |
 | Approval state files | Protected | The agent's own writes, edits, and deletes of `.hybridclaw/**` or `approval-trust.json`, and bash commands naming them, need explicit approval every time, even in full-auto |
 
+## Replies in voice and text
+
+A pending runtime tool approval accepts natural replies in any language the
+configured `eval_judge` auxiliary model understands. The same resolver serves
+text and voice. A plain affirmative grants one execution; broader session,
+agent or workspace trust requires explicit consent. An answer requesting changes
+withdraws the old proposal and lets Hy prepare the revised action. Questions
+leave approval pending, and unrelated conversation continues normally.
+
+The resolver receives the pending action, the last question and the original user
+text separately from the main task prompt. It has no tools. Only a validated
+approval ID and scope can reach the existing policy handler, which rechecks
+expiry and ownership and replays the stored arguments. Multiple pending requests
+require an unambiguous target. Pinned actions remain one-time only. Existing
+button and CLI commands with an explicit ID use the same handler without a model
+call. Ambiguous, malformed or failed interpretations execute nothing and leave
+the approval open. Model usage is included in the turn totals. The audit records
+`approval.interpretation` alongside the turn's original user text; this records
+interpretation only, while the tool authorization/result events prove execution.
+
+Realtime voice transports attach the caller's transcript independently of the
+voice model's `consult_agent` arguments. Each utterance can answer at most one
+consult. A missing, stale or late transcript never falls back to a model-written
+confirmation. The bridge waits up to two seconds for transcription; after that,
+the user can answer again or use the approval buttons. Other trusted adapters
+must pass original user text as `approvalUserText`, or `null` when no human reply
+is available. Do not supply generated summaries as consent. The gateway captures
+`approvalUserId`; new pending records bind to that user within their session.
+
+Session trust persists under the session's protected runtime-state directory,
+so worker replacement does not ask again. Agent and workspace trust retain their
+existing stores. Approval interpretation is a model judgment: regression tests
+cover affirmative, negative, conditional, quoted and revised replies, but do not
+establish perfect recognition across every language or speech transcription.
+
+### Calendar writes
+
+`hybridai__google_workspace__create_event` is an ordinary yellow write when it
+explicitly targets `primary`, sets `send_updates` to `none`, has no attendees,
+and uses only the known non-sharing argument fields. The server must also mark
+it non-destructive. Invitations, other calendars, unknown fields, missing
+notification settings and destructive metadata keep their normal approval
+requirements. `ask` mode still asks. This is a narrow tool-contract rule, not a
+change to the meaning of `openWorldHint` for other tools.
+
 ## What Approvals Actually Cover
 
 Two different mechanisms are involved:
@@ -85,6 +130,28 @@ Installation is mixed:
 Approvals also do not stand alone. Sandbox and mount permissions, local-only
 command availability, and provider/runtime internals unrelated to user tool
 calls are enforced by other layers.
+
+## Connector approval brokers
+
+The auto-configured HybridAI MCP gateway may mark a tool with
+`_meta["hybridai/approvalRequired"]`. Only a server explicitly configured as a
+`platformApprovals` broker can use this contract. Other MCP servers cannot
+bypass runtime approval by returning those fields, and overriding the broker
+URL disables automatic trust. Ordinary pinned denials still win.
+
+A marked call reaches the platform's one-shot gate first. A blocked response
+carries `hybridai/approval`, which ends the turn with the existing chat approval
+card. The worker persists the exact tool and arguments and offers no lasting
+trust choices. Full-auto does not bypass the platform gate. Reads and unmarked
+tools keep their existing runtime policy.
+
+Human chat answers for these cards are sent to the broker with a short-lived
+host-only HMAC proof. The worker API key cannot mint this proof. A broker panel
+may instead notify the gateway through `/api/connector-approvals/decision`,
+authenticated exclusively with `WEB_API_TOKEN`; the gateway validates the
+current pending request, restores its owning user and agent, and resumes the
+stored call. The callback is not retried automatically. A stale request,
+changed arguments, denial or a consumed grant cannot authorize another write.
 
 ## Traffic Lights
 
@@ -694,3 +761,11 @@ used on text surfaces.
 | `src/gateway/pending-approvals.ts` | Gateway-side pending approval cache for button and reply helpers |
 | `src/tui.ts` | TUI picker, numeric shortcuts, and `/approve` replay handling |
 | `console/src/routes/chat/message-block.tsx` | Web chat approval buttons and cached approval handling |
+
+Platform connector approvals use the same interpretation contract at the host,
+which validates the owning user and live prompt before forwarding a one-shot
+broker decision. The worker receives that validated decision through authenticated
+IPC and resumes the saved call without a second interpretation. A broker failure
+keeps execution blocked. Host API-token requests without a human chat identity
+cannot supply natural-language consent. The calendar rule does not override a
+platform broker's own approval requirement.

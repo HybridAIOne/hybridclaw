@@ -1,3 +1,5 @@
+import { BUILTIN_TOOLS } from '#shared/builtin-tools.js';
+
 export interface ToolGroup {
   label: string;
   tools: string[];
@@ -8,102 +10,14 @@ export interface ToolSummaryOptions {
   blockedTools?: readonly string[] | null;
 }
 
-const TOOL_GROUPS: ToolGroup[] = [
-  {
-    label: 'Files',
-    tools: ['read', 'write', 'edit', 'delete', 'glob', 'grep'],
-  },
-  {
-    label: 'Shell',
-    tools: ['bash'],
-  },
-  {
-    label: 'Web',
-    tools: ['web_search', 'web_fetch', 'web_extract', 'http_request'],
-  },
-  {
-    label: 'Browser',
-    tools: [
-      'browser_navigate',
-      'browser_snapshot',
-      'browser_click',
-      'browser_type',
-      'browser_secret_type',
-      'browser_sign_in',
-      'browser_take_over',
-      'browser_upload',
-      'browser_press',
-      'browser_scroll',
-      'browser_back',
-      'browser_screenshot',
-      'browser_pdf',
-      'browser_vision',
-      'browser_get_images',
-      'browser_console',
-      'browser_network',
-      'browser_downloads',
-      'browser_close',
-    ],
-  },
-  {
-    label: 'Communication',
-    tools: [
-      'message',
-      'draft_email',
-      'inbox_cleanup',
-      'estimate_cost',
-      'call_user',
-    ],
-  },
-  {
-    label: 'Scheduling',
-    tools: ['cron', 'trigger', 'todo', 'track'],
-  },
-  {
-    label: 'Delegation',
-    tools: ['delegate'],
-  },
-  {
-    label: 'Memory',
-    tools: ['memory', 'session_search', 'work', 'proof'],
-  },
-  {
-    label: 'Skills',
-    tools: ['skills_list'],
-  },
-  {
-    label: 'Phone Data',
-    tools: ['device_data'],
-  },
-  {
-    label: 'App Widgets',
-    tools: ['show_widget', 'draft_transfer', 'show_dashboard'],
-  },
-  {
-    label: 'Vision',
-    tools: ['vision_analyze'],
-  },
-  {
-    label: 'Audio Transcription',
-    tools: ['audio_transcribe'],
-  },
-  {
-    label: 'Image Generation',
-    tools: ['image_generate'],
-  },
-  {
-    label: 'Video Generation',
-    tools: ['video_generate'],
-  },
-  {
-    label: 'MCP',
-    tools: [],
-  },
-];
+const TOOL_GROUPS: ToolGroup[] = [];
+for (const tool of BUILTIN_TOOLS) {
+  const group = TOOL_GROUPS.find((entry) => entry.label === tool.group);
+  if (group) group.tools.push(tool.name);
+  else TOOL_GROUPS.push({ label: tool.group, tools: [tool.name] });
+}
 
-const KNOWN_TOOL_NAMES = new Set(
-  TOOL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.trim())),
-);
+const KNOWN_TOOL_NAMES = new Set(BUILTIN_TOOLS.map((tool) => tool.name));
 
 function normalizeToolList(
   tools: readonly string[] | null | undefined,

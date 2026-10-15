@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -37,11 +38,13 @@ import {
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
   normalizeAgentBudgetConfig,
+  normalizeAgentChannelBindings,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
+  resolveConfiguredChannelAgentId,
   resolveConfiguredDefaultAgentId,
   resolveSnakeCamelAlias,
   validateAgentInheritance,
@@ -1486,6 +1489,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultAgentId: DEFAULT_AGENT_ID,
     defaults: {},
     list: [{ id: DEFAULT_AGENT_ID }],
+    channels: {},
   },
   skills: {
     // Implementation choice, 2026-09-10: start skills in full mode; curated skill stars deferred.
@@ -1739,7 +1743,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     callerPolicy: 'open',
     allowFrom: [],
-    maxConcurrentCalls: 8,
+    // 5 (engineering call, 2026-10-11, #1930): matches container.maxConcurrent so
+    // every call can hold a worker; a separate voice worker budget is deferred.
+    maxConcurrentCalls: 5,
   },
   speech: {
     realtime: {
@@ -3080,6 +3086,7 @@ function normalizeAgentsConfig(
       : DEFAULT_AGENT_ID,
     defaults,
     list,
+    channels: normalizeAgentChannelBindings(raw.channels ?? fallback.channels),
   };
 }
 
@@ -6769,6 +6776,14 @@ function normalizeRuntimeConfig(
     rawHybridAi.baseUrl,
     DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl,
   );
+  const platformBaseUrl = normalizeBaseUrl(
+    process.env.HYBRIDAI_BASE_URL,
+    hybridBaseUrl,
+  );
+  const observabilityBaseUrl = normalizeBaseUrl(
+    rawObservability.baseUrl,
+    platformBaseUrl,
+  );
   const hybridDefaultChatbotId = normalizeString(
     rawHybridAi.defaultChatbotId,
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
@@ -7935,10 +7950,12 @@ function normalizeRuntimeConfig(
       // baseUrl for LLM calls (see applyRuntimeConfig), so the ingest default
       // must follow it too — otherwise a deployment pointed elsewhere via env
       // silently reports to the default platform host with a foreign API key.
-      baseUrl: normalizeBaseUrl(
-        rawObservability.baseUrl,
-        normalizeBaseUrl(process.env.HYBRIDAI_BASE_URL, hybridBaseUrl),
-      ),
+      // A file value equal to hybridai.baseUrl is the materialized default,
+      // not a deliberate override, so it follows the env too.
+      baseUrl:
+        observabilityBaseUrl === hybridBaseUrl
+          ? platformBaseUrl
+          : observabilityBaseUrl,
       ingestPath: normalizeApiPath(
         rawObservability.ingestPath,
         DEFAULT_RUNTIME_CONFIG.observability.ingestPath,
@@ -8245,9 +8262,7 @@ function writeConfigFile(
     }
   }
 
-  const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, nextText, { encoding: 'utf-8', mode: 0o600 });
-  fs.renameSync(tmpPath, CONFIG_PATH);
+  writeFileAtomic(CONFIG_PATH, nextText, { mode: 0o600 });
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
       exists: true,
@@ -8620,6 +8635,13 @@ export function resolveDefaultAgentId(
   config: Pick<RuntimeConfig, 'agents'> = currentConfig,
 ): string {
   return resolveConfiguredDefaultAgentId(config.agents);
+}
+
+export function resolveChannelAgentId(
+  kind: string,
+  config: Pick<RuntimeConfig, 'agents'> = currentConfig,
+): string {
+  return resolveConfiguredChannelAgentId(config.agents, kind);
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

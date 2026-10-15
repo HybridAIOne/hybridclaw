@@ -6,7 +6,12 @@ const CONFIG = {
   publicBaseUrl: 'https://voice.example.com',
 };
 
-const CALL = { uuid: 'call-1', from: '+15550001111', to: '+15550002222' };
+const CALL = {
+  uuid: 'call-1',
+  from: '+15550001111',
+  to: '+15550002222',
+  agentId: 'main',
+};
 
 class FakeStreamSocket {
   readyState = 1;
@@ -49,7 +54,6 @@ function createFakeSession() {
 function createApi(session = createFakeSession()) {
   return {
     api: {
-      config: { agents: { defaultAgentId: 'main' } },
       createRealtimeVoiceSession: vi.fn(() => session),
       isRealtimeVoiceAvailable: () => true,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

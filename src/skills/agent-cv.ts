@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic, writeFileAtomicAsync } from '#shared/atomic-write.js';
 
 import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -208,53 +209,8 @@ function loadCvState(agentId: string): AgentCvState {
   }
 }
 
-function writeFileAtomic(
-  filePath: string,
-  content: string,
-  options?: fs.WriteFileOptions,
-): void {
-  const dir = path.dirname(filePath);
-  const tempPath = path.join(
-    dir,
-    `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    fs.writeFileSync(tempPath, content, options);
-    fs.renameSync(tempPath, filePath);
-  } catch (error) {
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    throw error;
-  }
-}
-
-async function writeFileAtomicAsync(
-  filePath: string,
-  content: string,
-  options?: fs.WriteFileOptions,
-): Promise<void> {
-  const dir = path.dirname(filePath);
-  const tempPath = path.join(
-    dir,
-    `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  await fs.promises.mkdir(dir, { recursive: true });
-  try {
-    await fs.promises.writeFile(tempPath, content, options);
-    await fs.promises.rename(tempPath, filePath);
-  } catch (error) {
-    try {
-      await fs.promises.unlink(tempPath);
-    } catch {
-      // Best-effort cleanup after a failed atomic write.
-    }
-    throw error;
-  }
-}
-
 function writeJsonAtomic(filePath: string, value: unknown): void {
   writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: 'utf-8',
     mode: 0o600,
   });
 }
@@ -264,26 +220,19 @@ async function writeJsonAtomicAsync(
   value: unknown,
 ): Promise<void> {
   await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: 'utf-8',
     mode: 0o600,
   });
 }
 
 function writeMarkdownAtomic(filePath: string, content: string): void {
-  writeFileAtomic(filePath, content, {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
+  writeFileAtomic(filePath, content, { mode: 0o600 });
 }
 
 async function writeMarkdownAtomicAsync(
   filePath: string,
   content: string,
 ): Promise<void> {
-  await writeFileAtomicAsync(filePath, content, {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
+  await writeFileAtomicAsync(filePath, content, { mode: 0o600 });
 }
 
 function sortCvEntries(entries: AgentCvEntry[]): AgentCvEntry[] {

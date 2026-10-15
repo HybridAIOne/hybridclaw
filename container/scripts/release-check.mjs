@@ -3,10 +3,12 @@
 import { spawnSync } from 'node:child_process';
 
 const requiredExactPaths = ['package.json', 'dist/index.js'];
-const requiredPrefixes = ['dist/', 'shared/dist/'];
+const requiredPrefixes = ['dist/'];
 
 const forbiddenPathPatterns = [
   /^src\//,
+  // dist/index.js inlines the shared modules.
+  /^shared\//,
   /^scripts\//,
   /^tsconfig\.json$/,
   /^vitest\..*\.ts$/,

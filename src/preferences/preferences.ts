@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { DATA_DIR } from '../config/config.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -116,18 +117,10 @@ export function mergePreferences(userId: string, input: unknown): string[] {
       .filter((event) => event.kind !== 'instruction' && event.kind !== 'brief')
       .slice(0, MAX_RECORDS),
   ];
-  const target = file(userId);
-  fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temporary = `${target}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify({ version: 1, events: next }), {
-      mode: 0o600,
-      flag: 'wx',
-    });
-    fs.renameSync(temporary, target);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(file(userId), JSON.stringify({ version: 1, events: next }), {
+    mode: 0o600,
+    dirMode: 0o700,
+  });
   return events.map((event) => event.id);
 }
 export function renderPreferences(userId: string | null | undefined): string {

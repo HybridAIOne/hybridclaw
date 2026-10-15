@@ -47,6 +47,14 @@ export function uninstallAgent(
   if (normalizedAgentId === DEFAULT_AGENT_ID) {
     throw new Error('The main agent cannot be uninstalled.');
   }
+  const boundChannels = Object.entries(
+    getRuntimeConfig().agents.channels ?? {},
+  ).flatMap(([kind, agentId]) => (agentId === normalizedAgentId ? [kind] : []));
+  if (boundChannels.length > 0) {
+    throw new Error(
+      `Agent "${normalizedAgentId}" answers on ${boundChannels.join(', ')}. Bind them to another agent first with \`hybridclaw agent bind <agent-id> ${boundChannels.join(' ')}\`.`,
+    );
+  }
 
   const workspacePath = agentWorkspaceDir(normalizedAgentId);
   const agentRootPath = path.dirname(workspacePath);

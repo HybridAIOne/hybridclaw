@@ -22,8 +22,8 @@ import { cleanupTrackedTempDirs } from './test-utils.js';
 
 /**
  * Host-sandbox agents in the layouts the npm-install journey does not cover:
- * the gateway image runs bundle/cli.js with the shared skill libraries on its
- * process NODE_PATH, and a checkout runs dist/cli.js and gets those libraries
+ * the gateway image runs a bundled dist/cli.js with the shared skill libraries
+ * on its process NODE_PATH, and a checkout runs plain dist/cli.js and gets those libraries
  * through the gateway's `skill setup` command. The gateway, host agent, tools
  * and skill scripts are real; only the model is scripted (`RUN: <command>`
  * becomes one bash call, `READ: <path>` one read call, and the tool output is
@@ -278,7 +278,7 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
     cleanupTrackedTempDirs(tempDirs);
   });
 
-  describe('gateway image layout: bundle/cli.js with the libraries on NODE_PATH', () => {
+  describe('gateway staging bundle with the image libraries on NODE_PATH', () => {
     let gateway: Gateway | undefined;
     let workspace = '';
 

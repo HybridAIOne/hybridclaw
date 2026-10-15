@@ -51,7 +51,7 @@ export function resolveConfig(api) {
       String(relay.welcomeGreeting || '').trim() ||
       'Hello! How can I help you today?',
     interruptible: relay.interruptible !== false,
-    maxConcurrentCalls: Number(config.maxConcurrentCalls || 8),
+    maxConcurrentCalls: Number(config.maxConcurrentCalls || 5),
   };
 }
 

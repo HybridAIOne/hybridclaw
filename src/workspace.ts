@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   readDailyMemoryFile,
   truncateDailyMemoryText,
@@ -209,11 +210,7 @@ function writeWorkspaceOnboardingState(
   statePath: string,
   state: WorkspaceOnboardingState,
 ): void {
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  const tempPath = `${statePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  const payload = `${JSON.stringify(state, null, 2)}\n`;
-  fs.writeFileSync(tempPath, payload, 'utf-8');
-  fs.renameSync(tempPath, statePath);
+  writeFileAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 function onboardingTurnedOff(agentId: string): boolean {

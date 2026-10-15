@@ -1,13 +1,12 @@
-import { isRecord } from '../utils/type-guards.js';
 /**
  * Scheduler — timer-based, arms for exact next-fire time.
  *
  * Runs SQLite-backed scheduler jobs.
  */
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import { registerChannel } from '../channels/channel-registry.js';
@@ -31,6 +30,7 @@ import {
 } from '../memory/jobs.js';
 import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { isRecord } from '../utils/type-guards.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
 import { isConnectorEventCurrent } from './connector-events.js';
 import { isTriggerRunCurrent, triggerRunPrompt } from './event-triggers.js';
@@ -274,12 +274,11 @@ function loadSchedulerState(): SchedulerStateFile {
 
 function persistSchedulerState(): void {
   try {
-    fs.mkdirSync(path.dirname(SCHEDULER_STATE_PATH), { recursive: true });
     schedulerState.updatedAt = new Date().toISOString();
-    const payload = `${JSON.stringify(schedulerState, null, 2)}\n`;
-    const tmpPath = `${SCHEDULER_STATE_PATH}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tmpPath, payload, 'utf-8');
-    fs.renameSync(tmpPath, SCHEDULER_STATE_PATH);
+    writeFileAtomic(
+      SCHEDULER_STATE_PATH,
+      `${JSON.stringify(schedulerState, null, 2)}\n`,
+    );
   } catch (error) {
     logger.warn({ error }, 'Failed to persist scheduler state file');
   }

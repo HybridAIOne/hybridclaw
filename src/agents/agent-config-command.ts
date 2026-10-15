@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -400,11 +401,10 @@ function writeImportedImageAsset(params: {
     );
   }
   const relativePath = `${IMAGE_ASSET_DIR}/${params.fileName}`;
-  const targetPath = path.join(params.workspacePath, relativePath);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, params.content);
-  fs.renameSync(tempPath, targetPath);
+  writeFileAtomic(
+    path.join(params.workspacePath, relativePath),
+    params.content,
+  );
   return relativePath;
 }
 
@@ -507,10 +507,7 @@ function writeWorkspaceMarkdownFile(
   fileName: string,
   content: string,
 ): void {
-  const filePath = path.join(workspacePath, fileName);
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, content, 'utf-8');
-  fs.renameSync(tempPath, filePath);
+  writeFileAtomic(path.join(workspacePath, fileName), content);
 }
 
 function normalizeMarkdownEntries(

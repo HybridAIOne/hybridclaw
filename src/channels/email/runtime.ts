@@ -1,11 +1,11 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
-import type {
-  RuntimeEmailAccountConfig,
-  RuntimeEmailConfig,
+import {
+  type RuntimeEmailAccountConfig,
+  type RuntimeEmailConfig,
+  resolveChannelAgentId,
 } from '../../config/runtime-config.js';
-import { resolveDefaultAgentId } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
@@ -186,10 +186,10 @@ function accountKey(address: string): string {
     .toLowerCase();
 }
 
-// Mail without an explicit agent goes to the default agent, which follows
-// `agents.defaultAgentId` (an agent that adopted main's user takes its mail).
+// Mail without an explicit agent goes to the email channel's agent
+// (`agents.channels.email`, else the default agent).
 function defaultEmailAgentId(): string {
-  return resolveDefaultAgentId();
+  return resolveChannelAgentId('email');
 }
 
 function normalizeEmailAgentId(value: string): string {

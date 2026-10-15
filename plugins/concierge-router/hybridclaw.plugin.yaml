@@ -4,6 +4,8 @@ version: 0.1.0
 description: Configures the classifier for unified model routing.
 kind: middleware
 entrypoint: src/index.js
+commands:
+  - concierge
 configSchema:
   type: object
   additionalProperties: false

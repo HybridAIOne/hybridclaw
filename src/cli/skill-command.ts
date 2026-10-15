@@ -14,24 +14,17 @@ import {
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
-import { normalizeArgs, parseSkillScopeArgs } from './common.js';
+import {
+  loadAgentRegistry,
+  normalizeArgs,
+  parseSkillScopeArgs,
+} from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
 function printFormattedBlock(block: string): void {
   for (const line of block.split('\n')) {
     console.log(line);
   }
-}
-
-async function ensureSkillCommandRuntime(): Promise<void> {
-  const { initDatabase, isDatabaseInitialized } = await import(
-    '../memory/db.js'
-  );
-  if (!isDatabaseInitialized()) {
-    initDatabase({ quiet: true });
-  }
-  const { initAgentRegistry } = await import('../agents/agent-registry.js');
-  initAgentRegistry(getRuntimeConfig().agents);
 }
 
 export async function handleSkillCommand(args: string[]): Promise<void> {
@@ -203,7 +196,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'inspect') {
-    await ensureSkillCommandRuntime();
+    await loadAgentRegistry();
     const { inspectObservedSkill, inspectObservedSkills } = await import(
       '../skills/skills-management.js'
     );
@@ -237,7 +230,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'learn') {
-    await ensureSkillCommandRuntime();
+    await loadAgentRegistry();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
@@ -296,7 +289,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'runs') {
-    await ensureSkillCommandRuntime();
+    await loadAgentRegistry();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
@@ -318,7 +311,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'history') {
-    await ensureSkillCommandRuntime();
+    await loadAgentRegistry();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();

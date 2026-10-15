@@ -35,5 +35,6 @@ and validation details maintainers need.
 ## Security
 
 Do not open public issues for security bugs. Follow
-[SECURITY.md](./SECURITY.md) and report vulnerabilities privately to
-[support@hybridai.one](mailto:support@hybridai.one?subject=HybridClaw%20security%20report).
+[SECURITY.md](./SECURITY.md) and report vulnerabilities privately through
+[GitHub private vulnerability reporting](https://github.com/HybridAIOne/hybridclaw/security/advisories/new) or to
+[security@hybridai.one](mailto:security@hybridai.one?subject=HybridClaw%20security%20report).

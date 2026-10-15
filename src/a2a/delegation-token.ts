@@ -9,13 +9,12 @@ import {
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import {
   isCanonicalAgentIdentity,
   resolveLocalInstanceId,
 } from '../identity/agent-id.js';
-import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import { resolveA2AAgentId } from './identity.js';
 import { isRecord } from './utils.js';
 
@@ -283,8 +282,7 @@ function writeNewKeyPair(
       keyPairPath,
       `${JSON.stringify(keyPair, null, 2)}\n`,
       {
-        tempPrefix: 'delegation-keypair',
-        fileMode: 0o600,
+        mode: 0o600,
       },
     );
   } catch (error) {

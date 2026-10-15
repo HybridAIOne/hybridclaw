@@ -154,7 +154,6 @@ import {
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
-import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
@@ -171,8 +170,13 @@ import {
   SHOW_WIDGET_TOOL,
 } from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
+import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
+import {
+  rememberConnectorApproval,
+  resolveConnectorApprovalReply,
+} from './connector-approval-reply.js';
 import {
   extractDelegationDepth,
   normalizeDelegationEffect,
@@ -260,6 +264,7 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
+import { gatewaySessionQueue } from './session-worker-release.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsThinking,
@@ -635,8 +640,6 @@ function buildA2AChatThreadId(session: {
 }): string {
   return session.main_session_key || session.session_key || session.id;
 }
-
-const gatewaySessionQueue = new KeyedSerialQueue();
 
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
@@ -1660,6 +1663,9 @@ async function handleGatewayMessageInner(
       type: 'turn.start',
       turnIndex,
       userInput: userTurnContent,
+      ...(req.approvalUserText != null
+        ? { approvalUserText: req.approvalUserText }
+        : {}),
       ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
       username: req.username,
       mediaCount: media.length,
@@ -2237,6 +2243,14 @@ async function handleGatewayMessageInner(
         model: model || undefined,
       });
     }
+    const connectorReply = await resolveConnectorApprovalReply(
+      req,
+      messages,
+      model || '',
+      agentId,
+      runId,
+      activeGatewayRequest.signal,
+    );
     agentStage = 'awaiting-agent-output';
     const invokeAgent = (params: {
       model: string;
@@ -2270,6 +2284,8 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        ...approvalReplyContext(req, userTurnContent),
+        approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         background: isGoalContinuationSource(source),
@@ -2392,6 +2408,8 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        ...approvalReplyContext(req, userTurnContent),
+        approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         background: isGoalContinuationSource(source),
@@ -2450,6 +2468,8 @@ async function handleGatewayMessageInner(
         'Processed hatching completion signal',
       );
     }
+    await rememberConnectorApproval(req, output);
+    recordApprovalReply(req.sessionId, runId, output);
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,

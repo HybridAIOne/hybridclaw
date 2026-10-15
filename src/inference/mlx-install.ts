@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { claimSetupLock } from '../utils/setup-lock.js';
 import {
   detectMacHardware,
@@ -58,8 +59,7 @@ async function run(
     );
 }
 function privateWrite(file: string, content: string): void {
-  fs.writeFileSync(`${file}.tmp`, content, { mode: 0o600 });
-  fs.renameSync(`${file}.tmp`, file);
+  writeFileAtomic(file, content, { mode: 0o600 });
 }
 
 export class MlxSetupError extends Error {}

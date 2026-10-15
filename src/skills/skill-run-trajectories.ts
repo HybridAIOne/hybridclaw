@@ -8,6 +8,7 @@ import {
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
+import { deviceDataExcludesImprovement } from '../memory/device-data-privacy.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -349,6 +350,7 @@ function recordTrajectoryScrubAudit(input: {
 }
 
 export function recordSkillRunTrajectory(event: SkillRunEvent): void {
+  if (deviceDataExcludesImprovement(event.agent_id)) return;
   const config = getRuntimeConfig();
   const enabledAgentIds = normalizedTrajectoryCaptureAgentIds(
     config.adaptiveSkills,
@@ -563,6 +565,7 @@ export function getSkillRunTrajectories(params: {
   seed?: string | null;
   config?: RuntimeConfig;
 }): SkillRunTrajectoryRecord[] {
+  if (deviceDataExcludesImprovement(params.agentId)) return [];
   const runtimeConfig = params.config ?? getRuntimeConfig();
   const storeDir = resolveSkillRunTrajectoryStoreDir(runtimeConfig);
   if (!fs.existsSync(storeDir)) return [];
@@ -598,6 +601,7 @@ export function getSkillRunTrajectories(params: {
           const record = parseSkillRunTrajectoryLine(line);
           if (!record || record.skill_id !== skillName) continue;
           if (agentId && record.agent_id !== agentId) continue;
+          if (deviceDataExcludesImprovement(record.agent_id)) continue;
           records.push(record);
         }
       }

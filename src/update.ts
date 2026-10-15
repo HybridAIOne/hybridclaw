@@ -1,8 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
 import { containerBootstrapScriptPath } from './infra/install-root.js';
 import { logger } from './logger.js';
@@ -558,26 +558,20 @@ function writeVersionCache(latestVersion: string): void {
     latestVersion,
     lastCheckedAt: new Date().toISOString(),
   };
-  // Overwriting temp+rename (writeFileAtomicExclusive can't be reused here: it
-  // hard-links with flag 'wx' and throws once the cache file already exists).
   const filePath = versionCachePath();
-  const tempPath = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   try {
     // The cache shares the runtime home with secrets, so create the directory
     // and file with the restrictive modes the rest of the runtime uses rather
     // than leaving them at the umask default.
-    fs.mkdirSync(DEFAULT_RUNTIME_HOME_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(tempPath, `${JSON.stringify(cache)}\n`, {
-      encoding: 'utf-8',
+    writeFileAtomic(filePath, `${JSON.stringify(cache)}\n`, {
       mode: 0o600,
+      dirMode: 0o700,
     });
-    fs.renameSync(tempPath, filePath);
   } catch (error) {
     logger.debug(
       { err: error, filePath },
       'Failed to write the version cache; the next launch retries',
     );
-    fs.rmSync(tempPath, { force: true });
   }
 }
 

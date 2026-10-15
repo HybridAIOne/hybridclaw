@@ -2,6 +2,172 @@
 
 ## Unreleased
 
+## [0.40.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.2) - 2026-10-14
+
+### Changed
+
+- **Mobile reactions**: Thumbs-up and thumbs-down remain ordinary emoji
+  reactions instead of creating response ratings or improvement feedback.
+- **Health and Contacts privacy**: Connecting either source excludes Hy from
+  response-rating collection and skill improvement pipelines, including after
+  disconnection. Other agents on the same runtime keep their existing behavior.
+
+### Fixed
+
+- **Natural approval replies**: Hy interprets voice and text confirmations
+  across languages, handles refusals and revisions, and preserves session
+  consent across worker restarts. Connector approvals remain one-shot.
+- **Personal calendar entries**: Creating an event on the primary calendar
+  without attendees or notifications avoids an extra runtime approval under
+  normal policy. Ask mode and connector broker requirements still apply.
+- **Email reassignment**: `hybridclaw channels email setup --agent <id>` moves
+  an address from its previous agent instead of leaving duplicate accounts that
+  stop the email channel.
+- **Shared audit logging**: The gateway refreshes its cached audit chain head
+  after another process appends, preventing stale sequence numbers and broken
+  hash links when CLI commands share an audit session.
+
+### Upgrade Notes
+
+- Existing audit-chain breaks are not repaired. Simultaneous writes from
+  separate processes can still race.
+- Historical improvement records are not deleted. Health or Contacts sources
+  disconnected before this protection recorded them cannot be reconstructed;
+  review historical data before reusing it for improvement.
+
+## [0.40.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.1) - 2026-10-14
+
+### Fixed
+
+- **Connector write approvals**: Hy shows connector approval cards in chat
+  and resumes the requested change after a one-shot approval. Blocked MCP calls
+  retain their approval metadata through tool dispatch.
+- **Docker gateway startup**: The gateway image uses the bundled runtime for
+  Docker startup, the shell CLI, the package bin, and the embedded terminal,
+  preventing missing-module errors.
+
+## [0.40.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.0) - 2026-10-13
+
+### Added
+
+- **Channel-to-agent bindings**: `hybridclaw agent bind <agent-id> <channel>...`
+  assigns channels through `agents.channels`. Activating another agent keeps
+  enabled channels on their previous agent, including token-configured Discord
+  and linked WhatsApp. Existing per-user Teams mappings remain authoritative.
+- **Per-agent mailboxes**: `hybridclaw channels email setup --agent <id>`
+  configures an agent's own mailbox and stores its password in the runtime
+  secret store.
+- **Connector approval cards**: Changes gated by a configured connector
+  approval broker can be reviewed in Hy's chat or the connector dashboard.
+  Each change requires a one-shot decision; the exact pending call survives
+  worker restarts, and full-auto cannot bypass the broker's approval gate.
+
+### Changed
+
+- **Agent adoption**: `agent adopt` transfers the source agent's channel
+  bindings and takes the default-agent slot only when the source held it.
+  Bound agents cannot be uninstalled until their channels are reassigned.
+- **Runtime packaging**: The npm package and desktop app omit the agent's
+  TypeScript sources and Dockerfile. Packaged installs use the published agent
+  image, and the agent runtime bundles its internal shared modules.
+- **Private security reporting**: Report vulnerabilities through GitHub's
+  private vulnerability reporting or `security@hybridai.one`.
+
+### Fixed
+
+- **Packaged gateway diagnostics**: Installed packages skip Git lookups,
+  while source-checkout Git metadata is cached for the process lifetime.
+- **Observability tokens**: The gateway reuses its cached ingest token instead
+  of rotating it every 20 minutes. A rejected token still triggers renewal
+  and a retry.
+
+### Upgrade Notes
+
+- Activating an agent preserves running channels' previous assignments. To
+  move a channel, run `hybridclaw agent bind <agent-id> <channel>...` explicitly.
+  Existing chats retain their agent.
+- Automation that activates an agent and then configures its mailbox must
+  pass `--agent <id>` to `hybridclaw channels email setup`. Without that flag,
+  setup configures the top-level mailbox, which keeps its channel binding.
+
+## [0.39.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.13) - 2026-10-12
+
+### Added
+
+- **Mistral flavour**: `/flavour set mistral` selects Mistral Large through
+  HybridAI for the agent's chats and scheduled tasks. Availability follows the
+  model catalog, alongside the OpenAI, Anthropic and EU choices.
+
+### Fixed
+
+- **Scheduled-task ownership**: Tasks created with the `cron` tool retain the
+  verified user who requested them, allowing their runs to record work and
+  access that user's device data. Runs without a verified owner skip work-note
+  instructions instead of reporting an internal tool error.
+- **Tool controls**: `hybridclaw tool list|enable|disable` covers every built-in
+  tool, including diagram tools, and registered plugin tools. The admin Tools
+  page and agent tool summary use the shared built-in manifest, so plugin media
+  tools are listed only when installed. Config seeds can disable plugin tools
+  before registration without preventing gateway startup.
+
+### Upgrade Notes
+
+- Existing scheduled tasks are not assigned owners retroactively. Recreate a
+  task in a verified user chat if it needs work records or user device data.
+- Config-seed disabled tool names that are not built-in are preserved with a
+  warning and take effect only if a plugin registers them. Check spelling when
+  using `HYBRIDCLAW_CONFIG_SEED.disabledTools`.
+
+## [0.39.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.12) - 2026-10-12
+
+### Fixed
+
+- **Scheduled tool history**: Provider tool arguments are compared by value,
+  so equal JSON objects with different key order do not fail a completed turn.
+  Signed metadata stays intact, and genuine argument mismatches are rejected.
+- **Hy notifications**: Daily and Ideas replies stay in their hidden app chats
+  without creating browser or phone reminders. Structured reminders show
+  readable item titles. Hy keeps its notification name after importing another
+  agent's workspace; the separate runtime default agent is called main.
+- **Conversation memory**: Memory saves are verified against workspace files
+  before compaction or automatic reset. Failed saves retain the conversation,
+  and long instructions are preserved across batches instead of being clipped.
+
+## [0.39.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.11) - 2026-10-11
+
+### Changed
+
+- **Plugin command guidance**: Unavailable slash and CLI commands name their
+  plugin and explain how to install or enable it, or show its load error.
+  Gateway commands entered at the top level point to
+  `hybridclaw gateway <command>`.
+- **Voice capacity defaults**: `voice.maxConcurrentCalls` defaults to 5,
+  matching the default `container.maxConcurrent` limit.
+
+### Fixed
+
+- **Phone-call worker cleanup**: Twilio and Vonage release a call's agent
+  worker after its queued turns finish, freeing capacity for subsequent calls
+  without interrupting a reply. Vonage uses the current default agent for new
+  calls and retains that agent for the call's turns and hangup cleanup.
+- **Provider tool limits**: OpenAI, Codex and HybridAI requests automatically
+  defer MCP tools behind `tool_catalog` when needed to fit the 128-tool limit.
+  Requests still over the limit report the counts and remediation before
+  reaching the provider. A 400 response containing a tool count is not mistaken
+  for a server error.
+- **Observability ingestion**: A saved default observability URL follows
+  `HYBRIDAI_BASE_URL`, while distinct explicit overrides remain effective.
+  Rejected ingest-token requests pause ingestion until a configuration change
+  or restart instead of retrying every flush.
+- **Source-checkout container rebuilds**: Agent image fingerprints include
+  `container/shared/`, so changes to shared runtime code trigger a rebuild.
+
+### Upgrade Notes
+
+- If you raised `container.maxConcurrent`, explicitly set
+  `voice.maxConcurrentCalls` to your intended call capacity. Existing explicit
+  voice limits remain effective.
+
 ## [0.39.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.10) - 2026-10-11
 
 ### Added

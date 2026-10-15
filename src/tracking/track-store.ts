@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { isValidTimezone } from '#shared/workspace-time.js';
 import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
@@ -122,19 +123,11 @@ function load(): Map<string, TrackList> {
 }
 
 function save(owners: Map<string, TrackList>): void {
-  const file = storePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(
-      temporary,
-      JSON.stringify({ version: 1, owners: Object.fromEntries(owners) }),
-      { mode: 0o600, flag: 'wx' },
-    );
-    fs.renameSync(temporary, file);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(
+    storePath(),
+    JSON.stringify({ version: 1, owners: Object.fromEntries(owners) }),
+    { mode: 0o600, dirMode: 0o700 },
+  );
 }
 
 /**

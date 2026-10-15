@@ -50,7 +50,6 @@ async function readRawJson(req) {
 export function createVonageRuntime(api, config) {
   const sessions = new Map();
   const replayCache = new Map();
-  const agentId = api.config.agents?.defaultAgentId || 'main';
   const webhookBase = `${config.publicBaseUrl}/api/plugin-webhooks/vonage-voice`;
   const inputEventUrl = `${webhookBase}/input`;
   const realtimeStreams =
@@ -110,14 +109,14 @@ export function createVonageRuntime(api, config) {
   async function runTurn(session, transcript) {
     try {
       const result = await api.dispatchInboundMessage({
-        sessionId: buildVoiceSessionKey(agentId, session.uuid),
+        sessionId: buildVoiceSessionKey(session.agentId, session.uuid),
         sessionMode: 'resume',
         guildId: null,
         channelId: `voice:${session.uuid}`,
         userId: session.from || session.uuid,
         username: session.from || session.uuid,
         content: transcript,
-        agentId,
+        agentId: session.agentId,
       });
       const reply = String(result.result || '').trim();
       await transferReply(
@@ -204,8 +203,10 @@ export function createVonageRuntime(api, config) {
         );
         return;
       }
+      const agentId = api.getDefaultAgentId();
       sessions.set(answer.uuid, {
         ...answer,
+        agentId,
         busy: false,
         silentTimeouts: 0,
       });
@@ -214,6 +215,7 @@ export function createVonageRuntime(api, config) {
           uuid: answer.uuid,
           from: answer.from,
           to: answer.to,
+          agentId,
         });
         sendJson(
           ctx.res,
@@ -285,8 +287,22 @@ export function createVonageRuntime(api, config) {
       const body = await readSignedPayload(ctx);
       if (!body) return;
       const event = parseVonageEventWebhook(body);
-      if (event && VONAGE_TERMINAL_CALL_STATUSES.has(event.status)) {
-        sessions.delete(event.uuid);
+      const session = event && sessions.get(event.uuid);
+      if (
+        session &&
+        VONAGE_TERMINAL_CALL_STATUSES.has(event.status) &&
+        sessions.delete(event.uuid)
+      ) {
+        api
+          .releaseSessionWorker(
+            buildVoiceSessionKey(session.agentId, event.uuid),
+          )
+          .catch((error) =>
+            api.logger.warn(
+              { error, callUuid: event.uuid },
+              'Failed to release voice call worker',
+            ),
+          );
       }
       sendJson(ctx.res, 200, {});
     },

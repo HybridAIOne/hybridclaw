@@ -17,3 +17,4 @@ yarn-error.log*
 *.log
 *.md
 scripts/
+!scripts/bundle.mjs

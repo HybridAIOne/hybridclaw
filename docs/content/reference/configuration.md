@@ -73,8 +73,10 @@ the seed to `config.json` at start, before it loads plugins:
 Each key behaves like its CLI command: `set` like `config set`,
 `disabledTools` like `tool disable`, `disabledSkills` like `skill disable`, and
 `plugins` like `plugin reinstall --yes`. Entries that already hold are skipped,
-and other disabled tools and skills are kept. An invalid seed, an unknown
-config key, or an unknown tool stops the gateway from starting.
+and other disabled tools and skills are kept. An invalid seed or an unknown
+config key stops the gateway from starting. Plugin tools register after the
+seed, so a `disabledTools` name that is not a built-in tool is written as given
+and logged as a warning.
 
 `pluginConfig` optionally maps installed plugin IDs to configuration objects.
 It merges the supplied top-level settings after installation and before plugins
@@ -257,6 +259,11 @@ saved revision history directly.
   servers stay loaded. Deferred tools are named in the prompt with their
   parameters, up to 40, so the model can call one without a list or describe
   step; the rest are found with `action=list`.
+  Whatever the mode, a request to a provider with a tool cap (128 for
+  HybridAI, `openai`, and `openai-codex`) that would exceed it defers every
+  MCP tool and logs it; if the tools left still exceed the cap, the turn fails
+  before the request is sent with the counts and a hint to disable an MCP
+  server or plugin or restrict the agent's tools.
   `agents.list[].mcpToolMode` overrides it per agent. Local model requests use
   `tools.localToolMode` instead.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets
@@ -281,8 +288,18 @@ saved revision history directly.
   `transformers-embeddings` plugin, which holds its own model settings); `0`
   disables scheduled runs, `24` matches `dream on`, and `dream now` triggers
   an immediate local consolidation run
-- `agents.defaultAgentId` for the default agent used by new requests and fresh
-  web sessions when no agent is pinned explicitly
+- `agents.defaultAgentId` for the default agent used by new requests, fresh
+  web sessions, and channels without a binding when no agent is pinned
+  explicitly
+- `agents.channels` binds channels to agents, for example
+  `{"msteams": "team", "email": "team"}`. A bound channel answers as its agent
+  whatever the default is: Teams users without a user mapping, the top-level
+  email mailbox, and new chats on the other channels. Changing the default
+  first binds every channel that is on and has no binding to the agent it
+  answered as, so activating an agent never moves a channel. A channel is on
+  when its `enabled` is true; Discord when `DISCORD_TOKEN` is set, WhatsApp once
+  linked. Set bindings with
+  `hybridclaw agent bind <agent-id> <channel>...`
 - `agents.list[].extends` names a parent agent. Model, skills, tools, local
   and MCP tool modes, chatbot ID, RAG, web search, proxy, budget, and A2A
   exposure resolve from the parent whenever the child leaves them unset, at

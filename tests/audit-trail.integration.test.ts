@@ -396,6 +396,38 @@ keywords:
     expect(result.errors).toEqual([expect.stringContaining('invalid JSON')]);
   });
 
+  it('chains past records another process appended to the same session', async () => {
+    const sharedSessionId = 'audit-shared-writers';
+    const runId = createAuditRunId('shared');
+    await appendAuditEvent({
+      sessionId: sharedSessionId,
+      runId,
+      event: { type: 'shared.gateway' },
+    });
+
+    // A second module instance stands in for a CLI process on the same data dir.
+    vi.resetModules();
+    const other = await import('../src/audit/audit-trail.js');
+    const foreign = await other.appendAuditEvent({
+      sessionId: sharedSessionId,
+      runId,
+      event: { type: 'shared.cli' },
+    });
+
+    const next = await appendAuditEvent({
+      sessionId: sharedSessionId,
+      runId,
+      event: { type: 'shared.gateway-again' },
+    });
+
+    expect(next.seq).toBe(foreign.seq + 1);
+    expect(next._prevHash).toBe(foreign._hash);
+    expect(verifyAuditSessionChain(sharedSessionId)).toMatchObject({
+      ok: true,
+      checkedRecords: 3,
+    });
+  });
+
   it('a failed write rejects and leaves the chain where it was', async () => {
     const failSessionId = 'audit-write-failure';
     const runId = createAuditRunId('fail');

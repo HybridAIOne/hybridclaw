@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -59,6 +59,8 @@ let gateway: ChildProcess | null = null;
 let gatewayLog = '';
 let baseUrl = '';
 let dbPath = '';
+let configPath = '';
+let runtimeEnv: NodeJS.ProcessEnv = {};
 let connectorUrl = '';
 const getMemberCalls: string[] = [];
 const sentTexts: string[] = [];
@@ -247,12 +249,13 @@ async function startGateway(): Promise<void> {
   fs.mkdirSync(home);
   fs.mkdirSync(dataDir);
   dbPath = path.join(dataDir, 'data', 'hybridclaw.db');
+  configPath = path.join(dataDir, 'config.json');
   connectorUrl = await listen(connector);
   const modelUrl = await listen(model);
   const port = await getAvailablePort();
   baseUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(
-    path.join(dataDir, 'config.json'),
+    configPath,
     JSON.stringify({
       ops: { healthPort: port },
       // Unroutable so the gateway never calls the hosted HybridAI API.
@@ -284,22 +287,19 @@ async function startGateway(): Promise<void> {
       createRequire(botbuilder).resolve('botframework-connector'),
     )}).PasswordServiceClientCredentialFactory.prototype.isAuthenticationDisabled = async () => true;\n`,
   );
+  runtimeEnv = {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    HYBRIDCLAW_DATA_DIR: dataDir,
+    HYBRIDCLAW_ACCEPT_TRUST: 'true',
+    HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
+    MSTEAMS_APP_PASSWORD: 'e2e-app-password',
+    WEB_API_TOKEN,
+  };
   gateway = spawn(
     process.execPath,
     ['-r', preload, CLI, 'gateway', 'start', '--foreground', '--sandbox=host'],
-    {
-      cwd: root,
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: home,
-        HYBRIDCLAW_DATA_DIR: dataDir,
-        HYBRIDCLAW_ACCEPT_TRUST: 'true',
-        HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
-        MSTEAMS_APP_PASSWORD: 'e2e-app-password',
-        WEB_API_TOKEN,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
+    { cwd: root, env: runtimeEnv, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   gateway.stdout?.on('data', (chunk) => {
     gatewayLog += chunk;
@@ -308,6 +308,14 @@ async function startGateway(): Promise<void> {
     gatewayLog += chunk;
   });
   await waitForHealth(`${baseUrl}/health`, STARTUP_TIMEOUT_MS);
+}
+
+function cli(...args: string[]): void {
+  const result = spawnSync(process.execPath, [CLI, ...args], {
+    env: runtimeEnv,
+    encoding: 'utf8',
+  });
+  expect(result.status, result.stderr).toBe(0);
 }
 
 async function stopGateway(): Promise<void> {
@@ -421,6 +429,36 @@ describe.skipIf(!RUN)('Teams senders in channel_users on a live gateway', () => 
       expect((await assign(ERIKA.aadObjectId, null)).status).toBe(200);
       expect((await erikaRow()).agentId).toBeNull();
       expect(getMemberCalls).toHaveLength(1);
+    },
+    3 * TURN_TIMEOUT_MS,
+  );
+
+  test(
+    'activating another agent leaves Teams on its agent until Teams is bound',
+    async () => {
+      // Unmapped senders follow the channel's agent instead of getting their own.
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      config.msteams.personalAgentParent = '';
+      fs.writeFileSync(configPath, JSON.stringify(config));
+
+      cli('agent', 'create', 'sales', '--activate');
+      await expect
+        .poll(
+          async () => (await admin('GET', '/api/status')).body.defaultAgentId,
+        )
+        .toBe('sales');
+      await sendMessage('who answers after the switch?');
+      expect(usageAgents().at(-1)).toBe('main');
+
+      cli('agent', 'bind', 'sales', 'msteams');
+      await expect
+        .poll(
+          async () =>
+            (await admin('GET', '/api/admin/msteams/users')).body.defaultAgentId,
+        )
+        .toBe('sales');
+      await sendMessage('and after the bind?');
+      expect(usageAgents().at(-1)).toBe('sales');
     },
     3 * TURN_TIMEOUT_MS,
   );

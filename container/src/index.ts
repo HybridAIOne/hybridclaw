@@ -5,10 +5,14 @@
  * durable storage lives in the gateway or mounted workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
+
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '#shared/boost-offer.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
 import { normalizeLocalContextMode } from '#shared/local-tool-config.js';
 import { isRetrySafeRun } from '#shared/retry-safety.js';
+import { resolveApprovalPrelude } from './approval-prelude.js';
+import { withApprovalReplyUsage } from './approval-reply.js';
 import {
   setApprovalEmailSender,
   setUserMailContext,
@@ -16,11 +20,7 @@ import {
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
 import { compileBlockedTools } from './blocked-tools.js';
-import {
-  boostApprovalOutput,
-  dropPendingBoost,
-  handleBoostAnswer,
-} from './boost-offers.js';
+import { boostApprovalOutput, dropPendingBoost } from './boost-offers.js';
 import {
   BROWSER_CACHE_DIRS,
   cleanupAllBrowserSessions,
@@ -33,6 +33,7 @@ import {
   outputPresentationForAssistantSegment,
   statusOutputPresentation,
 } from './chat-segments.js';
+import { connectorApprovalOutput } from './connector-approval-output.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -137,6 +138,11 @@ import {
   withReplaySafeArguments,
 } from './tool-call-validation.js';
 import { CATALOG_SIBLING_NOT_EXECUTED, ToolCatalog } from './tool-catalog.js';
+import {
+  deferMcpToolsOverLimit,
+  resolveToolCountLimit,
+  toolCountLimitFailure,
+} from './tool-count-limit.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -629,6 +635,7 @@ interface CompletedToolCallExecution {
   historyMessage: ChatMessage;
   artifacts: ArtifactMetadata[];
   boostOffer?: BoostOffer;
+  connectorApproval?: ConnectorApproval;
 }
 
 // Tool starts this process has reported; the gateway parses them as progress.
@@ -818,6 +825,9 @@ async function executePreparedToolCall(
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
+    ...('connectorApproval' in runtimeResult && runtimeResult.connectorApproval
+      ? { connectorApproval: runtimeResult.connectorApproval }
+      : {}),
     historyMessage: {
       role: 'tool',
       content: result,
@@ -1171,6 +1181,7 @@ async function processRequestInner(
     escalationTarget,
     approvedToolCall,
   } = params;
+  const toolLimit = resolveToolCountLimit(provider, model);
   const toolCatalog = isLocal
     ? new ToolCatalog(availableTools, localStarterTools, localDiscoveryDisabled)
     : deferredTools && !localDiscoveryDisabled
@@ -1181,6 +1192,7 @@ async function processRequestInner(
           // fail-closed check even when reconnecting changes the next toolset.
           (name) =>
             mcpClientManager?.getToolBehavior(name)?.parallelSafe === true,
+          toolLimit,
         ) ?? undefined)
       : undefined;
   const tools =
@@ -1188,6 +1200,8 @@ async function processRequestInner(
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
       : (toolCatalog?.tools ?? availableTools);
+  const overLimit = toolCountLimitFailure(tools, toolLimit, provider, model);
+  if (overLimit) return overLimit;
   const availableToolNames = new Set(
     availableTools.map((tool) => tool.function.name),
   );
@@ -1313,6 +1327,19 @@ async function processRequestInner(
       tokenUsage: finalizeTokenUsage(tokenUsage),
     });
 
+  const askConnector = (
+    completed: CompletedToolCallExecution,
+    external: ConnectorApproval,
+  ) =>
+    connectorApprovalOutput({
+      ...completed,
+      external,
+      originalPrompt: effectiveUserPrompt,
+      toolsUsed,
+      toolExecutions,
+      tokenUsage: finalizeTokenUsage(tokenUsage),
+    });
+
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
     if (!availableToolNames.has(approvedToolCall.toolName)) {
@@ -1407,6 +1434,8 @@ async function processRequestInner(
       toolCallHistory,
       toolCatalog,
     );
+    if (completed.connectorApproval)
+      return askConnector(completed, completed.connectorApproval);
     if (completed.boostOffer) return askBoost(completed, completed.boostOffer);
     appendCompletedToolCall({
       turnToolHistory,
@@ -2143,6 +2172,8 @@ async function processRequestInner(
         toolCallHistory,
         toolCatalog,
       );
+      if (completed.connectorApproval)
+        return askConnector(completed, completed.connectorApproval);
       if (completed.boostOffer)
         return askBoost(completed, completed.boostOffer);
       if (completed.succeeded) {
@@ -2214,6 +2245,14 @@ async function processRequestInner(
  * Main loop: read first request from stdin (with secrets), then poll IPC for follow-ups.
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
+  mcpClientManager?.setApprovalContext(
+    input.channelId === 'web'
+      ? {
+          session_id: input.sessionId,
+          ...(input.agentId ? { agent_id: input.agentId } : {}),
+        }
+      : undefined,
+  );
   const mcpTools = mcpClientManager?.getAllToolDefinitions() || [];
   const dynamicPluginTools = getPluginToolDefinitions();
   let tools = [...TOOL_DEFINITIONS, ...dynamicPluginTools, ...mcpTools];
@@ -2259,12 +2298,17 @@ function resolveDeferredTools(
   tools: ToolDefinition[],
 ): Set<string> | undefined {
   if (!mcpClientManager) return undefined;
-  const names =
+  const mcpNames = mcpClientManager
+    .getAllToolDefinitions()
+    .map((tool) => tool.function.name);
+  const names = deferMcpToolsOverLimit(
+    tools,
     input.mcpToolMode === 'deferred'
-      ? mcpClientManager
-          .getAllToolDefinitions()
-          .map((tool) => tool.function.name)
-      : mcpClientManager.getDeferLoadingToolNames(tools);
+      ? mcpNames
+      : mcpClientManager.getDeferLoadingToolNames(tools),
+    mcpNames,
+    resolveToolCountLimit(input.provider, input.model),
+  );
   return names.length > 0 ? new Set(names) : undefined;
 }
 
@@ -2321,7 +2365,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
-  approvalRuntime.setSession(firstInput.sessionId);
+  approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
@@ -2369,9 +2413,7 @@ async function main(): Promise<void> {
     media: firstInput.media,
     audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
-  const firstPrelude =
-    handleBoostAnswer(firstInput.sessionId, firstMessages) ??
-    approvalRuntime.handleApprovalResponse(firstMessages);
+  const firstPrelude = await resolveApprovalPrelude(firstInput, firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
   const firstApprovedToolCall = firstPrelude?.approvedToolCall;
   const firstPreparedMessages = firstPromptOverride
@@ -2388,6 +2430,7 @@ async function main(): Promise<void> {
     firstOutput = {
       status: 'success',
       result: firstPrelude.immediateMessage,
+      pendingApproval: firstPrelude.pendingApproval,
       toolsUsed: [],
       toolExecutions: [],
       effectiveUserPrompt: latestUserPrompt(firstMessagesForRequest),
@@ -2430,7 +2473,10 @@ async function main(): Promise<void> {
     });
   }
 
-  await replyToRequest(firstInput, firstOutput);
+  await replyToRequest(
+    firstInput,
+    withApprovalReplyUsage(firstOutput, firstPrelude),
+  );
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2490,7 +2536,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
-    approvalRuntime.setSession(input.sessionId);
+    approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
@@ -2545,9 +2591,7 @@ async function main(): Promise<void> {
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
-    const prelude =
-      handleBoostAnswer(input.sessionId, preparedMessages) ??
-      approvalRuntime.handleApprovalResponse(preparedMessages);
+    const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;
     const approvedToolCall = prelude?.approvedToolCall;
     const messagesForRequest = promptOverride
@@ -2560,11 +2604,12 @@ async function main(): Promise<void> {
       const immediate: ContainerOutput = {
         status: 'success',
         result: prelude.immediateMessage,
+        pendingApproval: prelude.pendingApproval,
         toolsUsed: [],
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      await replyToRequest(input, immediate);
+      await replyToRequest(input, withApprovalReplyUsage(immediate, prelude));
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2605,7 +2650,7 @@ async function main(): Promise<void> {
       approvedToolCall,
     });
 
-    await replyToRequest(input, output);
+    await replyToRequest(input, withApprovalReplyUsage(output, prelude));
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

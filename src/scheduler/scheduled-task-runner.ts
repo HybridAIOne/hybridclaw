@@ -89,7 +89,6 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
-  const prompt = workPrompt(trackedTaskPrompt(taskId, storedPrompt));
   const cronSessionId = scheduledRunSessionKey(agentId, taskId, sessionKey);
   const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
@@ -125,6 +124,9 @@ export async function runIsolatedScheduledTask(params: {
     taskSession?.agent_id === agentId
       ? task.owner_user_id
       : undefined;
+  // The work tool only answers a verified owner, so only their runs are told to use it.
+  const taskPrompt = trackedTaskPrompt(taskId, storedPrompt);
+  const prompt = owner ? workPrompt(taskPrompt) : taskPrompt;
   startWork({
     id: runId,
     agentId,

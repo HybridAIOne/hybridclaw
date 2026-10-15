@@ -13,6 +13,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 
 const SESSION_STATE_ROOT = path.join(
@@ -83,13 +84,11 @@ export class SessionStateSet extends Set<string> {
   private persist(filePath: string): void {
     try {
       ensureSessionStateDir(filePath);
-      const tmpPath = `${filePath}.tmp`;
-      fs.writeFileSync(
-        tmpPath,
+      writeFileAtomic(
+        filePath,
         JSON.stringify({ version: 1, values: [...this] }),
         { mode: 0o600 },
       );
-      fs.renameSync(tmpPath, filePath);
     } catch (error) {
       // The set still holds the value for this worker; only a restart loses it.
       console.error(`[session-state] failed to persist ${this.name}:`, error);

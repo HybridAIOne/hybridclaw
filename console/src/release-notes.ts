@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.10',
+  version: '0.40.2',
   highlights: [
-    'Hy can call your phone',
-    'See scheduled runs and failure notices',
-    'Generate images without an extra approval',
-    'App quick decisions use the default model',
+    'Multilingual voice and text approvals',
+    'Health and Contacts privacy protection',
+    'Reliable email reassignment',
+    'Shared audit logging fixes',
   ],
 } as const;
 

@@ -3,10 +3,10 @@
  * Locks cover the entire read/modify/write; rename alone cannot prevent lost updates.
  * This is not a workspace access policy and cannot serialize external editors.
  */
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import { writeFileAtomic } from './atomic-write.js';
 
 export function lockMemoryFile(filePath: string): () => void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -45,16 +45,9 @@ export async function waitForMemoryFileLock(
 }
 
 export function writeMemoryFileAtomic(filePath: string, content: string): void {
-  const temporary = `${filePath}.${randomUUID()}.tmp`;
   let mode: number | undefined;
   try {
     mode = fs.statSync(filePath).mode & 0o777;
   } catch {}
-  try {
-    fs.writeFileSync(temporary, content, { encoding: 'utf8', flag: 'wx' });
-    if (mode !== undefined) fs.chmodSync(temporary, mode);
-    fs.renameSync(temporary, filePath);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(filePath, content, { mode });
 }

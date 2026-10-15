@@ -8,6 +8,8 @@ entrypoint: src/index.js
 credentials:
   - HONCHO_API_KEY
 # Keep this schema synchronized with src/config-schema.js.
+commands:
+  - honcho
 configSchema:
   type: object
   additionalProperties: false

@@ -149,9 +149,9 @@ It runs in the gateway (which must be running, with both agents idle) and:
   rewrites `agent:<from>:` session keys;
 - renames each `--session <old>=<new>` thread. A `<new>` session that already
   exists is kept as `<new>-before-adopt-<unix ms>`;
-- makes the target the default agent, routes the source's mailboxes to it
-  (accounts without `agentId` follow the default agent), and turns the
-  target's onboarding off.
+- moves the source's channel bindings (`agents.channels`) and mailboxes to the
+  target, makes the target the default agent only if the source was the
+  default, and turns the target's onboarding off.
 
 It prints one JSON line: `{"status":"adopted",...}` with `sessionsMoved`,
 `threadsRenamed`, `movedAside` and `filesCopied`; `{"status":"already"}` when
@@ -610,9 +610,12 @@ Support hierarchy:
 `hybridclaw agent activate <agent-id>`:
 
 1. validates that the agent exists
-2. writes `agents.defaultAgentId` into runtime config
-3. makes that agent the default for new requests and fresh web sessions that do
-   not specify an agent explicitly
+2. binds every channel that is on (enabled, a Discord token set, WhatsApp
+   linked) and has no binding to the current default agent
+   (`agents.channels`), so no channel changes agent
+3. writes `agents.defaultAgentId` into runtime config
+4. makes that agent the default for new requests, fresh web sessions, and
+   channels set up later without a binding
 
 ## What `uninstall` Does
 

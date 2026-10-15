@@ -8,14 +8,13 @@ import {
   importJWK,
   type JWEHeaderParameters,
 } from 'jose';
-
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeAssetRevisionState,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import {
   type A2AEnvelope,
   type A2AEnvelopeEncryption,
@@ -250,9 +249,8 @@ export function ensureA2AE2EEKeypair(now = new Date()): A2AE2EEKeypair {
       A2A_E2EE_KEYPAIR_PATH,
       `${JSON.stringify(keypair, null, 2)}\n`,
       {
-        tempPrefix: 'e2ee-keypair',
         dirMode: 0o700,
-        fileMode: 0o600,
+        mode: 0o600,
       },
     );
     cachedKeypair = keypair;

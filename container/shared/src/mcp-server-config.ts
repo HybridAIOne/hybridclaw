@@ -1,11 +1,13 @@
 /**
  * Operator-owned MCP configuration, shared across the gateway/worker boundary.
- * Validates operator scheduling declarations at the config and IPC boundaries.
- * Server annotations cannot populate this config; approval is a separate policy.
+ * Validates operator tool declarations at the config and IPC boundaries.
+ * Only a configured approval broker can delegate marked writes to its own gate.
  */
 
 export interface McpToolBehaviorConfig {
   trustAnnotations?: boolean;
+  /** Delegate marked writes to the platform's one-shot approval gate. */
+  platformApprovals?: boolean;
   overrides?: Record<string, 'read-only' | 'mutation'>;
 }
 
@@ -20,7 +22,7 @@ export interface McpServerConfig {
   /** The gateway handles OAuth and injects fresh Authorization headers. */
   auth?: 'oauth';
   enabled?: boolean;
-  /** Scheduling declarations only; these never grant tool approval. */
+  /** Operator declarations; these never mint a platform approval grant. */
   toolBehavior?: McpToolBehaviorConfig;
 }
 
@@ -37,7 +39,8 @@ export function parseMcpToolBehaviorConfig(
   const config = value as Record<string, unknown>;
   if (
     Object.keys(value).some(
-      (key) => !['trustAnnotations', 'overrides'].includes(key),
+      (key) =>
+        !['trustAnnotations', 'overrides', 'platformApprovals'].includes(key),
     )
   ) {
     throw new Error('Unknown MCP toolBehavior field.');
@@ -48,6 +51,11 @@ export function parseMcpToolBehaviorConfig(
   ) {
     throw new Error('MCP toolBehavior.trustAnnotations must be a boolean.');
   }
+  if (
+    config.platformApprovals !== undefined &&
+    typeof config.platformApprovals !== 'boolean'
+  )
+    throw new Error('MCP toolBehavior.platformApprovals must be a boolean.');
   const overrides = config.overrides;
   if (
     overrides !== undefined &&
@@ -65,6 +73,9 @@ export function parseMcpToolBehaviorConfig(
     );
   }
   return {
+    ...(config.platformApprovals !== undefined
+      ? { platformApprovals: config.platformApprovals }
+      : {}),
     ...(config.trustAnnotations !== undefined
       ? { trustAnnotations: config.trustAnnotations }
       : {}),
