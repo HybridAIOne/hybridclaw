@@ -24,8 +24,8 @@ import type {
 import type { MediaContextItem } from '../types/container.js';
 import { createMediaHostPathResolver } from './media-host-path.js';
 
-// Resolved from the install root: the gateway image runs an esbuild bundle in
-// dist/, where pdf-reader's own module-relative default points outside /app.
+// Resolved from the install root: the gateway runs an esbuild bundle in dist/,
+// where pdf-reader's own module-relative default points outside /app.
 const PDF_RUNTIME_URL = pathToFileURL(
   resolveInstallPath('skills', 'pdf', 'scripts', '_pdf_runtime.mjs'),
 ).href;

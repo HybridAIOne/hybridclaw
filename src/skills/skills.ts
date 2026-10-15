@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
@@ -824,12 +823,8 @@ function resolveUserPath(raw: string): string {
 }
 
 function resolveBundledSkillsDir(): string | null {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const bundledDir = resolveInstallPath('skills');
-  const fallbackBundledDir = path.resolve(moduleDir, '..', '..', 'skills');
-  if (fs.existsSync(bundledDir)) return bundledDir;
-  if (fs.existsSync(fallbackBundledDir)) return fallbackBundledDir;
-  return null;
+  return fs.existsSync(bundledDir) ? bundledDir : null;
 }
 
 function resolveProjectSkillsDir(): string {

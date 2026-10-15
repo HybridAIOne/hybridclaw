@@ -3,6 +3,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { register } from 'tsx/esm/api';
+
+const unregisterTsx = register();
 
 const APPLY_FLAG = '--apply';
 
@@ -30,12 +33,14 @@ function timestampForFilename() {
 
 async function main() {
   const { apply } = parseArgs(process.argv.slice(2));
-  const { getRuntimeConfig } = await import('../dist/config/runtime-config.js');
+  // This unshipped maintenance script runs from a source checkout; bundled
+  // installs expose the CLI and SDK, not individual internal dist modules.
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { refreshModelCatalogMetadata } = await import(
-    '../dist/providers/model-catalog.js'
+    '../src/providers/model-catalog.ts'
   );
   const { estimateModelUsageCostUsd } = await import(
-    '../dist/usage/model-cost.js'
+    '../src/usage/model-cost.ts'
   );
 
   const dbPath = getRuntimeConfig().ops?.dbPath;
@@ -143,7 +148,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
+    process.exitCode = 1;
+  })
+  .finally(unregisterTsx);

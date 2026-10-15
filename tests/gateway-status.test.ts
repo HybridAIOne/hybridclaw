@@ -197,10 +197,7 @@ test('getGatewayStatus includes build/runtime diagnostics', async () => {
           process.cwd(),
           'src/gateway/gateway-http-proxy.ts',
         ),
-        buildPath: path.join(
-          process.cwd(),
-          'dist/gateway/gateway-http-proxy.js',
-        ),
+        buildPath: path.join(process.cwd(), 'dist/cli.js'),
         status: expect.stringMatching(
           /^(ok|source_newer|missing_source|missing_build)$/,
         ),
