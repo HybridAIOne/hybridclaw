@@ -7,10 +7,10 @@
  */
 
 import path from 'node:path';
-import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
-import { isRetrySafeRun } from '../shared/retry-safety.js';
+import type { BoostAnswer, BoostOffer } from '#shared/boost-offer.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
+import { normalizeLocalContextMode } from '#shared/local-tool-config.js';
+import { isRetrySafeRun } from '#shared/retry-safety.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
 import {

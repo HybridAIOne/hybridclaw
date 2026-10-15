@@ -4,7 +4,7 @@
  * provenance, presents pending requests and records interpretation audit events.
  */
 
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { isGoalContinuationSource } from '../goals/goal-runtime.js';
 import type { ContainerOutput } from '../types/container.js';

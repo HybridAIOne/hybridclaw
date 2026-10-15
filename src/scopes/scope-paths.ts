@@ -14,7 +14,7 @@ import {
   listScopeDirNamesIn,
   SCOPE_ID_RE,
   SCOPES_DIRNAME,
-} from '../../container/shared/scope-dirs.js';
+} from '#shared/scope-dirs.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 
 /** Prompt files a scope never loads: they belong to the agent's own setup. */

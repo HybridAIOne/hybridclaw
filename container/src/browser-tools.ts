@@ -4,16 +4,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parseOptionalBoolean } from '../shared/boolean-utils.js';
-import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
-import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
+import { parseOptionalBoolean } from '#shared/boolean-utils.js';
+import { assertBrowserNavigationUrl } from '#shared/browser-navigation.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '#shared/browser-profile.js';
 import {
   detectTwoFactorChallenge,
   EXTRACT_TEXT_PREVIEW_SCRIPT,
   normalizeTwoFactorModality,
   TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
   type TwoFactorDetectionResult,
-} from '../shared/two-factor-detection.js';
+} from '#shared/two-factor-detection.js';
 import {
   currentBrowserPage,
   recordBrowserPage,

@@ -1,4 +1,4 @@
-import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '#shared/browser-profile.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   loadPlaywrightModule,

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { isValidTimezone } from '#shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import type {
@@ -46,9 +46,7 @@ export interface CreateJobInput {
 export interface TaskExecutionOptions {
   title?: string | null;
   model?: string | null;
-  effort?:
-    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-    | null;
+  effort?: import('#shared/reasoning-effort.js').ReasoningEffort | null;
   freshSession?: boolean;
 }
 
@@ -181,9 +179,7 @@ function addOptionsOf(rawAction: string): {
   eventParentId?: number;
   title?: string | null;
   model?: string | null;
-  effort?:
-    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-    | null;
+  effort?: import('#shared/reasoning-effort.js').ReasoningEffort | null;
   freshSession?: boolean;
   trigger?: TaskTrigger;
   triggerEvent?: TriggerEvent;
@@ -197,9 +193,7 @@ function addOptionsOf(rawAction: string): {
     triggerEvent?: unknown;
     title?: string | null;
     model?: string | null;
-    effort?:
-      | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-      | null;
+    effort?: import('#shared/reasoning-effort.js').ReasoningEffort | null;
     freshSession?: boolean;
   } | null>(rawAction, null);
   return {

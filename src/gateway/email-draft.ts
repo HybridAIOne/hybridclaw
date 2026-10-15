@@ -11,7 +11,7 @@ import {
   emailDraftText,
   type MessageEmailDraft,
   normalizeEmailDraft,
-} from '../../container/shared/email-draft.js';
+} from '#shared/email-draft.js';
 import type { ToolExecution } from '../types/execution.js';
 
 /** The last draft the turn showed; one per reply. */

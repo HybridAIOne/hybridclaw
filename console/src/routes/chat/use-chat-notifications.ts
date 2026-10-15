@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   WebNotificationPreferences,
   WebNotificationState,
-} from '../../../../container/shared/web-notifications.js';
+} from '#shared/web-notifications.js';
 import { requestHeaders, requestJson } from '../../api/client';
 import { setChatUnreadCount } from '../../lib/browser-title';
 import { disableWebPush, enableWebPush } from '../../lib/web-push';

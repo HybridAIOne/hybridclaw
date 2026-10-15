@@ -1,7 +1,7 @@
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../shared/server-sent-events.js';
+} from '#shared/server-sent-events.js';
 import type {
   ChatCompletionResponse,
   ChatContentPart,

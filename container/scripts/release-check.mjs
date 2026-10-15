@@ -13,6 +13,7 @@ const forbiddenPathPatterns = [
   /^tsconfig\.json$/,
   /^vitest\..*\.ts$/,
   /^.*\.test\./,
+  /\.tsbuildinfo$/,
 ];
 
 function fail(message) {

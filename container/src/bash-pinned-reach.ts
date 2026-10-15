@@ -7,7 +7,7 @@
  * NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
-import { escapeRegExp } from '../shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 import {
   type Cwd,
   FIND_EXEC_ACTIONS,

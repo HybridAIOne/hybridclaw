@@ -23,7 +23,7 @@ import {
   Agent as UndiciAgent,
 } from 'undici';
 
-import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
+import { isPrivateNetworkAddress } from '#shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {

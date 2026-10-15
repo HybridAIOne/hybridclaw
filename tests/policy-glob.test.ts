@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   globToRegExp,
   hasGlobWildcard,
-} from '../container/shared/policy-glob.js';
+} from '#shared/policy-glob.js';
 
 const KINDS = ['path', 'host', 'text'] as const;
 

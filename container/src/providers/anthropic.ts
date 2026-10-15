@@ -4,8 +4,8 @@ import {
   isAnthropicOAuthToken,
   normalizeAnthropicBaseUrl,
   stripAnthropicModelPrefix,
-} from '../../shared/anthropic-utils.js';
-import { isDynamicContextMessageText } from '../../shared/dynamic-context.js';
+} from '#shared/anthropic-utils.js';
+import { isDynamicContextMessageText } from '#shared/dynamic-context.js';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
   AnthropicContentBlock,

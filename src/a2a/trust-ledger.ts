@@ -6,7 +6,7 @@ import {
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { listAgents } from '../agents/agent-registry.js';
 import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';

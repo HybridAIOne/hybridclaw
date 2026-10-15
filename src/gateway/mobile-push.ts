@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   MobilePushDevice,
   WebNotification,
-} from '../../container/shared/web-notifications.js';
+} from '#shared/web-notifications.js';
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';

@@ -7,14 +7,14 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import type {
   MobilePushDevice,
   WebNotification,
   WebNotificationPreferences,
   WebNotificationState,
   WebPushSubscription,
-} from '../../container/shared/web-notifications.js';
+} from '#shared/web-notifications.js';
 import { DATA_DIR } from '../config/config.js';
 
 interface OperatorState {

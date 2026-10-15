@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
-import { repairUnicodeForJson } from '../../container/shared/unicode-utils.js';
+import { parseBooleanWithDefault } from '#shared/boolean-utils.js';
+import { repairUnicodeForJson } from '#shared/unicode-utils.js';
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,

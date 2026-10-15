@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
 import { DATA_DIR } from '../config/config.js';
 import { interruptGatewaySessionExecution } from '../gateway/gateway-request-runtime.js';

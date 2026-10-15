@@ -1,4 +1,4 @@
-import { escapeRegExp } from '../../../container/shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 import type { IMessageInboundBatch } from './debounce.js';
 import { createIMessageInboundDedupeCache } from './inbound-dedupe-cache.js';
 import {

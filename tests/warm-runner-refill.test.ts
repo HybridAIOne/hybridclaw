@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
-import { readWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import { readWarmWorkerFrame } from '#shared/warm-worker-frame.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-warm-refill-');

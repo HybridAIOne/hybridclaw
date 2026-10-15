@@ -12,7 +12,7 @@ import {
   type PdfReadOptions,
   readPdfPages,
   searchPdfPages,
-} from '../shared/pdf-reader.js';
+} from '#shared/pdf-reader.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 

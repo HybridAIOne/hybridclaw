@@ -9,7 +9,7 @@
  * NOT approval or the loop guard: this never decides whether a call may run.
  */
 
-import { BUILTIN_TOOLS } from '../shared/builtin-tools.js';
+import { BUILTIN_TOOLS } from '#shared/builtin-tools.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
   isWithinRoot,

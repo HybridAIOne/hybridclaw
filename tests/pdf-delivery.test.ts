@@ -7,9 +7,9 @@ import {
   loadVisualSnapshot,
   saveVisualSnapshot,
   validateVisualAttachments,
-} from '../container/shared/visual-snapshots.js';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+} from '#shared/visual-snapshots.js';
+import { readPdfPages } from '#shared/pdf-reader.js';
+import { validateToolHistory } from '#shared/tool-history.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

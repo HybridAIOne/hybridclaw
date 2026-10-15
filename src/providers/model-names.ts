@@ -6,7 +6,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
-} from '../../container/shared/model-names.js';
+} from '#shared/model-names.js';
 import { pluralize } from '../utils/text-format.js';
 import { findLocalEndpointByName } from './local-endpoints.js';
 

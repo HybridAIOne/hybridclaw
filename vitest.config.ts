@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { containerSharedAlias } from './scripts/container-shared-alias.ts';
 
 /**
  * Shared test settings inherited by every project. Coverage lives at the
@@ -50,6 +51,7 @@ export default defineConfig({
     },
     projects: [
       {
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'unit',
@@ -65,6 +67,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'integration',
@@ -74,6 +77,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'e2e',
@@ -83,6 +87,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'install-e2e',
@@ -91,6 +96,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'live',

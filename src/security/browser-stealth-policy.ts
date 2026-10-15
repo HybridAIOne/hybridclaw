@@ -7,7 +7,7 @@ import {
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../../container/shared/browser-stealth-policy.js';
+} from '#shared/browser-stealth-policy.js';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
 
 export type {

@@ -6,7 +6,7 @@
 import {
   SHELL_RUNTIME_ENV_NAMES,
   SHELL_RUNTIME_ENV_PATH,
-} from '../shared/shell-runtime-env.js';
+} from '#shared/shell-runtime-env.js';
 
 export async function resolveShellRuntimeEnv(
   baseUrl: string,

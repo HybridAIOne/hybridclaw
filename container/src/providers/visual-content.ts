@@ -7,7 +7,7 @@ import {
   loadVisualSnapshot,
   VISUAL_SNAPSHOT_MAX_BYTES,
   validateVisualAttachments,
-} from '../../shared/visual-snapshots.js';
+} from '#shared/visual-snapshots.js';
 import { WORKSPACE_ROOT } from '../runtime-paths.js';
 import type { ChatContentPart, ChatMessage } from '../types.js';
 import { type NormalizedCallArgs, ProviderRequestError } from './shared.js';

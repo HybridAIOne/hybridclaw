@@ -5,7 +5,7 @@
  * credentials: command text stays on stdin and credential values stay in env.
  */
 import { spawn } from 'node:child_process';
-import { buildSanitizedEnv } from '../shared/sensitive-env.js';
+import { buildSanitizedEnv } from '#shared/sensitive-env.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 
 export const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;

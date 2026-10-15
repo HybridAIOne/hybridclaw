@@ -1,8 +1,5 @@
-import { estimateAudioTranscriptionCostUsd } from '../../container/shared/audio-transcription-pricing.js';
-import {
-  readFiniteNumber,
-  readString,
-} from '../../container/shared/primitive-values.js';
+import { estimateAudioTranscriptionCostUsd } from '#shared/audio-transcription-pricing.js';
+import { readFiniteNumber, readString } from '#shared/primitive-values.js';
 import type { ToolExecution } from '../types/execution.js';
 import { isRecord } from '../utils/type-guards.js';
 import type { TokenUsageEvent } from './token-usage-buffer.js';

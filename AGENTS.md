@@ -144,11 +144,12 @@ core, not dead code).
   generate it and add a test that fails when the two diverge.
 - **Logic:** duplicate small local logic when it preserves clarity; extract a
   helper on the third copy. Reusing a helper that already exists is never
-  premature: check `src/utils/`, `container/shared/`, and the owning module
+  premature: check `src/utils/`, `container/shared/src/`, and the owning module
   before writing `isRecord`, `sleep`, `parseJsonObject`, a base-URL
   normalizer, or a private-network check.
 - When extracting, preserve module boundaries. Code both the gateway and the
-  container need lives in `container/shared/`.
+  container need lives in `container/shared/src/`; import it as
+  `#shared/<module>.js`. `container/shared/dist/` is build output.
 
 ### 3.4 Core Is for What Every Install Needs
 

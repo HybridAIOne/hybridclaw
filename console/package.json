@@ -5,14 +5,14 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "npm run registry:check && tsc --noEmit && vite build",
+    "build": "npm run registry:check && tsc -b && vite build",
     "dev": "vite",
     "pretest:visual": "npm run build",
     "pretest:visual:update": "npm run build",
     "test": "vitest run --config vitest.config.ts",
     "test:visual": "playwright test --config playwright.config.ts",
     "test:visual:update": "playwright test --config playwright.config.ts --update-snapshots",
-    "typecheck": "npm run registry:check && tsc --noEmit",
+    "typecheck": "npm run registry:check && tsc -b",
     "registry:check": "tsx ../scripts/generate-settings-registry.ts --check",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
   },

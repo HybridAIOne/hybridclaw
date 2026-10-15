@@ -17,8 +17,8 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
+import { isValidTimezone } from '#shared/workspace-time.js';
 import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
 import { resolveWorkspaceRelativePath } from '../gateway/gateway-utils.js';

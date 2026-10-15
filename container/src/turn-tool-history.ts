@@ -13,7 +13,7 @@ import {
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
-} from '../shared/tool-history.js';
+} from '#shared/tool-history.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
 // Engineering choice, 2026-10-03: spill above 16k for IPC, never model context.

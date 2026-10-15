@@ -4,7 +4,7 @@ import {
   asRecord,
   evaluateNetworkPolicyAccess,
   readNetworkPolicyState,
-} from '../../container/shared/network-policy.js';
+} from '../../container/shared/dist/network-policy.js';
 
 const POLICY_CACHE_TTL_MS = 10_000;
 const policyCache = new Map();

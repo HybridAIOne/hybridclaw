@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
-} from '../../../../container/shared/reasoning-effort.js';
+} from '#shared/reasoning-effort.js';
 import { ChevronDown, Lightbulb } from '../../components/icons';
 import {
   Popover,

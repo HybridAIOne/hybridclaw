@@ -8,7 +8,7 @@ import {
   importJWK,
   type JWEHeaderParameters,
 } from 'jose';
-import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeAssetRevisionState,
