@@ -77,12 +77,15 @@ function isQuiet(warning) {
   return warning.source === 'DWD' && warning.severity === 'Minor';
 }
 
+// Plain text for the chat: line breaks kept, markup dropped. Brackets left
+// over from nested or broken tags are removed too, so no tag survives.
 function plainText(html) {
   return String(html ?? '')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[<>]/g, '')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

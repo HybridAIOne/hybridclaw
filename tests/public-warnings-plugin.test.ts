@@ -49,7 +49,7 @@ async function load() {
             {
               language: 'en',
               headline: 'Bomb disposal',
-              instruction: 'Avoid the area.<br/>Close windows.',
+              instruction: 'Avoid the area.<br/><b>Close</b> windows.<<script>x</script>',
               onset: '2026-10-15T10:00:00+02:00',
               expires: '2026-10-15T14:00:00+02:00',
             },
@@ -97,7 +97,7 @@ test('a watched place gets each new warning once, in the user language; yellow w
     [
       '⚠️ Home: Bomb disposal',
       '15.10., 10:00 → 15.10., 14:00',
-      'Avoid the area.\nClose windows.',
+      'Avoid the area.\nClose windows.x',
       'https://warnung.bund.de/meldungen/mow.TEST-NEW',
     ].join('\n\n'),
     NEW.id,
