@@ -116,7 +116,7 @@ hybridclaw gateway restart --log-requests
 
 That persists best-effort redacted prompts, responses, and tool payloads to
 SQLite `request_log` for turn-level debugging. Treat it as sensitive operator
-data.
+data. Entries older than 7 days are deleted as new ones are written.
 
 For lower-level provider debugging on a local machine, use:
 

@@ -444,6 +444,10 @@ export function listUsageEventsByBatchId(
   return rows;
 }
 
+// 7 days (maintainer call, 2026-10-15): enough to debug recent turns; an
+// operator who leaves request logging on otherwise grows the database forever.
+const REQUEST_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 function serializeRequestLogJson(value: unknown): string | null {
   if (value == null) return null;
   try {
@@ -476,9 +480,11 @@ export function recordRequestLog(params: {
     typeof params.durationMs === 'number' && Number.isFinite(params.durationMs)
       ? Math.max(0, Math.trunc(params.durationMs))
       : null;
-  const createdAt = new Date().toISOString();
+  const now = Date.now();
+  const createdAt = new Date(now).toISOString();
+  const database = getUsageDatabase();
 
-  getUsageDatabase()
+  database
     .prepare(
       `INSERT INTO request_log (
        session_id,
@@ -507,6 +513,9 @@ export function recordRequestLog(params: {
       durationMs,
       createdAt,
     );
+  database
+    .prepare('DELETE FROM request_log WHERE created_at < ?')
+    .run(new Date(now - REQUEST_LOG_RETENTION_MS).toISOString());
 }
 
 export function getUsageTotals(params?: {

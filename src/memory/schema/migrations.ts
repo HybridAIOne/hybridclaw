@@ -27,7 +27,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 76;
+export const DATABASE_SCHEMA_VERSION = 77;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4067,6 +4067,17 @@ export function runMigrations(
   if (currentVersion < 76) {
     createTaskRunsSchema(database);
     recordMigration(database, 76, 'Keep the run history of scheduled tasks');
+  }
+  if (currentVersion < 77) {
+    // Retention deletes by age on every write; created_at sits after the
+    // payload columns, so without an index each delete reads every payload.
+    if (tableExists(database, 'request_log')) {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_request_log_created
+          ON request_log(created_at);
+      `);
+    }
+    recordMigration(database, 77, 'Index request_log by age for retention');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
