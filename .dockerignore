@@ -29,8 +29,14 @@ plugins/*
 !plugins/browser-use-cloud/**
 !plugins/camofox/
 !plugins/camofox/**
+!plugins/concierge-router/
+!plugins/concierge-router/**
+!plugins/connector-events/
+!plugins/connector-events/**
 !plugins/distill/
 !plugins/distill/**
+!plugins/line/
+!plugins/line/**
 !plugins/mac-cua/
 !plugins/mac-cua/**
 !plugins/managed-cloud/
@@ -43,6 +49,8 @@ plugins/*
 !plugins/transformers-embeddings/**
 !plugins/twilio-voice/
 !plugins/twilio-voice/**
+!plugins/vonage-voice/
+!plugins/vonage-voice/**
 plugins/*/node_modules/
 
 # IDE and OS
