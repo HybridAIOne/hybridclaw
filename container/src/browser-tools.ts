@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
+import { asRecord } from '../shared/primitive-values.js';
 import {
   detectTwoFactorChallenge,
   EXTRACT_TEXT_PREVIEW_SCRIPT,
@@ -1078,11 +1079,6 @@ function createTempScreenshotPath(prefix: string): string {
     BROWSER_ARTIFACT_ROOT,
     `${prefix}-${Date.now()}-${nonce}.png`,
   );
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
 }
 
 function resolveGatewayInteractiveEscalationUrl(): string | null {

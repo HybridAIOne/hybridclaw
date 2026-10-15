@@ -1,17 +1,13 @@
 import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { normalizeMistralModelName } from './mistral-utils.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
 } from './pricing-discovery.js';
-import {
-  createDiscoveryStore,
-  isRecord,
-  normalizeBaseUrl,
-  readPositiveInteger,
-} from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
 function readMistralModelEntries(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
@@ -22,7 +18,7 @@ function readMistralModelEntries(payload: unknown): unknown[] {
 function readMistralContextWindow(
   entry: Record<string, unknown>,
 ): number | null {
-  return readPositiveInteger(entry.max_context_length);
+  return parsePositiveInteger(entry.max_context_length);
 }
 
 function isVisionCapableMistralModel(entry: Record<string, unknown>): boolean {

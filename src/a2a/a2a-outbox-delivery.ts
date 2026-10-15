@@ -11,6 +11,7 @@ import {
   type IdentityResolver,
 } from '../identity/resolver.js';
 import { resolveSecretHandleInput } from '../security/secret-refs.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import {
   A2AFailFastError,
   A2AHttpError,
@@ -50,7 +51,6 @@ import {
   isA2AAllowedHttpUrl,
   isA2ALoopbackHttpUrl,
   isRecord,
-  normalizePositiveInteger,
 } from './utils.js';
 
 export const A2A_RETRY_BASE_DELAY_MS = 1_000;
@@ -299,14 +299,9 @@ function normalizeRetryOptions(
   >
 > {
   return {
-    baseDelayMs: normalizePositiveInteger(
-      opts.baseDelayMs,
-      A2A_RETRY_BASE_DELAY_MS,
-    ),
-    maxDelayMs: normalizePositiveInteger(
-      opts.maxDelayMs,
-      A2A_RETRY_MAX_DELAY_MS,
-    ),
+    baseDelayMs:
+      parsePositiveInteger(opts.baseDelayMs) ?? A2A_RETRY_BASE_DELAY_MS,
+    maxDelayMs: parsePositiveInteger(opts.maxDelayMs) ?? A2A_RETRY_MAX_DELAY_MS,
     jitterRatio: Math.max(0, opts.jitterRatio ?? 0.2),
     random: opts.random ?? Math.random,
   };
@@ -511,10 +506,8 @@ export async function deliverA2AItem(
 ): Promise<'delivered' | 'retried' | 'failed'> {
   const now = opts.now?.() ?? new Date();
   const attemptNumber = item.attempts + 1;
-  const maxAttempts = normalizePositiveInteger(
-    opts.maxAttempts,
-    item.maxAttempts,
-  );
+  const maxAttempts =
+    parsePositiveInteger(opts.maxAttempts) ?? item.maxAttempts;
   const retryOptions = normalizeRetryOptions(opts);
 
   let deliveryItem = item;

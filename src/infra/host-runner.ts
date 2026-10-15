@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
+import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
 import type {
   ExecutorRequest,
@@ -60,7 +61,6 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';

@@ -20,6 +20,7 @@ import {
   type PolicyRule,
 } from '../policy/policy-engine.js';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
+import { asRecord } from '../utils/type-guards.js';
 import { SECRET_SINK_KINDS, type SecretSinkKind } from './secret-handles.js';
 import {
   normalizeSecretLower as normalizeLower,
@@ -56,12 +57,6 @@ const secretPolicyStateCache = new Map<string, CachedPolicyState>();
 const globRegexCache = new Map<string, RegExp>();
 const MAX_GLOB_REGEX_CACHE_ENTRIES = 256;
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map(normalizeString).filter(Boolean);
@@ -70,7 +65,7 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 function readAction(value: unknown, field: string): SecretPolicyDecision {
-  const raw = typeof value === 'string' ? value : asRecord(value).type;
+  const raw = typeof value === 'string' ? value : asRecord(value)?.type;
   const normalized = normalizeLower(raw);
   if (normalized === 'allow') return 'allow';
   if (normalized === 'deny' || normalized === 'block') return 'deny';

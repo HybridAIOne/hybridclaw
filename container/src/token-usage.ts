@@ -1,4 +1,4 @@
-import { isRecord } from './providers/shared.js';
+import { isRecord } from '../shared/primitive-values.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,

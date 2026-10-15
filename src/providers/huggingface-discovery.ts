@@ -1,17 +1,13 @@
 import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
 } from './pricing-discovery.js';
-import {
-  createDiscoveryStore,
-  isRecord,
-  normalizeBaseUrl,
-  readPositiveInteger,
-} from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
 function normalizeHuggingFaceModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
@@ -32,12 +28,12 @@ function readHuggingFaceContextWindow(
   const providers = Array.isArray(entry.providers) ? entry.providers : [];
   for (const provider of providers) {
     if (!isRecord(provider)) continue;
-    const contextWindow = readPositiveInteger(provider.context_length);
+    const contextWindow = parsePositiveInteger(provider.context_length);
     if (contextWindow != null) {
       return contextWindow;
     }
   }
-  return readPositiveInteger(entry.context_length);
+  return parsePositiveInteger(entry.context_length);
 }
 
 export interface HuggingFaceDiscoveryStore {

@@ -10,15 +10,6 @@ export function normalizeTransportString(transport: string): string {
   return transport.trim().toLowerCase();
 }
 
-export function normalizePositiveInteger(
-  value: unknown,
-  fallback: number,
-): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : fallback;
-}
-
 export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
   if (normalized === 'localhost' || normalized === '::1') return true;

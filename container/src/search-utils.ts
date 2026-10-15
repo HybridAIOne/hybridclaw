@@ -1,7 +1,3 @@
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 export function decodeEntities(value: string): string {
   return value.replace(
     /&(nbsp|amp|quot|#39|lt|gt|#x([0-9a-f]+)|#(\d+));/gi,

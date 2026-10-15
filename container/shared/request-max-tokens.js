@@ -1,12 +1,8 @@
-import { positiveIntegerOrNull } from '../utils/number-normalization.js';
+import { parsePositiveInteger } from './primitive-values.js';
 
 export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS = 32_000;
 
-function normalizePositiveInteger(value: unknown): number | undefined {
-  return positiveIntegerOrNull(value) ?? undefined;
-}
-
-export function isAnthropicProviderModel(model: string): boolean {
+export function isAnthropicProviderModel(model) {
   const normalized = String(model || '')
     .trim()
     .toLowerCase();
@@ -19,13 +15,8 @@ export function isAnthropicProviderModel(model: string): boolean {
   return colonTail.startsWith('claude-');
 }
 
-export function resolveProviderRequestMaxTokens(params: {
-  model: string;
-  discoveredMaxTokens?: number;
-}): number | undefined {
-  const discoveredMaxTokens = normalizePositiveInteger(
-    params.discoveredMaxTokens,
-  );
+export function resolveProviderRequestMaxTokens(params) {
+  const discoveredMaxTokens = parsePositiveInteger(params.discoveredMaxTokens);
 
   if (!isAnthropicProviderModel(params.model)) {
     return undefined;

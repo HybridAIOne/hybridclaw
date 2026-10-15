@@ -3,7 +3,7 @@
  * command preview. This projection never changes approval scope or execution.
  * Credentials and attachment bytes are not part of the review transport.
  */
-import { isRecord } from './search-utils.js';
+import { isRecord } from '../shared/primitive-values.js';
 import {
   INBOX_CLEANUP_TOOL,
   inboxCleanupReview,

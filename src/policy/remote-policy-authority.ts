@@ -13,8 +13,8 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { asRecord } from '../utils/type-guards.js';
 import {
-  asRecord,
   type NetworkPolicyAction,
   type NetworkRule,
   normalizeNetworkRule,
@@ -176,7 +176,7 @@ function normalizeStringList(raw: unknown): string[] {
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalRule | null {
-  const rule = asRecord(raw);
+  const rule = asRecord(raw) ?? {};
   const pattern = String(rule.pattern || '').trim();
   const paths = normalizeStringList(rule.paths);
   const tools = normalizeStringList(rule.tools);
@@ -229,7 +229,7 @@ function normalizeCapabilities(capabilities: string[]): string[] {
 function readRemoteUpdateMode(
   document: Record<string, unknown>,
 ): PolicyUpdateIngestMode {
-  const remoteUpdates = asRecord(document.remote_updates);
+  const remoteUpdates = asRecord(document.remote_updates) ?? {};
   const mode = String(remoteUpdates.mode || '')
     .trim()
     .toLowerCase();
@@ -241,7 +241,7 @@ function readRemoteUpdateMode(
 
 function readAutonomyMap(raw: unknown): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [rawKey, rawValue] of Object.entries(asRecord(raw))) {
+  for (const [rawKey, rawValue] of Object.entries(asRecord(raw) ?? {})) {
     const key = rawKey.trim().toLowerCase();
     const value = String(rawValue || '')
       .trim()
@@ -253,10 +253,10 @@ function readAutonomyMap(raw: unknown): Record<string, string> {
 }
 
 function assertWritableNetworkRules(document: Record<string, unknown>): void {
-  const rules = asRecord(document.network).rules;
+  const rules = asRecord(document.network)?.rules;
   if (!Array.isArray(rules)) return;
   const invalidIndex = rules.findIndex(
-    (rule) => !normalizeNetworkRule(asRecord(rule)),
+    (rule) => !normalizeNetworkRule(asRecord(rule) ?? {}),
   );
   if (invalidIndex >= 0) {
     throw new Error(
@@ -270,9 +270,9 @@ function readPolicyView(
   document = readPolicyDocument(resolveWorkspacePolicyPath(workspacePath)),
 ): PolicyView {
   assertWritableNetworkRules(document);
-  const approval = asRecord(document.approval);
-  const autonomy = asRecord(document.autonomy);
-  const fullAuto = asRecord(document.full_auto);
+  const approval = asRecord(document.approval) ?? {};
+  const autonomy = asRecord(document.autonomy) ?? {};
+  const fullAuto = asRecord(document.full_auto) ?? {};
   const pinnedRed = Array.isArray(approval.pinned_red)
     ? approval.pinned_red
         .map((rule) => normalizeApprovalRule(rule))
@@ -358,7 +358,7 @@ function normalizeAllowRule(raw: Record<string, unknown>): NetworkRule {
 }
 
 function parsePolicyUpdateOperation(raw: unknown): PolicyUpdateOperation {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const kind = String(record.kind || record.op || '')
     .trim()
     .toLowerCase();
@@ -385,7 +385,7 @@ function parsePolicyUpdateOperation(raw: unknown): PolicyUpdateOperation {
   ) {
     return {
       kind: 'allowlist.add',
-      rule: normalizeAllowRule(asRecord(record.rule || record)),
+      rule: normalizeAllowRule(asRecord(record.rule || record) ?? {}),
     };
   }
   if (
@@ -393,7 +393,7 @@ function parsePolicyUpdateOperation(raw: unknown): PolicyUpdateOperation {
     kind === 'network.allow.remove' ||
     kind === 'network.allowlist.remove'
   ) {
-    const rawRule = asRecord(record.rule || record);
+    const rawRule = asRecord(record.rule || record) ?? {};
     const host = String(rawRule.host || '').trim();
     if (!host) throw new Error('allowlist.remove requires a host.');
     const normalized = normalizeAllowRule({ host });
@@ -461,7 +461,7 @@ function parsePolicyUpdateContent(content: string): ParsedPolicyUpdate {
       `policy.update content must be JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const record = asRecord(parsed);
+  const record = asRecord(parsed) ?? {};
   const operations = Array.isArray(record.operations)
     ? record.operations.map((operation) =>
         parsePolicyUpdateOperation(operation),
@@ -482,7 +482,7 @@ function parsePolicyUpdateContent(content: string): ParsedPolicyUpdate {
 
 function policyUpdateIdFromContent(content: string): string {
   try {
-    const record = asRecord(JSON.parse(content) as unknown);
+    const record = asRecord(JSON.parse(content) as unknown) ?? {};
     const updateId = String(record.update_id || record.updateId || '').trim();
     if (updateId) return updateId;
   } catch {
