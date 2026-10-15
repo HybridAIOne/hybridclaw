@@ -1,3 +1,8 @@
+/**
+ * Text redactors mask credentials and, optionally, personal data; they do not
+ * promise valid serialized JSON. Structured callers use redactSecretsDeep to
+ * preserve property names and nesting, unlike the text-only entry points.
+ */
 const REDACTION_DISABLED_ENV = 'HYBRIDCLAW_REDACT_SECRETS';
 const HIGH_ENTROPY_MIN_LENGTH = 24;
 const HIGH_ENTROPY_THRESHOLD = 3.5;
@@ -431,15 +436,20 @@ export function redactSecretsDeep<T>(
   }
   if (!value || typeof value !== 'object') return value;
 
-  const redacted: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw === 'string' && OBJECT_SECRET_KEY_RE.test(key)) {
-      redacted[key] = redactStructuredSecretValue(raw);
-      continue;
-    }
-    redacted[key] = redactSecretsDeep(raw, redactText);
-  }
-  return redacted as T;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, raw]) => {
+      const secretKey = key.match(OBJECT_SECRET_KEY_RE)?.[0];
+      // Numeric credentials are masked, but counters such as max_tokens are not.
+      if (
+        secretKey &&
+        (typeof raw === 'string' ||
+          (typeof raw === 'number' && secretKey === key))
+      ) {
+        return [key, redactStructuredSecretValue(String(raw))];
+      }
+      return [key, redactSecretsDeep(raw, redactText)];
+    }),
+  ) as T;
 }
 
 export function redactHighEntropyStrings(
