@@ -246,6 +246,15 @@ export function shouldReplyInFreeMode(params: {
   return false;
 }
 
+/** An empty `allowFrom` admits every sender. */
+export function isAllowedSender(params: {
+  allowFrom: string[];
+  userId: string;
+}): boolean {
+  const allowed = params.allowFrom.map((entry) => entry.trim()).filter(Boolean);
+  return allowed.length === 0 || allowed.includes(params.userId);
+}
+
 export function isAuthorizedCommandUser(params: {
   mode: DiscordCommandAccessMode;
   userId: string;
