@@ -93,7 +93,10 @@ gateway artifacts such as orphaned sessions, leaked worker pool slots, and
 abandoned workspace state. The check caches a DB snapshot and disk-state diff
 so repeated runs are efficient. When `--fix` is passed, safe cleanups are
 applied automatically (e.g. reclaiming leaked pool slots and removing
-unstarted sessions that have no user messages).
+unstarted sessions that have no user messages). The gateway runs the same
+pass every 12 hours. Its database space fix deletes expired request logs and
+runs `VACUUM` once free pages make up a quarter of the database file, skipping
+`VACUUM` when the disk cannot hold a rewritten copy.
 
 ## Request Logging
 
@@ -116,7 +119,8 @@ hybridclaw gateway restart --log-requests
 
 That persists best-effort redacted prompts, responses, and tool payloads to
 SQLite `request_log` for turn-level debugging. Treat it as sensitive operator
-data. Entries older than 7 days are deleted as new ones are written.
+data. Entries older than 7 days are deleted as new ones are written and by the
+resource hygiene pass.
 
 For lower-level provider debugging on a local machine, use:
 
