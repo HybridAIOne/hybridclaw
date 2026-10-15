@@ -12,6 +12,7 @@
  * becomes session, agent or workspace trust.
  */
 import fs from 'node:fs';
+import { writeFileAtomic } from '../shared/atomic-write.js';
 import type { BoostOffer } from '../shared/boost-offer.js';
 import { parseBoostOffer } from '../shared/boost-offer.js';
 import { parseApprovalUserResponse } from './approval-directive.js';
@@ -77,11 +78,9 @@ function writePendingBoost(sessionId: string, pending: PendingBoost): void {
   const filePath = sessionStatePath(sessionId, PENDING_BOOST_FILE);
   try {
     ensureSessionStateDir(filePath);
-    const tmpPath = `${filePath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify({ version: 1, ...pending }), {
+    writeFileAtomic(filePath, JSON.stringify({ version: 1, ...pending }), {
       mode: 0o600,
     });
-    fs.renameSync(tmpPath, filePath);
   } catch (error) {
     // The answer then finds no open question, so no boost is spent.
     console.error('[boost] failed to persist the open question:', error);

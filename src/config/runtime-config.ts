@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -8261,9 +8262,7 @@ function writeConfigFile(
     }
   }
 
-  const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, nextText, { encoding: 'utf-8', mode: 0o600 });
-  fs.renameSync(tmpPath, CONFIG_PATH);
+  writeFileAtomic(CONFIG_PATH, nextText, { mode: 0o600 });
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
       exists: true,

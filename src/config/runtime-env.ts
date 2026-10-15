@@ -1,6 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -126,18 +126,9 @@ function readRuntimeEnvStore(): RuntimeEnvStore {
 function writeRuntimeEnvStore(store: RuntimeEnvStore): void {
   ensureRuntimeHomeDir();
   const filePath = runtimeEnvPath();
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`;
-  try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(store, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: RUNTIME_ENV_MODE,
-    });
-    fs.chmodSync(tempPath, RUNTIME_ENV_MODE);
-    fs.renameSync(tempPath, filePath);
-  } catch (error) {
-    fs.rmSync(tempPath, { force: true });
-    throw error;
-  }
+  writeFileAtomic(filePath, `${JSON.stringify(store, null, 2)}\n`, {
+    mode: RUNTIME_ENV_MODE,
+  });
 }
 
 export function readStoredRuntimeEnv(): Record<string, string> {

@@ -1121,7 +1121,11 @@ test('refreshes generated CV.md with a temp file rename', async () => {
   expect(directCvWrites).toHaveLength(0);
   const tempWrite = writeFileSpy.mock.calls.find(([filePath]) => {
     const value = String(filePath);
-    return value.startsWith(`${cvPath}.`) && value.endsWith('.tmp');
+    return (
+      path.dirname(value) === path.dirname(cvPath) &&
+      path.basename(value).startsWith('.CV.md.') &&
+      value.endsWith('.tmp')
+    );
   });
   expect(tempWrite).toBeTruthy();
   expect(renameSpy).toHaveBeenCalledWith(tempWrite?.[0], cvPath);
