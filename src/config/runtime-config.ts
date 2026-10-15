@@ -1064,6 +1064,7 @@ export interface RuntimeConfig {
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
     prefix: string;
+    allowFrom: string[];
     guildMembersIntent: boolean;
     presenceIntent: boolean;
     commandsOnly: boolean;
@@ -1559,6 +1560,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   discord: {
     prefix: '!claw',
+    allowFrom: [],
     guildMembersIntent: false,
     presenceIntent: false,
     commandsOnly: false,
@@ -7227,6 +7229,10 @@ function normalizeRuntimeConfig(
         rawDiscord.prefix,
         DEFAULT_RUNTIME_CONFIG.discord.prefix,
         { allowEmpty: false },
+      ),
+      allowFrom: normalizeStringArray(
+        rawDiscord.allowFrom,
+        DEFAULT_RUNTIME_CONFIG.discord.allowFrom,
       ),
       guildMembersIntent: normalizeBoolean(
         rawDiscord.guildMembersIntent,

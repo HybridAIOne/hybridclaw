@@ -580,6 +580,19 @@ function DiscordChannelEditor(props: {
       </div>
 
       <FormField
+        name="discord.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed sender user IDs (empty = anyone)"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
+      <FormField
         name="discord.commandAllowedUserIds"
         render={({ field }) => (
           <ListField

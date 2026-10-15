@@ -301,6 +301,7 @@ export let DISCORD_COMMANDS_ONLY = false;
 export let DISCORD_COMMAND_MODE: RuntimeConfig['discord']['commandMode'] =
   'public';
 export let DISCORD_COMMAND_ALLOWED_USER_IDS: string[] = [];
+export let DISCORD_ALLOW_FROM: string[] = [];
 export let DISCORD_COMMAND_USER_ID = '';
 export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
   'open';
@@ -819,6 +820,7 @@ function warnIfWarmPoolMinIdleIsClamped(
 function applyRuntimeConfig(config: RuntimeConfig): void {
   const storedSecrets = readStoredRuntimeSecrets();
   DISCORD_PREFIX = config.discord.prefix;
+  DISCORD_ALLOW_FROM = [...config.discord.allowFrom];
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
   DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
   DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;

@@ -91,6 +91,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       commandsOnly: false,
       commandMode: 'public',
       commandAllowedUserIds: [],
+      allowFrom: [],
       commandUserId: '',
       groupPolicy: 'open',
       sendPolicy: 'open',

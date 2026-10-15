@@ -27,7 +27,8 @@ smallest scope that proves the integration works.
 
 ## Identifier Formats By Transport
 
-- Discord: allowlisted user IDs and guild-specific channel policy settings
+- Discord: user IDs in `discord.allowFrom` (every sender when empty), plus
+  guild-specific channel policy settings
 - Telegram: numeric user IDs, `@username`, or `*`; phone numbers are not valid
 - Signal: E.164 phone numbers, Signal UUIDs, or `*`
 - Email: exact email addresses, wildcard domains like `*@example.com`, or `*`

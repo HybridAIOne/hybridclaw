@@ -14,6 +14,7 @@ import { parseLowerArg } from '../../command-parsing.js';
 import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
+  DISCORD_ALLOW_FROM,
   DISCORD_BOT_MESSAGE_CHANNELS,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
   DISCORD_COMMAND_MODE,
@@ -92,6 +93,7 @@ import {
   hasPrefixInvocation as hasPrefixInvocationInbound,
   hasSlashCommandInvocation as hasSlashCommandInvocationInbound,
   isAddressedToChannel as isAddressedToChannelInbound,
+  isAllowedSender as isAllowedSenderInbound,
   isAuthorizedCommandUser as isAuthorizedCommandUserInbound,
   isTrigger as isTriggerInbound,
   type ParsedCommand,
@@ -649,6 +651,10 @@ function hasPrefixInvocation(content: string): boolean {
 
 function hasSlashCommandInvocation(content: string): boolean {
   return hasSlashCommandInvocationInbound(content, botMentionRegex);
+}
+
+function isAllowedSenderId(userId: string): boolean {
+  return isAllowedSenderInbound({ allowFrom: DISCORD_ALLOW_FROM, userId });
 }
 
 function isAuthorizedCommandUserId(userId: string): boolean {
@@ -1594,6 +1600,15 @@ export async function initDiscord(
   });
 
   client.on('interactionCreate', async (interaction) => {
+    if (!isAllowedSenderId(interaction.user.id)) {
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: 'You are not authorized to use this bot.',
+          ...(interaction.guildId ? { flags: 'Ephemeral' as const } : {}),
+        });
+      }
+      return;
+    }
     if (interaction.isButton() && interaction.customId.startsWith('reset:')) {
       const interactionVisibility = interaction.guildId
         ? { flags: 'Ephemeral' as const }
@@ -2262,6 +2277,14 @@ export async function initDiscord(
     ) {
       return;
     }
+    // Bot authors are admitted per channel by botMessageChannels above.
+    if (!msg.author.bot && !isAllowedSenderId(msg.author.id)) {
+      logger.debug(
+        { userId: msg.author.id, channelId: msg.channelId },
+        'Ignoring Discord message from a sender outside discord.allowFrom',
+      );
+      return;
+    }
 
     const inbound = describeInboundMessage(msg);
     const { text: content } = inbound;
@@ -2445,6 +2468,7 @@ export async function initDiscord(
       : nextMsg;
     if (!fetched) return;
     if (fetched.author?.bot) return;
+    if (!isAllowedSenderId(fetched.author.id)) return;
     if (!hasDiscordMessageContentChanged(oldMsg.content, fetched.content)) {
       return;
     }
@@ -2504,7 +2528,7 @@ export async function initDiscord(
   });
 
   client.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
+    if (user.bot || !isAllowedSenderId(user.id)) return;
     const fullReaction = reaction.partial
       ? await reaction.fetch().catch(() => null)
       : reaction;
