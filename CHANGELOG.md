@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.40.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.4) - 2026-10-16
+
+### Changed
+
+- **Request-log retention**: Debug request logs are kept for 7 days. Older
+  entries are deleted as new ones are written and during resource hygiene.
+- **Reference configuration**: `config.example.json` is generated from runtime
+  defaults and matches schema v41, including current keys and portable example
+  paths.
+
+### Fixed
+
+- **Database disk usage**: Doctor and the gateway's 12-hour resource hygiene
+  pass reclaim space from deleted rows when at least 25% of the database and
+  16 MiB are free, provided the disk has room for the rewrite.
+- **Tool-history transformations**: Credential redaction and confidential-value
+  restoration preserve JSON structure when tool arguments contain quotes,
+  backslashes, or control characters, keeping provider history copies aligned.
+- **Docker plugin availability**: Gateway images include every packaged plugin,
+  restoring bundled installation of LINE, Vonage voice, connector events, and
+  the concierge router.
+- **HybridAI session attribution**: Every tool call to the configured, trusted
+  HybridAI broker carries the calling session and agent context, including
+  tools that do not require approval.
+
+### Upgrade Notes
+
+- Export debug request logs you need to retain beyond 7 days before upgrading.
+  Audit events are unaffected by request-log retention.
+- Database compaction can briefly pause the gateway while SQLite rewrites the
+  file; it is skipped when available disk space is insufficient or unknown.
+
 ## [0.40.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.3) - 2026-10-15
 
 ### Added

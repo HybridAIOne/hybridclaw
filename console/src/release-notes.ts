@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.3',
+  version: '0.40.4',
   highlights: [
-    'Discord sender allowlist',
-    'Safer concurrent state-file writes',
-    'Consistent integer settings validation',
+    'Request-log retention and database cleanup',
+    'Reliable tool-history transformations',
+    'Complete Docker plugin packaging',
+    'HybridAI tool-call session attribution',
   ],
 } as const;
 
