@@ -624,3 +624,44 @@ test('only a configured broker can turn an error into a native approval; context
     }
   }
 });
+
+test('the configured broker gets the session on every call, not only on gated tools', async () => {
+  const manager = new McpClientManager();
+  const internals = manager as unknown as ManagerInternals & {
+    mapTools(
+      server: string,
+      namespace: string,
+      tools: unknown[],
+      seen: Set<string>,
+      trusted: boolean,
+    ): McpClientHandle['tools'];
+  };
+  const callTool = vi
+    .fn()
+    .mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+  manager.setApprovalContext({ session_id: 'sess_1', agent_id: 'main' });
+  for (const trusted of [false, true]) {
+    const handle = makeHandle('hybridai', 'bi_execute_sql');
+    handle.config.toolBehavior = { platformApprovals: trusted };
+    handle.client = { callTool } as never;
+    handle.tools = internals.mapTools(
+      'hybridai',
+      'hybridai',
+      [{ name: 'bi_execute_sql', inputSchema: { type: 'object' } }],
+      new Set(),
+      trusted,
+    );
+    internals.clients.set('hybridai', handle);
+    internals.configs.set('hybridai', handle.config);
+    internals.rebuildToolIndex();
+    await manager.callToolDetailed('hybridai__bi_execute_sql', {});
+    expect(callTool.mock.lastCall?.[0]._meta).toEqual(
+      trusted
+        ? {
+            'hybridai/boostOffers': true,
+            'hybridai/approvalContext': { session_id: 'sess_1', agent_id: 'main' },
+          }
+        : { 'hybridai/boostOffers': true },
+    );
+  }
+});

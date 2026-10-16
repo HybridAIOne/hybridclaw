@@ -650,6 +650,16 @@ export class McpClientManager {
       throw new Error(`MCP server ${serverName} is not connected`);
     }
     const isHybridAI = serverName === HYBRIDAI_MCP_SERVER_NAME;
+    // The configured broker gets the session on every call: it audits tool
+    // use per session, not only the calls it gates.
+    const trustedBroker =
+      isHybridAI &&
+      handle.config.toolBehavior?.platformApprovals === true &&
+      this.configs.get(serverName)?.toolBehavior?.platformApprovals === true;
+    const sendContext =
+      !!this.approvalContext &&
+      (trustedBroker ||
+        this.getToolBehavior(namespacedName)?.platformApproval === true);
 
     try {
       // Without an explicit timeout the SDK applies its own 60 s default.
@@ -657,13 +667,10 @@ export class McpClientManager {
         {
           name: toolName,
           arguments: args,
-          ...(isHybridAI ||
-          (this.getToolBehavior(namespacedName)?.platformApproval &&
-            this.approvalContext)
+          ...(isHybridAI || sendContext
             ? {
                 _meta: {
-                  ...(this.getToolBehavior(namespacedName)?.platformApproval &&
-                  this.approvalContext
+                  ...(sendContext
                     ? {
                         [CONNECTOR_APPROVAL_CONTEXT_META]: this.approvalContext,
                       }
