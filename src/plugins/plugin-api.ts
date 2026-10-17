@@ -21,9 +21,11 @@ import {
 import { resolvePublicGatewayBaseUrl } from '../gateway/gateway-url-utils.js';
 import { notifySessionPhones } from '../gateway/mobile-push.js';
 import { releaseSessionWorker } from '../gateway/session-worker-release.js';
+import { deliverWebScheduledMessage } from '../gateway/web-scheduled-delivery.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { getAgentMainSession } from '../memory/agent-main-session.js';
 import { getRecentMessages, getSessionById } from '../memory/db.js';
 import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
@@ -366,6 +368,12 @@ export function createPluginApi(params: {
     notifyPhones(notification: PluginPhoneNotification) {
       const { sessionId, ...message } = notification;
       return notifySessionPhones(String(sessionId || '').trim(), message);
+    },
+    postToMainChat(agentId: string, text: string, source: string): boolean {
+      const main = getAgentMainSession(agentId);
+      if (!main) return false;
+      deliverWebScheduledMessage(main.id, text, `${params.pluginId}:${source}`);
+      return true;
     },
   });
 }

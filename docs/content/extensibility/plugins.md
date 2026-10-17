@@ -25,6 +25,7 @@ hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/transformers-embeddings
 hybridclaw plugin install ./plugins/media-tools
+hybridclaw plugin install ./plugins/public-warnings
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install twilio-voice
 hybridclaw plugin install ./plugins/vonage-voice
@@ -134,6 +135,11 @@ in a hand-edited config are dropped when the plugin loads.
   `audio_transcribe`. Provider calls run in the gateway with keys from the
   secret store (or the session model's credentials), so no provider key enters
   the sandbox. Reference media and outputs go through `api.media`
+- `public-warnings` provides `public_warnings` for official German warnings
+  (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) by
+  town or district. Places the agent watches are checked every 10 minutes,
+  and each new warning is posted to the agent's main chat with
+  `api.postToMainChat`, without a model turn. Yellow DWD warnings do not ring
 - `transformers-embeddings` registers the `transformers` embedding provider
   for built-in semantic memory, running a local Transformers.js (ONNX) model
   in a worker thread; select it with `memory.embedding.provider`
@@ -412,6 +418,11 @@ alert reached APNs for (`sent`). While the owner is at a computer the alert
 waits and `sent` is 0; it rings when they leave
 ([Quiet while you are at a computer](../guides/web-notifications.md#quiet-while-you-are-at-a-computer)).
 The gateway does not deduplicate plugin alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
+
+`api.postToMainChat(agentId, text, source)` stores `text` as the agent's
+message in its main chat, the thread the HybridAI apps show, and rings its
+phones like a reminder. The stored message's source is
+`<plugin id>:<source>`. It returns false when the agent has no main chat.
 
 ### Tools that read or write media
 
