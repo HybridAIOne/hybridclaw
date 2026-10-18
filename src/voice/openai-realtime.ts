@@ -11,6 +11,7 @@
  * this module only guarantees a validated, ordered event stream.
  */
 import WebSocket from 'ws';
+import { logger } from '../logger.js';
 import { isRecord } from '../utils/type-guards.js';
 
 const SOCKET_OPEN = 1;
@@ -86,6 +87,20 @@ function responseId(event: Record<string, unknown>): string {
   return isRecord(event.response) ? normalizeString(event.response.id) : '';
 }
 
+// Tags our own truncate events so a rejected one is never reported as a call error.
+const TRUNCATE_EVENT_PREFIX = 'barge_in_truncate_';
+
+/** The reply audio the caller was last sent, as one conversation item part. */
+interface PlaybackEstimate {
+  itemId: string;
+  contentIndex: number;
+  /** Out-of-band items are not in the conversation and cannot be truncated. */
+  inConversation: boolean;
+  /** When the caller started hearing it; later than first send if queued behind earlier audio. */
+  startedAt: number;
+  audioMs: number;
+}
+
 /** Upstream turn detection; omitted fields keep the upstream defaults. */
 export interface RealtimeTurnDetection {
   type?: 'server_vad' | 'semantic_vad';
@@ -136,6 +151,10 @@ export class OpenAIRealtimeClient {
   // conversation one, leaving an out-of-band line playing over the caller.
   private readonly activeResponseIds = new Set<string>();
   private anonymousResponseCount = 0;
+  private readonly outOfBandResponseIds = new Set<string>();
+  private playback: PlaybackEstimate | null = null;
+  private truncateCount = 0;
+  private readonly audioBytesPerMs: number;
   private autoResponse = true;
   private ready = false;
   private initialized = false;
@@ -148,6 +167,7 @@ export class OpenAIRealtimeClient {
     this.callbacks = options.callbacks;
     this.history = options.history ?? [];
     this.turnDetection = options.turnDetection || {};
+    this.audioBytesPerMs = options.audioFormat.type === 'audio/pcmu' ? 8 : 48;
     const factory = options.socketFactory || defaultSocketFactory;
     const url = `${options.url}?model=${encodeURIComponent(options.model)}`;
     this.socket = factory(url, {
@@ -286,12 +306,41 @@ export class OpenAIRealtimeClient {
   createOutOfBandResponse(instructions: string): void {
     this.sendEvent({
       type: 'response.create',
-      response: { conversation: 'none', instructions },
+      response: {
+        conversation: 'none',
+        metadata: { out_of_band: 'true' },
+        instructions,
+      },
     });
   }
 
-  /** Cancels every in-flight response, out-of-band ones included. */
-  cancelResponse(): void {
+  /**
+   * Caller barge-in: cancels every in-flight response and, as the caller only
+   * heard part of the current reply, truncates that item to what was played so
+   * the model does not believe it said the rest. Playback is estimated from the
+   * audio sent and the time since it started. Returns how many ms of the reply
+   * the caller had heard, or null when no reply audio was still playing.
+   */
+  interrupt(): number | null {
+    this.cancelResponse();
+    const playback = this.playback;
+    this.playback = null;
+    if (!playback) return null;
+    const heardMs = Math.max(0, Math.floor(Date.now() - playback.startedAt));
+    if (heardMs >= playback.audioMs) return null;
+    if (playback.inConversation && playback.itemId) {
+      this.sendEvent({
+        type: 'conversation.item.truncate',
+        event_id: `${TRUNCATE_EVENT_PREFIX}${++this.truncateCount}`,
+        item_id: playback.itemId,
+        content_index: playback.contentIndex,
+        audio_end_ms: heardMs,
+      });
+    }
+    return heardMs;
+  }
+
+  private cancelResponse(): void {
     for (const id of this.activeResponseIds) {
       this.sendEvent(
         id.startsWith(ANONYMOUS_RESPONSE_PREFIX)
@@ -396,15 +445,24 @@ export class OpenAIRealtimeClient {
       return;
     }
     if (type === 'response.created') {
+      const id = responseId(parsed);
       this.activeResponseIds.add(
-        responseId(parsed) ||
-          `${ANONYMOUS_RESPONSE_PREFIX}${++this.anonymousResponseCount}`,
+        id || `${ANONYMOUS_RESPONSE_PREFIX}${++this.anonymousResponseCount}`,
       );
+      const response = isRecord(parsed.response) ? parsed.response : {};
+      if (
+        id &&
+        isRecord(response.metadata) &&
+        response.metadata.out_of_band === 'true'
+      ) {
+        this.outOfBandResponseIds.add(id);
+      }
       this.callbacks.onResponseCreated?.();
       return;
     }
     if (type === 'response.done') {
       const id = responseId(parsed);
+      this.outOfBandResponseIds.delete(id);
       if (id && this.activeResponseIds.has(id)) {
         this.activeResponseIds.delete(id);
       } else {
@@ -421,6 +479,7 @@ export class OpenAIRealtimeClient {
     if (type === 'response.output_audio.delta') {
       const delta = normalizeString(parsed.delta);
       if (delta) {
+        this.trackPlayback(parsed, delta);
         this.callbacks.onAudioDelta(delta);
       }
       return;
@@ -471,10 +530,47 @@ export class OpenAIRealtimeClient {
       if (normalizeString(error.code) === 'response_cancel_not_active') {
         return;
       }
+      // A rejected truncate only leaves the model's context untrimmed; the
+      // call carries on, so log it instead of failing the caller's session.
+      if (normalizeString(error.event_id).startsWith(TRUNCATE_EVENT_PREFIX)) {
+        logger.warn(
+          { code: normalizeString(error.code) },
+          `Realtime barge-in truncate rejected: ${normalizeString(error.message)}`,
+        );
+        return;
+      }
       this.callbacks.onError(
         normalizeString(error.message) || 'Unknown realtime error',
       );
     }
+  }
+
+  private trackPlayback(event: Record<string, unknown>, delta: string): void {
+    const itemId = normalizeString(event.item_id);
+    const contentIndex = normalizeNumber(event.content_index);
+    const previous = this.playback;
+    let playback = previous;
+    if (
+      !playback ||
+      playback.itemId !== itemId ||
+      playback.contentIndex !== contentIndex
+    ) {
+      playback = {
+        itemId,
+        contentIndex,
+        inConversation: !this.outOfBandResponseIds.has(
+          normalizeString(event.response_id),
+        ),
+        startedAt: Math.max(
+          Date.now(),
+          previous ? previous.startedAt + previous.audioMs : 0,
+        ),
+        audioMs: 0,
+      };
+      this.playback = playback;
+    }
+    playback.audioMs +=
+      Buffer.byteLength(delta, 'base64') / this.audioBytesPerMs;
   }
 
   private finishHistory(): void {
