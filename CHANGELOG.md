@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## [0.40.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.5) - 2026-10-18
+
+### Added
+
+- **Official German warnings**: The bundled `public-warnings` plugin checks
+  NINA warnings for towns and districts, including civil protection, weather,
+  floods, and police notices. Watched places receive new warnings in the
+  agent's main chat with official text and links, without a model turn.
+
+### Changed
+
+- **Plugin notifications**: Plugins can post messages to an agent's main chat
+  and trigger reminder-style phone notifications through `api.postToMainChat`.
+- **Realtime voice filtering**: Phone and web voice sessions use near-field and
+  far-field noise reduction respectively before speech detection, reducing
+  interruptions caused by background noise.
+
+### Fixed
+
+- **Voice interruption context**: Interrupted replies are truncated to the
+  estimated audio the caller heard, so the assistant does not assume the rest
+  was delivered. Interruption logs also recognize audio still playing after
+  generation finishes; rejected truncation requests do not end the call.
+- **Agent identity normalization**: Specially crafted identity values no longer
+  trigger quadratic processing while removing suffixes and punctuation.
+
+### Upgrade Notes
+
+- Install the optional warning plugin with `hybridclaw plugin install public-warnings`.
+  It polls watched places every 10 minutes while the gateway is running; yellow
+  DWD weather warnings remain available on request without phone alerts.
+  It does not replace official warning apps or Cell Broadcast.
+
 ## [0.40.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.4) - 2026-10-16
 
 ### Changed

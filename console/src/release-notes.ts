@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.4',
+  version: '0.40.5',
   highlights: [
-    'Request-log retention and database cleanup',
-    'Reliable tool-history transformations',
-    'Complete Docker plugin packaging',
-    'HybridAI tool-call session attribution',
+    'Official German public warnings',
+    'Realtime voice noise filtering',
+    'Accurate voice interruption context',
+    'Safer agent identity normalization',
   ],
 } as const;
 
