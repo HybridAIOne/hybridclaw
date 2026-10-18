@@ -156,14 +156,10 @@ test('web surface swaps the phone framing and PCM16 audio format', () => {
   const [sessionUpdate] = socket.sentOfType('session.update');
   const session = sessionUpdate.session as Record<string, unknown>;
   const audio = session.audio as {
-    input: {
-      format: { type: string; rate?: number };
-      noise_reduction: { type: string };
-    };
+    input: { format: { type: string; rate?: number } };
     output: { format: { type: string; rate?: number } };
   };
   expect(audio.input.format).toEqual({ type: 'audio/pcm', rate: 24000 });
-  expect(audio.input.noise_reduction).toEqual({ type: 'far_field' });
   expect(audio.output.format).toEqual({ type: 'audio/pcm', rate: 24000 });
 });
 
@@ -176,11 +172,10 @@ test('bridge configures a µ-law realtime session and speaks the greeting', () =
   const [sessionUpdate] = socket.sentOfType('session.update');
   const session = sessionUpdate.session as Record<string, unknown>;
   const audio = session.audio as {
-    input: { format: { type: string }; noise_reduction: { type: string } };
+    input: { format: { type: string } };
     output: { format: { type: string }; voice: string };
   };
   expect(audio.input.format.type).toBe('audio/pcmu');
-  expect(audio.input.noise_reduction).toEqual({ type: 'near_field' });
   expect(audio.output.format.type).toBe('audio/pcmu');
   expect(audio.output.voice).toBe('marin');
   const tools = session.tools as Array<{ name: string }>;

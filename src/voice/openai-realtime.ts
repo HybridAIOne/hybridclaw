@@ -20,9 +20,6 @@ export type RealtimeAudioFormat =
   | { type: 'audio/pcmu' }
   | { type: 'audio/pcm'; rate: 24000 };
 
-/** Upstream input filtering applied before VAD and the model hear the audio. */
-export type RealtimeNoiseReduction = 'near_field' | 'far_field';
-
 export interface RealtimeFunctionTool {
   name: string;
   description: string;
@@ -107,7 +104,6 @@ export interface OpenAIRealtimeClientOptions {
   model: string;
   voice: string;
   audioFormat: RealtimeAudioFormat;
-  noiseReduction: RealtimeNoiseReduction;
   instructions: string;
   tools: RealtimeFunctionTool[];
   history?: RealtimeHistoryMessage[];
@@ -167,7 +163,6 @@ export class OpenAIRealtimeClient {
           audio: {
             input: {
               format: options.audioFormat,
-              noise_reduction: { type: options.noiseReduction },
               transcription: {
                 model: 'gpt-4o-mini-transcribe',
                 ...(options.transcriptionLanguage

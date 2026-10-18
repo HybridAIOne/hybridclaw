@@ -29,7 +29,6 @@ import {
   OpenAIRealtimeClient,
   type RealtimeAudioFormat,
   type RealtimeHistoryMessage,
-  type RealtimeNoiseReduction,
   type RealtimeSocketFactory,
   type RealtimeTurnDetection,
 } from './openai-realtime.js';
@@ -50,12 +49,6 @@ const CONSULT_REASSURE_INTERVAL_MS = 12_000;
 export type RealtimeBridgeState = 'listening' | 'speaking' | 'thinking';
 
 export type RealtimeSurface = 'phone' | 'web';
-
-// Unfiltered coughs trip VAD mid-reply; web voice is mostly laptop mics or speakerphone.
-const NOISE_REDUCTION: Record<RealtimeSurface, RealtimeNoiseReduction> = {
-  phone: 'near_field',
-  web: 'far_field',
-};
 
 export interface RealtimeCallerInfo {
   from: string;
@@ -369,7 +362,6 @@ export class RealtimeCallBridge {
       model: options.config.model,
       voice: options.config.voice,
       audioFormat: options.audioFormat,
-      noiseReduction: NOISE_REDUCTION[options.surface],
       turnDetection: toClientTurnDetection(options.config.turnDetection),
       history: options.history,
       instructions: buildRealtimeInstructions(
