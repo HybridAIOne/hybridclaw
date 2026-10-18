@@ -77,9 +77,9 @@ export interface RealtimeConsultToolProgress {
 export interface RealtimeSpeechSegment {
   itemId: string;
   segmentMs: number;
-  /** A model response was playing when speech started (it was cancelled). */
+  /** A reply was being generated or still playing when speech started (it was cut off). */
   interruptedResponse: boolean;
-  /** How far into that response the interruption came; null if none. */
+  /** How much of that reply the caller had heard, in ms; null if none. */
   msIntoResponse: number | null;
   consultInFlight: boolean;
   transcriptChars: number;
@@ -451,19 +451,17 @@ export class RealtimeCallBridge {
         onSpeechStarted: (boundary) => {
           this.callerSpeaking = true;
           this.approvalTranscript.begin(boundary.itemId);
-          const interruptedResponse = this.client.hasActiveResponse;
+          const generating = this.client.hasActiveResponse;
+          const heardMs = this.client.interrupt();
+          const interruptedResponse = generating || heardMs !== null;
           this.recordSpeechStart(boundary.itemId, {
             audioStartMs: boundary.audioMs,
             interruptedResponse,
-            msIntoResponse:
-              interruptedResponse && this.turnResponseCreatedAt
-                ? Date.now() - this.turnResponseCreatedAt
-                : null,
+            msIntoResponse: interruptedResponse ? (heardMs ?? 0) : null,
             consultInFlight: this.consultInFlight,
             segmentMs: null,
           });
           this.options.onStateChange('listening');
-          this.client.cancelResponse();
           void this.options.clearPlayback().catch(() => {
             // The transport is gone; the close handler tears the session down.
           });
