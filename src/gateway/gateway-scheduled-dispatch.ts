@@ -120,12 +120,14 @@ export async function runScheduledTask(
         : undefined;
 
   let runError: unknown = null;
+  let reachedDelivery = false;
   await runGatewayScheduledTask(
     request.sessionId,
     runChannelId,
     request.prompt,
     taskId,
     async (result) => {
+      reachedDelivery = true;
       if (request.delivery.kind === 'webhook') {
         await deliverWebhookMessage(
           request.delivery.webhookUrl,
@@ -224,14 +226,17 @@ export async function runScheduledTask(
   if (runError !== null) {
     const error =
       runError instanceof Error ? runError : new Error(String(runError));
-    await notifyRunFailure(error, {
-      request,
-      channelId: resolvedDeliveryChannelId,
-      sessionId: deliverySessionId,
-      source: `${sourceLabel}:failure`,
-      deliverProactiveMessage,
-      deliverWebhookMessage,
-    });
+    // A failed delivery already reached the target, or the target is down.
+    if (!reachedDelivery) {
+      await notifyRunFailure(error, {
+        request,
+        channelId: resolvedDeliveryChannelId,
+        sessionId: deliverySessionId,
+        source: `${sourceLabel}:failure`,
+        deliverProactiveMessage,
+        deliverWebhookMessage,
+      });
+    }
     throw error;
   }
 }
