@@ -1,6 +1,4 @@
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+export { asRecord, isRecord } from '#shared/primitive-values.js';
 
 export function asTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';

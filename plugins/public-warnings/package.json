@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-public-warnings",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Official German public warnings (NINA) for watched places",
+  "engines": {
+    "node": "22.x"
+  }
+}

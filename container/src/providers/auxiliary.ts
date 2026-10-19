@@ -1,4 +1,5 @@
 import { getProviderContextError } from '#shared/provider-context.js';
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -6,7 +7,6 @@ import type {
   TaskModelPolicies,
   ToolDefinition,
 } from '../types.js';
-import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   callRoutedModel,
   callVisionProviderModel,

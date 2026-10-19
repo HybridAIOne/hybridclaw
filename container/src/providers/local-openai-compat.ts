@@ -4,6 +4,7 @@
  * remains observable to idle timeouts; this adapter never sets its context budget.
  */
 import { createHash } from 'node:crypto';
+import { isRecord } from '#shared/primitive-values.js';
 import { replaceUnpairedSurrogates } from '#shared/unicode-utils.js';
 import { resolveModelBehavior } from '../model-behavior.js';
 import {
@@ -140,10 +141,6 @@ function isMistralCompatModel(
     normalizedModel.includes('ministral') ||
     normalizedModel.includes('devstral')
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function usesQwenCompat(args: {

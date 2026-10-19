@@ -58,3 +58,13 @@ test('connector checks retain their parent policy in chat and push attribution',
   expect(mocks.run.mock.calls[0][3]).toBe(9);
   expect(mocks.run.mock.calls[0][9]).toEqual(taskOwner);
 });
+
+test('a failed run tells its delivery target in one line and still fails', async () => {
+  mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, _onResult, onError) => {
+    onError(new Error('Provider API error 429: Rate limit exceeded.\nstack'));
+  });
+  const deps = dependencies();
+  const job = { ...request(), source: 'scheduler-job' as const, jobId: 'daily-report', delivery: { kind: 'channel' as const, channelId: 'discord_webhook:default' } };
+  await expect(runScheduledTask(job, deps)).rejects.toThrow('Rate limit exceeded');
+  expect(deps.deliverProactiveMessage).toHaveBeenCalledWith('discord_webhook:default', '⚠️ Scheduled run daily-report failed: Provider API error 429: Rate limit exceeded.', 'schedule-job:daily-report:failure');
+});

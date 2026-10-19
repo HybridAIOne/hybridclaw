@@ -1,6 +1,6 @@
+import { isRecord, parsePositiveInteger } from '#shared/primitive-values.js';
 import {
   dedupeResults,
-  isRecord,
   normalizeResultUrl,
   normalizeWhitespace,
   stripTags,
@@ -45,17 +45,6 @@ function normalizeSearxngPath(pathname: string): string {
   return `${trimmed || ''}/search`;
 }
 
-function normalizePositiveInteger(value: unknown, fallback: number): number {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string' && value.trim()
-        ? Number.parseInt(value, 10)
-        : fallback;
-  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
-  return Math.trunc(parsed);
-}
-
 function normalizeSafeSearch(value: unknown): SearxngSafeSearch {
   return value === 0 || value === 1 || value === 2
     ? value
@@ -93,11 +82,11 @@ export function buildSearxngSearchUrl(options: SearxngSearchOptions): string {
   url.searchParams.set('q', query);
   url.searchParams.set(
     'pageno',
-    String(normalizePositiveInteger(options.page, DEFAULT_SEARXNG_PAGE)),
+    String(parsePositiveInteger(options.page) ?? DEFAULT_SEARXNG_PAGE),
   );
   if (options.count != null) {
-    const count = normalizePositiveInteger(options.count, 0);
-    if (count > 0) url.searchParams.set('num_results', String(count));
+    const count = parsePositiveInteger(options.count);
+    if (count !== null) url.searchParams.set('num_results', String(count));
   }
   url.searchParams.set('language', options.language || 'all');
   url.searchParams.set(

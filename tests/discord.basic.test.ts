@@ -9,6 +9,7 @@ import {
   hasDiscordMessageContentChanged,
   hasLooseBotMention,
   isAddressedToChannel,
+  isAllowedSender,
   isAuthorizedCommandUser,
   isTrigger,
   parseCommand,
@@ -479,6 +480,12 @@ test('free-mode allows reply-to-bot followups', () => {
     hasAttachments: false,
   });
   expect(shouldReply).toBe(true);
+});
+
+test('sender allowlist admits everyone when empty and only listed ids otherwise', () => {
+  expect(isAllowedSender({ allowFrom: [], userId: '222' })).toBe(true);
+  expect(isAllowedSender({ allowFrom: [' 111 '], userId: '111' })).toBe(true);
+  expect(isAllowedSender({ allowFrom: ['111'], userId: '222' })).toBe(false);
 });
 
 test('command access allows all users in public mode', () => {

@@ -17,6 +17,7 @@ import {
   type SecretRef,
 } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import {
   type A2AEnvelope,
@@ -28,7 +29,7 @@ import type {
   TransportAdapter,
   TransportAdapterContext,
 } from './transport-registry.js';
-import { fetchA2APeer, normalizePositiveInteger } from './utils.js';
+import { fetchA2APeer } from './utils.js';
 
 export const WEBHOOK_SIGNATURE_HEADER = 'X-HybridClaw-Signature';
 export const WEBHOOK_BODY_VERSION = '1';
@@ -316,10 +317,8 @@ function makeOutboxItem(
     signatureHeader: descriptor.signatureHeader || WEBHOOK_SIGNATURE_HEADER,
     version: descriptor.version || WEBHOOK_BODY_VERSION,
     attempts: 0,
-    maxAttempts: normalizePositiveInteger(
-      opts?.maxAttempts,
-      WEBHOOK_RETRY_MAX_ATTEMPTS,
-    ),
+    maxAttempts:
+      parsePositiveInteger(opts?.maxAttempts) ?? WEBHOOK_RETRY_MAX_ATTEMPTS,
     nextAttemptAt: createdAtIso,
     createdAt: createdAtIso,
     updatedAt: createdAtIso,
@@ -482,10 +481,8 @@ async function deliverWebhookItem(
   const now = opts.now?.() ?? new Date();
   const attemptNumber = item.attempts + 1;
   const retryOptions = normalizeRetryOptions(opts);
-  const maxAttempts = normalizePositiveInteger(
-    opts.maxAttempts,
-    item.maxAttempts,
-  );
+  const maxAttempts =
+    parsePositiveInteger(opts.maxAttempts) ?? item.maxAttempts;
   let body: string;
   let signature: string;
 
@@ -583,14 +580,10 @@ function normalizeRetryOptions(
   >
 > {
   return {
-    baseDelayMs: normalizePositiveInteger(
-      opts.baseDelayMs,
-      WEBHOOK_RETRY_BASE_DELAY_MS,
-    ),
-    maxDelayMs: normalizePositiveInteger(
-      opts.maxDelayMs,
-      WEBHOOK_RETRY_MAX_DELAY_MS,
-    ),
+    baseDelayMs:
+      parsePositiveInteger(opts.baseDelayMs) ?? WEBHOOK_RETRY_BASE_DELAY_MS,
+    maxDelayMs:
+      parsePositiveInteger(opts.maxDelayMs) ?? WEBHOOK_RETRY_MAX_DELAY_MS,
     jitterRatio: Math.max(0, opts.jitterRatio ?? 0.2),
     random: opts.random ?? Math.random,
   };
@@ -600,10 +593,8 @@ export async function processWebhookOutbox(
   opts: WebhookOutboxProcessOptions = {},
 ): Promise<WebhookOutboxProcessResult> {
   const now = opts.now?.() ?? new Date();
-  const concurrency = normalizePositiveInteger(
-    opts.concurrency,
-    WEBHOOK_OUTBOX_CONCURRENCY,
-  );
+  const concurrency =
+    parsePositiveInteger(opts.concurrency) ?? WEBHOOK_OUTBOX_CONCURRENCY;
   const due = listWebhookOutboxItems().filter(
     (item) =>
       item.status === 'pending' &&
@@ -666,10 +657,8 @@ export function startWebhookOutboxProcessor(
   intervalMs = WEBHOOK_OUTBOX_DRAIN_INTERVAL_MS,
 ): void {
   stopWebhookOutboxProcessor();
-  const normalizedIntervalMs = normalizePositiveInteger(
-    intervalMs,
-    WEBHOOK_OUTBOX_DRAIN_INTERVAL_MS,
-  );
+  const normalizedIntervalMs =
+    parsePositiveInteger(intervalMs) ?? WEBHOOK_OUTBOX_DRAIN_INTERVAL_MS;
   void drainWebhookOutbox('startup');
   webhookOutboxProcessorTimer = setInterval(() => {
     void drainWebhookOutbox('interval');

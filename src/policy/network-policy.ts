@@ -5,7 +5,6 @@ export type {
 } from '#shared/network-policy.js';
 
 export {
-  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   doesNetworkHostPatternExpandToSubdomains,

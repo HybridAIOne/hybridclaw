@@ -3,6 +3,7 @@ import type {
   MiddlewareDecision,
   MiddlewarePhase,
 } from './middleware-contract.js';
+import { isRecord } from './primitive-values.js';
 
 export interface MiddlewareRunnerEvent {
   skillId: string;
@@ -22,16 +23,12 @@ export interface MiddlewareRunnerOptions {
   warn?: (meta: Record<string, unknown>, message: string) => void;
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function safeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function safeMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (!isObjectRecord(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   return value;
 }
 
@@ -62,7 +59,7 @@ export function normalizeMiddlewareDecision(
   } = {},
 ): MiddlewareDecision | null {
   if (!value) return null;
-  if (!isObjectRecord(value)) {
+  if (!isRecord(value)) {
     warn(
       options,
       { skillId: options.skillId, phase: options.phase },

@@ -50,6 +50,19 @@ Local config equivalent:
 /config set discord.prefix "!claw"
 ```
 
+## Optional: Limit Who Can Reach The Agent
+
+Set `discord.allowFrom` to Discord user IDs to answer only those people.
+It covers messages and edits in guild channels and DMs, slash commands,
+buttons and reactions; everyone else is ignored. An empty list, the default,
+admits every sender. Use it when the bot sits in a server with members who
+should not reach the agent: anyone who shares a server with the bot can DM
+it. Bot authors stay governed by `discord.botMessageChannels`.
+
+```text
+/config set discord.allowFrom ["123456789012345678","234567890123456789"]
+```
+
 ## What Counts As Addressing The Bot
 
 A direct bot mention, a mention of the bot's role, or a reply ping counts as

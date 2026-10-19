@@ -3,6 +3,7 @@
  * Legacy zone labels remain display metadata; a contract additionally binds the
  * transport and requires server acknowledgement. Neither proves operator claims.
  */
+
 import {
   type HybridAIDestination,
   parseHybridAIDestination,
@@ -13,6 +14,7 @@ import {
   MissingRequiredEnvVarError,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { MODEL_METADATA_USD_TO_EUR } from './model-metadata.js';
 import {
   formatHybridAIModelForCatalog,
@@ -31,7 +33,6 @@ import {
   formatUnknownError,
   isRecord,
   normalizeBaseUrl,
-  readPositiveInteger,
 } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
@@ -90,7 +91,7 @@ function readModelId(entry: Record<string, unknown>): string {
 function readHybridAIContextWindow(
   entry: Record<string, unknown>,
 ): number | null {
-  return readPositiveInteger(entry.context_length);
+  return parsePositiveInteger(entry.context_length);
 }
 
 function readBooleanVisionCapability(value: unknown): boolean | null {
@@ -394,12 +395,12 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         contextWindows.set(normalized, contextWindow);
       }
       const modelMaxTokens =
-        readPositiveInteger(entry.maxTokens) ??
-        readPositiveInteger(entry.max_tokens) ??
-        readPositiveInteger(entry.maxOutputTokens) ??
-        readPositiveInteger(entry.max_output_tokens) ??
-        readPositiveInteger(entry.maxCompletionTokens) ??
-        readPositiveInteger(entry.max_completion_tokens);
+        parsePositiveInteger(entry.maxTokens) ??
+        parsePositiveInteger(entry.max_tokens) ??
+        parsePositiveInteger(entry.maxOutputTokens) ??
+        parsePositiveInteger(entry.max_output_tokens) ??
+        parsePositiveInteger(entry.maxCompletionTokens) ??
+        parsePositiveInteger(entry.max_completion_tokens);
       if (modelMaxTokens != null) {
         maxTokens.set(normalized, modelMaxTokens);
       }

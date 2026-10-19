@@ -1,3 +1,4 @@
+import { isRecord } from '#shared/primitive-values.js';
 import type {
   SearchProviderMode,
   SearchProviderName,
@@ -6,7 +7,6 @@ import type {
 import {
   decodeEntities,
   dedupeResults,
-  isRecord,
   normalizeResultUrl,
   normalizeWhitespace,
   stripTags,

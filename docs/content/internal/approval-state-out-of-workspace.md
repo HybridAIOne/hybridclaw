@@ -103,7 +103,7 @@ Why a mount rather than `ContainerInput`:
 Small per-session state travels in `ContainerInput`: the session's open
 approvals, the resolved decision, and the fetched-files set. It matters only
 inside the worker's own trust domain. Define these shapes once in
-`container/shared/approval-state.{js,d.ts}` and reference them from both type
+`container/shared/src/approval-state.ts` and reference them from both type
 files (AGENTS.md §3.3) instead of adding hand copies.
 
 **One path, one writer.** Every gateway reader resolves the file through one

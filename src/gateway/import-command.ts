@@ -22,6 +22,7 @@ import path from 'node:path';
 
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { createMediaHostPathResolver } from '../media/media-host-path.js';
+import { isRecord } from '../utils/type-guards.js';
 import { badCommand, plainCommand } from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
@@ -124,10 +125,6 @@ type ImportErrorCode =
   | 'unreadable'
   | 'nothing-found'
   | 'unknown-import';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';

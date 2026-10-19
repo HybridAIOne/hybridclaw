@@ -29,6 +29,7 @@ import {
   OpenAIRealtimeClient,
   type RealtimeAudioFormat,
   type RealtimeHistoryMessage,
+  type RealtimeNoiseReduction,
   type RealtimeSocketFactory,
   type RealtimeTurnDetection,
 } from './openai-realtime.js';
@@ -50,6 +51,12 @@ export type RealtimeBridgeState = 'listening' | 'speaking' | 'thinking';
 
 export type RealtimeSurface = 'phone' | 'web';
 
+// Unfiltered coughs trip VAD mid-reply; web voice is mostly laptop mics or speakerphone.
+const NOISE_REDUCTION: Record<RealtimeSurface, RealtimeNoiseReduction> = {
+  phone: 'near_field',
+  web: 'far_field',
+};
+
 export interface RealtimeCallerInfo {
   from: string;
   to: string;
@@ -70,9 +77,9 @@ export interface RealtimeConsultToolProgress {
 export interface RealtimeSpeechSegment {
   itemId: string;
   segmentMs: number;
-  /** A model response was playing when speech started (it was cancelled). */
+  /** A reply was being generated or still playing when speech started (it was cut off). */
   interruptedResponse: boolean;
-  /** How far into that response the interruption came; null if none. */
+  /** How much of that reply the caller had heard, in ms; null if none. */
   msIntoResponse: number | null;
   consultInFlight: boolean;
   transcriptChars: number;
@@ -362,6 +369,7 @@ export class RealtimeCallBridge {
       model: options.config.model,
       voice: options.config.voice,
       audioFormat: options.audioFormat,
+      noiseReduction: NOISE_REDUCTION[options.surface],
       turnDetection: toClientTurnDetection(options.config.turnDetection),
       history: options.history,
       instructions: buildRealtimeInstructions(
@@ -443,19 +451,17 @@ export class RealtimeCallBridge {
         onSpeechStarted: (boundary) => {
           this.callerSpeaking = true;
           this.approvalTranscript.begin(boundary.itemId);
-          const interruptedResponse = this.client.hasActiveResponse;
+          const generating = this.client.hasActiveResponse;
+          const heardMs = this.client.interrupt();
+          const interruptedResponse = generating || heardMs !== null;
           this.recordSpeechStart(boundary.itemId, {
             audioStartMs: boundary.audioMs,
             interruptedResponse,
-            msIntoResponse:
-              interruptedResponse && this.turnResponseCreatedAt
-                ? Date.now() - this.turnResponseCreatedAt
-                : null,
+            msIntoResponse: interruptedResponse ? (heardMs ?? 0) : null,
             consultInFlight: this.consultInFlight,
             segmentMs: null,
           });
           this.options.onStateChange('listening');
-          this.client.cancelResponse();
           void this.options.clearPlayback().catch(() => {
             // The transport is gone; the close handler tears the session down.
           });

@@ -8,6 +8,7 @@ import {
   ANTHROPIC_METHOD,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import {
   buildAnthropicSupportingHeaders,
   isAnthropicOAuthToken,
@@ -18,11 +19,7 @@ import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
 } from './pricing-discovery.js';
-import {
-  createDiscoveryStore,
-  isRecord,
-  readPositiveInteger,
-} from './utils.js';
+import { createDiscoveryStore, isRecord } from './utils.js';
 
 export interface AnthropicDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
@@ -140,11 +137,11 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
         if (!normalized) continue;
         discovered.add(normalized);
 
-        const contextWindow = readPositiveInteger(entry.max_input_tokens);
+        const contextWindow = parsePositiveInteger(entry.max_input_tokens);
         if (contextWindow != null) {
           contextWindows.set(normalized, contextWindow);
         }
-        const outputMaxTokens = readPositiveInteger(entry.max_tokens);
+        const outputMaxTokens = parsePositiveInteger(entry.max_tokens);
         if (outputMaxTokens != null) {
           maxTokens.set(normalized, outputMaxTokens);
         }

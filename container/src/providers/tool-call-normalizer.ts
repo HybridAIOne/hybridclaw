@@ -1,3 +1,4 @@
+import { isRecord } from '#shared/primitive-values.js';
 import type { ToolCall } from '../types.js';
 
 const TOOL_CALL_TAGS = [
@@ -24,10 +25,6 @@ export type ToolCallTextParser =
 export interface NormalizeToolCallOptions {
   parser?: ToolCallTextParser | null;
   recoverBlankStructuredNameFromContent?: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function findCodeFenceRanges(text: string): Array<[number, number]> {

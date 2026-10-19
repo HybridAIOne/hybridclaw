@@ -20,6 +20,7 @@ import {
   normalizeBrowserSignInHost,
   saveBrowserSignIn,
 } from '../security/browser-sign-ins.js';
+import { asRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export const BROWSER_SIGN_IN_LOOKUP_PATH = '/api/browser/sign-in';
@@ -28,12 +29,6 @@ export const SIGN_INS_PATH = '/api/sign-ins';
 export interface SignInAuditContext {
   actor?: string | null;
   sourceIp?: string | null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function requireHost(raw: unknown): string {
@@ -67,7 +62,7 @@ export async function handleApiBrowserSignInLookup(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const host = requireHost(asRecord(await readJsonBody(req)).host);
+  const host = requireHost(asRecord(await readJsonBody(req))?.host);
   const signIn = findBrowserSignIn(host);
   sendJson(
     res,
@@ -89,7 +84,7 @@ export async function handleApiSignIns(
     return;
   }
   if (pathname === SIGN_INS_PATH && method === 'POST') {
-    const body = asRecord(await readJsonBody(req));
+    const body = asRecord(await readJsonBody(req)) ?? {};
     const host = requireHost(body.host);
     let signIn: ReturnType<typeof saveBrowserSignIn>;
     try {

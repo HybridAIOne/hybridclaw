@@ -1,6 +1,4 @@
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from './primitive-values.js';
 
 export function extractResponseTextContent(content: unknown): string {
   if (typeof content === 'string') return content.trim();

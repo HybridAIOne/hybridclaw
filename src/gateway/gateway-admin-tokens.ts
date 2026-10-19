@@ -12,6 +12,7 @@ import {
   normalizeApiTokenClaims,
   revokeApiToken,
 } from '../security/api-tokens.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export interface GatewayAdminTokensResponse {
   tokens: ApiTokenMetadata[];
@@ -65,10 +66,6 @@ function recordTokenAudit(params: {
       sourceIp: params.audit.sourceIp || null,
     },
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function normalizeStringArrayClaim(

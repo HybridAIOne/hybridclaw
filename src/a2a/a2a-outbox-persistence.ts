@@ -8,11 +8,11 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { isRecord } from '../utils/type-guards.js';
 import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
 import type { A2APeerDescriptor } from './peer-descriptor.js';
 import type { TransportAdapterContext } from './transport-registry.js';
-import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_RETRY_MAX_ATTEMPTS = 8;
 const A2A_OUTBOX_SCHEMA_VERSION = 1;
@@ -261,10 +261,8 @@ function makeOutboxItem(
         : {}),
     bearerTokenRef: descriptor.bearerTokenRef,
     attempts: 0,
-    maxAttempts: normalizePositiveInteger(
-      opts?.maxAttempts,
-      A2A_RETRY_MAX_ATTEMPTS,
-    ),
+    maxAttempts:
+      parsePositiveInteger(opts?.maxAttempts) ?? A2A_RETRY_MAX_ATTEMPTS,
     nextAttemptAt: createdAtIso,
     createdAt: createdAtIso,
     updatedAt: createdAtIso,

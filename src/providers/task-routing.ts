@@ -3,6 +3,8 @@
  * Routing classification has its own task identity and explicit model; Skills Hub
  * settings cannot enable, disable or redirect that classifier.
  */
+
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,
@@ -16,7 +18,7 @@ import {
   type TaskModelPolicies,
   type TaskModelPolicy,
 } from '../types/models.js';
-import { positiveIntegerOrNull } from '../utils/number-normalization.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import { isLocalEndpointModelForBackend } from './local-endpoints.js';
 import {
@@ -30,7 +32,6 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from './provider-ids.js';
-import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
 export type AuxiliaryTask =
   | keyof RuntimeConfig['auxiliaryModels']
@@ -72,7 +73,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
 };
 
 export function normalizeMaxTokens(value: unknown): number | undefined {
-  return positiveIntegerOrNull(value) ?? undefined;
+  return parsePositiveInteger(value) ?? undefined;
 }
 
 function normalizeTaskProviderSelection(

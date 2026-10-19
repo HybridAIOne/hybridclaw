@@ -2,6 +2,101 @@
 
 ## Unreleased
 
+## [0.40.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.5) - 2026-10-18
+
+### Added
+
+- **Official German warnings**: The bundled `public-warnings` plugin checks
+  NINA warnings for towns and districts, including civil protection, weather,
+  floods, and police notices. Watched places receive new warnings in the
+  agent's main chat with official text and links, without a model turn.
+
+### Changed
+
+- **Plugin notifications**: Plugins can post messages to an agent's main chat
+  and trigger reminder-style phone notifications through `api.postToMainChat`.
+- **Realtime voice filtering**: Phone and web voice sessions use near-field and
+  far-field noise reduction respectively before speech detection, reducing
+  interruptions caused by background noise.
+
+### Fixed
+
+- **Voice interruption context**: Interrupted replies are truncated to the
+  estimated audio the caller heard, so the assistant does not assume the rest
+  was delivered. Interruption logs also recognize audio still playing after
+  generation finishes; rejected truncation requests do not end the call.
+- **Agent identity normalization**: Specially crafted identity values no longer
+  trigger quadratic processing while removing suffixes and punctuation.
+
+### Upgrade Notes
+
+- Install the optional warning plugin with `hybridclaw plugin install public-warnings`.
+  It polls watched places every 10 minutes while the gateway is running; yellow
+  DWD weather warnings remain available on request without phone alerts.
+  It does not replace official warning apps or Cell Broadcast.
+
+## [0.40.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.4) - 2026-10-16
+
+### Changed
+
+- **Request-log retention**: Debug request logs are kept for 7 days. Older
+  entries are deleted as new ones are written and during resource hygiene.
+- **Reference configuration**: `config.example.json` is generated from runtime
+  defaults and matches schema v41, including current keys and portable example
+  paths.
+
+### Fixed
+
+- **Database disk usage**: Doctor and the gateway's 12-hour resource hygiene
+  pass reclaim space from deleted rows when at least 25% of the database and
+  16 MiB are free, provided the disk has room for the rewrite.
+- **Tool-history transformations**: Credential redaction and confidential-value
+  restoration preserve JSON structure when tool arguments contain quotes,
+  backslashes, or control characters, keeping provider history copies aligned.
+- **Docker plugin availability**: Gateway images include every packaged plugin,
+  restoring bundled installation of LINE, Vonage voice, connector events, and
+  the concierge router.
+- **HybridAI session attribution**: Every tool call to the configured, trusted
+  HybridAI broker carries the calling session and agent context, including
+  tools that do not require approval.
+
+### Upgrade Notes
+
+- Export debug request logs you need to retain beyond 7 days before upgrading.
+  Audit events are unaffected by request-log retention.
+- Database compaction can briefly pause the gateway while SQLite rewrites the
+  file; it is skipped when available disk space is insufficient or unknown.
+
+## [0.40.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.3) - 2026-10-15
+
+### Added
+
+- **Discord sender allowlist**: `discord.allowFrom` limits agent access to
+  listed Discord user IDs across messages, DMs, edits, slash commands, buttons,
+  and reactions. Configure it in the admin console or runtime config. An empty
+  list preserves existing access; bot messages retain their channel policy.
+
+### Changed
+
+- **Strict numeric settings**: Shared integer parsing rejects fractional,
+  unsafe, and partially numeric values in settings and provider metadata instead
+  of rounding or accepting their leading digits. Valid integer strings are
+  accepted consistently.
+
+### Fixed
+
+- **Concurrent state-file writes**: Approval trust, pending approvals, session
+  state, MLX setup, and other state files use unique temporary paths, preventing
+  concurrent writers from overwriting each other's staged content or failing
+  when another writer renames the shared temporary file.
+
+### Upgrade Notes
+
+- Replace fractional or partially numeric integer settings such as `1.5` or
+  `12abc` with whole numbers. Invalid values fall back to defaults.
+- Atomic replacement does not serialize read-modify-write operations: the last
+  complete write still wins.
+
 ## [0.40.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.2) - 2026-10-14
 
 ### Changed

@@ -1,11 +1,6 @@
-export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS = 32_000;
+import { parsePositiveInteger } from './primitive-values.js';
 
-function normalizePositiveInteger(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-  return Math.floor(value);
-}
+export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS = 32_000;
 
 export function isAnthropicProviderModel(model: string): boolean {
   const normalized = String(model || '')
@@ -24,9 +19,7 @@ export function resolveProviderRequestMaxTokens(params: {
   model: string;
   discoveredMaxTokens?: number;
 }): number | undefined {
-  const discoveredMaxTokens = normalizePositiveInteger(
-    params.discoveredMaxTokens,
-  );
+  const discoveredMaxTokens = parsePositiveInteger(params.discoveredMaxTokens);
 
   if (!isAnthropicProviderModel(params.model)) {
     return undefined;

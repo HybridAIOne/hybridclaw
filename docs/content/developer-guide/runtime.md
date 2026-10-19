@@ -218,7 +218,11 @@ workspace. `AGENTS.md` §3.7 has the rule for adding worker state.
 
 HybridClaw runtime configuration is typed and validated in
 `~/.hybridclaw/config.json`, which is auto-created on first run. Use
-`config.example.json` as the reference.
+`config.example.json` as the reference. It is generated from
+`DEFAULT_RUNTIME_CONFIG` plus a small overlay of example values by
+`npm run generate:config-example`; `npm run lint` fails when it is stale, so
+change defaults in `src/config/runtime-config.ts` and example-only values in
+`scripts/generate-config-example.ts`, never the JSON file.
 
 Core details:
 

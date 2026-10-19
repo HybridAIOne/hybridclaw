@@ -4,6 +4,7 @@ import { formatModelForDisplay } from '../providers/model-names.js';
 import type { AuxiliaryTask } from '../providers/task-routing.js';
 import type { ChatMessage } from '../types/api.js';
 import type { Session } from '../types/session.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 
 const AUX_TEST_TIMEOUT_MS = 300_000;
 const AUX_TEST_DEFAULT_MAX_TOKENS = 256;
@@ -38,11 +39,6 @@ export class AuxCommandUsageError extends Error {
 
 function isAuxTextTask(value: string): value is AuxTextTask {
   return (AUX_TEXT_TASKS as readonly string[]).includes(value);
-}
-
-function parsePositiveInt(value: string): number | null {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function formatAuxTaskList(): string {
@@ -106,7 +102,7 @@ function parseAuxTestArgs(args: string[]): {
     const arg = promptArgs[index] || '';
     if (arg === '--max-tokens') {
       const value = promptArgs[index + 1] || '';
-      const parsed = parsePositiveInt(value);
+      const parsed = parsePositiveInteger(value);
       if (!parsed) {
         throw new AuxCommandUsageError(
           'Expected a positive integer after `--max-tokens`.',

@@ -589,6 +589,7 @@ export interface AdminConfig {
     commandsOnly: boolean;
     commandMode: 'public' | 'restricted';
     commandAllowedUserIds: string[];
+    allowFrom: string[];
     commandUserId: string;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
     sendPolicy: 'open' | 'allowlist' | 'disabled';

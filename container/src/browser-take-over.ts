@@ -11,6 +11,7 @@
  * never written down, only that something was typed. The steps reach the
  * model only when the user asks it to remember how they did it.
  */
+import { asRecord } from '#shared/primitive-values.js';
 
 export const TAKE_OVER_TOOL_NAME = 'browser_take_over';
 
@@ -45,12 +46,6 @@ export interface TakeOverDeps {
   gateway(path: string, body: Record<string, unknown>): Promise<unknown>;
   sleep(ms: number): Promise<void>;
   now(): number;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function text(value: unknown, max = 200): string {
@@ -151,7 +146,7 @@ export function readRecordedSteps(raw: unknown): TakeOverStep[] {
   if (!Array.isArray(raw)) return [];
   const steps: TakeOverStep[] = [];
   for (const item of raw) {
-    const step = asRecord(item);
+    const step = asRecord(item) ?? {};
     const label = text(step.label, 80);
     const url = pageUrl(step.page);
     const at = url ? { url } : {};
@@ -234,11 +229,11 @@ function pageUrl(raw: unknown): string {
 
 async function streamPort(deps: TakeOverDeps): Promise<number> {
   let status = await deps.browser('stream', ['status']);
-  if (status.success && asRecord(status.data).enabled !== true) {
+  if (status.success && asRecord(status.data)?.enabled !== true) {
     await deps.browser('stream', ['enable']);
     status = await deps.browser('stream', ['status']);
   }
-  const port = Number(asRecord(status.data).port);
+  const port = Number(asRecord(status.data)?.port);
   if (!status.success || !Number.isInteger(port) || port <= 0) {
     throw new Error(status.error || 'the browser has no stream to share');
   }
@@ -255,28 +250,30 @@ export async function runBrowserTakeOver(
   deps: TakeOverDeps,
 ): Promise<Record<string, unknown>> {
   const reason = text(args.reason, 300);
-  const before = asRecord(
+  const before =
     asRecord(
-      (
-        await deps.browser('eval', [
-          '({ url: location.href, title: document.title, width: innerWidth, height: innerHeight, scale: devicePixelRatio })',
-        ])
-      ).data,
-    ).result,
-  );
+      asRecord(
+        (
+          await deps.browser('eval', [
+            '({ url: location.href, title: document.title, width: innerWidth, height: innerHeight, scale: devicePixelRatio })',
+          ])
+        ).data,
+      )?.result,
+    ) ?? {};
   if (!pageUrl(before.url)) {
     throw new Error(
       'open the page first with browser_navigate, then call browser_take_over',
     );
   }
   const port = await streamPort(deps);
-  const opened = asRecord(
-    await deps.gateway('/api/browser/take-over', {
-      sessionId,
-      port,
-      reason,
-    }),
-  );
+  const opened =
+    asRecord(
+      await deps.gateway('/api/browser/take-over', {
+        sessionId,
+        port,
+        reason,
+      }),
+    ) ?? {};
   const id = text(opened.id, 64);
   if (!id) throw new Error('the gateway did not open the take-over');
 
@@ -295,7 +292,7 @@ export async function runBrowserTakeOver(
   try {
     while (true) {
       const page = await deps.browser('eval', [TAKE_OVER_RECORDER_SCRIPT]);
-      const result = asRecord(asRecord(page.data).result);
+      const result = asRecord(asRecord(page.data)?.result) ?? {};
       const url = pageUrl(result.url);
       const visit = (at: string) => {
         if (at === lastUrl) return;
@@ -311,9 +308,9 @@ export async function runBrowserTakeOver(
       if (url) visit(url);
       if (steps.length > MAX_STEPS) steps.splice(0, steps.length - MAX_STEPS);
 
-      const status = asRecord(
-        await deps.gateway('/api/browser/take-over/status', { id }),
-      );
+      const status =
+        asRecord(await deps.gateway('/api/browser/take-over/status', { id })) ??
+        {};
       state = text(status.state, 16) || 'finished';
       remember = status.remember === true;
       if (state === 'finished') break;

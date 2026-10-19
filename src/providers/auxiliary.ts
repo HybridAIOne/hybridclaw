@@ -1,5 +1,9 @@
 import { fetchHybridAIDestination } from '#shared/hybridai-destination.js';
 import { getProviderContextError } from '#shared/provider-context.js';
+import {
+  isAnthropicProviderModel,
+  resolveProviderRequestMaxTokens,
+} from '#shared/request-max-tokens.js';
 import { extractResponseTextContent } from '#shared/response-text.js';
 import {
   drainServerSentEventBlocks,
@@ -38,10 +42,6 @@ import {
   isOpenAICompatProviderId,
   type RuntimeProviderId,
 } from './provider-ids.js';
-import {
-  isAnthropicProviderModel,
-  resolveProviderRequestMaxTokens,
-} from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,

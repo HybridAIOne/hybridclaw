@@ -19,6 +19,7 @@ import {
   DEFAULT_TUNNEL_AUDIT_SESSION_ID,
   errorMessage,
 } from '../tunnel/tunnel-provider-utils.js';
+import { isRecord } from '../utils/type-guards.js';
 import type {
   GatewayAdminTunnelConfig,
   GatewayAdminTunnelConfigResponse,
@@ -73,10 +74,6 @@ const TUNNEL_PROVIDER_META = {
     requiresPublicUrl: boolean;
   }
 >;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function normalizePublicUrl(value: string | null | undefined): string | null {
   return value?.trim() || null;

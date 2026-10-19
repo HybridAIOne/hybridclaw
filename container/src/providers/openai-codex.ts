@@ -1,3 +1,4 @@
+import { isRecord } from '#shared/primitive-values.js';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
@@ -12,7 +13,6 @@ import type {
 import {
   buildRequestHeaders,
   emitRawSsePayloadDebug,
-  isRecord,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,

@@ -12,6 +12,7 @@ import {
   describePolicyRuleProblem,
   evaluatePolicyRules,
 } from './policy-engine.js';
+import { asRecord } from './primitive-values.js';
 
 export type BrowserStealthPolicyDecision = 'allow' | 'deny';
 
@@ -32,13 +33,6 @@ export interface BrowserStealthPolicyAccessEvaluation {
 
 interface StealthAllowedParameter extends PolicyParameterSpec {
   match: (context: BrowserStealthPolicyContext, expected: unknown) => boolean;
-}
-
-export function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
 }
 
 function normalizeString(value: unknown): string {
@@ -72,7 +66,7 @@ function normalizeBrowserStealthRule(
   raw: unknown,
   index: number,
 ): PolicyRule<BrowserStealthPolicyDecision> {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const id = normalizeString(record.id);
   const problem = describePolicyRuleProblem(raw, BROWSER_STEALTH_PARAMETERS);
   const action = problem ? null : normalizeAction(record.action);
@@ -94,8 +88,8 @@ function normalizeBrowserStealthRule(
 export function readBrowserStealthPolicyStateFromDocument(
   document: Record<string, unknown>,
 ): BrowserStealthPolicyState {
-  const browser = asRecord(document.browser);
-  const stealth = asRecord(browser.stealth);
+  const browser = asRecord(document.browser) ?? {};
+  const stealth = asRecord(browser.stealth) ?? {};
   const rules = Array.isArray(stealth.rules)
     ? stealth.rules.map(normalizeBrowserStealthRule)
     : [];

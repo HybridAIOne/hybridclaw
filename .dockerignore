@@ -31,20 +31,30 @@ plugins/*
 !plugins/browser-use-cloud/**
 !plugins/camofox/
 !plugins/camofox/**
+!plugins/concierge-router/
+!plugins/concierge-router/**
+!plugins/connector-events/
+!plugins/connector-events/**
 !plugins/distill/
 !plugins/distill/**
+!plugins/line/
+!plugins/line/**
 !plugins/mac-cua/
 !plugins/mac-cua/**
 !plugins/managed-cloud/
 !plugins/managed-cloud/**
 !plugins/media-tools/
 !plugins/media-tools/**
+!plugins/public-warnings/
+!plugins/public-warnings/**
 !plugins/tier-router/
 !plugins/tier-router/**
 !plugins/transformers-embeddings/
 !plugins/transformers-embeddings/**
 !plugins/twilio-voice/
 !plugins/twilio-voice/**
+!plugins/vonage-voice/
+!plugins/vonage-voice/**
 plugins/*/node_modules/
 
 # IDE and OS

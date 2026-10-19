@@ -1,3 +1,4 @@
+import { isRecord } from '../utils/type-guards.js';
 import { parseAgentIdentity } from './agent-id.js';
 import { parseUserId } from './user-id.js';
 
@@ -23,10 +24,6 @@ export class ActorValidationError extends Error {
     this.name = 'ActorValidationError';
     this.issues = [...issues];
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeActorType(value: unknown): ActorType {

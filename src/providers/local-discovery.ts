@@ -27,6 +27,7 @@ import {
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
 import { resolveModelBehavior } from '../types/model-behavior.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import type {
   LocalBackendType,
   LocalEndpointConfig,
@@ -154,17 +155,6 @@ async function fetchJson(
   return (await response.json()) as unknown;
 }
 
-function readPositiveInteger(value: unknown): number | undefined {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseInt(value, 10)
-        : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
-  return Math.floor(parsed);
-}
-
 // 32K (owner call, 2026-09-27): the num_ctx Ollama models run with unless their
 // Modelfile sets one. Ollama sizes the KV cache for the whole window, so a
 // trained maximum of 128K can need many GB, while Ollama's own default of a few
@@ -182,7 +172,7 @@ function readNumCtxFromShowResponse(payload: unknown): number | undefined {
       ? payload.parameters
       : '';
   const match = /^\s*num_ctx\s+(\d+)\s*$/m.exec(parameters);
-  return match ? readPositiveInteger(match[1]) : undefined;
+  return match ? (parsePositiveInteger(match[1]) ?? undefined) : undefined;
 }
 
 function readContextWindowFromShowResponse(
@@ -197,15 +187,8 @@ function readContextWindowFromShowResponse(
   const candidates: number[] = [];
   for (const [key, value] of Object.entries(modelInfo)) {
     if (!/context_length|ctx_length/i.test(key)) continue;
-    const parsed =
-      typeof value === 'number'
-        ? value
-        : typeof value === 'string'
-          ? Number.parseInt(value, 10)
-          : NaN;
-    if (Number.isFinite(parsed) && parsed > 0) {
-      candidates.push(Math.floor(parsed));
-    }
+    const parsed = parsePositiveInteger(value);
+    if (parsed !== null) candidates.push(parsed);
   }
   return candidates.length > 0 ? Math.max(...candidates) : undefined;
 }
@@ -219,18 +202,19 @@ function readContextWindowFromModelEntry(
 
   for (const instance of loadedInstances) {
     if (!isRecord(instance) || !isRecord(instance.config)) continue;
-    const loadedContextLength = readPositiveInteger(
+    const loadedContextLength = parsePositiveInteger(
       instance.config.context_length,
     );
     if (loadedContextLength) return loadedContextLength;
   }
 
   return (
-    readPositiveInteger(entry.loaded_context_length) ??
-    readPositiveInteger(entry.context_length) ??
-    readPositiveInteger(entry.max_model_len) ??
-    readPositiveInteger(entry.max_context_length) ??
-    readPositiveInteger(entry.maxContextLength)
+    parsePositiveInteger(entry.loaded_context_length) ??
+    parsePositiveInteger(entry.context_length) ??
+    parsePositiveInteger(entry.max_model_len) ??
+    parsePositiveInteger(entry.max_context_length) ??
+    parsePositiveInteger(entry.maxContextLength) ??
+    undefined
   );
 }
 
@@ -288,7 +272,7 @@ async function fetchOpenAICompatModels(
         typeof entry.id === 'string' &&
         (backend !== 'mlx' ||
           (readContextWindowFromModelEntry(entry) !== undefined &&
-            readPositiveInteger(entry.max_tokens) !== undefined)),
+            parsePositiveInteger(entry.max_tokens) !== null)),
     )
     .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
     .map((entry) =>
@@ -302,9 +286,10 @@ async function fetchOpenAICompatModels(
           endpointName,
           ...(backend === 'mlx'
             ? {
-                maxTokens: readPositiveInteger(
-                  (entry as Record<string, unknown>).max_tokens,
-                ),
+                maxTokens:
+                  parsePositiveInteger(
+                    (entry as Record<string, unknown>).max_tokens,
+                  ) ?? undefined,
               }
             : {}),
         },
@@ -422,7 +407,7 @@ async function discoverLmStudioModels(
               typeof record.display_name === 'string'
                 ? String(record.display_name).trim()
                 : undefined,
-            sizeBytes: readPositiveInteger(record.size_bytes),
+            sizeBytes: parsePositiveInteger(record.size_bytes) ?? undefined,
             family:
               typeof record.architecture === 'string'
                 ? String(record.architecture).trim()

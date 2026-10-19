@@ -38,7 +38,6 @@ import type {
   NetworkRule,
 } from '#shared/network-policy.js';
 import {
-  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   evaluateNetworkPolicyAccess,
@@ -46,6 +45,7 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '#shared/network-policy.js';
+import { asRecord } from '#shared/primitive-values.js';
 import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   messageToolEmailTarget,
@@ -731,7 +731,7 @@ function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
 }
 
 function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const out: Record<string, AutonomyLevel> = {};
   for (const [rawKey, rawValue] of Object.entries(record)) {
     const key = rawKey.trim().toLowerCase();
@@ -743,7 +743,7 @@ function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
-  const rule = asRecord(raw);
+  const rule = asRecord(raw) ?? {};
   const pattern = String(rule.pattern || '').trim();
   const tools = normalizeStringList(rule.tools);
   const paths = normalizeStringList(rule.paths);
@@ -776,10 +776,10 @@ function pathArgHints(
 }
 
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
-  const document = asRecord(YAML.parse(raw) as unknown);
-  const approval = asRecord(document.approval);
-  const autonomy = asRecord(document.autonomy);
-  const audit = asRecord(document.audit);
+  const document = asRecord(YAML.parse(raw) as unknown) ?? {};
+  const approval = asRecord(document.approval) ?? {};
+  const autonomy = asRecord(document.autonomy) ?? {};
+  const audit = asRecord(document.audit) ?? {};
   const browserStealthState =
     readBrowserStealthPolicyStateFromDocument(document);
   const pinnedRed = Array.isArray(approval.pinned_red)
@@ -1065,7 +1065,7 @@ function isExpectedJsonFieldType(
 function invalidSkillRequestContractReason(
   args: Record<string, unknown> | undefined,
 ): string | null {
-  const contract = asRecord(args?.skillRequestContract);
+  const contract = asRecord(args?.skillRequestContract) ?? {};
   if (Object.keys(contract).length === 0) return null;
 
   const contractName =
@@ -1098,7 +1098,7 @@ function invalidSkillRequestContractReason(
     return failure('do not send secretHeaders.');
   }
 
-  const json = asRecord(args?.json);
+  const json = asRecord(args?.json) ?? {};
   for (const field of stringList(contract.forbidJsonFields)) {
     if (field in json) return failure(`do not send json.${field}.`);
   }
@@ -1106,7 +1106,7 @@ function invalidSkillRequestContractReason(
     if (!(field in json)) return failure(`missing json.${field}.`);
   }
 
-  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes);
+  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes) ?? {};
   for (const [field, expectedTypeValue] of Object.entries(
     requiredJsonFieldTypes,
   )) {
@@ -2948,6 +2948,8 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
+      // Public warning lookups; watching only saves the user's place list.
+      lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.2',
+  version: '0.40.5',
   highlights: [
-    'Multilingual voice and text approvals',
-    'Health and Contacts privacy protection',
-    'Reliable email reassignment',
-    'Shared audit logging fixes',
+    'Official German public warnings',
+    'Realtime voice noise filtering',
+    'Accurate voice interruption context',
+    'Safer agent identity normalization',
   ],
 } as const;
 

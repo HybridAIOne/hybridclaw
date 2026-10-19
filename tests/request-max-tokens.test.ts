@@ -1,13 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS as containerDefaultAnthropicProviderMaxTokens,
-  resolveProviderRequestMaxTokens as resolveContainerRequestMaxTokens,
-} from '../container/src/providers/request-max-tokens.js';
-import {
-  DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS as hostDefaultAnthropicProviderMaxTokens,
-  resolveProviderRequestMaxTokens as resolveHostRequestMaxTokens,
-} from '../src/providers/request-max-tokens.js';
+  DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS,
+  resolveProviderRequestMaxTokens,
+} from '#shared/request-max-tokens.js';
 
 function runSharedContract(
   label: string,
@@ -104,13 +100,7 @@ function runSharedContract(
 }
 
 runSharedContract(
-  'host request max token policy',
-  resolveHostRequestMaxTokens,
-  hostDefaultAnthropicProviderMaxTokens,
-);
-
-runSharedContract(
-  'container request max token policy',
-  resolveContainerRequestMaxTokens,
-  containerDefaultAnthropicProviderMaxTokens,
+  'request max token policy',
+  resolveProviderRequestMaxTokens,
+  DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS,
 );

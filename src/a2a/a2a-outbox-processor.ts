@@ -1,11 +1,11 @@
 import { getDefaultIdentityResolver } from '../identity/resolver.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import {
   type A2AOutboxProcessOptions,
   deliverA2AItem,
 } from './a2a-outbox-delivery.js';
 import { listA2AOutboxItems } from './a2a-outbox-persistence.js';
-import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_OUTBOX_CONCURRENCY = 4;
 export const A2A_OUTBOX_DRAIN_INTERVAL_MS = 5_000;
@@ -29,10 +29,8 @@ export async function processA2AOutbox(
     identityResolver:
       opts.identityResolver ?? getDefaultIdentityResolver() ?? undefined,
   };
-  const concurrency = normalizePositiveInteger(
-    opts.concurrency,
-    A2A_OUTBOX_CONCURRENCY,
-  );
+  const concurrency =
+    parsePositiveInteger(opts.concurrency) ?? A2A_OUTBOX_CONCURRENCY;
   const due = listA2AOutboxItems({ status: 'pending' }).filter(
     (item) => Date.parse(item.nextAttemptAt) <= now.getTime(),
   );
@@ -90,10 +88,8 @@ export function startA2AOutboxProcessor(
   intervalMs = A2A_OUTBOX_DRAIN_INTERVAL_MS,
 ): void {
   stopA2AOutboxProcessor();
-  const normalizedIntervalMs = normalizePositiveInteger(
-    intervalMs,
-    A2A_OUTBOX_DRAIN_INTERVAL_MS,
-  );
+  const normalizedIntervalMs =
+    parsePositiveInteger(intervalMs) ?? A2A_OUTBOX_DRAIN_INTERVAL_MS;
   void drainA2AOutbox('startup');
   a2aOutboxProcessorTimer = setInterval(() => {
     void drainA2AOutbox('interval');
