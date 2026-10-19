@@ -9,9 +9,9 @@
  * the scope cannot redirect a write into the agent workspace.
  * NOT the path rules (`scope-paths.ts`).
  */
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   ensureBootstrapFiles,
@@ -77,15 +77,8 @@ function replaceFile(
     if (fs.existsSync(dir) && fs.lstatSync(dir).isSymbolicLink()) {
       fs.rmSync(dir, { force: true });
     }
-    fs.mkdirSync(dir, { recursive: true });
   }
-  const temporary = path.join(dir, `.scope-${randomUUID()}.tmp`);
-  try {
-    fs.writeFileSync(temporary, content, { flag: 'wx', mode: 0o644 });
-    fs.renameSync(temporary, target);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(target, content, { mode: 0o644 });
 }
 
 /**

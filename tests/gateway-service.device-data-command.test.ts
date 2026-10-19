@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 import { expect, test } from 'vitest';
 
@@ -242,4 +244,50 @@ test('a long calendar shows its first days, and the rest by query', async () => 
     'jun 2027',
   );
   expect(later.match(/^- .* Jun 2027 09:00/gm)).toHaveLength(30);
+});
+
+test.each(['health', 'contacts'])(
+  'sharing %s excludes improvement persistently, including after clearing',
+  async (source) => {
+    const { send } = await load();
+    const { deviceDataExcludesImprovement } = await import(
+      '../src/memory/device-data-privacy.js'
+    );
+    expect(deviceDataExcludesImprovement('hy')).toBe(false);
+    await send(`/device-data set ${payload({ calendar: CALENDAR })} --json`);
+    expect(deviceDataExcludesImprovement('hy')).toBe(false);
+    await send(
+      `/device-data set ${payload({ [source]: 'Private sample data' })} --json`,
+    );
+    expect(deviceDataExcludesImprovement('hy')).toBe(true);
+    expect(deviceDataExcludesImprovement('main')).toBe(false);
+    expect(deviceDataExcludesImprovement('sales')).toBe(false);
+    await send('/device-data clear --json');
+    expect(deviceDataExcludesImprovement('hy')).toBe(true);
+    expect(deviceDataExcludesImprovement('main')).toBe(false);
+    expect(deviceDataExcludesImprovement('sales')).toBe(false);
+  },
+);
+
+test('existing protected source files and unreadable privacy state fail closed', async () => {
+  await load();
+  const { deviceDataStorePath, deviceDataExcludesImprovement } = await import(
+    '../src/memory/device-data-privacy.js'
+  );
+  const file = deviceDataStorePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      users: { user_a: { health: { text: 'Daily steps: 5000' } } },
+    }),
+  );
+  expect(deviceDataExcludesImprovement('hy')).toBe(true);
+  expect(deviceDataExcludesImprovement('main')).toBe(false);
+  expect(deviceDataExcludesImprovement('sales')).toBe(false);
+  fs.writeFileSync(file, '{broken');
+  expect(deviceDataExcludesImprovement('hy')).toBe(true);
+  expect(deviceDataExcludesImprovement('main')).toBe(false);
+  expect(deviceDataExcludesImprovement('sales')).toBe(false);
 });

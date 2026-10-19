@@ -10,7 +10,7 @@ import {
   describePolicyRuleProblem,
   evaluatePolicyRules,
 } from './policy-engine.js';
-import { readFiniteNumber } from './primitive-values.js';
+import { asRecord, readFiniteNumber } from './primitive-values.js';
 
 const SKILL_POLICY_ACTION_TYPES = new Set([
   'allow',
@@ -44,14 +44,8 @@ function normalizeStringList(value) {
   return [];
 }
 
-function asRecord(value) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value
-    : {};
-}
-
 function normalizeSkillPolicyAction(raw) {
-  const rawAction = asRecord(raw);
+  const rawAction = asRecord(raw) ?? {};
   const type = normalizeStringLower(
     typeof raw === 'string' ? raw : rawAction.type,
   );
@@ -65,7 +59,7 @@ function normalizeSkillPolicyAction(raw) {
 }
 
 function normalizeSkillPolicyRule(raw, index) {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const id = normalizeString(record.id);
   const description = normalizeString(record.description);
   const problem = describePolicyRuleProblem(raw, SKILL_POLICY_PARAMETERS);
@@ -84,7 +78,7 @@ function normalizeSkillPolicyRule(raw, index) {
 }
 
 export function readSkillPolicyState(document) {
-  const skill = asRecord(document?.skill);
+  const skill = asRecord(document?.skill) ?? {};
   const rawRules = Array.isArray(skill.rules) ? skill.rules : [];
   return {
     rules: rawRules.map(normalizeSkillPolicyRule),

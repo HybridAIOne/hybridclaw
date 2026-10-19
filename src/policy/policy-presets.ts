@@ -3,11 +3,8 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
-import {
-  asRecord,
-  type NetworkRule,
-  normalizeNetworkRule,
-} from './network-policy.js';
+import { asRecord } from '../utils/type-guards.js';
+import { type NetworkRule, normalizeNetworkRule } from './network-policy.js';
 import {
   type IndexedNetworkRule,
   type ManagedNetworkRule,
@@ -53,7 +50,7 @@ function readPresetFile(name: string): string {
 
 function parsePresetFile(filePath: string): PolicyPreset {
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const parsed = asRecord(parseYaml(raw));
+  const parsed = asRecord(parseYaml(raw)) ?? {};
   const name =
     String(parsed.name || path.basename(filePath, path.extname(filePath)))
       .trim()
@@ -62,7 +59,7 @@ function parsePresetFile(filePath: string): PolicyPreset {
   const rules = Array.isArray(parsed.rules)
     ? parsed.rules
         .map((rule) =>
-          normalizeNetworkRule(asRecord(rule) as Partial<NetworkRule>),
+          normalizeNetworkRule((asRecord(rule) ?? {}) as Partial<NetworkRule>),
         )
         .filter((rule): rule is NetworkRule => Boolean(rule))
     : [];
@@ -83,7 +80,7 @@ function parsePresetSummaryFile(filePath: string): PolicyPresetSummary {
     if (/^rules\s*:/u.test(line)) break;
     headerLines.push(line);
   }
-  const parsed = asRecord(parseYaml(headerLines.join('\n')));
+  const parsed = asRecord(parseYaml(headerLines.join('\n'))) ?? {};
   return {
     name:
       String(parsed.name || path.basename(filePath, path.extname(filePath)))

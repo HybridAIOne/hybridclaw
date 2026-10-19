@@ -1,4 +1,8 @@
 import type { ApprovalMode } from '../shared/approval-mode.js';
+import type {
+  ApprovalReplyContext,
+  ApprovalReplyInterpretation,
+} from '../shared/approval-reply.js';
 import type { ApprovalRule } from '../shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
@@ -211,7 +215,9 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput extends SessionAttachmentAccess {
+export interface ContainerInput
+  extends SessionAttachmentAccess,
+    ApprovalReplyContext {
   healthCheck?: {
     nonce: string;
   };
@@ -456,6 +462,7 @@ export interface OutputPresentationMetadata {
 }
 
 export interface ContainerOutput {
+  approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];

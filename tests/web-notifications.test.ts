@@ -74,11 +74,9 @@ describe('web notification durability and isolation', () => {
     const { notifications, operator } = await modules();
     const reads = vi.spyOn(fs, 'readFileSync');
     const writes = vi.spyOn(fs, 'writeFileSync');
-    const mkdir = vi.spyOn(fs, 'mkdirSync');
     notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'user-a', username: null, content: 'test' }, { status: 'success', result: 'reply', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 9 });
     expect(reads.mock.calls.filter(([file]) => file === `${directory}/web-notifications.json`)).toHaveLength(1);
-    expect(writes.mock.calls.filter(([file]) => String(file).startsWith(`${directory}/web-notifications.json.`))).toHaveLength(1);
-    expect(mkdir).not.toHaveBeenCalled();
+    expect(writes.mock.calls.filter(([file]) => String(file).startsWith(`${directory}/.web-notifications.json.`))).toHaveLength(1);
   });
 
   test('a failed commit publishes nothing and leaves ownership unchanged', async () => {

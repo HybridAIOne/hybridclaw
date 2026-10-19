@@ -416,6 +416,7 @@ export class WebchatVoiceConnection {
           userId,
           username,
           content: request,
+          approvalUserText: hooks.approvalUserText ?? null,
           instructions: voiceConsultInstructions(timeZone),
           agentId,
           ...(client ? { client } : {}),

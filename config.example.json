@@ -1,5 +1,11 @@
 {
-  "version": 37,
+  "version": 41,
+  "audit": {
+    "toolResults": {
+      "mode": "full",
+      "maxChars": 4000
+    }
+  },
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -10,6 +16,8 @@
   "deployment": {
     "mode": "local",
     "public_url": "",
+    "a2a_local_mode": false,
+    "a2a_e2ee_required": false,
     "tunnel": {
       "provider": "manual",
       "health_check_interval_ms": 30000
@@ -19,50 +27,59 @@
     "navigation": [
       {
         "href": "/chat",
-        "label": "Chat"
+        "label": "Chat",
+        "icon": "chat"
       },
       {
-        "href": "/agents",
-        "label": "Agents"
+        "href": "/admin/agents",
+        "label": "Agents",
+        "icon": "agents"
       },
       {
         "href": "/admin",
-        "label": "Admin"
+        "label": "Admin",
+        "icon": "admin"
       },
       {
         "href": "https://github.com/HybridAIOne/hybridclaw",
-        "label": "GitHub"
+        "label": "GitHub",
+        "image": "/icons/github.svg"
       },
       {
         "href": "/docs",
-        "label": "Docs"
+        "label": "Docs",
+        "icon": "docs"
       }
     ]
   },
   "browser": {
     "provider": "local",
+    "allowPrivateNetwork": false,
     "local": {
       "profileRoot": "",
       "headed": false
     }
+  },
+  "agents": {
+    "defaultAgentId": "main",
+    "defaults": {},
+    "list": [
+      {
+        "id": "main"
+      }
+    ],
+    "channels": {}
   },
   "skills": {
     "localSkillMode": "full",
     "localStarterSkills": [],
     "extraDirs": [],
     "disabled": [],
-    "channelDisabled": {
-      "discord": [],
-      "msteams": [],
-      "signal": [],
-      "slack": [],
-      "slack_webhook": [],
-      "telegram": [],
-      "threema": [],
-      "voice": [],
-      "whatsapp": [],
-      "line": [],
-      "email": []
+    "channelDisabled": {},
+    "externalDiscovered": [],
+    "autonomy": {
+      "defaultLevel": "confirm-each",
+      "rules": []
     },
     "speechToText": {
       "defaultProvider": "auto"
@@ -82,7 +99,11 @@
       "web_search",
       "web_fetch"
     ],
-    "disabled": []
+    "mcpToolMode": "full",
+    "disabled": [],
+    "httpRequest": {
+      "authRules": []
+    }
   },
   "channelInstructions": {
     "discord": "",
@@ -99,12 +120,23 @@
     "imessage": "",
     "line": ""
   },
+  "plugins": {
+    "list": []
+  },
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,
+    "cv": {
+      "retentionDays": 90,
+      "renderThrottleMs": 14400000,
+      "batchDebounceMs": 30000,
+      "narrationDailyBudgetUsd": 0.005
+    },
     "trajectoryCapture": {
       "enabledAgentIds": [],
-      "storeDir": ""
+      "storeDir": "",
+      "retentionDays": 365,
+      "retentionDaysByTenant": {}
     },
     "inspectionIntervalMs": 3600000,
     "observationRetentionDays": 30,
@@ -114,13 +146,20 @@
     "degradationToolBreakageThreshold": 0.3,
     "autoApplyEnabled": false,
     "evaluationRunsBeforeRollback": 10,
-    "rollbackImprovementThreshold": 0.05
-  },
-  "plugins": {
-    "list": []
+    "rollbackImprovementThreshold": 0.05,
+    "optimization": {
+      "editBudget": 4,
+      "minTrajectoryEvidence": 2,
+      "maxEvidenceExamples": 12,
+      "heldOutRatio": 0.25,
+      "trajectorySampleSeed": "skillopt-lite",
+      "minCandidateScoreDelta": 0.01,
+      "rejectedEditMemoryLimit": 20
+    }
   },
   "discord": {
     "prefix": "!claw",
+    "allowFrom": [],
     "guildMembersIntent": false,
     "presenceIntent": false,
     "commandsOnly": false,
@@ -132,7 +171,7 @@
     "sendAllowedChannelIds": [],
     "freeResponseChannels": [],
     "botMessageChannels": [],
-    "textChunkLimit": 2000,
+    "textChunkLimit": 1900,
     "maxLinesPerMessage": 17,
     "replyStyle": "top-level",
     "humanDelay": {
@@ -163,6 +202,7 @@
     "enabled": false,
     "appId": "",
     "tenantId": "",
+    "personalAgentParent": "",
     "webhook": {
       "port": 3978,
       "path": "/api/msteams/messages"
@@ -181,22 +221,31 @@
     "textChunkLimit": 4000,
     "replyStyle": "thread",
     "showMemoryFooter": true,
-    "mediaMaxMb": 20,
+    "mediaMaxMb": 100,
     "dangerouslyAllowNameMatching": false,
     "mediaAllowHosts": [
+      "graph.microsoft.com",
+      "*.sharepoint.com",
+      "*.sharepoint-df.com",
+      "*.1drv.com",
+      "*.onedrive.com",
       "*.teams.microsoft.com",
       "*.trafficmanager.net",
       "*.blob.core.windows.net",
+      "*.azureedge.net",
       "teams.microsoft.com",
       "teams.cdn.office.net",
       "statics.teams.cdn.office.net",
       "asm.skype.com",
       "ams.skype.com",
-      "media.ams.skype.com"
+      "media.ams.skype.com",
+      "office.com",
+      "office.net",
+      "*.microsoft.com"
     ],
     "mediaAuthAllowHosts": [
+      "graph.microsoft.com",
       "*.teams.microsoft.com",
-      "*.trafficmanager.net",
       "api.botframework.com",
       "botframework.com",
       "teams.microsoft.com"
@@ -287,6 +336,12 @@
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
+    "prompt": {
+      "greeting": "",
+      "instructions": ""
+    },
+    "callerPolicy": "open",
+    "allowFrom": [],
     "maxConcurrentCalls": 5
   },
   "speech": {
@@ -295,7 +350,14 @@
       "model": "gpt-realtime",
       "voice": "marin",
       "greeting": "Hello! How can I help you today?",
-      "instructions": ""
+      "instructions": "",
+      "turnDetection": {
+        "type": "server_vad",
+        "threshold": null,
+        "prefixPaddingMs": null,
+        "silenceDurationMs": null,
+        "eagerness": "auto"
+      }
     }
   },
   "imessage": {
@@ -325,7 +387,8 @@
     "smtpPort": 587,
     "smtpSecure": false,
     "address": "",
-    "pollIntervalMs": 15000,
+    "password": "",
+    "pollIntervalMs": 30000,
     "folders": ["INBOX"],
     "allowFrom": [],
     "textChunkLimit": 50000,
@@ -338,11 +401,22 @@
     "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,
-    "enableRag": true,
-    "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
+    "enableRag": false,
+    "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5-mini", "gpt-5"]
   },
   "codex": {
-    "baseUrl": "https://chatgpt.com/backend-api/codex"
+    "baseUrl": "https://chatgpt.com/backend-api/codex",
+    "models": [
+      "openai-codex/gpt-5-codex",
+      "openai-codex/gpt-5.3-codex",
+      "openai-codex/gpt-5.4",
+      "openai-codex/gpt-5.5",
+      "openai-codex/gpt-5.3-codex-spark",
+      "openai-codex/gpt-5.2-codex",
+      "openai-codex/gpt-5.1-codex-max",
+      "openai-codex/gpt-5.2",
+      "openai-codex/gpt-5.1-codex-mini"
+    ]
   },
   "openai": {
     "enabled": false,
@@ -377,12 +451,12 @@
   "gemini": {
     "enabled": false,
     "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "models": ["gemini/gemini-2.5-pro"]
+    "models": ["gemini/gemini-2.5-pro", "gemini/gemini-2.5-flash"]
   },
   "deepseek": {
     "enabled": false,
     "baseUrl": "https://api.deepseek.com/v1",
-    "models": ["deepseek/deepseek-chat"]
+    "models": ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"]
   },
   "xai": {
     "enabled": false,
@@ -489,6 +563,11 @@
       "model": "",
       "maxTokens": 0
     },
+    "goal_judge": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
     "mcp": {
       "provider": "auto",
       "model": "",
@@ -499,7 +578,22 @@
       "model": "",
       "maxTokens": 0
     },
+    "btw": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 160
+    },
+    "second_opinion": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 1200
+    },
     "session_title": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "cv_narration": {
       "provider": "auto",
       "model": "",
       "maxTokens": 0
@@ -519,7 +613,6 @@
     "network": "bridge",
     "timeoutMs": 300000,
     "binds": [],
-    "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5,
     "persistBashState": true,
@@ -589,6 +682,7 @@
     }
   },
   "routing": {
+    "maximumZone": "cloud",
     "evaluator": {
       "mode": "off",
       "model": "jev-latest",
@@ -601,14 +695,10 @@
     "tiers": [],
     "defaultStart": "",
     "escalationStickyTurns": 3,
+    "mode": "auto",
     "concierge": {
-      "enabled": false,
-      "model": "gemini-3-flash",
-      "profiles": {
-        "asap": "gpt-5",
-        "balanced": "gpt-5-mini",
-        "noHurry": "gpt-5-nano"
-      }
+      "model": "",
+      "comparisonModel": ""
     }
   },
   "heartbeat": {
@@ -629,15 +719,12 @@
     "rerank": "bm25",
     "tokenizer": "porter"
   },
-  "sessionRouting": {
-    "dmScope": "per-channel-peer",
-    "identityLinks": {}
-  },
   "ops": {
     "healthHost": "127.0.0.1",
     "healthPort": 9090,
     "webApiToken": "",
     "gatewayBaseUrl": "http://127.0.0.1:9090",
+    "gatewayInternalBaseUrl": "http://127.0.0.1:9090",
     "gatewayApiToken": "",
     "dbPath": "~/.hybridclaw/data/hybridclaw.db",
     "logLevel": "info",
@@ -675,6 +762,17 @@
       "maxRetries": 3
     }
   },
+  "sessionReset": {
+    "defaultPolicy": {
+      "mode": "both",
+      "atHour": 4,
+      "idleMinutes": 1440
+    }
+  },
+  "sessionRouting": {
+    "dmScope": "per-channel-peer",
+    "identityLinks": {}
+  },
   "promptHooks": {
     "bootstrapEnabled": true,
     "memoryEnabled": true,
@@ -694,7 +792,9 @@
       "model": "",
       "maxConcurrent": 3,
       "maxDepth": 2,
-      "maxPerTurn": 3
+      "maxPerTurn": 3,
+      "jobsRetentionDays": 7,
+      "jobsMaxRows": 1000
     },
     "autoRetry": {
       "enabled": true,

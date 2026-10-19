@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
@@ -1832,10 +1833,7 @@ function writeGatewayAdminAgentMarkdownFileContent(
   if (typeof options?.sizeBytes !== 'number') {
     assertGatewayAdminAgentMarkdownContentSize(content);
   }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, content, 'utf-8');
-  fs.renameSync(tempPath, filePath);
+  writeFileAtomic(filePath, content);
   return getGatewayAdminAgentMarkdownFileStats(filePath);
 }
 
@@ -1961,16 +1959,8 @@ function writeGatewayAdminAgentMarkdownRevision(params: {
     sha256: revision.sha256,
     source: revision.source,
   };
-  const tempContentPath = `${contentPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempContentPath, revision.content, 'utf-8');
-  fs.renameSync(tempContentPath, contentPath);
-  const tempMetadataPath = `${revisionPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(
-    tempMetadataPath,
-    JSON.stringify(metadata, null, 2),
-    'utf-8',
-  );
-  fs.renameSync(tempMetadataPath, revisionPath);
+  writeFileAtomic(contentPath, revision.content);
+  writeFileAtomic(revisionPath, JSON.stringify(metadata, null, 2));
   trimGatewayAdminAgentMarkdownRevisions(params);
   return metadata;
 }

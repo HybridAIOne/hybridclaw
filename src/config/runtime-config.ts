@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -1063,6 +1064,7 @@ export interface RuntimeConfig {
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
     prefix: string;
+    allowFrom: string[];
     guildMembersIntent: boolean;
     presenceIntent: boolean;
     commandsOnly: boolean;
@@ -1558,6 +1560,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   discord: {
     prefix: '!claw',
+    allowFrom: [],
     guildMembersIntent: false,
     presenceIntent: false,
     commandsOnly: false,
@@ -7227,6 +7230,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.discord.prefix,
         { allowEmpty: false },
       ),
+      allowFrom: normalizeStringArray(
+        rawDiscord.allowFrom,
+        DEFAULT_RUNTIME_CONFIG.discord.allowFrom,
+      ),
       guildMembersIntent: normalizeBoolean(
         rawDiscord.guildMembersIntent,
         DEFAULT_RUNTIME_CONFIG.discord.guildMembersIntent,
@@ -8261,9 +8268,7 @@ function writeConfigFile(
     }
   }
 
-  const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, nextText, { encoding: 'utf-8', mode: 0o600 });
-  fs.renameSync(tmpPath, CONFIG_PATH);
+  writeFileAtomic(CONFIG_PATH, nextText, { mode: 0o600 });
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
       exists: true,

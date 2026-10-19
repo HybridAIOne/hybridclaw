@@ -10,10 +10,10 @@
  * chats of an agent share one list, except a scope's chats, which share
  * theirs; any other chat keeps its own.
  */
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -92,19 +92,11 @@ function load(): Map<string, TodoList> {
 }
 
 function save(owners: Map<string, TodoList>): void {
-  const file = storePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(
-      temporary,
-      JSON.stringify({ version: 1, owners: Object.fromEntries(owners) }),
-      { mode: 0o600, flag: 'wx' },
-    );
-    fs.renameSync(temporary, file);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(
+    storePath(),
+    JSON.stringify({ version: 1, owners: Object.fromEntries(owners) }),
+    { mode: 0o600, dirMode: 0o700 },
+  );
 }
 
 export function todoOwnerOf(session: Session): string {

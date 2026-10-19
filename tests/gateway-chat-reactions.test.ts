@@ -95,7 +95,7 @@ test('the bound phone persists or removes Hy’s quick reaction without rating a
   const react = async (operator: string, body: Record<string, unknown>) => {
     const res = fakeResponse();
     await handleChatReactionRoute(post({ sessionId, messageId: result.userMessageId, role: 'user', ...body }),
-      res as unknown as ServerResponse, operator, () => 'user_a');
+      res as unknown as ServerResponse, operator);
     return res.statusCode;
   };
   expect(await react(phone, { emoji: '👍' })).toBe(200);
@@ -126,7 +126,6 @@ test('the user’s reaction reaches the agent with their next message, once', as
       post({ sessionId, messageId: first.assistantMessageId, ...body }),
       res as unknown as ServerResponse,
       operatorId,
-      (userId) => userId || 'web',
     );
     return res.statusCode;
   };
@@ -155,7 +154,7 @@ test('the user’s reaction reaches the agent with their next message, once', as
   expect(currentContext).not.toContain('## Reactions From The User');
 });
 
-test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears it', async () => {
+test('all emoji are ordinary reactions and leave explicit ratings untouched', async () => {
   const { db, turn } = await setup();
   runAgentMock.mockResolvedValue(answered('Here is your summary.'));
   const first = await turn('Sum up my week');
@@ -176,9 +175,9 @@ test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears i
       post({ sessionId, messageId, emoji, userId: 'user_a' }),
       res as unknown as ServerResponse,
       phone,
-      (userId) => userId || 'web',
     );
     expect(res.statusCode).toBe(200);
+    expect(db.getConversationHistory(sessionId, 10).find(message => message.id === messageId)?.reaction).toBe(emoji);
     return db
       .getResponseRatingsForMessages({
         sessionId,
@@ -188,10 +187,10 @@ test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears i
       .get(messageId);
   };
 
-  expect(await react('👍🏽')).toBe('up');
-  expect(await react('👎')).toBe('down');
+  expect(await react('👍🏽')).toBeUndefined();
+  expect(await react('👎')).toBeUndefined();
   expect(await react('❤️')).toBeUndefined();
-  expect(await react('👍')).toBe('up');
+  expect(await react('👍')).toBeUndefined();
   expect(await react(null)).toBeUndefined();
   // A rating given another way stays when an unrelated reaction comes off.
   submitResponseRating({
@@ -200,6 +199,7 @@ test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears i
     operatorUserId: 'user_a',
     rating: 'down',
   });
+  expect(await react('👍')).toBe('down');
   expect(await react('😂')).toBe('down');
   expect(await react(null)).toBe('down');
 });

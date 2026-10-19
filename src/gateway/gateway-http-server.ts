@@ -210,6 +210,7 @@ import {
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
+import { isRecord } from '../utils/type-guards.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
 import { resolveRealtimeConnection } from '../voice/realtime-credentials.js';
 import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
@@ -3498,6 +3499,9 @@ async function handleApiChat(
     username: body.username ?? 'web',
     content,
     ...(approval ? { approval } : {}),
+    ...(authContext.kind === 'apiToken' && !authContext.tokenId
+      ? { approvalUserText: null }
+      : {}),
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     ...(body.scope !== undefined ? { scope: body.scope } : {}),
@@ -7796,10 +7800,6 @@ type LiveAppBridgeToolRunResult =
       toolExecutions: ToolExecution[];
     };
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function serializePublicationPolicy(policy: AppPublicationPolicy): {
   kind: AppPublicationPolicy['kind'];
   ttlSeconds?: number;
@@ -8173,7 +8173,7 @@ function readViewerContext(
   payload: Record<string, unknown> | null,
 ): { sub: string; email?: string; name?: string } | null {
   const viewer = payload?.viewer;
-  if (!isJsonObject(viewer)) return null;
+  if (!isRecord(viewer)) return null;
   const sub = typeof viewer.sub === 'string' ? viewer.sub.trim() : '';
   if (!sub) return null;
   const email = typeof viewer.email === 'string' ? viewer.email.trim() : '';
@@ -8215,7 +8215,7 @@ function normalizeLiveAppBridgeToolRequest(body: unknown): {
   toolName: string;
   args: Record<string, unknown>;
 } {
-  if (!isJsonObject(body)) {
+  if (!isRecord(body)) {
     throw new GatewayRequestError(400, 'Expected JSON object request body.');
   }
 
@@ -8235,7 +8235,7 @@ function normalizeLiveAppBridgeToolRequest(body: unknown): {
   }
 
   const rawArgs = body.arguments ?? body.args ?? {};
-  if (!isJsonObject(rawArgs)) {
+  if (!isRecord(rawArgs)) {
     throw new GatewayRequestError(400, '`arguments` must be a JSON object.');
   }
   if (
@@ -8706,7 +8706,7 @@ async function handleApiAppUpdate(
   id: string,
 ): Promise<void> {
   const body = await readJsonBody(req);
-  if (!isJsonObject(body)) {
+  if (!isRecord(body)) {
     throw new GatewayRequestError(400, 'Expected JSON object request body.');
   }
   const visibility =
@@ -8752,7 +8752,7 @@ async function handleApiAppPublicationCreate(
     return;
   }
   const body = await readJsonBody(req);
-  if (!isJsonObject(body)) {
+  if (!isRecord(body)) {
     throw new GatewayRequestError(400, 'Expected JSON object request body.');
   }
   const requestedKind = String(body.kind || body.policy || 'link').trim();
@@ -9581,7 +9581,7 @@ async function handlePublicationSessionExchange(
   }
 
   const body = await readJsonBody(req);
-  const requestBody = isJsonObject(body) ? body : {};
+  const requestBody = isRecord(body) ? body : {};
   let viewer: MSTeamsTabViewer | null = null;
   if (publication.policy.kind === 'password') {
     const password =
@@ -9693,7 +9693,7 @@ async function handleTeamsTabApps(
     return;
   }
   const body = await readJsonBody(req);
-  const requestBody = isJsonObject(body) ? body : {};
+  const requestBody = isRecord(body) ? body : {};
   let viewer: MSTeamsTabViewer;
   try {
     viewer = await validateTeamsTabRequest(req, requestBody);
@@ -9727,7 +9727,7 @@ async function handleTeamsTabAppPublication(
     return;
   }
   const body = await readJsonBody(req);
-  const requestBody = isJsonObject(body) ? body : {};
+  const requestBody = isRecord(body) ? body : {};
   let viewer: MSTeamsTabViewer;
   try {
     viewer = await validateTeamsTabRequest(req, requestBody);
@@ -10691,18 +10691,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === CHAT_REACTION_PATH && method === 'POST') {
             if (operatorId) {
-              await handleChatReactionRoute(
-                req,
-                res,
-                operatorId,
-                (requestedUserId) =>
-                  resolveGatewayRequestUserId({
-                    req,
-                    channelId: 'web',
-                    requestedUserId,
-                    fallbackUserId: 'web',
-                  }) || 'web',
-              );
+              await handleChatReactionRoute(req, res, operatorId);
             } else {
               sendJson(res, 404, { error: 'Message not found.' });
             }

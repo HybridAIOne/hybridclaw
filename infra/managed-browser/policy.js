@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import YAML from 'yaml';
 import {
-  asRecord,
   evaluateNetworkPolicyAccess,
   readNetworkPolicyState,
 } from '../../container/shared/network-policy.js';
+import { asRecord } from '../../container/shared/primitive-values.js';
 
 const POLICY_CACHE_TTL_MS = 10_000;
 const policyCache = new Map();
@@ -17,10 +17,10 @@ export function readTenantPolicyFile(policyPath) {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
-  const tenants = asRecord(asRecord(parsed).tenants);
+  const tenants = asRecord(asRecord(parsed)?.tenants) ?? {};
   const out = new Map();
   for (const [tenantId, tenantConfig] of Object.entries(tenants)) {
-    out.set(tenantId, readNetworkPolicyState(asRecord(tenantConfig)));
+    out.set(tenantId, readNetworkPolicyState(asRecord(tenantConfig) ?? {}));
   }
   return out;
 }

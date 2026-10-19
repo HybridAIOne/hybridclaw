@@ -11,6 +11,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
 import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalReplyInterpretation } from '../shared/approval-reply.js';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -20,6 +21,7 @@ import {
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
 } from '../shared/approval-rules.js';
+import { writeFileAtomic } from '../shared/atomic-write.js';
 import type { BoostAnswer } from '../shared/boost-offer.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
@@ -36,7 +38,6 @@ import type {
   NetworkRule,
 } from '../shared/network-policy.js';
 import {
-  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   evaluateNetworkPolicyAccess,
@@ -44,6 +45,8 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
+import { asRecord } from '../shared/primitive-values.js';
+import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   messageToolEmailTarget,
   messageToolTarget,
@@ -126,6 +129,7 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
+export { parseApprovalUserResponse } from './approval-directive.js';
 export type {
   StakesClassificationInput,
   StakesClassifier,
@@ -232,7 +236,10 @@ export interface ClassifiedAction {
 }
 
 export interface ApprovalPrelude {
+  interpretation?: ApprovalReplyInterpretation;
+  modelResponse?: import('./types.js').ChatCompletionResponse;
   immediateMessage?: string;
+  pendingApproval?: import('./types.js').PendingApproval;
   replayPrompt?: string;
   approvedToolCall?: {
     toolName: string;
@@ -499,9 +506,6 @@ const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const HOST_RE =
   /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
-const APPROVE_RE =
-  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
-const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 const registeredApprovalRuleNames = new Set<string>(
   DEFAULT_APPROVAL_RULE_ORDER,
 );
@@ -727,7 +731,7 @@ function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
 }
 
 function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const out: Record<string, AutonomyLevel> = {};
   for (const [rawKey, rawValue] of Object.entries(record)) {
     const key = rawKey.trim().toLowerCase();
@@ -739,7 +743,7 @@ function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
-  const rule = asRecord(raw);
+  const rule = asRecord(raw) ?? {};
   const pattern = String(rule.pattern || '').trim();
   const tools = normalizeStringList(rule.tools);
   const paths = normalizeStringList(rule.paths);
@@ -772,10 +776,10 @@ function pathArgHints(
 }
 
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
-  const document = asRecord(YAML.parse(raw) as unknown);
-  const approval = asRecord(document.approval);
-  const autonomy = asRecord(document.autonomy);
-  const audit = asRecord(document.audit);
+  const document = asRecord(YAML.parse(raw) as unknown) ?? {};
+  const approval = asRecord(document.approval) ?? {};
+  const autonomy = asRecord(document.autonomy) ?? {};
+  const audit = asRecord(document.audit) ?? {};
   const browserStealthState =
     readBrowserStealthPolicyStateFromDocument(document);
   const pinnedRed = Array.isArray(approval.pinned_red)
@@ -1061,7 +1065,7 @@ function isExpectedJsonFieldType(
 function invalidSkillRequestContractReason(
   args: Record<string, unknown> | undefined,
 ): string | null {
-  const contract = asRecord(args?.skillRequestContract);
+  const contract = asRecord(args?.skillRequestContract) ?? {};
   if (Object.keys(contract).length === 0) return null;
 
   const contractName =
@@ -1094,7 +1098,7 @@ function invalidSkillRequestContractReason(
     return failure('do not send secretHeaders.');
   }
 
-  const json = asRecord(args?.json);
+  const json = asRecord(args?.json) ?? {};
   for (const field of stringList(contract.forbidJsonFields)) {
     if (field in json) return failure(`do not send json.${field}.`);
   }
@@ -1102,7 +1106,7 @@ function invalidSkillRequestContractReason(
     if (!(field in json)) return failure(`missing json.${field}.`);
   }
 
-  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes);
+  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes) ?? {};
   for (const [field, expectedTypeValue] of Object.entries(
     requiredJsonFieldTypes,
   )) {
@@ -1343,91 +1347,6 @@ function primaryPathKey(rawPath: string): string {
   if (!normalized) return 'root';
   const [first] = normalized.split('/');
   return first || 'root';
-}
-
-function parseModeFromApproveMatch(
-  match: RegExpMatchArray | null,
-): ApprovalMode {
-  const scope = String(match?.[2] || '').toLowerCase();
-  if (scope.includes('all')) return 'all';
-  if (scope.includes('agent')) return 'agent';
-  if (scope.includes('session')) return 'session';
-  return 'once';
-}
-
-function parseApprovalDirective(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
-  const normalized = input.trim();
-  if (!normalized) return null;
-
-  const directiveCandidates = [
-    normalized,
-    normalized.replace(/^(?:<@!?\d+>\s*)+/, ''),
-  ];
-
-  for (const candidate of directiveCandidates) {
-    if (!candidate) continue;
-    const approveMatch = candidate.match(APPROVE_RE);
-    if (approveMatch) {
-      return {
-        kind: 'approve',
-        mode: parseModeFromApproveMatch(approveMatch),
-        requestId: String(approveMatch[1] || '').trim(),
-      };
-    }
-
-    const denyMatch = candidate.match(DENY_RE);
-    if (denyMatch) {
-      return {
-        kind: 'deny',
-        requestId: String(denyMatch[1] || '').trim(),
-      };
-    }
-  }
-
-  return null;
-}
-
-export function parseApprovalUserResponse(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
-  const normalized = input.trim();
-  if (!normalized) return null;
-
-  const candidates: string[] = [];
-  const pushCandidate = (value: string): void => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (candidates.includes(trimmed)) return;
-    candidates.push(trimmed);
-  };
-
-  pushCandidate(normalized);
-  pushCandidate(normalized.replace(/^(?:<@!?\d+>\s*)+/, ''));
-
-  const batchTailMatch = normalized.match(/Message\s+\d+\s*:\s*([\s\S]+)$/i);
-  if (batchTailMatch?.[1]) {
-    pushCandidate(batchTailMatch[1]);
-  }
-
-  const lines = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length > 0) {
-    pushCandidate(lines[lines.length - 1]);
-  }
-
-  for (const candidate of candidates) {
-    const parsed = parseApprovalDirective(candidate);
-    if (parsed) return parsed;
-  }
-  return null;
 }
 
 function nextRule(): NextRule {
@@ -2114,7 +2033,9 @@ export class TrustedAgentApprovalRuntime {
   private readonly actionExecutionCounts = new Map<string, number>();
   private readonly explicitApprovalCounts = new Map<string, number>();
   private readonly oneShotFingerprints = new Set<string>();
-  private readonly sessionTrustedActions = new Set<string>();
+  private readonly sessionTrustedActions = new SessionStateSet(
+    'approval-session-trust.json',
+  );
   // `yes for agent` and `yes for all` grants. The gateway revokes them by
   // rewriting the files, so they are read again whenever a file changes.
   private readonly agentTrust: DurableTrust;
@@ -2133,6 +2054,7 @@ export class TrustedAgentApprovalRuntime {
   private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
+  private userHash = '';
   // The request's browser.provider. A warm or long-lived worker outlives a
   // provider switch, so its spawn environment is not evidence.
   private browserProvider = '';
@@ -2204,11 +2126,14 @@ export class TrustedAgentApprovalRuntime {
   }
 
   /** Loads the session's persisted state; call before each turn. */
-  setSession(sessionId: string): void {
+  setSession(sessionId: string, userId?: string): void {
+    this.userHash = userId ? sessionStateKey(userId) : '';
     this.sessionId = sessionId;
     this.fetchedFiles.bindSession(sessionId);
+    this.sessionTrustedActions.bindSession(sessionId);
     const sessionHash = sessionId ? sessionStateKey(sessionId) : '';
     if (sessionHash === this.sessionHash) return;
+    this.oneShotFingerprints.clear();
     this.sessionHash = sessionHash;
     this.loadPersistedPendingApprovals();
   }
@@ -2393,14 +2318,7 @@ export class TrustedAgentApprovalRuntime {
 
   private persistTrustStore(trust: DurableTrust): void {
     try {
-      fs.mkdirSync(path.dirname(trust.path), { recursive: true });
-      const tmpPath = `${trust.path}.tmp`;
-      fs.writeFileSync(
-        tmpPath,
-        serializeApprovalTrustStore(trust.store),
-        'utf-8',
-      );
-      fs.renameSync(tmpPath, trust.path);
+      writeFileAtomic(trust.path, serializeApprovalTrustStore(trust.store));
       trust.version = trustStoreVersion(trust.path);
     } catch {
       // ignore persistence failures and continue with in-memory trust
@@ -2454,14 +2372,37 @@ export class TrustedAgentApprovalRuntime {
     const parsedResponse = parseApprovalUserResponse(latest);
     if (!parsedResponse) return null;
 
-    // "no facade" or "yes 2024-10-09" names no pending request; it is a
-    // message for the agent, not an answer, as with boost questions.
-    const target = this.resolvePendingTarget(parsedResponse.requestId);
-    if (!target) return null;
+    if (!this.resolvePendingTarget(parsedResponse.requestId)) return null;
+    return this.resolveApprovalResponse(parsedResponse);
+  }
 
-    if (parsedResponse.kind === 'deny') {
+  getPendingApprovals(): PendingApproval[] {
+    this.cleanupExpiredPending();
+    return [...this.pending.values()]
+      .filter(
+        (pending) => !pending.userHash || pending.userHash === this.userHash,
+      )
+      .map((pending) => ({ ...pending }));
+  }
+
+  resolveApprovalResponse(parsedResponse: {
+    kind: 'approve' | 'deny' | 'revise';
+    requestId: string;
+    mode?: ApprovalMode;
+  }): ApprovalPrelude | null {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    const target = this.resolvePendingTarget(parsedResponse.requestId);
+    if (!target)
+      return {
+        immediateMessage:
+          'That approval is no longer pending. Please request the action again.',
+      };
+
+    if (parsedResponse.kind === 'deny' || parsedResponse.kind === 'revise') {
       this.pending.delete(target.id);
       this.persistPendingApprovals();
+      if (parsedResponse.kind === 'revise') return null;
       return {
         immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
       };
@@ -2550,6 +2491,7 @@ export class TrustedAgentApprovalRuntime {
       this.sessionHash,
       stableHash(`${toolName}|${argsJson}`),
     );
+    pending.userHash = this.userHash;
     this.pending.set(pending.id, pending);
     this.persistPendingApprovals();
     return promptCard;
@@ -2661,13 +2603,18 @@ export class TrustedAgentApprovalRuntime {
     >,
   ): PendingApproval {
     for (const pending of this.pending.values()) {
-      if (pending.fingerprint === input.fingerprint) return pending;
+      if (
+        pending.fingerprint === input.fingerprint &&
+        (!pending.userHash || pending.userHash === this.userHash)
+      )
+        return pending;
     }
     const createdAtMs = Date.now();
     const pending: PendingApproval = {
       ...input,
       id: randomUUID().slice(0, 8),
       sessionHash: this.sessionHash,
+      userHash: this.userHash,
       createdAtMs,
       expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
     };
@@ -2679,14 +2626,12 @@ export class TrustedAgentApprovalRuntime {
   private resolvePendingTarget(requestedId: string): PendingApproval | null {
     if (requestedId) {
       const direct = this.pending.get(requestedId);
-      if (direct) return direct;
+      if (direct && (!direct.userHash || direct.userHash === this.userHash))
+        return direct;
       return null;
     }
-    let latest: PendingApproval | null = null;
-    for (const pending of this.pending.values()) {
-      if (!latest || pending.createdAtMs > latest.createdAtMs) latest = pending;
-    }
-    return latest;
+    const own = this.getPendingApprovals();
+    return own.length === 1 ? own[0] : null;
   }
 
   private cleanupExpiredPending(): void {
@@ -3003,6 +2948,8 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
+      // Public warning lookups; watching only saves the user's place list.
+      lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&
@@ -3612,6 +3559,7 @@ export class TrustedAgentApprovalRuntime {
         toolName,
         normalizePreview(JSON.stringify(args)),
         this.mcpToolBehaviorResolver?.(toolName),
+        args,
       );
 
     if (lowerTool === 'bash') {

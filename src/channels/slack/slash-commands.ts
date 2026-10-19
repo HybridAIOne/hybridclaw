@@ -9,7 +9,7 @@ import {
 } from '../../command-registry.js';
 import { resolveTextChannelSlashCommands } from '../../gateway/text-channel-commands.js';
 import { normalizeTrimmedString } from '../../utils/normalized-strings.js';
-import { isRecord } from '../../utils/type-guards.js';
+import { asRecord, isRecord } from '../../utils/type-guards.js';
 
 export interface SlackManifestSlashCommand {
   command: string;
@@ -55,12 +55,6 @@ function buildSlackManifestSlashCommand(
     should_escape: false,
     ...(usageHint ? { usage_hint: usageHint } : {}),
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 function normalizeManifestCommandName(value: unknown): string {

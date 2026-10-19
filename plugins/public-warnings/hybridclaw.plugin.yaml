@@ -1,0 +1,12 @@
+id: public-warnings
+name: Public Warnings
+version: 0.1.0
+kind: tool
+description: "public_warnings tool and watcher for official German warnings by district (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police). Watched places get a message in the agent's main chat when a warning starts."
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

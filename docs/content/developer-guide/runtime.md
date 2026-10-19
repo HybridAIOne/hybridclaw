@@ -119,6 +119,12 @@ Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
 
+Session approval grants are written through to
+`.hybridclaw-runtime/sessions/<session-key>/approval-session-trust.json`.
+A replacement worker reloads them; switching sessions clears the prior session's
+grants. These files use the existing pinned approval-state protections.
+
+
 ### Auxiliary Model Routing
 
 Browser vision and auxiliary tools share one model context and task-policy store
@@ -214,7 +220,11 @@ workspace. `AGENTS.md` §3.7 has the rule for adding worker state.
 
 HybridClaw runtime configuration is typed and validated in
 `~/.hybridclaw/config.json`, which is auto-created on first run. Use
-`config.example.json` as the reference.
+`config.example.json` as the reference. It is generated from
+`DEFAULT_RUNTIME_CONFIG` plus a small overlay of example values by
+`npm run generate:config-example`; `npm run lint` fails when it is stale, so
+change defaults in `src/config/runtime-config.ts` and example-only values in
+`scripts/generate-config-example.ts`, never the JSON file.
 
 Core details:
 

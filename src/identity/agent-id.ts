@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
@@ -151,11 +152,27 @@ export function slugifyAgentIdentityComponent(
   value: string,
   fallback: string,
 ): string {
-  const normalized = normalizeAgentIdentityComponent(value)
-    .replace(/@.*$/u, '')
-    .replace(/[^a-z0-9._-]+/gu, '-')
-    .replace(/^[._-]+|[._-]+$/gu, '')
-    .slice(0, AGENT_IDENTITY_COMPONENT_MAX_LENGTH);
+  let normalized = normalizeAgentIdentityComponent(value);
+  // Preserve suffix removal on the final line without regex backtracking.
+  const lastLineStart =
+    Math.max(
+      normalized.lastIndexOf('\n'),
+      normalized.lastIndexOf('\r'),
+      normalized.lastIndexOf('\u2028'),
+      normalized.lastIndexOf('\u2029'),
+    ) + 1;
+  const suffixStart = normalized.indexOf('@', lastLineStart);
+  if (suffixStart !== -1) normalized = normalized.slice(0, suffixStart);
+  normalized = normalized.replace(/[^a-z0-9._-]+/gu, '-');
+
+  let start = 0;
+  let end = normalized.length;
+  while (start < end && '._-'.includes(normalized[start])) start += 1;
+  while (end > start && '._-'.includes(normalized[end - 1])) end -= 1;
+  normalized = normalized.slice(
+    start,
+    Math.min(end, start + AGENT_IDENTITY_COMPONENT_MAX_LENGTH),
+  );
   if (normalized && AGENT_IDENTITY_COMPONENT_PATTERN.test(normalized)) {
     return normalized;
   }
@@ -265,20 +282,8 @@ function writeNewLocalInstanceIdState(
   statePath: string,
   state: LocalInstanceIdState,
 ): void {
-  const stateDir = path.dirname(statePath);
-  fs.mkdirSync(stateDir, { recursive: true });
-  const tempPath = path.join(stateDir, `.instance-id-${randomUUID()}.tmp`);
-  try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
-      encoding: 'utf-8',
-      flag: 'wx',
-    });
-    // Hard-linking creates the target only after the complete temp file exists
-    // and fails with EEXIST instead of overwriting a concurrently-created id.
-    fs.linkSync(tempPath, statePath);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
-  }
+  // Fails with EEXIST instead of overwriting a concurrently-created id.
+  writeFileAtomicExclusive(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 export function resolveLocalInstanceId(

@@ -747,10 +747,11 @@ test('normalizes max token values consistently', async () => {
   writeRuntimeConfig(homeDir);
   const taskRouting = await importFreshTaskRouting(homeDir);
 
-  expect(taskRouting.normalizeMaxTokens(42.9)).toBe(42);
+  expect(taskRouting.normalizeMaxTokens(42)).toBe(42);
+  expect(taskRouting.normalizeMaxTokens('42')).toBe(42);
+  expect(taskRouting.normalizeMaxTokens(42.9)).toBeUndefined();
   expect(taskRouting.normalizeMaxTokens(0)).toBeUndefined();
   expect(taskRouting.normalizeMaxTokens(undefined)).toBeUndefined();
-  expect(taskRouting.normalizeMaxTokens('42')).toBeUndefined();
 });
 
 test('routing classification is independent of the disabled Skills Hub task', async () => {

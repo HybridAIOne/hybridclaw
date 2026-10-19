@@ -1,5 +1,8 @@
 import { execFileSync, execSync } from 'node:child_process';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { writeZipArchive } from './helpers/zip-archive.js';
+import { useTempDir } from './test-utils.js';
 import {
   cleanupStaleContainers,
   dockerE2eGate,
@@ -338,4 +341,111 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     },
     60_000,
   );
+
+  // ── Agent install ────────────────────────────────────────────────────
+  // In v0.40.0 /health stayed green while `node /app/dist/cli.js` could not
+  // load; the platform has provisioned agents through both launchers.
+
+  const ARCHIVE_PATH = '/tmp/e2e-agent.claw';
+  const makeTempDir = useTempDir('hybridclaw-docker-e2e-');
+  const LAUNCHERS = [['hybridclaw'], ['node', '/app/dist/cli.js']];
+
+  function hybridclaw(...args: string[]): string {
+    return runCli(LAUNCHERS[0], args);
+  }
+
+  function runCli(launcher: string[], args: string[]): string {
+    return execFileSync(
+      'docker',
+      ['exec', CONTAINER_NAME, ...launcher, ...args],
+      { encoding: 'utf-8', timeout: 60_000 },
+    );
+  }
+
+  async function copyAgentArchiveIntoContainer(): Promise<void> {
+    const archivePath = path.join(makeTempDir(), 'e2e-agent.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify({
+          formatVersion: 1,
+          name: 'E2E Agent',
+          id: 'e2e-agent',
+          skills: { bundled: ['e2e-skill'] },
+        }),
+      },
+      { name: 'workspace/SOUL.md', content: '# Soul\n' },
+      {
+        name: 'skills/e2e-skill/SKILL.md',
+        content: '---\nname: e2e-skill\ndescription: Test skill\n---\n',
+      },
+    ]);
+    execFileSync('docker', [
+      'cp',
+      archivePath,
+      `${CONTAINER_NAME}:${ARCHIVE_PATH}`,
+    ]);
+  }
+
+  test.each(
+    LAUNCHERS.map((launcher, index) => ({
+      name: launcher.join(' '),
+      launcher,
+      agentId: `e2e-cli-agent-${index}`,
+    })),
+  )(
+    '$name installs and activates an agent like platform provisioning',
+    async ({ launcher, agentId }) => {
+      await copyAgentArchiveIntoContainer();
+      runCli(launcher, ['agent', 'inspect', ARCHIVE_PATH]);
+      runCli(launcher, [
+        'agent',
+        'install',
+        ARCHIVE_PATH,
+        '--id',
+        agentId,
+        '--yes',
+        '--force',
+        '--skip-skill-scan',
+        '--skip-import-errors',
+      ]);
+      try {
+        runCli(launcher, ['agent', 'activate', agentId]);
+        expect(runCli(launcher, ['agent', 'list'])).toMatch(
+          new RegExp(`^${agentId}\\t`, 'm'),
+        );
+      } finally {
+        hybridclaw('agent', 'activate', 'main');
+      }
+    },
+    120_000,
+  );
+
+  test('gateway command installs an agent in-process', async () => {
+    await copyAgentArchiveIntoContainer();
+    const res = await fetch(`${GATEWAY_URL}/api/command`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${WEB_API_TOKEN}`,
+      },
+      body: JSON.stringify({
+        sessionId: 'e2e-agent-install',
+        channelId: 'web',
+        args: [
+          'agent',
+          'install',
+          ARCHIVE_PATH,
+          '--id',
+          'e2e-gateway-agent',
+          '--yes',
+        ],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const body = (await res.json()) as { kind: string };
+    expect(body).toMatchObject({ kind: 'info' });
+    expect(res.status).toBe(200);
+    expect(hybridclaw('agent', 'list')).toMatch(/^e2e-gateway-agent\t/m);
+  }, 90_000);
 });

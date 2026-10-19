@@ -52,10 +52,13 @@ export interface HybridAILoginResult {
 interface ApiKeyValidationResult {
   ok: boolean;
   error?: string;
+  /** Bot-list response body, set when `ok`. */
+  payload?: unknown;
 }
 
 const DEFAULT_BASE_URL = 'https://hybridai.one';
-const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+export const DEFAULT_LOGIN_PATH =
+  '/login?context=hybridclaw&next=/admin_api_keys';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
@@ -114,18 +117,18 @@ export function readHybridAIApiKey(): string | null {
   return readCurrentApiKey() || null;
 }
 
-function normalizeBaseUrl(raw: string): string {
+export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
 }
 
-function resolveUrl(baseUrl: string, routeOrUrl: string): string {
+export function resolveUrl(baseUrl: string, routeOrUrl: string): string {
   const trimmed = routeOrUrl.trim();
   if (!trimmed) return baseUrl;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `${baseUrl}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
 }
 
-function extractApiKeyFromInput(raw: string): string | null {
+export function extractApiKeyFromInput(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
@@ -175,7 +178,9 @@ function parseErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-async function readResponsePayload(response: Response): Promise<unknown> {
+export async function readResponsePayload(
+  response: Response,
+): Promise<unknown> {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
     return response.json().catch(() => null);
@@ -189,7 +194,7 @@ async function readResponsePayload(response: Response): Promise<unknown> {
   }
 }
 
-async function validateApiKey(
+export async function validateApiKey(
   baseUrl: string,
   apiKey: string,
 ): Promise<ApiKeyValidationResult> {
@@ -216,16 +221,19 @@ async function validateApiKey(
     };
   }
 
-  return { ok: true };
+  return { ok: true, payload };
 }
 
-async function promptYesNo(
+export async function promptYesNo(
   rl: readline.Interface,
   question: string,
   defaultYes = true,
+  formatPrompt: (text: string) => string = (text) => text,
 ): Promise<boolean> {
   const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
-  const raw = (await rl.question(`${question}${suffix}`)).trim().toLowerCase();
+  const raw = (await rl.question(formatPrompt(`${question}${suffix}`)))
+    .trim()
+    .toLowerCase();
   if (!raw) return defaultYes;
   if (raw === 'y' || raw === 'yes') return true;
   if (raw === 'n' || raw === 'no') return false;

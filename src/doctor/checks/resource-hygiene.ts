@@ -26,6 +26,7 @@ import {
   shortenHomePath,
   toErrorMessage,
 } from '../utils.js';
+import { checkDatabaseSpace } from './database-space.js';
 
 const AGENTS_DIR_NAME = 'agents';
 const EVALS_DIR_NAME = 'evals';
@@ -1212,5 +1213,6 @@ export function resourceHygieneDoctorChecks(): DoctorCheck[] {
       label: 'Ephemeral eval artifacts',
       run: () => checkEphemeralEvalArtifacts(ctx),
     },
+    { category: 'database', label: 'Database space', run: checkDatabaseSpace },
   ];
 }

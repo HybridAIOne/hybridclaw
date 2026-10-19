@@ -1,6 +1,4 @@
-function isRecord(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from './primitive-values.js';
 
 export function extractResponseTextContent(content) {
   if (typeof content === 'string') return content.trim();

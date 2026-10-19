@@ -15,6 +15,10 @@ import type {
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import { withMemoryDatabase } from './database.js';
+import {
+  deviceDataExcludesImprovement,
+  HY_AGENT_ID,
+} from './device-data-privacy.js';
 import { queryAll, queryOne } from './sqlite.js';
 
 type SkillObservationRow = Omit<
@@ -331,6 +335,8 @@ export function recordSkillObservation(input: {
 }
 
 export function getSkillObservations(params?: {
+  excludeProtectedDeviceData?: boolean;
+  observationId?: number;
   skillName?: string;
   agentId?: string;
   sessionId?: string;
@@ -364,6 +370,17 @@ export function getSkillObservations(params?: {
   if (createdAfter) {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
+  }
+  if (params?.observationId !== undefined) {
+    clauses.push('id = ?');
+    args.push(params.observationId);
+  }
+  if (
+    params?.excludeProtectedDeviceData &&
+    deviceDataExcludesImprovement(HY_AGENT_ID)
+  ) {
+    clauses.push("COALESCE(agent_id, '') != ?");
+    args.push(HY_AGENT_ID);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -437,6 +454,10 @@ export function getSkillObservationSummary(params?: {
   if (agentId) {
     clauses.push('agent_id = ?');
     args.push(agentId);
+  }
+  if (deviceDataExcludesImprovement(HY_AGENT_ID)) {
+    clauses.push("COALESCE(agent_id, '') != ?");
+    args.push(HY_AGENT_ID);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';

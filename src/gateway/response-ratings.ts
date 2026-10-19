@@ -4,6 +4,7 @@
  * who performed the action; it does not infer actors from response ownership.
  * Forwarding requires an explicit bot association; global defaults are not ownership.
  */
+
 import { findAgentConfig } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
@@ -22,6 +23,7 @@ import {
   type ResponseRatingTarget,
   upsertResponseRating,
 } from '../memory/db.js';
+import { deviceDataExcludesImprovement } from '../memory/device-data-privacy.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import { recordSkillFeedbackForObservation } from '../skills/skills-observation.js';
 import type { ResponseRatingValue } from '../types/session.js';
@@ -153,6 +155,8 @@ async function forwardHybridAIChatFeedbackForRating(input: {
     return;
   }
 
+  // Consent lookup can yield while protected device data arrives.
+  if (deviceDataExcludesImprovement(input.target.agent_id)) return;
   const agentId = input.target.agent_id?.trim();
   const payload = {
     chatbot_id: chatbotId,
@@ -257,6 +261,15 @@ export function submitResponseRating(
   }
   if (target.role !== 'assistant') {
     throw new Error('Only assistant responses can be rated.');
+  }
+
+  if (deviceDataExcludesImprovement(target.agent_id)) {
+    return {
+      sessionId,
+      messageId: input.messageId,
+      rating: null,
+      comment: null,
+    };
   }
 
   if (input.rating) {

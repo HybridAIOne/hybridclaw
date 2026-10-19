@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
-
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import {
   fetchA2APeer,
   isA2AAllowedHttpUrl,
   isA2ALoopbackHttpUrl,
   isRecord,
-  normalizePositiveInteger,
 } from './utils.js';
 
 export const A2A_AGENT_CARD_CACHE_TTL_MS = 5 * 60_000;
@@ -92,10 +91,9 @@ export async function fetchA2AAgentCard(input: {
     );
   }
   const nowMs = input.now.getTime();
-  const ttlMs = normalizePositiveInteger(
-    input.agentCardCacheTtlMs,
-    A2A_AGENT_CARD_CACHE_TTL_MS,
-  );
+  const ttlMs =
+    parsePositiveInteger(input.agentCardCacheTtlMs) ??
+    A2A_AGENT_CARD_CACHE_TTL_MS;
   const cacheKey = cacheKeyFor(input);
   const cached = agentCardCache.get(cacheKey);
   if (cached && cached.expiresAt > nowMs) {

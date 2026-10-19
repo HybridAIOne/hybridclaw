@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,
@@ -517,7 +518,8 @@ export interface PluginInboundProactiveMessage {
   artifacts?: ArtifactMetadata[];
 }
 
-export interface PluginDispatchInboundMessageRequest {
+export interface PluginDispatchInboundMessageRequest
+  extends ApprovalReplyContext {
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
@@ -781,6 +783,13 @@ export interface HybridClawPluginApi {
   notifyPhones(
     notification: PluginPhoneNotification,
   ): Promise<PluginPhoneNotificationResult>;
+  /**
+   * Posts `text` as the agent's message in its main chat (the apps' thread)
+   * and rings its phones like a reminder. `source` names the message for
+   * the apps, prefixed with the plugin id. False when the agent has no main
+   * chat.
+   */
+  postToMainChat(agentId: string, text: string, source: string): boolean;
 }
 
 export interface HybridClawPluginDefinition {

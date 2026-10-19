@@ -1,13 +1,11 @@
-function isObjectRecord(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from './primitive-values.js';
 
 function safeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function safeMetadata(value) {
-  if (!isObjectRecord(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   return value;
 }
 
@@ -28,7 +26,7 @@ function isPromiseLike(value) {
 
 export function normalizeMiddlewareDecision(value, options = {}) {
   if (!value) return null;
-  if (!isObjectRecord(value)) {
+  if (!isRecord(value)) {
     warn(
       options,
       { skillId: options.skillId, phase: options.phase },

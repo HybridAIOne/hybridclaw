@@ -11,13 +11,7 @@ import {
   describePolicyRuleProblem,
   evaluatePolicyRules,
 } from './policy-engine.js';
-
-export function asRecord(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value;
-}
+import { asRecord } from './primitive-values.js';
 
 function normalizeString(value) {
   return Array.from(String(value ?? '').trim())
@@ -47,7 +41,7 @@ function normalizeAction(value) {
 }
 
 function normalizeBrowserStealthRule(raw, index) {
-  const record = asRecord(raw);
+  const record = asRecord(raw) ?? {};
   const id = normalizeString(record.id);
   const problem = describePolicyRuleProblem(raw, BROWSER_STEALTH_PARAMETERS);
   const action = problem ? null : normalizeAction(record.action);
@@ -65,8 +59,8 @@ function normalizeBrowserStealthRule(raw, index) {
 }
 
 export function readBrowserStealthPolicyStateFromDocument(document) {
-  const browser = asRecord(document.browser);
-  const stealth = asRecord(browser.stealth);
+  const browser = asRecord(document.browser) ?? {};
+  const stealth = asRecord(browser.stealth) ?? {};
   const rules = Array.isArray(stealth.rules)
     ? stealth.rules.map(normalizeBrowserStealthRule)
     : [];

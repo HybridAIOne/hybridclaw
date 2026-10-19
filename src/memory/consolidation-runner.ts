@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 
 import {
   currentDateStampInTimezone,
@@ -69,13 +70,10 @@ function loadMemoryConsolidationState(): MemoryConsolidationState {
 
 function persistMemoryConsolidationState(): void {
   try {
-    fs.mkdirSync(path.dirname(MEMORY_CONSOLIDATION_STATE_PATH), {
-      recursive: true,
-    });
-    const payload = `${JSON.stringify(memoryConsolidationState, null, 2)}\n`;
-    const tempPath = `${MEMORY_CONSOLIDATION_STATE_PATH}.tmp-${process.pid}-${Date.now().toString(36)}`;
-    fs.writeFileSync(tempPath, payload, 'utf-8');
-    fs.renameSync(tempPath, MEMORY_CONSOLIDATION_STATE_PATH);
+    writeFileAtomic(
+      MEMORY_CONSOLIDATION_STATE_PATH,
+      `${JSON.stringify(memoryConsolidationState, null, 2)}\n`,
+    );
   } catch (error) {
     logger.warn({ error }, 'Failed to persist memory consolidation state');
   }

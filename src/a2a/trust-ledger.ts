@@ -6,7 +6,7 @@ import {
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
 import { listAgents } from '../agents/agent-registry.js';
 import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
@@ -19,14 +19,14 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
-import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { getOrCreateA2ADelegationTokenKeyPair } from './delegation-token.js';
 import { getLocalA2AE2EEAdvertisement } from './e2ee.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
 import { invalidateA2AIdentityResolvers } from './identity-resolver-invalidation.js';
-import { isRecord, normalizePositiveInteger } from './utils.js';
+import { isRecord } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
   WEBHOOK_REPLAY_WINDOW_MS,
@@ -436,9 +436,8 @@ function writeNewKeypairState(state: A2AInstanceKeypair): void {
     INSTANCE_KEYPAIR_PATH,
     `${JSON.stringify(state, null, 2)}\n`,
     {
-      tempPrefix: 'identity-keypair',
       dirMode: 0o700,
-      fileMode: 0o600,
+      mode: 0o600,
     },
   );
 }
@@ -817,14 +816,11 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
       secretRef: webhookConfig.secretRef,
       signatureHeader: webhookConfig.signatureHeader,
       version: webhookConfig.version,
-      replayWindowMs: normalizePositiveInteger(
-        parsed.replayWindowMs,
-        WEBHOOK_REPLAY_WINDOW_MS,
-      ),
-      rateLimitPerMinute: normalizePositiveInteger(
-        parsed.rateLimitPerMinute,
+      replayWindowMs:
+        parsePositiveInteger(parsed.replayWindowMs) ?? WEBHOOK_REPLAY_WINDOW_MS,
+      rateLimitPerMinute:
+        parsePositiveInteger(parsed.rateLimitPerMinute) ??
         A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-      ),
       createdAt: parseTimestampOr(parsed.createdAt, EPOCH_ISO),
       updatedAt: parseTimestampOr(parsed.updatedAt, EPOCH_ISO),
     };
@@ -867,14 +863,11 @@ function normalizeSharedTrustedWebhookConfig(
     secretRef: webhookConfig.secretRef,
     signatureHeader: webhookConfig.signatureHeader,
     version: webhookConfig.version,
-    replayWindowMs: normalizePositiveInteger(
-      value.replayWindowMs,
-      WEBHOOK_REPLAY_WINDOW_MS,
-    ),
-    rateLimitPerMinute: normalizePositiveInteger(
-      value.rateLimitPerMinute,
+    replayWindowMs:
+      parsePositiveInteger(value.replayWindowMs) ?? WEBHOOK_REPLAY_WINDOW_MS,
+    rateLimitPerMinute:
+      parsePositiveInteger(value.rateLimitPerMinute) ??
       A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-    ),
   };
 }
 
@@ -1987,14 +1980,11 @@ export function upsertA2ATrustedWebhookPeer(
       secretRef: webhookConfig.secretRef,
       signatureHeader: webhookConfig.signatureHeader,
       version: webhookConfig.version,
-      replayWindowMs: normalizePositiveInteger(
-        input.replayWindowMs,
-        WEBHOOK_REPLAY_WINDOW_MS,
-      ),
-      rateLimitPerMinute: normalizePositiveInteger(
-        input.rateLimitPerMinute,
+      replayWindowMs:
+        parsePositiveInteger(input.replayWindowMs) ?? WEBHOOK_REPLAY_WINDOW_MS,
+      rateLimitPerMinute:
+        parsePositiveInteger(input.rateLimitPerMinute) ??
         A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-      ),
     },
     createdAt,
     updatedAt,

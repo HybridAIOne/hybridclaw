@@ -1241,6 +1241,62 @@ test('handleGatewayMessage stores request logs when enabled in runtime config', 
   expect(rowCount.count).toBe(1);
 });
 
+test('handleGatewayMessage drops request logs past retention when it logs a turn', async () => {
+  const homeDir = setupHome();
+  fs.mkdirSync(`${homeDir}/.hybridclaw`, { recursive: true });
+  fs.writeFileSync(
+    `${homeDir}/.hybridclaw/config.json`,
+    `${JSON.stringify({ ops: { logRequests: true } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const day = 24 * 60 * 60 * 1000;
+  const seed = new Database(DB_PATH);
+  const insert = seed.prepare(
+    'INSERT INTO request_log (session_id, created_at) VALUES (?, ?)',
+  );
+  insert.run('session-old', new Date(Date.now() - 8 * day).toISOString());
+  insert.run('session-recent', new Date(Date.now() - 6 * day).toISOString());
+  seed.close();
+
+  await handleGatewayMessage({
+    sessionId: 'session-request-log-retention',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const sessions = inspect
+    .prepare('SELECT session_id FROM request_log ORDER BY id')
+    .all()
+    .map((row) => (row as { session_id: string }).session_id);
+  inspect.close();
+
+  expect(sessions).toEqual([
+    'session-recent',
+    'session-request-log-retention',
+  ]);
+});
+
 test('handleGatewayMessage skips request logs when request logging is disabled', async () => {
   setupHome();
 

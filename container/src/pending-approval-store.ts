@@ -10,12 +10,13 @@
  * tracks the prompt a channel shows.
  */
 import fs from 'node:fs';
-import path from 'node:path';
+import { writeFileAtomic } from '../shared/atomic-write.js';
 
 export interface PendingApproval {
   id: string;
   // '' for requests saved before sessions were recorded: no session sees them.
   sessionHash: string;
+  userHash?: string;
   fingerprint: string;
   actionKey: string;
   toolName: string;
@@ -80,6 +81,9 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
 
   return {
     id,
+    ...(typeof record.userHash === 'string'
+      ? { userHash: record.userHash }
+      : {}),
     sessionHash:
       typeof record.sessionHash === 'string' ? record.sessionHash : '',
     fingerprint,
@@ -133,10 +137,7 @@ export function saveSessionPendingApprovals(
     updatedAt: new Date().toISOString(),
   };
   try {
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    const tmpPath = `${storePath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, storePath);
+    writeFileAtomic(storePath, JSON.stringify(payload, null, 2));
   } catch {
     // ignore persistence failures and continue with in-memory pending approvals
   }

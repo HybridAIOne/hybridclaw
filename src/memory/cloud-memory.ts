@@ -1,6 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 
 import {
   currentDateStampInTimezone,
@@ -245,14 +245,13 @@ function writeCloudMemoryCache(
   agentId: string,
   files: CloudMemoryContextFile[],
 ): void {
-  const cachePath = cloudMemoryCachePath(agentId);
-  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
   const payload: CloudMemoryCache = {
     files,
   };
-  const tempPath = `${cachePath}.tmp-${randomBytes(6).toString('hex')}`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, 'utf-8');
-  fs.renameSync(tempPath, cachePath);
+  writeFileAtomic(
+    cloudMemoryCachePath(agentId),
+    `${JSON.stringify(payload)}\n`,
+  );
 }
 
 function clearCloudMemoryCache(agentId: string): void {

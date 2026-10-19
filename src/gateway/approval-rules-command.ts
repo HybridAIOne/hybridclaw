@@ -21,6 +21,7 @@ import {
   revokeApprovalTrust,
   serializeApprovalTrustStore,
 } from '../../container/shared/approval-rules.js';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { APPROVALS_RULES_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type { Session } from '../types/session.js';
@@ -72,11 +73,10 @@ function writeStore(
   scope: ApprovalTrustScope,
   store: ApprovalTrustStore,
 ): void {
-  const target = storePath(workspacePath, scope);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmpPath = `${target}.tmp`;
-  fs.writeFileSync(tmpPath, serializeApprovalTrustStore(store), 'utf-8');
-  fs.renameSync(tmpPath, target);
+  writeFileAtomic(
+    storePath(workspacePath, scope),
+    serializeApprovalTrustStore(store),
+  );
 }
 
 export function listApprovalRules(workspacePath: string): ApprovalRuleEntry[] {

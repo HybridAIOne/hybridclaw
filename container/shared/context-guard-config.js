@@ -1,13 +1,11 @@
+import { isRecord } from './primitive-values.js';
+
 export const CONTEXT_GUARD_DEFAULTS = Object.freeze({
   enabled: true,
   compactionRatio: 0.75,
   overflowRatio: 0.9,
   maxRetries: 3,
 });
-
-function isRecord(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function readBoolean(value, fallback) {
   if (typeof value === 'boolean') return value;

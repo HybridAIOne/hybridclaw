@@ -6,6 +6,7 @@
  * dashboards and to refresh one. The HybridAI app draws it natively, so the
  * format is data only: no HTML, no script.
  */
+import { isRecord } from './primitive-values.js';
 
 export const DASHBOARD_MIME_TYPE = 'application/vnd.hybridai.dashboard+json';
 export const DASHBOARD_DIRECTORY = 'dashboards';
@@ -55,10 +56,6 @@ export function dashboardFilePath(id) {
   return `${DASHBOARD_DIRECTORY}/${id}.json`;
 }
 
-function isObject(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function text(value, field, max, required) {
   if (value === undefined || value === null || value === '') {
     if (required) throw new Error(`"${field}" is required.`);
@@ -91,17 +88,17 @@ function list(value, field, min, max) {
 }
 
 function query(value, field) {
-  if (!isObject(value))
+  if (!isRecord(value))
     throw new Error(
       `"${field}" is required: the source, the tools you called with their arguments, and in "how" one sentence of what was counted.`,
     );
   const tools = list(value.tools ?? [], `${field}.tools`, 0, TOOLS_MAX).map(
     (tool, index) => {
       const where = `${field}.tools[${index}]`;
-      if (!isObject(tool)) throw new Error(`"${where}" must be an object.`);
+      if (!isRecord(tool)) throw new Error(`"${where}" must be an object.`);
       const name = text(tool.name, `${where}.name`, TOOL_NAME_MAX, true);
       const args = tool.args ?? {};
-      if (!isObject(args))
+      if (!isRecord(args))
         throw new Error(`"${where}.args" must be an object.`);
       if (JSON.stringify(args).length > TOOL_ARGS_MAX)
         throw new Error(`"${where}.args" is too long.`);
@@ -118,13 +115,13 @@ function query(value, field) {
 function series(value, field) {
   return list(value, field, 1, SERIES_MAX).map((item, index) => {
     const where = `${field}[${index}]`;
-    if (!isObject(item)) throw new Error(`"${where}" must be an object.`);
+    if (!isRecord(item)) throw new Error(`"${where}" must be an object.`);
     return {
       name: text(item.name, `${where}.name`, SERIES_NAME_MAX, true),
       points: list(item.points, `${where}.points`, 1, POINTS_MAX).map(
         (point, at) => {
           const spot = `${where}.points[${at}]`;
-          if (!isObject(point)) throw new Error(`"${spot}" must be an object.`);
+          if (!isRecord(point)) throw new Error(`"${spot}" must be an object.`);
           return {
             x: text(point.x, `${spot}.x`, LABEL_MAX, true),
             y: finite(point.y, `${spot}.y`),
@@ -157,7 +154,7 @@ function table(panel, field) {
 
 function panel(value, index, taken) {
   const field = `panels[${index}]`;
-  if (!isObject(value)) throw new Error(`"${field}" must be an object.`);
+  if (!isRecord(value)) throw new Error(`"${field}" must be an object.`);
   const kind = value.kind;
   if (!KINDS.includes(kind))
     throw new Error(`"${field}.kind" must be one of ${KINDS.join(', ')}.`);
@@ -205,7 +202,7 @@ function panel(value, index, taken) {
  */
 export function normalizeDashboard(args, now = new Date()) {
   try {
-    if (!isObject(args)) throw new Error('Give the dashboard as an object.');
+    if (!isRecord(args)) throw new Error('Give the dashboard as an object.');
     const title = text(args.title, 'title', TITLE_MAX, true);
     const id = dashboardId(args.id) || dashboardId(title) || 'dashboard';
     const taken = new Set();
@@ -232,7 +229,7 @@ export function readDashboardSchedules(text) {
     return {};
   }
   const schedules = {};
-  if (!isObject(raw)) return schedules;
+  if (!isRecord(raw)) return schedules;
   for (const [id, every] of Object.entries(raw)) {
     if (dashboardId(id) === id && DASHBOARD_REFRESH_SCHEDULES.includes(every))
       schedules[id] = every;

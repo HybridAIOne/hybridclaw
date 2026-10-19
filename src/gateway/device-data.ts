@@ -11,11 +11,14 @@
  * directory. Read from disk on every call: it is a few kilobytes, or a few
  * hundred with an address book.
  */
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
-import { DATA_DIR } from '../config/config.js';
+import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { logger } from '../logger.js';
+import {
+  containsProtectedDeviceSources,
+  deviceDataStorePath,
+  hasProtectedHyDeviceData,
+} from '../memory/device-data-privacy.js';
 import { queuePhoneSourceChange } from '../scheduler/connector-events.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 
@@ -53,7 +56,7 @@ export function deviceSourceLimit(source: string): number {
 }
 
 // Resolved on use: the data directory follows the runtime config.
-const storePath = () => path.join(DATA_DIR, 'device-data.json');
+const storePath = deviceDataStorePath;
 
 function load(): Map<string, DeviceSources> {
   try {
@@ -71,19 +74,17 @@ function load(): Map<string, DeviceSources> {
 }
 
 function save(users: Map<string, DeviceSources>): void {
-  const file = storePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(
-      temporary,
-      JSON.stringify({ version: 1, users: Object.fromEntries(users) }),
-      { mode: 0o600, flag: 'wx' },
-    );
-    fs.renameSync(temporary, file);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
+  writeFileAtomic(
+    storePath(),
+    JSON.stringify({
+      version: 1,
+      excludeHyFromImprovement:
+        hasProtectedHyDeviceData() ||
+        containsProtectedDeviceSources(users.values()),
+      users: Object.fromEntries(users),
+    }),
+    { mode: 0o600, dirMode: 0o700 },
+  );
 }
 
 function validUserId(userId: string | null | undefined): string | null {

@@ -8,6 +8,7 @@
  */
 import { evaluatePolicyRules } from './policy-engine.js';
 import { globToRegExp, hasGlobWildcard } from './policy-glob.js';
+import { asRecord } from './primitive-values.js';
 
 export const DEFAULT_NETWORK_DEFAULT = 'deny';
 
@@ -33,13 +34,6 @@ const COMMON_SECOND_LEVEL_TLDS = new Set([
   'net',
   'org',
 ]);
-
-export function asRecord(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value;
-}
 
 // allow and deny only (owner call, 2026-09-27): `block`, a typo, and a missing
 // action are unreadable, so readNetworkRule enforces the rule as deny.
@@ -272,11 +266,13 @@ export function normalizePresetNames(presets) {
 }
 
 export function readNetworkPolicyState(document) {
-  const network = asRecord(document?.network);
-  const approval = asRecord(document?.approval);
+  const network = asRecord(document?.network) ?? {};
+  const approval = asRecord(document?.approval) ?? {};
   const rulesDeclared = Array.isArray(network.rules);
   const networkRules = rulesDeclared
-    ? network.rules.map((rule, index) => readNetworkRule(asRecord(rule), index))
+    ? network.rules.map((rule, index) =>
+        readNetworkRule(asRecord(rule) ?? {}, index),
+      )
     : [];
   const legacyTrustedHosts =
     !rulesDeclared && Array.isArray(approval.trusted_network_hosts)

@@ -6,6 +6,7 @@ import {
   stripAnthropicModelPrefix,
 } from '../../shared/anthropic-utils.js';
 import { isDynamicContextMessageText } from '../../shared/dynamic-context.js';
+import { isRecord } from '../../shared/primitive-values.js';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
   AnthropicContentBlock,
@@ -17,7 +18,6 @@ import type {
 } from '../types.js';
 import {
   emitRawSsePayloadDebug,
-  isRecord,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,

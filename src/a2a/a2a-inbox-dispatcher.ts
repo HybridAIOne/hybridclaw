@@ -4,6 +4,7 @@ import { parseAgentIdentity } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { AddressEnvelope } from '../types/container.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import {
   type A2AInboxDispatchItem,
   getA2AInboxDispatchItem,
@@ -17,7 +18,6 @@ import {
   summarizeA2AEnvelopeForAudit,
 } from './envelope.js';
 import { isLocalA2AAgentId, resolveLocalA2AAgentId } from './identity.js';
-import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_INBOX_DISPATCH_CONCURRENCY = 2;
 export const A2A_INBOX_DISPATCH_DRAIN_INTERVAL_MS = 5_000;
@@ -534,14 +534,11 @@ export async function processA2AInboxDispatchQueue(
   opts: A2AInboxDispatchProcessOptions,
 ): Promise<A2AInboxDispatchProcessResult> {
   const now = opts.now?.() ?? new Date();
-  const concurrency = normalizePositiveInteger(
-    opts.concurrency,
-    A2A_INBOX_DISPATCH_CONCURRENCY,
-  );
-  const loopWindowMs = normalizePositiveInteger(
-    opts.loopWindowMs,
-    A2A_INBOX_DISPATCH_LOOP_WINDOW_MS,
-  );
+  const concurrency =
+    parsePositiveInteger(opts.concurrency) ?? A2A_INBOX_DISPATCH_CONCURRENCY;
+  const loopWindowMs =
+    parsePositiveInteger(opts.loopWindowMs) ??
+    A2A_INBOX_DISPATCH_LOOP_WINDOW_MS;
   const loopMaxPerThread =
     typeof opts.loopMaxPerThread === 'number' &&
     Number.isSafeInteger(opts.loopMaxPerThread) &&
@@ -620,10 +617,8 @@ export function startA2AInboxDispatchProcessor(
   intervalMs = A2A_INBOX_DISPATCH_DRAIN_INTERVAL_MS,
 ): void {
   stopA2AInboxDispatchProcessor();
-  const normalizedIntervalMs = normalizePositiveInteger(
-    intervalMs,
-    A2A_INBOX_DISPATCH_DRAIN_INTERVAL_MS,
-  );
+  const normalizedIntervalMs =
+    parsePositiveInteger(intervalMs) ?? A2A_INBOX_DISPATCH_DRAIN_INTERVAL_MS;
   void drainA2AInboxDispatch('startup', dispatch);
   a2aInboxDispatchProcessorTimer = setInterval(() => {
     void drainA2AInboxDispatch('interval', dispatch);

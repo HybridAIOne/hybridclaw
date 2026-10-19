@@ -32,7 +32,6 @@ export interface NetworkPolicyAccessEvaluation {
 export const DEFAULT_NETWORK_DEFAULT: NetworkPolicyAction;
 export const DEFAULT_NETWORK_RULES: NetworkRule[];
 
-export function asRecord(value: unknown): Record<string, unknown>;
 export function normalizePresetNames(presets: unknown): string[];
 export function normalizeNetworkHostScope(host: unknown): string;
 export function doesNetworkHostPatternExpandToSubdomains(

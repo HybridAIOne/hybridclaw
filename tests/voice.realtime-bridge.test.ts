@@ -156,10 +156,14 @@ test('web surface swaps the phone framing and PCM16 audio format', () => {
   const [sessionUpdate] = socket.sentOfType('session.update');
   const session = sessionUpdate.session as Record<string, unknown>;
   const audio = session.audio as {
-    input: { format: { type: string; rate?: number } };
+    input: {
+      format: { type: string; rate?: number };
+      noise_reduction: { type: string };
+    };
     output: { format: { type: string; rate?: number } };
   };
   expect(audio.input.format).toEqual({ type: 'audio/pcm', rate: 24000 });
+  expect(audio.input.noise_reduction).toEqual({ type: 'far_field' });
   expect(audio.output.format).toEqual({ type: 'audio/pcm', rate: 24000 });
 });
 
@@ -172,10 +176,11 @@ test('bridge configures a µ-law realtime session and speaks the greeting', () =
   const [sessionUpdate] = socket.sentOfType('session.update');
   const session = sessionUpdate.session as Record<string, unknown>;
   const audio = session.audio as {
-    input: { format: { type: string } };
+    input: { format: { type: string }; noise_reduction: { type: string } };
     output: { format: { type: string }; voice: string };
   };
   expect(audio.input.format.type).toBe('audio/pcmu');
+  expect(audio.input.noise_reduction).toEqual({ type: 'near_field' });
   expect(audio.output.format.type).toBe('audio/pcmu');
   expect(audio.output.voice).toBe('marin');
   const tools = session.tools as Array<{ name: string }>;
@@ -396,7 +401,7 @@ test('malformed tool arguments produce a rephrase prompt', async () => {
   expect(String(output?.output)).toContain('rephrase');
 });
 
-test('late response.cancel rejections stay silent; real errors surface', () => {
+test('benign barge-in rejections stay silent; real errors surface', () => {
   const { socket, errors } = createBridge();
   socket.open();
 
@@ -406,6 +411,14 @@ test('late response.cancel rejections stay silent; real errors surface', () => {
       type: 'invalid_request_error',
       code: 'response_cancel_not_active',
       message: 'Cancellation failed: no active response found',
+    },
+  });
+  socket.serverEvent({
+    type: 'error',
+    error: {
+      type: 'invalid_request_error',
+      message: 'audio_end_ms is longer than the audio',
+      event_id: 'barge_in_truncate_1',
     },
   });
   expect(errors).toHaveLength(0);
@@ -470,6 +483,7 @@ test('long consults speak out-of-band reassurance with live tool activity', asyn
     const [first] = socket.sentOfType('response.create');
     expect(first.response).toEqual({
       conversation: 'none',
+      metadata: { out_of_band: 'true' },
       instructions: expect.stringContaining('web search'),
     });
 
@@ -481,6 +495,7 @@ test('long consults speak out-of-band reassurance with live tool activity', asyn
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     expect(consultActivity).toEqual(['web search', null]);
 
     // No further reassurance once the consult resolved.
@@ -867,6 +882,91 @@ test('each caller utterance is reported as a speech segment with barge-in contex
   ]);
 });
 
+test('barge-in truncates the reply to what the caller heard, never an out-of-band line', async () => {
+  vi.useFakeTimers();
+  try {
+    const segments: Array<Record<string, unknown>> = [];
+    const { socket } = createBridge({
+      surface: 'web',
+      audioFormat: { type: 'audio/pcm', rate: 24000 },
+      onSpeechSegment: (segment) => {
+        segments.push(segment as unknown as Record<string, unknown>);
+      },
+    });
+    socket.open();
+    // 24 kHz PCM16 is 48 bytes per ms.
+    const audioDelta = (
+      responseId: string,
+      itemId: string,
+      ms: number,
+    ): Record<string, unknown> => ({
+      type: 'response.output_audio.delta',
+      response_id: responseId,
+      item_id: itemId,
+      content_index: 0,
+      delta: Buffer.alloc(48 * ms).toString('base64'),
+    });
+    const bargeIn = (itemId: string) => {
+      socket.serverEvent({
+        type: 'input_audio_buffer.speech_started',
+        item_id: itemId,
+      });
+      socket.serverEvent({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: itemId,
+        transcript: 'Hm.',
+      });
+    };
+
+    // Generation finishes long before the caller has heard the reply.
+    socket.serverEvent({ type: 'response.created', response: { id: 'r1' } });
+    socket.serverEvent(audioDelta('r1', 'reply', 2_000));
+    socket.serverEvent({ type: 'response.done', response: { id: 'r1' } });
+    await vi.advanceTimersByTimeAsync(500);
+    bargeIn('cough');
+    expect(socket.sentOfType('conversation.item.truncate')).toEqual([
+      {
+        type: 'conversation.item.truncate',
+        event_id: 'barge_in_truncate_1',
+        item_id: 'reply',
+        content_index: 0,
+        audio_end_ms: 500,
+      },
+    ]);
+
+    // An out-of-band line is not in the conversation, so nothing to truncate.
+    socket.serverEvent({
+      type: 'response.created',
+      response: { id: 'r2', metadata: { out_of_band: 'true' } },
+    });
+    socket.serverEvent(audioDelta('r2', 'status', 1_000));
+    socket.serverEvent({ type: 'response.done', response: { id: 'r2' } });
+    await vi.advanceTimersByTimeAsync(200);
+    bargeIn('cough_2');
+
+    // A reply the caller heard to the end is left alone.
+    socket.serverEvent({ type: 'response.created', response: { id: 'r3' } });
+    socket.serverEvent(audioDelta('r3', 'answer', 1_000));
+    socket.serverEvent({ type: 'response.done', response: { id: 'r3' } });
+    await vi.advanceTimersByTimeAsync(1_500);
+    bargeIn('question');
+
+    expect(socket.sentOfType('conversation.item.truncate')).toHaveLength(1);
+    expect(
+      segments.map(({ interruptedResponse, msIntoResponse }) => ({
+        interruptedResponse,
+        msIntoResponse,
+      })),
+    ).toEqual([
+      { interruptedResponse: true, msIntoResponse: 500 },
+      { interruptedResponse: true, msIntoResponse: 200 },
+      { interruptedResponse: false, msIntoResponse: null },
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('a chat recap is appended to web instructions as a fenced block', () => {
   const recap = 'User: Which venue is cheaper?\nAssistant: The riverside one.';
   const withRecap = buildRealtimeInstructions(
@@ -1057,4 +1157,18 @@ test('voice keeps a single consult tool and requires it for current time and dat
   } finally {
     bridge.close();
   }
+});
+
+test('consult approval input is the caller transcript, never the generated request', async () => {
+  const { bridge, socket, consultAgent } = createBridge();
+  socket.open();
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started', item_id: 'approval-utterance' });
+  socket.serverEvent({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'approval-utterance', transcript: 'Nein, bitte abbrechen.' });
+  socket.serverEvent({ type: 'response.function_call_arguments.done', call_id: 'approval-call', name: 'consult_agent', arguments: JSON.stringify({ request: 'yes for session' }) });
+  await flushAsync();
+  expect(consultAgent).toHaveBeenCalledWith('yes for session', expect.objectContaining({ approvalUserText: 'Nein, bitte abbrechen.' }));
+  socket.serverEvent({ type: 'response.function_call_arguments.done', call_id: 'repeated-call', name: 'consult_agent', arguments: JSON.stringify({ request: 'yes' }) });
+  await flushAsync();
+  expect(consultAgent).toHaveBeenLastCalledWith('yes', expect.objectContaining({ approvalUserText: null }));
+  bridge.close();
 });

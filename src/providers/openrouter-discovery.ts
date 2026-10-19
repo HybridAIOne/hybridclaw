@@ -1,5 +1,6 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
@@ -9,12 +10,7 @@ import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
 } from './pricing-discovery.js';
-import {
-  createDiscoveryStore,
-  isRecord,
-  normalizeBaseUrl,
-  readPositiveInteger,
-} from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
 const OPENROUTER_PRICING_KEYS = [
   'prompt',
@@ -41,10 +37,10 @@ function readOpenRouterContextWindow(
 ): number | null {
   const topProvider = isRecord(entry.top_provider) ? entry.top_provider : null;
   return (
-    readPositiveInteger(entry.context_length) ??
-    readPositiveInteger(entry.contextLength) ??
-    readPositiveInteger(topProvider?.context_length) ??
-    readPositiveInteger(topProvider?.contextLength)
+    parsePositiveInteger(entry.context_length) ??
+    parsePositiveInteger(entry.contextLength) ??
+    parsePositiveInteger(topProvider?.context_length) ??
+    parsePositiveInteger(topProvider?.contextLength)
   );
 }
 
@@ -165,18 +161,18 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
           ? entry.top_provider
           : null;
         const modelMaxTokens =
-          readPositiveInteger(entry.maxTokens) ??
-          readPositiveInteger(entry.max_tokens) ??
-          readPositiveInteger(entry.maxOutputTokens) ??
-          readPositiveInteger(entry.max_output_tokens) ??
-          readPositiveInteger(entry.maxCompletionTokens) ??
-          readPositiveInteger(entry.max_completion_tokens) ??
-          readPositiveInteger(topProvider?.maxTokens) ??
-          readPositiveInteger(topProvider?.max_tokens) ??
-          readPositiveInteger(topProvider?.maxOutputTokens) ??
-          readPositiveInteger(topProvider?.max_output_tokens) ??
-          readPositiveInteger(topProvider?.maxCompletionTokens) ??
-          readPositiveInteger(topProvider?.max_completion_tokens);
+          parsePositiveInteger(entry.maxTokens) ??
+          parsePositiveInteger(entry.max_tokens) ??
+          parsePositiveInteger(entry.maxOutputTokens) ??
+          parsePositiveInteger(entry.max_output_tokens) ??
+          parsePositiveInteger(entry.maxCompletionTokens) ??
+          parsePositiveInteger(entry.max_completion_tokens) ??
+          parsePositiveInteger(topProvider?.maxTokens) ??
+          parsePositiveInteger(topProvider?.max_tokens) ??
+          parsePositiveInteger(topProvider?.maxOutputTokens) ??
+          parsePositiveInteger(topProvider?.max_output_tokens) ??
+          parsePositiveInteger(topProvider?.maxCompletionTokens) ??
+          parsePositiveInteger(topProvider?.max_completion_tokens);
         if (modelMaxTokens != null) {
           maxTokens.set(normalized, modelMaxTokens);
         }

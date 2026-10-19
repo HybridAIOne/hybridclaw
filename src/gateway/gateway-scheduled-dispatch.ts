@@ -120,12 +120,14 @@ export async function runScheduledTask(
         : undefined;
 
   let runError: unknown = null;
+  let reachedDelivery = false;
   await runGatewayScheduledTask(
     request.sessionId,
     runChannelId,
     request.prompt,
     taskId,
     async (result) => {
+      reachedDelivery = true;
       if (request.delivery.kind === 'webhook') {
         await deliverWebhookMessage(
           request.delivery.webhookUrl,
@@ -222,7 +224,63 @@ export async function runScheduledTask(
     request.taskRunId,
   );
   if (runError !== null) {
-    throw runError instanceof Error ? runError : new Error(String(runError));
+    const error =
+      runError instanceof Error ? runError : new Error(String(runError));
+    // A failed delivery already reached the target, or the target is down.
+    if (!reachedDelivery) {
+      await notifyRunFailure(error, {
+        request,
+        channelId: resolvedDeliveryChannelId,
+        sessionId: deliverySessionId,
+        source: `${sourceLabel}:failure`,
+        deliverProactiveMessage,
+        deliverWebhookMessage,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * A failed run tells its own delivery target in one line, so a quiet channel
+ * never hides a broken job. Best effort: the run's error is what propagates.
+ */
+async function notifyRunFailure(
+  error: Error,
+  target: {
+    request: SchedulerDispatchRequest;
+    channelId: string | null;
+    sessionId: string;
+    source: string;
+  } & Pick<
+    ScheduledDeliveryDependencies,
+    'deliverProactiveMessage' | 'deliverWebhookMessage'
+  >,
+): Promise<void> {
+  const { request, channelId, sessionId, source } = target;
+  const name = request.jobId ?? `task ${request.taskId ?? 'unknown'}`;
+  const reason = (error.message.split('\n')[0] || 'unknown error').slice(
+    0,
+    200,
+  );
+  const text = `⚠️ Scheduled run ${name} failed: ${reason}`;
+  try {
+    if (request.delivery.kind === 'webhook') {
+      await target.deliverWebhookMessage(
+        request.delivery.webhookUrl,
+        text,
+        source,
+      );
+    } else if (channelId === 'web') {
+      deliverWebScheduledMessage(sessionId, text, source);
+    } else if (channelId) {
+      await target.deliverProactiveMessage(channelId, text, source);
+    }
+  } catch (notifyError) {
+    logger.warn(
+      { jobId: request.jobId, taskId: request.taskId, error: notifyError },
+      'Scheduled task failure notice not delivered',
+    );
   }
 }
 
