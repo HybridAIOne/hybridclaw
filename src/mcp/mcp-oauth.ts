@@ -31,11 +31,8 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { McpServerConfig } from '../types/models.js';
-import {
-  asStringArray,
-  asTrimmedString,
-  isRecord,
-} from '../utils/type-guards.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
+import { asStringArray, isRecord } from '../utils/type-guards.js';
 import { supportsMcpOAuth } from './server-config.js';
 
 const MCP_OAUTH_SECRET_PREFIX = 'MCP_OAUTH_';
@@ -161,7 +158,7 @@ export async function discoverProtectedResource(serverUrl: string): Promise<{
         )
       : [];
     return {
-      resource: asTrimmedString(metadata.resource) || serverUrl,
+      resource: normalizeTrimmedString(metadata.resource) || serverUrl,
       authorizationServer: servers[0] || new URL(serverUrl).origin,
       scopes: asStringArray(metadata.scopes_supported),
     };

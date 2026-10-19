@@ -1,7 +1,7 @@
 import path from 'node:path';
-
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { ToolExecution } from '../types/execution.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import {
   claimWorkspaceOnboardingStart,
   completeHatchingAfterMessageSend,
@@ -320,13 +320,9 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function firstRecipientCandidate(...values: unknown[]): string {
   for (const value of values) {
-    const candidate = readString(value);
+    const candidate = normalizeTrimmedString(value);
     if (candidate) return candidate;
   }
   return '';
@@ -339,7 +335,7 @@ function readNumber(value: unknown): number | undefined {
 
 function firstPathCandidate(...values: unknown[]): string {
   for (const value of values) {
-    const candidate = readString(value);
+    const candidate = normalizeTrimmedString(value);
     if (candidate) return candidate;
   }
   return '';
@@ -352,7 +348,8 @@ function readSuccessfulMessageSend(
   if (execution.isError || execution.blocked) return null;
 
   const args = parseJsonObject(execution.arguments);
-  if (!args || readString(args.action).toLowerCase() !== 'send') return null;
+  if (!args || normalizeTrimmedString(args.action).toLowerCase() !== 'send')
+    return null;
 
   const result = parseJsonObject(execution.result);
   if (result && result.ok === false) return null;
@@ -364,12 +361,16 @@ function readSuccessfulMessageSend(
     result?.channelId,
   );
 
-  const subject = readString(args.subject) || readString(result?.subject);
-  const transport = readString(result?.transport) || readString(args.transport);
+  const subject =
+    normalizeTrimmedString(args.subject) ||
+    normalizeTrimmedString(result?.subject);
+  const transport =
+    normalizeTrimmedString(result?.transport) ||
+    normalizeTrimmedString(args.transport);
   const contentLength =
     readNumber(result?.contentLength) ??
     readNumber(args.contentLength) ??
-    readString(args.content).length;
+    normalizeTrimmedString(args.content).length;
 
   return {
     recipient,
@@ -401,7 +402,7 @@ function readSuccessfulFileUpdate(
   }
   if (
     execution.name === 'memory' &&
-    readString(args.action).toLowerCase() === 'write'
+    normalizeTrimmedString(args.action).toLowerCase() === 'write'
   ) {
     return { action: 'write', toolName: execution.name, path: filePath };
   }

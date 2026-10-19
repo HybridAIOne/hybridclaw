@@ -13,6 +13,7 @@
  * NOT the admin scheduler API (`gateway-scheduled-task-service.ts`), which
  * edits jobs on behalf of operators rather than the running agent turn.
  */
+
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
@@ -30,6 +31,7 @@ import { todoOwningTask } from '../todos/todo-store.js';
 import { trackedOwningTask } from '../tracking/track-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   canManageScheduledTask,
@@ -53,10 +55,6 @@ export type ScheduledTaskToolActionResult =
   | (PersistedTaskResult & { action: 'update' })
   | { ok: true; action: 'remove'; taskId: number; sessionId: string }
   | { ok: true; action: 'list'; sessionId: string; text: string };
-
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 /**
  * What a goal's check-in or a todo's reminder belongs to. A live run showed
@@ -187,7 +185,7 @@ export function runScheduledTaskToolAction(
   if (!isRecord(body)) {
     throw new GatewayRequestError(400, 'Request body must be a JSON object.');
   }
-  const action = readString(body.action);
+  const action = normalizeTrimmedString(body.action);
   if (
     action !== 'list' &&
     action !== 'add' &&
@@ -199,7 +197,7 @@ export function runScheduledTaskToolAction(
       'Invalid `action`. Allowed: "list", "add", "update", "remove".',
     );
   }
-  const sessionId = readString(body.sessionId);
+  const sessionId = normalizeTrimmedString(body.sessionId);
   if (!sessionId) throw new GatewayRequestError(400, 'Missing `sessionId`.');
   const session = getSessionById(sessionId);
   if (!session) {
@@ -253,8 +251,8 @@ export function runScheduledTaskToolAction(
     // schedule wholesale; everything else defaults to the stored job so an
     // omitted field is a no-op. Giving more than one schedule field at once
     // is caught by validateScheduledTaskFields below, same as "add".
-    const cronExprPatch = readString(body.cronExpr);
-    const runAtPatch = readString(body.runAt);
+    const cronExprPatch = normalizeTrimmedString(body.cronExpr);
+    const runAtPatch = normalizeTrimmedString(body.runAt);
     const everyMsPatch =
       typeof body.everyMs === 'number' && Number.isFinite(body.everyMs)
         ? Math.round(body.everyMs)
@@ -266,9 +264,9 @@ export function runScheduledTaskToolAction(
       cronExpr: patchHasSchedule ? cronExprPatch : job.cron_expr || '',
       runAt: patchHasSchedule ? runAtPatch : job.run_at || '',
       everyMs: patchHasSchedule ? everyMsPatch : job.every_ms || 0,
-      tz: readString(body.tz) || job.tz || '',
-      prompt: readString(body.prompt) || job.prompt,
-      channelId: readString(body.channelId) || job.channel_id,
+      tz: normalizeTrimmedString(body.tz) || job.tz || '',
+      prompt: normalizeTrimmedString(body.prompt) || job.prompt,
+      channelId: normalizeTrimmedString(body.channelId) || job.channel_id,
     };
     validateScheduledTaskFields(fields);
 
@@ -286,15 +284,17 @@ export function runScheduledTaskToolAction(
   }
 
   const fields: ScheduledTaskFields = {
-    cronExpr: readString(body.cronExpr),
-    tz: readString(body.tz),
-    runAt: readString(body.runAt),
+    cronExpr: normalizeTrimmedString(body.cronExpr),
+    tz: normalizeTrimmedString(body.tz),
+    runAt: normalizeTrimmedString(body.runAt),
     everyMs:
       typeof body.everyMs === 'number' && Number.isFinite(body.everyMs)
         ? Math.round(body.everyMs)
         : 0,
-    prompt: readString(body.prompt),
-    channelId: readString(body.channelId) || readString(session.channel_id),
+    prompt: normalizeTrimmedString(body.prompt),
+    channelId:
+      normalizeTrimmedString(body.channelId) ||
+      normalizeTrimmedString(session.channel_id),
   };
   validateScheduledTaskFields(fields);
 
