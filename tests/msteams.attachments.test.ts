@@ -841,7 +841,8 @@ test('buildTeamsAttachmentContext streams remote files and removes oversized par
   expect(media[0]).toMatchObject({
     path: null,
     filename: 'too-large.pdf',
-    unavailableReason: 'larger than the 1 MB media limit',
+    unavailableReason:
+      'larger than the 1 MB Teams attachment limit; sending the same file again will not help',
   });
   expect(arrayBufferSpy).not.toHaveBeenCalled();
 });
@@ -1436,7 +1437,8 @@ test('buildTeamsAttachmentContext marks the attachment unavailable and warns onc
       url: attachmentUrl,
       sizeBytes: 0,
       filename: 'original',
-      unavailableReason: 'Teams attachment fetch failed (502 Bad Gateway)',
+      unavailableReason:
+        'Teams attachment fetch failed (502 Bad Gateway); sending it again may work',
     });
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1489,7 +1491,8 @@ test('buildTeamsAttachmentContext does not retry an attachment that exceeds the 
     expect(media[0]).toMatchObject({
       path: null,
       filename: 'original',
-      unavailableReason: 'larger than the 20 MB media limit',
+      unavailableReason:
+      'larger than the 20 MB Teams attachment limit; sending the same file again will not help',
     });
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ filename: 'original' }),
@@ -1535,7 +1538,8 @@ test('buildTeamsAttachmentContext skips the download when Teams reports a size o
     url: 'https://contoso.blob.core.windows.net/teams/huge.pdf?sig=test',
     filename: 'huge.pdf',
     sizeBytes: 5 * 1024 * 1024,
-    unavailableReason: 'larger than the 1 MB media limit',
+    unavailableReason:
+      'larger than the 1 MB Teams attachment limit; sending the same file again will not help',
   });
   expect(warnSpy).toHaveBeenCalledWith(
     expect.objectContaining({ filename: 'huge.pdf', sizeBytes: 5 * 1024 * 1024 }),
@@ -1587,7 +1591,8 @@ test('buildTeamsAttachmentContext does not fetch contentUrl after the download i
     expect(media[0]).toMatchObject({
       path: null,
       filename: 'report.pdf',
-      unavailableReason: 'Teams attachment fetch failed (502 Bad Gateway)',
+      unavailableReason:
+        'Teams attachment fetch failed (502 Bad Gateway); sending it again may work',
     });
   } finally {
     vi.useRealTimers();

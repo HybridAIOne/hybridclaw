@@ -859,7 +859,10 @@ async function buildMediaItem(params: {
     },
     'Teams attachment download failed after retries; the agent will not see this attachment',
   );
-  return { ...fallback, unavailableReason: reason };
+  return {
+    ...fallback,
+    unavailableReason: `${reason}; sending it again may work`,
+  };
 }
 
 /**
@@ -941,7 +944,7 @@ function isAuthFailureError(error: unknown): boolean {
 }
 
 function describeMediaLimit(): string {
-  return `larger than the ${Math.max(1, MSTEAMS_MEDIA_MAX_MB)} MB media limit`;
+  return `larger than the ${Math.max(1, MSTEAMS_MEDIA_MAX_MB)} MB Teams attachment limit; sending the same file again will not help`;
 }
 
 function describeMediaError(error: unknown): string {
