@@ -714,7 +714,6 @@ async function main(): Promise<void> {
       {
         enabled: next.observability.enabled,
         botId: next.observability.botId || next.hybridai.defaultChatbotId || '',
-        agentId: next.observability.agentId,
       },
       'Config changed, restarting observability ingest',
     );
