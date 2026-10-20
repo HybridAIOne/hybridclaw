@@ -17,7 +17,10 @@ import {
   looksLikeSyntheticFullAutoPrompt,
 } from './fullauto-workspace.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
-import type { GatewayChatResult } from './gateway-types.js';
+import type {
+  GatewayChatApprovalEvent,
+  GatewayChatResult,
+} from './gateway-types.js';
 
 const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
@@ -35,6 +38,8 @@ export interface ProactiveMessagePayload {
   channelId?: string;
   text: string;
   artifacts?: ArtifactMetadata[];
+  /** Set when `text` is an approval prompt the transport can render as buttons. */
+  approval?: GatewayChatApprovalEvent;
 }
 
 export interface FullAutoRequestContext {

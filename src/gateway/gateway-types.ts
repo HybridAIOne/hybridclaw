@@ -351,6 +351,7 @@ export interface GatewayChatRequest extends ApprovalReplyContext {
     channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
+    approval?: GatewayChatApprovalEvent;
   }) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;
