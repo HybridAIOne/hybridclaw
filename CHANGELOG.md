@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## [0.40.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.6) - 2026-10-20
+
+### Fixed
+
+- **Scheduled-job failures**: Runs that fail before delivery send a one-line
+  failure notice to their configured channel, webhook, or web chat. Delivery
+  failures do not trigger a second send attempt.
+- **Personal-agent instructions**: Personal agents read their parent's current
+  `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and `TOOLS.md` on each turn, so parent
+  edits reach existing children while each child's `USER.md` and memory stay
+  separate.
+- **Personal-agent visibility**: Personal agents are excluded from the chat
+  agent selector and remain available on the admin Agents page.
+- **Teams attachment errors**: Oversized attachments are identified as exceeding
+  the configured limit instead of prompting users to resend the same file.
+  Failed downloads explain that another attempt may help.
+- **Error tracking**: Stopped turns and provider HTTP 429 rate-limit or quota
+  responses are excluded from Sentry error reports while retaining their
+  existing logs, audit records, and responses.
+
+### Upgrade Notes
+
+- Existing personal agents ignore local copies of the four inherited persona
+  files. Move any instructions that should apply to all children into the
+  parent's corresponding files; keep person-specific context in `USER.md`.
+
 ## [0.40.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.5) - 2026-10-18
 
 ### Added

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.5',
+  version: '0.40.6',
   highlights: [
-    'Official German public warnings',
-    'Realtime voice noise filtering',
-    'Accurate voice interruption context',
-    'Safer agent identity normalization',
+    'Scheduled-job failure notices',
+    'Personal agents follow parent instructions',
+    'Clearer Teams attachment errors',
+    'Cleaner error tracking',
   ],
 } as const;
 
