@@ -29,7 +29,9 @@ truncated; with `path`, the whole result is saved to a workspace file instead
 checkout or cancellation page the call needs approval like an unnamed click.
 It is refused on private hosts unless `browser.allowPrivateNetwork` is set,
 while a secret typed with `browser_secret_type` or `browser_sign_in` is still
-on the page, and with browser providers that run in the gateway.
+on the page, and with `mac-cua`, which drives a browser without a DOM. Browser
+providers that run in the gateway evaluate in the main document only (no
+`frame`).
 
 Download clicks and pages waiting for two-factor authentication omit the
 snapshot. If the action succeeds but the snapshot fails, the result reports

@@ -169,3 +169,75 @@ test('a page on a private host runs no script unless private hosts are allowed',
   expect(output).toContain('private or loopback host (127.0.0.1)');
   expect(pageScripts()).toEqual(['location.href']);
 });
+
+// A browser the gateway drives: the container reaches it through
+// /api/browser/tool, which answers like the gateway's Playwright sessions.
+async function loadGatewayTools() {
+  const { tools } = await loadTools();
+  const calls: Array<Record<string, unknown>> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      if (String(input) !== 'http://gateway.test/api/browser/tool') {
+        return new Response('{}', { status: 404 });
+      }
+      calls.push(body);
+      const args = body.args as Record<string, unknown>;
+      const result =
+        args.expression === 'location.href'
+          ? 'https://fair.example/exhibitors'
+          : [{ name: 'Acme' }];
+      return new Response(JSON.stringify({ success: true, result }));
+    }),
+  );
+  tools.setGatewayContext(
+    'http://gateway.test',
+    'gateway-token',
+    'web',
+    [],
+    'managed-cloud',
+    'chat-1',
+    'main',
+  );
+  const evaluateCalls = () =>
+    calls
+      .filter((call) => call.toolName === 'browser_evaluate')
+      .map((call) => (call.args as Record<string, unknown>).expression);
+  return { tools, evaluateCalls };
+}
+
+test('a gateway browser checks the page, then runs the expression', async () => {
+  const { tools, evaluateCalls } = await loadGatewayTools();
+
+  const output = await tools.executeTool(
+    'browser_evaluate',
+    JSON.stringify({ expression: "[...document.querySelectorAll('h3')]" }),
+  );
+
+  expect(JSON.parse(output)).toEqual({
+    success: true,
+    url: 'https://fair.example/exhibitors',
+    result: [{ name: 'Acme' }],
+  });
+  expect(evaluateCalls()).toEqual([
+    'location.href',
+    "[...document.querySelectorAll('h3')]",
+  ]);
+});
+
+test('a secret a gateway browser typed keeps page scripts off', async () => {
+  const { tools, evaluateCalls } = await loadGatewayTools();
+  await tools.executeTool(
+    'browser_secret_type',
+    JSON.stringify({ ref: 'e2', secretName: 'FAIR_PASSWORD' }),
+  );
+
+  const output = await tools.executeTool(
+    'browser_evaluate',
+    JSON.stringify({ expression: "document.querySelector('input').value" }),
+  );
+
+  expect(output).toMatch(/^Error: A secret was typed into this page/);
+  expect(evaluateCalls()).toEqual([]);
+});

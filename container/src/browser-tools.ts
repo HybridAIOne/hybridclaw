@@ -17,6 +17,7 @@ import {
 } from '../shared/two-factor-detection.js';
 import {
   currentBrowserPage,
+  pauseBrowserFramesUntilNavigation,
   recordBrowserPage,
   recordBrowserSnapshotRefs,
   resetBrowserPage,
@@ -1836,6 +1837,27 @@ async function runBrowserEval(
   return { success: true, result: data ? data.result : undefined };
 }
 
+/** One expression in this chat's page, in whichever browser the provider drives. */
+async function evaluateInPage(
+  sessionKey: string,
+  expression: string,
+  frame: unknown,
+): Promise<unknown> {
+  if (usesGatewayManagedBrowser()) {
+    const payload = await callGatewayManagedBrowser('browser_evaluate', {
+      expression,
+      ...(frame == null ? {} : { frame }),
+    });
+    return payload.result;
+  }
+  await applyFrameTarget(sessionKey, parseOptionalFrame(frame));
+  const evaluated = await runBrowserEval(sessionKey, expression, 60_000);
+  if (!evaluated.success) {
+    throw new Error(evaluated.error || 'evaluation failed');
+  }
+  return evaluated.result;
+}
+
 async function collectClickDownloadResult(
   downloadPromise: Promise<{
     success: boolean;
@@ -2695,6 +2717,9 @@ export async function executeBrowserTool(
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<string> {
+  // A gateway browser types the secret itself; no live frame or page script
+  // until the page changes.
+  if (name === 'browser_secret_type') pauseBrowserFramesUntilNavigation();
   let output = await runBrowserTool(name, args, sessionId);
   const result = asRecord(safeJsonParse(output));
   const sessionKey = normalizeSessionKey(sessionId || 'default');
@@ -2750,6 +2775,24 @@ async function runBrowserTool(
           now: Date.now,
         }),
       );
+    }
+    if (name === 'browser_evaluate') {
+      // A script runs as the page, so a private host stays as closed to it
+      // as browser_navigate keeps it.
+      const url = await evaluateInPage(
+        effectiveSessionId,
+        'location.href',
+        args.frame,
+      );
+      await assertBrowserNavigationUrl(url, {
+        allowPrivateNetwork: browserAllowPrivateNetwork,
+      });
+      const result = await evaluateInPage(
+        effectiveSessionId,
+        String(args.expression || ''),
+        args.frame,
+      );
+      return success({ url, result });
     }
     if (shouldUseGatewayManagedBrowser(name)) {
       return await executeGatewayManagedBrowserTool(
@@ -3540,28 +3583,6 @@ async function runBrowserTool(
           requests,
           ...(filter ? { filter } : {}),
         });
-      }
-
-      case 'browser_evaluate': {
-        await applyFrameTarget(
-          effectiveSessionId,
-          parseOptionalFrame(args.frame),
-        );
-        // A script runs as the page, so a private host stays as closed to it
-        // as browser_navigate keeps it.
-        const page = await runBrowserEval(effectiveSessionId, 'location.href');
-        if (!page.success) return failure(page.error || 'no page to evaluate');
-        await assertBrowserNavigationUrl(page.result, {
-          allowPrivateNetwork: browserAllowPrivateNetwork,
-        });
-        const evaluated = await runBrowserEval(
-          effectiveSessionId,
-          String(args.expression || ''),
-          60_000,
-        );
-        if (!evaluated.success)
-          return failure(evaluated.error || 'evaluation failed');
-        return success({ url: page.result, result: evaluated.result });
       }
 
       case 'browser_downloads': {

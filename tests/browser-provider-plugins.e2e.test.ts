@@ -410,6 +410,12 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
       (result) => result.success === true,
     );
     expect(navigated).toMatchObject({ url: pageUrl, title: 'Plugin E2E' });
+    expect(
+      await browserTool(browserUse.url, 'browser_evaluate', {
+        expression:
+          "Promise.resolve([...document.querySelectorAll('h1')].map(h => h.textContent))",
+      }),
+    ).toEqual({ success: true, result: ['served locally'] });
     expect(await browserTool(browserUse.url, 'browser_close')).toMatchObject({
       closed: true,
     });
