@@ -900,6 +900,53 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
   });
 });
 
+test.each([
+  {
+    name: 'a turn the user stopped',
+    error: 'Interrupted by user.',
+    stop: true,
+  },
+  {
+    name: 'a provider 429',
+    error: "Provider API error 429: This account's usage allowance is exhausted.",
+    stop: false,
+  },
+])('handleGatewayMessage does not report $name to Sentry', async ({
+  error,
+  stop,
+}) => {
+  setupHome();
+  const controller = new AbortController();
+  runAgentMock.mockImplementation(async () => {
+    if (stop) controller.abort(new Error('Interrupted by user.'));
+    return { status: 'error', result: null, toolsUsed: [], error };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayMessage({
+    sessionId: 'session-expected-error',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+    abortSignal: controller.signal,
+  });
+
+  expect(result.status).toBe('error');
+  expect(captureSentryExceptionMock).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ mechanism: 'gateway.chat_result' }),
+  );
+});
+
 test('handleGatewayMessage persists the user message and an assistant placeholder for error turns', async () => {
   setupHome();
 
