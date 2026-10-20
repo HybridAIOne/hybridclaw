@@ -21,6 +21,7 @@ import {
   recordBrowserSnapshotRefs,
   resetBrowserPage,
 } from './browser-checkout.js';
+import { BROWSER_EVALUATE_TOOL_DEFINITION } from './browser-evaluate.js';
 import {
   runBrowserTakeOver,
   TAKE_OVER_TOOL_NAME,
@@ -2483,6 +2484,7 @@ const BROWSER_FRAME_TOOLS = new Set([
   'browser_back',
   'browser_upload',
   'browser_resume_interaction',
+  'browser_evaluate',
   TAKE_OVER_TOOL_NAME,
 ]);
 const BROWSER_FRAME_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'frames');
@@ -3540,6 +3542,28 @@ async function runBrowserTool(
         });
       }
 
+      case 'browser_evaluate': {
+        await applyFrameTarget(
+          effectiveSessionId,
+          parseOptionalFrame(args.frame),
+        );
+        // A script runs as the page, so a private host stays as closed to it
+        // as browser_navigate keeps it.
+        const page = await runBrowserEval(effectiveSessionId, 'location.href');
+        if (!page.success) return failure(page.error || 'no page to evaluate');
+        await assertBrowserNavigationUrl(page.result, {
+          allowPrivateNetwork: browserAllowPrivateNetwork,
+        });
+        const evaluated = await runBrowserEval(
+          effectiveSessionId,
+          String(args.expression || ''),
+          60_000,
+        );
+        if (!evaluated.success)
+          return failure(evaluated.error || 'evaluation failed');
+        return success({ url: page.result, result: evaluated.result });
+      }
+
       case 'browser_downloads': {
         const filter = String(args.filter || '').trim();
         const rawLimit = Number(args.limit);
@@ -4226,6 +4250,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  BROWSER_EVALUATE_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

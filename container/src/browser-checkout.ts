@@ -12,7 +12,7 @@ export interface BrowserPageState {
   url: string;
   title: string;
   refs: Map<string, BrowserRefLabel>;
-  /** Set after a secret was typed; live frames stay off until the URL changes. */
+  /** Set after a secret was typed; live frames and page scripts stay off until the URL changes. */
   framesPaused: boolean;
 }
 
@@ -244,5 +244,7 @@ export function classifyBrowserCheckout(
       .toLowerCase();
     if (ENTER_KEYS.has(key)) return onPage();
   }
+  // A page script can press any button.
+  if (tool === 'browser_evaluate') return onPage();
   return null;
 }
