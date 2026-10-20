@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
+  parseProviderErrorBody,
   summarizeHybridAICompletionForDebug,
 } from '../container/src/providers/shared.js';
 
@@ -174,5 +175,35 @@ describe('HybridAI empty completion guard', () => {
         },
       }),
     ).toBe('id=resp_empty model=gpt-5-nano finish=stop contentType=null');
+  });
+});
+
+describe('parseProviderErrorBody', () => {
+  test.each([
+    [
+      'skips blank fields',
+      { message: '  ', detail: 'from detail', type: ' ' },
+      { message: 'from detail', type: null },
+    ],
+    [
+      'reads a nested error record',
+      { error: { message: ' nested ', type: 'server_error' } },
+      { message: 'nested', type: 'server_error' },
+    ],
+    ['returns null for a blank JSON string', '  ', { message: null, type: null }],
+    [
+      'ignores non-string fields',
+      { message: 42, type: {} },
+      { message: null, type: null },
+    ],
+  ])('%s', (_label, body, expected) => {
+    expect(parseProviderErrorBody(JSON.stringify(body))).toEqual(expected);
+  });
+
+  test('falls back to the raw body when it is not JSON', () => {
+    expect(parseProviderErrorBody('  upstream timeout ')).toEqual({
+      message: 'upstream timeout',
+      type: null,
+    });
   });
 });

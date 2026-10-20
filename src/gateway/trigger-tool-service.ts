@@ -5,6 +5,7 @@
  * quotes its real id and web address. Access follows scheduled tasks
  * (`scheduled-task-access.ts`); what triggers do lives in `event-triggers.ts`.
  */
+
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
@@ -19,16 +20,13 @@ import {
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { resolvePublicGatewayBaseUrl } from './gateway-url-utils.js';
 import {
   canManageScheduledTask,
   listManageableScheduledTasks,
 } from './scheduled-task-access.js';
-
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function describe(task: ScheduledTask): string {
   if (!task.trigger) return '';
@@ -51,8 +49,8 @@ export function runTriggerToolAction(body: unknown): {
   if (!isRecord(body)) {
     throw new GatewayRequestError(400, 'Request body must be a JSON object.');
   }
-  const action = readString(body.action);
-  const sessionId = readString(body.sessionId);
+  const action = normalizeTrimmedString(body.action);
+  const sessionId = normalizeTrimmedString(body.sessionId);
   const session = sessionId ? getSessionById(sessionId) : undefined;
   if (!session) throw new GatewayRequestError(404, 'Unknown session.');
 
@@ -98,15 +96,15 @@ export function runTriggerToolAction(body: unknown): {
   try {
     task = createTrigger({
       sessionId: session.id,
-      channelId: readString(body.channelId) || session.channel_id,
+      channelId: normalizeTrimmedString(body.channelId) || session.channel_id,
       ownerUserId: currentTurnUser(session.id)?.userId,
-      source: readString(body.on),
-      prompt: readString(body.prompt),
-      title: readString(body.title),
-      channel: readString(body.channel),
-      contains: readString(body.contains),
-      cronExpr: readString(body.cron),
-      tz: readString(body.tz),
+      source: normalizeTrimmedString(body.on),
+      prompt: normalizeTrimmedString(body.prompt),
+      title: normalizeTrimmedString(body.title),
+      channel: normalizeTrimmedString(body.channel),
+      contains: normalizeTrimmedString(body.contains),
+      cronExpr: normalizeTrimmedString(body.cron),
+      tz: normalizeTrimmedString(body.tz),
     });
   } catch (error) {
     throw new GatewayRequestError(
