@@ -511,6 +511,33 @@ test('archives agents without deleting their admin record and omits them from se
   );
 });
 
+test('lists personal agents for admins but not in the agent selector', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+  const { createPersonalAgent } = await import(
+    '../src/agents/personal-agent.ts'
+  );
+  const { getGatewayAdminAgents, getGatewayAgentList } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  const personal = createPersonalAgent({
+    parentAgentId: 'main',
+    handle: 'Ada',
+    displayName: 'Main · Ada',
+    userMarkdown: '# USER.md\n',
+  });
+
+  expect(getGatewayAdminAgents().agents.map((agent) => agent.id)).toContain(
+    personal.id,
+  );
+  const listed = (await getGatewayAgentList()).agents.map((agent) => agent.id);
+  expect(listed).toContain('main');
+  expect(listed).not.toContain(personal.id);
+});
+
 test('refuses to archive the default agent', async () => {
   setupHome();
 
