@@ -1,9 +1,9 @@
 /**
  * Personal agents — one-person children of a shared parent agent.
  *
- * A personal agent carries only its identity and workspace; every runtime
- * setting resolves from the parent through `extends`, so editing the parent
- * changes all of its children at once. Creation is idempotent per id and
+ * A personal agent carries only its identity, USER.md and memory; every
+ * runtime setting and persona file resolves from the parent through
+ * `extends`, so editing the parent changes all of its children at once. Creation is idempotent per id and
  * never overwrites an existing agent.
  *
  * NOT the routing layer (channels decide which person maps to which agent)
