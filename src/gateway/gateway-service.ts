@@ -8769,8 +8769,9 @@ let remoteAgentListCache: {
 } | null = null;
 
 function getGatewayLocalAgentListItems(): GatewayAgentListResponse['agents'] {
+  // Personal agents hold one person's memory; only their own channel reaches them.
   return listAgents()
-    .filter((agent) => !agent.archived)
+    .filter((agent) => !agent.archived && !agent.extends)
     .map((agent) => {
       const presentation = getGatewayAssistantPresentationForAgent(agent.id);
       return {
