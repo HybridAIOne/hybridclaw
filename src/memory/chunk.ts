@@ -11,9 +11,14 @@ export interface ChunkMessageOptions {
 const DEFAULT_MAX_CHARS = 1_900;
 const DEFAULT_MAX_LINES = 20;
 const FENCE_CLOSE_SUFFIX = '\n```';
+const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
 
 function isFenceLine(line: string): boolean {
   return line.trim().startsWith('```');
+}
+
+function isTableRow(line: string): boolean {
+  return line.includes('|');
 }
 
 function parseFenceLanguage(line: string): string {
@@ -111,6 +116,8 @@ export function chunkMessage(
   let currentChars = 0;
   let openFence = false;
   let fenceLanguage = '';
+  // Repeated after a split inside a table; a headerless chunk renders as raw pipes.
+  let tableHeader: string[] = [];
 
   const getReopenedFence = (): string => {
     const candidate = fenceLanguage ? `\`\`\`${fenceLanguage}` : '```';
@@ -119,7 +126,7 @@ export function chunkMessage(
       : '```';
   };
 
-  const flush = (isFinal: boolean): void => {
+  const flush = (isFinal: boolean, nextLine = ''): void => {
     if (currentLines.length === 0) return;
 
     let chunk = currentLines.join('\n');
@@ -132,6 +139,13 @@ export function chunkMessage(
       const reopenedFence = getReopenedFence();
       currentLines = [reopenedFence];
       currentChars = reopenedFence.length;
+    } else if (
+      !isFinal &&
+      tableHeader.length > 0 &&
+      tableHeader.join('\n').length + nextLine.length + 1 <= maxChars
+    ) {
+      currentLines = [...tableHeader];
+      currentChars = tableHeader.join('\n').length;
     } else {
       currentLines = [];
       currentChars = 0;
@@ -154,12 +168,22 @@ export function chunkMessage(
       currentLines.length > 0 &&
       (nextChars > charBudget || nextLines > maxLines)
     ) {
-      flush(false);
+      flush(false, line);
     }
 
+    const previousLine = currentLines.at(-1);
     currentLines.push(line);
     currentChars =
       currentLines.length === 1 ? line.length : currentChars + line.length + 1;
+
+    if (
+      !openFence &&
+      previousLine !== undefined &&
+      isTableRow(previousLine) &&
+      TABLE_SEPARATOR_RE.test(line)
+    ) {
+      tableHeader = [previousLine, line];
+    }
 
     if (isFenceLine(line)) {
       if (!openFence) {
@@ -186,6 +210,9 @@ export function chunkMessage(
           reopenedFenceChars -
           (openFence || fenceLine ? closingFenceChars : 0),
       );
+      if (tableHeader.length > 0 && !isTableRow(line)) {
+        tableHeader = [];
+      }
       const [part, ...remainingParts] = splitLongLine(line, lineBudget);
       appendLine(part);
       pendingLines.unshift(...remainingParts);
