@@ -174,16 +174,22 @@ test('summary input stays bounded and prioritizes the newest messages', async ()
 });
 
 test.each(['failure', 'empty'])(
-  'failed or empty auxiliary output starts the call without a summary: %s',
+  'failed or empty auxiliary output starts the call with the recent turns: %s',
   async (mode) => {
     ownedSession();
-    mocks.history.mockReturnValue([turn('user', 'Earlier chat')]);
+    mocks.history.mockReturnValue([
+      turn('user', 'Put milk on my list'),
+      turn('assistant', 'Added milk.', 'assistant'),
+    ]);
     if (mode === 'failure')
       mocks.summarize.mockRejectedValue(new Error('offline'));
     else mocks.summarize.mockResolvedValue({ content: ' ' });
     await expect(
       loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator'),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual([
+      { role: 'user', text: 'Put milk on my list' },
+      { role: 'assistant', text: 'Added milk.' },
+    ]);
     expect(mocks.summarize).toHaveBeenCalledTimes(1);
   },
 );

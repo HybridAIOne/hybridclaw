@@ -79,8 +79,8 @@ export async function loadWebchatVoiceHistory(
   }
   const previous = [...messages, ...recent.reverse()];
   if (previous.length === 0) return [];
-  // The summary is a courtesy: without it the call still works, and consult
-  // still reads the full chat. A failed one is never replaced by a fake.
+  // Without a summary the call starts from the bounded recent turns, never blind.
+  // A failed summary is never replaced by a fake.
   let result: Awaited<ReturnType<typeof callAuxiliaryModel>>;
   try {
     result = await callAuxiliaryModel({
@@ -102,9 +102,9 @@ export async function loadWebchatVoiceHistory(
     });
   } catch (err) {
     logger.warn({ err, agentId }, 'Voice call starts without a chat summary');
-    return [];
+    return previous;
   }
-  if (!result.content.trim()) return [];
+  if (!result.content.trim()) return previous;
   return [
     {
       role: 'user',
