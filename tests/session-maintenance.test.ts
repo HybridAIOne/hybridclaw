@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
+import { DAILY_MEMORY_MAX_CHARS } from '../container/shared/daily-memory.js';
+import { currentDateStampInTimezone } from '../container/shared/workspace-time.js';
 import type { CompactionResult } from '../src/types/memory.js';
 import type { StoredMessage } from '../src/types/session.js';
 import { useTempDir } from './test-utils.js';
@@ -569,4 +571,91 @@ test('a deleted scope cannot flush into the main workspace', async () => {
   await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(false);
   expect(runAgent).not.toHaveBeenCalled();
   expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
+});
+
+function mockCompactionCandidate(olderMessages: StoredMessage[]) {
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: 'session-1',
+    session_summary: null,
+  });
+  memoryServiceMock.getRecentMessages.mockReturnValue([
+    ...olderMessages,
+    makeStoredMessage(2, 'user', 'Next request.'),
+  ]);
+  memoryServiceMock.getCompactionCandidateMessages.mockReturnValue({
+    olderMessages,
+    cutoffId: 2,
+  });
+  memoryServiceMock.compactSession.mockResolvedValue(makeResult());
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+}
+
+test('a full daily note compacts without spending a flush call', async () => {
+  const { compactSessionNow, params, workspace, runAgent, append } =
+    await prepareFlush();
+  mockCompactionCandidate(params.olderMessages);
+  append();
+
+  await expect(compactSessionNow(params)).resolves.not.toBeNull();
+  expect(runAgent).toHaveBeenCalledOnce();
+
+  fs.writeFileSync(
+    path.join(workspace, `memory/${currentDateStampInTimezone()}.md`),
+    'x'.repeat(DAILY_MEMORY_MAX_CHARS),
+  );
+  await expect(compactSessionNow(params)).resolves.not.toBeNull();
+  expect(runAgent).toHaveBeenCalledOnce();
+  expect(memoryServiceMock.compactSession).toHaveBeenCalledTimes(2);
+});
+
+test('an append rejected for the note size does not block compaction', async () => {
+  const { compactSessionNow, params, workspace, runAgent } =
+    await prepareFlush();
+  mockCompactionCandidate(params.olderMessages);
+  const relativePath = `memory/${currentDateStampInTimezone()}.md`;
+  fs.mkdirSync(path.join(workspace, 'memory'));
+  fs.writeFileSync(path.join(workspace, relativePath), 'x'.repeat(20_000));
+  runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'The note is full.',
+    toolsUsed: ['memory'],
+    toolExecutions: [
+      {
+        name: 'memory',
+        arguments: JSON.stringify({
+          action: 'append',
+          file_path: relativePath,
+          content: 'y'.repeat(5_000),
+        }),
+        result: `Error: ${relativePath} would exceed ${DAILY_MEMORY_MAX_CHARS} chars. Shorten content or remove older entries first.`,
+        durationMs: 1,
+        isError: true,
+      },
+    ],
+  });
+
+  await expect(compactSessionNow(params)).resolves.not.toBeNull();
+  expect(runAgent).toHaveBeenCalledOnce();
+  expect(memoryServiceMock.compactSession).toHaveBeenCalledOnce();
+});
+
+test('the flush names today’s note in the user’s time zone', async () => {
+  const { runPreCompactionMemoryFlush, params, workspace, runAgent, append } =
+    await prepareFlush();
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+  fs.writeFileSync(
+    path.join(workspace, 'USER.md'),
+    '- **Timezone:** Pacific/Kiritimati\n',
+  );
+  append();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-22T10:30:00Z'));
+  try {
+    await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(String(runAgent.mock.calls[0][0].messages.at(-1)?.content)).toContain(
+    'memory/2026-10-23.md',
+  );
 });

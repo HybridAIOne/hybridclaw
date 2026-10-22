@@ -6,6 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DAILY_MEMORY_MAX_CHARS } from '../../container/shared/daily-memory.js';
+import {
+  currentDateStampInTimezone,
+  readUserTimezoneFile,
+} from '../../container/shared/workspace-time.js';
 import { runAgent } from '../agent/agent.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
@@ -34,6 +39,7 @@ import {
 } from '../scopes/scope-run.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
+import type { ContainerOutput } from '../types/container.js';
 import type { CompactionResult } from '../types/memory.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { resolveHistoryBudgetTokens } from './context-budget.js';
@@ -75,19 +81,28 @@ export function resolveRetainedMessageCount(
   return Math.max(1, retained);
 }
 
-function formatDateStampInLocalTimezone(now: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  if (year && month && day) {
-    return `${year}-${month}-${day}`;
-  }
-  return now.toISOString().slice(0, 10);
+// Less room than this holds no durable fact worth a flush call.
+const DAILY_NOTE_MIN_ROOM_CHARS = 500;
+
+// The memory tool appends a blank line, the content and a newline to the trimmed note.
+function dailyNoteIsFull(note: string): boolean {
+  return (
+    note.trimEnd().length + 3 + DAILY_NOTE_MIN_ROOM_CHARS >
+    DAILY_MEMORY_MAX_CHARS
+  );
+}
+
+function appendRejectedForSize(
+  output: ContainerOutput,
+  relativePath: string,
+): boolean {
+  if (output.status !== 'success') return false;
+  return (output.toolExecutions ?? []).some(
+    (tool) =>
+      tool.name === 'memory' &&
+      tool.isError &&
+      tool.result.startsWith(`Error: ${relativePath} would exceed `),
+  );
 }
 
 function buildSystemPrompt(
@@ -160,8 +175,14 @@ export async function runPreCompactionMemoryFlush(params: {
   );
   if (isScopeRunError(scopeRun)) return false;
 
+  const workspaceDir =
+    scopeRun?.workspaceDir ?? agentWorkspaceDir(params.agentId);
   const now = new Date();
-  const dateStamp = formatDateStampInLocalTimezone(now);
+  // The memory tool only writes today's note in the user's time zone.
+  const dateStamp = currentDateStampInTimezone(
+    readUserTimezoneFile(path.join(workspaceDir, 'USER.md')),
+    now,
+  );
 
   const flushPrompt = [
     'Pre-compaction memory flush.',
@@ -216,10 +237,7 @@ export async function runPreCompactionMemoryFlush(params: {
   const flushSessionId = `memory-flush:${params.sessionId}:${Date.now()}`;
   try {
     const relativePath = `memory/${dateStamp}.md`;
-    const filePath = path.join(
-      scopeRun?.workspaceDir ?? agentWorkspaceDir(params.agentId),
-      relativePath,
-    );
+    const filePath = path.join(workspaceDir, relativePath);
     const readNote = () => {
       try {
         return fs.readFileSync(filePath, 'utf8');
@@ -228,8 +246,22 @@ export async function runPreCompactionMemoryFlush(params: {
         throw err;
       }
     };
+    const skipFullNote = (reason: string, noteChars: number) =>
+      logger.warn(
+        {
+          sessionId: params.sessionId,
+          notePath: relativePath,
+          noteChars,
+          reason,
+        },
+        "Pre-compaction memory flush skipped: today's note is full",
+      );
     for (const [index, excerpt] of excerpts.entries()) {
       const before = readNote();
+      if (dailyNoteIsFull(before)) {
+        skipFullNote('no_room', before.length);
+        break;
+      }
       const output = await runAgent({
         sessionId: flushSessionId,
         messages: [
@@ -247,13 +279,17 @@ export async function runPreCompactionMemoryFlush(params: {
         allowedTools: ['memory'],
         ...scopeRunAgentParams(scopeRun),
       });
-      if (!verifiedMemoryFlush(output, relativePath, before, readNote())) {
-        logger.warn(
-          { sessionId: params.sessionId, error: output.error },
-          'Pre-compaction memory flush failed: no verified append or explicit skip',
-        );
-        return false;
+      const after = readNote();
+      if (verifiedMemoryFlush(output, relativePath, before, after)) continue;
+      if (appendRejectedForSize(output, relativePath)) {
+        skipFullNote('append_rejected', after.length);
+        break;
       }
+      logger.warn(
+        { sessionId: params.sessionId, error: output.error },
+        'Pre-compaction memory flush failed: no verified append or explicit skip',
+      );
+      return false;
     }
     memoryService.markSessionMemoryFlush(params.sessionId);
     const pluginManager =
