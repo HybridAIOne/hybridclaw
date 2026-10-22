@@ -229,7 +229,6 @@ async function resolveCogneeRuntime(agentId: string, skillName: string) {
       defaultModel: model,
       channelType: 'adaptive-skills',
       channelId: 'adaptive-skills',
-      guildId: null,
       workspacePath: path.dirname(resolveSkillCatalogEntry(skillName).filePath),
     },
     allowedTools: AMENDMENT_ALLOWED_TOOLS,

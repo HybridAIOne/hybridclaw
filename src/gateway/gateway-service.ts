@@ -8113,7 +8113,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         defaultModel: HYBRIDAI_MODEL,
         channelType: channelId,
         channelId,
-        guildId: null,
         sessionContext,
         workspacePath,
       },

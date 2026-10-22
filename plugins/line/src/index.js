@@ -88,12 +88,8 @@ const plugin = {
               },
         ];
       },
-      messageToolHints: ({ channelId }) => [
-        ...(channelId
-          ? [
-              `- Current LINE self-chat: \`${channelId}\`. Normal assistant replies return here automatically.`,
-            ]
-          : []),
+      messageToolHints: () => [
+        '- Normal assistant replies return to the current LINE self-chat automatically.',
         '- LINE is configured for the linked account self-chat only; do not attempt to address other LINE users or groups.',
         '- Keep LINE replies concise and avoid platform-specific mention syntax.',
       ],
