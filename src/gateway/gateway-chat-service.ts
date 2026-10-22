@@ -113,7 +113,10 @@ import {
   resolveScopeRun,
   scopeRunAgentParams,
 } from '../scopes/scope-run.js';
-import { buildSessionContext } from '../session/session-context.js';
+import {
+  buildSessionContext,
+  chatTypeFromSessionKey,
+} from '../session/session-context.js';
 import { startSessionTitle } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
@@ -1252,9 +1255,8 @@ async function handleGatewayMessageInner(
       chatType:
         channelType === 'heartbeat' || channelType === 'scheduler'
           ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
+          : (chatTypeFromSessionKey(session.session_key) ??
+            (req.guildId ? 'channel' : 'dm')),
       userId: req.userId,
       userName: req.username ?? undefined,
       guildId: req.guildId,
@@ -1976,7 +1978,6 @@ async function handleGatewayMessageInner(
       channel,
       channelType,
       channelId: req.channelId,
-      guildId: req.guildId,
       sessionContext,
       workspacePath: workspaceDisplayPath,
     },

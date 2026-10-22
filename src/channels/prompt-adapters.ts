@@ -22,13 +22,11 @@ export interface ChannelPromptRuntimeInfo {
   channel?: ChannelInfo;
   channelType?: string;
   channelId?: string;
-  guildId?: string | null;
 }
 
+// Hints render into the system prompt, so they must not vary per conversation.
 export type ChannelAgentPromptAdapter = {
-  messageToolHints?: (params: {
-    runtimeInfo?: ChannelPromptRuntimeInfo;
-  }) => string[];
+  messageToolHints: readonly string[];
 };
 
 function resolveRuntimeChannel(
@@ -62,14 +60,8 @@ function resolveChannelAgentPromptAdapter(params: {
   if (!channel) return null;
   if (isPluginChannelKind(channel.kind)) {
     const hints = getChannelTransport(channel.kind)?.messageToolHints;
-    return hints
-      ? {
-          messageToolHints: ({ runtimeInfo }) =>
-            hints({
-              channelId: normalizeValue(runtimeInfo?.channelId) || null,
-            }),
-        }
-      : null;
+    // The contract keeps `channelId` for older plugins; the shared prompt has none.
+    return hints ? { messageToolHints: hints({ channelId: null }) } : null;
   }
   if (channel.kind === 'email') return emailAgentPromptAdapter;
   if (channel.kind === 'imessage') return imessageAgentPromptAdapter;
@@ -90,9 +82,6 @@ export function resolveChannelMessageToolHints(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): string[] {
   const adapter = resolveChannelAgentPromptAdapter(params);
-  const resolveHints = adapter?.messageToolHints;
-  if (!resolveHints) return [];
-  return resolveHints(params)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  if (!adapter) return [];
+  return adapter.messageToolHints.map((entry) => entry.trim()).filter(Boolean);
 }

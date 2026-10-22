@@ -240,7 +240,6 @@ export function startHeartbeat(
           defaultModel: model,
           channelType: 'heartbeat',
           channelId,
-          guildId: null,
           sessionContext,
           workspacePath,
         },

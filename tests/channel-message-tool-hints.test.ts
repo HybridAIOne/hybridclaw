@@ -26,7 +26,6 @@ registerChannelTransport(
 );
 
 const CHANNEL_ID = '1475079601968648386';
-const GUILD_ID = '123456789012345678';
 
 test('resolves Discord message tool hints when channelType is discord', () => {
   registerChannel({
@@ -39,16 +38,11 @@ test('resolves Discord message tool hints when channelType is discord', () => {
     runtimeInfo: {
       channelType: 'discord',
       channelId: CHANNEL_ID,
-      guildId: GUILD_ID,
     },
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) =>
-      entry.includes(`Current Discord channel: \`${CHANNEL_ID}\``),
-    ),
-  ).toBe(true);
+  expect(hints.join('\n')).not.toContain(CHANNEL_ID);
   expect(
     hints.some((entry) => entry.includes('Supported actions: `read`')),
   ).toBe(true);
@@ -84,24 +78,21 @@ test('returns no channel hints for explicit non-Discord channel type', () => {
   expect(hints).toEqual([]);
 });
 
-test('includes DM context hint when guildId is null', () => {
+test('hints are the same for every conversation of a channel', () => {
   registerChannel({
-    kind: 'discord',
-    id: 'discord-bot',
-    capabilities: DISCORD_CAPABILITIES,
+    kind: 'msteams',
+    id: 'msteams',
+    capabilities: MSTEAMS_CAPABILITIES,
   });
 
-  const hints = resolveChannelMessageToolHints({
-    runtimeInfo: {
-      channelType: 'discord',
-      channelId: CHANNEL_ID,
-      guildId: null,
-    },
-  });
+  const hintsFor = (channelId: string) =>
+    resolveChannelMessageToolHints({
+      runtimeInfo: { channelType: 'msteams', channelId },
+    });
 
-  expect(
-    hints.some((entry) => entry.includes('Current Discord context is a DM')),
-  ).toBe(true);
+  expect(hintsFor('a:1on1-conversation')).toEqual(
+    hintsFor('19:group@thread.v2'),
+  );
 });
 
 test('resolves WhatsApp hints from explicit WhatsApp context', () => {
@@ -119,9 +110,9 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(hints.some((entry) => entry.includes('Current WhatsApp chat'))).toBe(
-    true,
-  );
+  expect(
+    hints.some((entry) => entry.includes('current WhatsApp chat automatically')),
+  ).toBe(true);
   expect(
     hints.some((entry) => entry.includes('`*bold*`, `_italic_`, `~strike~`')),
   ).toBe(true);
@@ -186,10 +177,10 @@ test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(hints.some((entry) => entry.includes('Current WhatsApp chat'))).toBe(
-    true,
-  );
-  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+  expect(
+    hints.some((entry) => entry.includes('current WhatsApp chat automatically')),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('current email peer'))).toBe(
     false,
   );
 });
@@ -209,9 +200,7 @@ test('resolves email hints with read support from explicit email context', () =>
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
-    true,
-  );
+  expect(hints.join('\n')).not.toContain('peer@example.com');
   expect(
     hints.some((entry) =>
       entry.includes('Supported `message` actions here: `read`'),
@@ -249,7 +238,7 @@ test('falls back to matching channelId inference when explicit channel type is u
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+  expect(hints.some((entry) => entry.includes('current email peer'))).toBe(
     true,
   );
 });
@@ -265,16 +254,10 @@ test('resolves Teams hints from explicit Teams context', () => {
     runtimeInfo: {
       channelType: 'msteams',
       channelId: '19:channel@thread.tacv2',
-      guildId: 'team-123',
     },
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) =>
-      entry.includes('Current Teams conversation: `19:channel@thread.tacv2`'),
-    ),
-  ).toBe(true);
   expect(hints.some((entry) => entry.includes('Adaptive Card'))).toBe(true);
   expect(
     hints.some((entry) =>
@@ -308,13 +291,6 @@ test('resolves Telegram hints from explicit Telegram context', () => {
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) =>
-      entry.includes(
-        'Current Telegram chat: `telegram:-1001234567890:topic:42`',
-      ),
-    ),
-  ).toBe(true);
   expect(hints.some((entry) => entry.includes('Telegram topic targets'))).toBe(
     true,
   );
@@ -325,9 +301,6 @@ test('resolves Telegram hints from explicit Telegram context', () => {
       ),
     ),
   ).toBe(true);
-  expect(hints.some((entry) => entry.includes('group or topic thread'))).toBe(
-    true,
-  );
 });
 
 test('resolves Slack hints from explicit Slack context', () => {
@@ -341,18 +314,10 @@ test('resolves Slack hints from explicit Slack context', () => {
     runtimeInfo: {
       channelType: 'slack',
       channelId: 'slack:C1234567890:1710000000.123456',
-      guildId: 'T1234567890',
     },
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) =>
-      entry.includes(
-        'Current Slack conversation: `slack:C1234567890:1710000000.123456`',
-      ),
-    ),
-  ).toBe(true);
   expect(
     hints.some((entry) =>
       entry.includes(
@@ -366,11 +331,6 @@ test('resolves Slack hints from explicit Slack context', () => {
       entry.includes(
         'known participants from the current Slack session history',
       ),
-    ),
-  ).toBe(true);
-  expect(
-    hints.some((entry) =>
-      entry.includes('Current Slack workspace/team id: `T1234567890`'),
     ),
   ).toBe(true);
 });
@@ -390,7 +350,7 @@ test('resolves Threema hints from explicit Threema context', () => {
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(hints.some((entry) => entry.includes('Current Threema chat'))).toBe(
+  expect(hints.some((entry) => entry.includes('current Threema chat'))).toBe(
     true,
   );
   expect(

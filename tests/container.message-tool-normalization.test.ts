@@ -470,13 +470,14 @@ describe.sequential('container message tool normalization', () => {
 
     const description = getMessageToolDescription(undefined, ['msteams']);
     expect(description).toContain(
-      'Current Teams conversation (a:teams-current-conversation) supports: send.',
+      'The current Teams conversation supports: send.',
     );
+    expect(description).not.toContain('a:teams-current-conversation');
     expect(description).toContain('Active channels: Microsoft Teams.');
     expect(description).toContain('current Teams conversation for send');
   });
 
-  test('message tool description enumerates other configured channels', () => {
+  test('message tool description enumerates configured channels', () => {
     const otherChannelId = '223456789012345679';
     setGatewayContext('http://gateway.local', 'token', CHANNEL_ID, [
       CHANNEL_ID,
@@ -484,10 +485,11 @@ describe.sequential('container message tool normalization', () => {
     ]);
 
     const description = getMessageToolDescription(CHANNEL_ID, ['discord']);
-    expect(description).toContain(`Current Discord channel (${CHANNEL_ID})`);
+    expect(description).toContain('The current Discord channel supports:');
     expect(description).toContain('Active channels: Discord.');
     expect(description).toContain(
-      `Other configured channels: ${otherChannelId} (`,
+      `Configured channels: ${CHANNEL_ID} (`,
     );
+    expect(description).toContain(`, ${otherChannelId} (`);
   });
 });
