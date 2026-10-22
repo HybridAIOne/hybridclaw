@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## [0.40.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.7) - 2026-10-22
+
+### Changed
+
+- **Discord delegate progress**: Each delegation job uses one live status
+  message that updates in place and collapses to a compact summary when
+  finished. Results still arrive as separate messages.
+- **Voice call diagnostics**: Web and app voice calls record who ended the
+  call, the close code and reason, whether it was answered, and its duration
+  in the audit log.
+- **Image TLS trust**: Gateway and agent images use Node 22.23.4 with an
+  updated certificate root store that removes the emSign G3, C1, and C3 roots.
+
+### Fixed
+
+- **Split tables**: Long replies repeat table headers in continuation messages
+  when the header and next row fit, keeping tables readable across chunks.
+- **Telemetry attribution**: Forwarded events identify their actual agent,
+  and telemetry streams use a stable installation ID. Upgrades resume from
+  the previous stream cursor instead of resending history.
+- **Web retrieval guidance**: Prompt instructions name only available HTTP
+  and fetch tools and direct API calls to `bash` + `curl` when `http_request`
+  is unavailable and `bash` is enabled.
+
+### Upgrade Notes
+
+- Remove `observability.agentId` from custom configuration; agent attribution
+  comes from each event's session, with non-agent events assigned to the
+  default agent. The installation requests an ingest token under its stable
+  node ID after upgrading.
+- TLS connections that rely solely on the removed emSign roots fail
+  certificate verification in the updated images.
+
 ## [0.40.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.6) - 2026-10-20
 
 ### Fixed
