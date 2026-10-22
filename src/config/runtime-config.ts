@@ -1279,7 +1279,6 @@ export interface RuntimeConfig {
     ingestPath: string;
     statusPath: string;
     botId: string;
-    agentId: string;
     label: string;
     environment: string;
     flushIntervalMs: number;
@@ -2091,7 +2090,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     ingestPath: '/api/v1/agent-observability/events:batch',
     statusPath: '/api/v1/agent-observability/status',
     botId: '',
-    agentId: 'agent_main',
     label: '',
     environment: 'prod',
     flushIntervalMs: 10_000,
@@ -7973,11 +7971,6 @@ function normalizeRuntimeConfig(
       botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, {
         allowEmpty: true,
       }),
-      agentId: normalizeString(
-        rawObservability.agentId,
-        DEFAULT_RUNTIME_CONFIG.observability.agentId,
-        { allowEmpty: false },
-      ),
       label: normalizeString(
         rawObservability.label,
         DEFAULT_RUNTIME_CONFIG.observability.label,

@@ -8,7 +8,8 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { asStringArray, asTrimmedString } from '../utils/type-guards.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
+import { asStringArray } from '../utils/type-guards.js';
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const TOKEN_TIMEOUT_MS = 20_000;
@@ -103,23 +104,24 @@ export async function discoverAuthorizationServerMetadata(
   for (const candidate of candidates) {
     const metadata = await fetchJson(candidate);
     if (!metadata) continue;
-    const authorizationEndpoint = asTrimmedString(
+    const authorizationEndpoint = normalizeTrimmedString(
       metadata.authorization_endpoint,
     );
-    const tokenEndpoint = asTrimmedString(metadata.token_endpoint);
+    const tokenEndpoint = normalizeTrimmedString(metadata.token_endpoint);
     if (!authorizationEndpoint || !tokenEndpoint) continue;
     return {
-      issuer: asTrimmedString(metadata.issuer) || undefined,
+      issuer: normalizeTrimmedString(metadata.issuer) || undefined,
       authorizationEndpoint,
       tokenEndpoint,
       registrationEndpoint:
-        asTrimmedString(metadata.registration_endpoint) || undefined,
+        normalizeTrimmedString(metadata.registration_endpoint) || undefined,
       revocationEndpoint:
-        asTrimmedString(metadata.revocation_endpoint) || undefined,
+        normalizeTrimmedString(metadata.revocation_endpoint) || undefined,
       deviceAuthorizationEndpoint:
-        asTrimmedString(metadata.device_authorization_endpoint) || undefined,
+        normalizeTrimmedString(metadata.device_authorization_endpoint) ||
+        undefined,
       userinfoEndpoint:
-        asTrimmedString(metadata.userinfo_endpoint) || undefined,
+        normalizeTrimmedString(metadata.userinfo_endpoint) || undefined,
       scopesSupported: asStringArray(metadata.scopes_supported),
     };
   }
@@ -160,17 +162,17 @@ export async function registerPublicClient(input: {
     string,
     unknown
   >;
-  const clientId = asTrimmedString(payload.client_id);
+  const clientId = normalizeTrimmedString(payload.client_id);
   if (!response.ok || !clientId) {
     const detail =
-      asTrimmedString(payload.error_description) ||
-      asTrimmedString(payload.error) ||
+      normalizeTrimmedString(payload.error_description) ||
+      normalizeTrimmedString(payload.error) ||
       `HTTP ${response.status}`;
     throw new Error(`OAuth client registration failed (${detail}).`);
   }
   return {
     clientId,
-    clientSecret: asTrimmedString(payload.client_secret) || undefined,
+    clientSecret: normalizeTrimmedString(payload.client_secret) || undefined,
   };
 }
 
@@ -215,11 +217,11 @@ export async function requestToken(
   const payload = (await response.json().catch(() => ({}))) as TokenResponse;
   if (!response.ok) {
     throw new OAuthTokenRequestError(
-      asTrimmedString(payload.error) || `HTTP ${response.status}`,
-      asTrimmedString(payload.error_description) || undefined,
+      normalizeTrimmedString(payload.error) || `HTTP ${response.status}`,
+      normalizeTrimmedString(payload.error_description) || undefined,
     );
   }
-  const accessToken = asTrimmedString(payload.access_token);
+  const accessToken = normalizeTrimmedString(payload.access_token);
   if (!accessToken) {
     throw new Error('OAuth token response did not include an access token.');
   }
@@ -230,9 +232,9 @@ export async function requestToken(
       : null;
   return {
     accessToken,
-    refreshToken: asTrimmedString(payload.refresh_token) || undefined,
+    refreshToken: normalizeTrimmedString(payload.refresh_token) || undefined,
     expiresAt: expiresIn === null ? undefined : Date.now() + expiresIn * 1000,
-    scope: asTrimmedString(payload.scope) || undefined,
+    scope: normalizeTrimmedString(payload.scope) || undefined,
   };
 }
 
@@ -285,13 +287,13 @@ export async function requestDeviceAuthorization(input: {
     string,
     unknown
   >;
-  const deviceCode = asTrimmedString(payload.device_code);
-  const userCode = asTrimmedString(payload.user_code);
-  const verificationUri = asTrimmedString(payload.verification_uri);
+  const deviceCode = normalizeTrimmedString(payload.device_code);
+  const userCode = normalizeTrimmedString(payload.user_code);
+  const verificationUri = normalizeTrimmedString(payload.verification_uri);
   if (!response.ok || !deviceCode || !userCode || !verificationUri) {
     const detail =
-      asTrimmedString(payload.error_description) ||
-      asTrimmedString(payload.error) ||
+      normalizeTrimmedString(payload.error_description) ||
+      normalizeTrimmedString(payload.error) ||
       `HTTP ${response.status}`;
     throw new Error(`OAuth device authorization failed (${detail}).`);
   }
@@ -309,7 +311,7 @@ export async function requestDeviceAuthorization(input: {
     userCode,
     verificationUri,
     verificationUriComplete:
-      asTrimmedString(payload.verification_uri_complete) || undefined,
+      normalizeTrimmedString(payload.verification_uri_complete) || undefined,
     expiresAt: Date.now() + expiresIn * 1000,
     intervalMs: Math.max(0, interval) * 1000,
   };

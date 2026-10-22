@@ -1,6 +1,6 @@
-export function normalizeTrimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
+import { readString as normalizeTrimmedString } from '#shared/primitive-values.js';
+
+export { normalizeTrimmedString };
 
 export function normalizeOptionalTrimmedString(
   value: unknown,

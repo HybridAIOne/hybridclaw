@@ -15,10 +15,10 @@ import {
 } from '../../config/config.js';
 import { deleteSessionData } from '../../memory/db.js';
 import { maybeCompactSession } from '../../session/session-maintenance.js';
+import { formatDuration } from '../../utils/text-format.js';
 import type { DiagFix, DiagResult, DoctorCheck } from '../types.js';
 import {
   formatBytes,
-  formatDuration,
   makeResult,
   pluralize,
   readDirSize,

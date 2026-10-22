@@ -1,4 +1,4 @@
-import { isRecord } from '#shared/primitive-values.js';
+import { isRecord, readString } from '#shared/primitive-values.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
@@ -44,27 +44,23 @@ interface ParsedProviderErrorBody {
   type: string | null;
 }
 
-function asTrimmedString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
 function parseProviderErrorRecord(
   value: Record<string, unknown>,
 ): ParsedProviderErrorBody {
   let message =
-    asTrimmedString(value.message) ??
-    asTrimmedString(value.detail) ??
-    asTrimmedString(value.error);
-  let type = asTrimmedString(value.type);
+    readString(value.message) ||
+    readString(value.detail) ||
+    readString(value.error) ||
+    null;
+  let type = readString(value.type) || null;
   const nested = value.error;
   if (isRecord(nested)) {
     message ||=
-      asTrimmedString(nested.message) ??
-      asTrimmedString(nested.detail) ??
-      asTrimmedString(nested.error);
-    type ||= asTrimmedString(nested.type);
+      readString(nested.message) ||
+      readString(nested.detail) ||
+      readString(nested.error) ||
+      null;
+    type ||= readString(nested.type) || null;
   }
   return { message, type };
 }
@@ -79,7 +75,7 @@ export function parseProviderErrorBody(
     const parsed = JSON.parse(trimmed) as unknown;
     if (typeof parsed === 'string') {
       return {
-        message: asTrimmedString(parsed),
+        message: readString(parsed) || null,
         type: null,
       };
     }

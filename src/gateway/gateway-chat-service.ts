@@ -551,6 +551,11 @@ function getTierRouterMetadata(
   return raw as TierRouterMetadata;
 }
 
+// Not runtime faults: the user stopped the turn, or the provider throttled it or ran out of quota.
+function isExpectedChatError(message: string, interrupted: boolean): boolean {
+  return interrupted || message.startsWith('Provider API error 429:');
+}
+
 function captureGatewayChatResultError(params: {
   message: string;
   errorType: 'agent' | 'configuration' | 'gateway';
@@ -2889,21 +2894,23 @@ async function handleGatewayMessageInner(
         assistantMessageId: storedErrorTurn.assistantMessageId,
         ...receiptOf(toolExecutions),
       };
-      captureGatewayChatResultError({
-        message: errorMessage,
-        errorType: 'agent',
-        sessionId: req.sessionId,
-        channelId: req.channelId,
-        agentId,
-        model,
-        provider,
-        runId,
-        turnIndex,
-        source,
-        stage: agentStage,
-        durationMs,
-        toolCallCount: toolExecutions.length,
-      });
+      if (!isExpectedChatError(errorMessage, interrupted)) {
+        captureGatewayChatResultError({
+          message: errorMessage,
+          errorType: 'agent',
+          sessionId: req.sessionId,
+          channelId: req.channelId,
+          agentId,
+          model,
+          provider,
+          runId,
+          turnIndex,
+          source,
+          stage: agentStage,
+          durationMs,
+          toolCallCount: toolExecutions.length,
+        });
+      }
       await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
@@ -3294,21 +3301,23 @@ async function handleGatewayMessageInner(
           }
         : {}),
     });
-    captureGatewayChatResultError({
-      message: errorMsg,
-      errorType: 'gateway',
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      model,
-      provider,
-      runId,
-      turnIndex,
-      source,
-      stage: agentStage,
-      durationMs,
-      toolCallCount: 0,
-    });
+    if (!isExpectedChatError(errorMsg, activeGatewayRequest.signal.aborted)) {
+      captureGatewayChatResultError({
+        message: errorMsg,
+        errorType: 'gateway',
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        model,
+        provider,
+        runId,
+        turnIndex,
+        source,
+        stage: agentStage,
+        durationMs,
+        toolCallCount: 0,
+      });
+    }
     await continueGoalAfterResult(result);
     return result;
   } finally {

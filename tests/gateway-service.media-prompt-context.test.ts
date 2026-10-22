@@ -30,7 +30,7 @@ describe("buildMediaPromptContext URL fallback hint", () => {
     expect(teams).toContain("cannot be fetched by tools");
   });
 
-  test("tells the model when an attachment could not be downloaded", () => {
+  test("tells the model why an attachment did not arrive", () => {
     const context = buildMediaPromptContext([
       {
         path: null,
@@ -40,14 +40,15 @@ describe("buildMediaPromptContext URL fallback hint", () => {
         mimeType: null,
         sizeBytes: 0,
         filename: "original",
-        unavailableReason: "Teams attachment fetch failed (502 Bad Gateway)",
+        unavailableReason:
+          "larger than the 100 MB Teams attachment limit; sending the same file again will not help",
       },
     ]);
     expect(context).toContain(
-      'UnavailableMedia: [{"filename":"original","reason":"Teams attachment fetch failed (502 Bad Gateway)"}]',
+      'UnavailableMedia: [{"filename":"original","reason":"larger than the 100 MB Teams attachment limit; sending the same file again will not help"}]',
     );
-    expect(context).toContain("could NOT be downloaded");
-    expect(context).toContain("ask them to send it again");
+    expect(context).toContain("did NOT reach you");
+    expect(context).not.toContain("send it again");
     expect(context).toContain("ImageMediaPaths: []");
   });
 

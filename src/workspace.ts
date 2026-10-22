@@ -236,11 +236,27 @@ export function completeWorkspaceOnboarding(agentId: string): void {
   });
 }
 
+// A child's persona is its parent's, read from the parent's workspace on every
+// turn so an edit to the parent reaches all of its children.
+const PARENT_PERSONA_FILES: ReadonlySet<string> = new Set([
+  'AGENTS.md',
+  'SOUL.md',
+  'IDENTITY.md',
+  'TOOLS.md',
+]);
+
+function personaParentId(agentId: string): string | null {
+  return resolveAgentConfig(agentId).extends?.trim() || null;
+}
+
 // Files a child workspace starts from. USER.md is written per person and
 // MEMORY.md is never shared, so both stay out of the copy.
 const INHERITED_WORKSPACE_FILES = WORKSPACE_BOOTSTRAP_FILES.filter(
   (name) =>
-    name !== 'USER.md' && name !== 'MEMORY.md' && name !== 'BOOTSTRAP.md',
+    name !== 'USER.md' &&
+    name !== 'MEMORY.md' &&
+    name !== 'BOOTSTRAP.md' &&
+    !PARENT_PERSONA_FILES.has(name),
 );
 
 /**
@@ -903,8 +919,10 @@ export function ensureBootstrapFiles(
     });
   }
 
+  const parentId = personaParentId(agentId);
   for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     if (ONE_TIME_BOOTSTRAP_FILES.has(filename)) continue;
+    if (parentId && PARENT_PERSONA_FILES.has(filename)) continue;
     const destPath = path.join(wsDir, filename);
     if (fs.existsSync(destPath)) continue;
 
@@ -1026,10 +1044,16 @@ export function loadStaticBootstrapFiles(
   options: { omitChannelGuidance?: boolean; workspaceDir?: string } = {},
 ): ContextFile[] {
   const wsDir = options.workspaceDir ?? agentWorkspaceDir(agentId);
+  const parentId = options.workspaceDir ? null : personaParentId(agentId);
   const files: ContextFile[] = [];
 
   for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
-    const filePath = path.join(wsDir, filename);
+    const filePath = path.join(
+      parentId && PARENT_PERSONA_FILES.has(filename)
+        ? agentWorkspaceDir(parentId)
+        : wsDir,
+      filename,
+    );
     if (options.workspaceDir) {
       if (SCOPE_EXCLUDED_PROMPT_FILES.has(filename)) continue;
       if (!isPlainFileUnder(wsDir, filename)) continue;

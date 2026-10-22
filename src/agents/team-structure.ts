@@ -1,4 +1,7 @@
-import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedString,
+} from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import type { AgentConfig } from './agent-types.js';
 import { validateAgentOrgChart } from './agent-types.js';
@@ -45,16 +48,12 @@ export interface AgentTeamStructureSnapshotOptions {
   validate?: boolean;
 }
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function normalizeTeamEntry(value: unknown): AgentTeamStructureEntry | null {
   if (!isRecord(value)) return null;
-  const id = normalizeString(value.id);
+  const id = normalizeTrimmedString(value.id);
   if (!id) return null;
-  const role = normalizeString(value.role);
-  const reportsTo = normalizeString(value.reportsTo);
+  const role = normalizeTrimmedString(value.role);
+  const reportsTo = normalizeTrimmedString(value.reportsTo);
   const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
     value.delegatesTo,
   );
@@ -79,8 +78,8 @@ function toAgentConfig(entry: AgentTeamStructureEntry): AgentConfig {
 }
 
 function snapshotEntry(agent: AgentConfig): AgentTeamStructureEntry {
-  const role = normalizeString(agent.role);
-  const reportsTo = normalizeString(agent.reportsTo);
+  const role = normalizeTrimmedString(agent.role);
+  const reportsTo = normalizeTrimmedString(agent.reportsTo);
   const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
     agent.delegatesTo,
   );
