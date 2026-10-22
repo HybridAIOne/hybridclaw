@@ -136,7 +136,7 @@ export interface CachedDiscordPresence {
 export interface DiscordToolActionDependencies {
   requireDiscordClientReady: () => Awaitable<Client>;
   getDiscordPresence: (userId: string) => CachedDiscordPresence | undefined;
-  sendToChannel: (channelId: string, text: string) => Promise<void>;
+  sendToChannel: (channelId: string, text: string) => Promise<unknown>;
   resolveSendAttachments?: (
     request: DiscordToolActionRequest,
   ) => Promise<AttachmentBuilder[]>;

@@ -35,6 +35,7 @@ import {
 import {
   type DelegationCompletionEntry,
   type DelegationStatusEntry,
+  type DelegationStatusSnapshot,
   delegationSessionPrefix,
   extractDelegationDepth,
   interpolateChainPrompt,
@@ -153,6 +154,7 @@ async function publishDelegationLifecycleMessage(params: {
   channelId: string;
   text: string;
   artifacts?: ArtifactMetadata[];
+  delegationStatus?: DelegationStatusSnapshot;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
@@ -166,6 +168,7 @@ async function publishDelegationLifecycleMessage(params: {
       await params.onProactiveMessage({
         text,
         artifacts: params.artifacts,
+        delegationStatus: params.delegationStatus,
       });
       return;
     } catch (err) {
@@ -175,8 +178,11 @@ async function publishDelegationLifecycleMessage(params: {
           channelId: params.channelId,
           err,
         },
-        'Delegation proactive callback failed; falling back to queue',
+        params.delegationStatus
+          ? 'Delegation status callback failed; dropping stale snapshot'
+          : 'Delegation proactive callback failed; falling back to queue',
       );
+      if (params.delegationStatus) return;
     }
   }
 
@@ -488,27 +494,30 @@ export function enqueueDelegationBatchFromSideEffects(params: {
       markDelegationJobInProgress(publicId);
       const startedAt = Date.now();
       try {
-        const statusText = (): string =>
-          formatDelegationStatus({
+        const statusMessage = () => ({
+          parentSessionId,
+          channelId,
+          text: formatDelegationStatus({
             label: batchLabel,
             entries: statusEntries,
             parentModel,
-          });
-        const publishStatusText = (text: string): Promise<void> =>
-          publishDelegationLifecycleMessage({
-            parentSessionId,
-            channelId,
-            text,
-            onProactiveMessage,
-          });
-        await publishStatusText(statusText());
+          }),
+          delegationStatus: {
+            jobId: publicId,
+            startedAt,
+            parentModel,
+            entries: statusEntries.map((entry) => ({ ...entry })),
+          },
+          onProactiveMessage,
+        });
+        await publishDelegationLifecycleMessage(statusMessage());
 
         let statusPublishChain = Promise.resolve();
         const publishStatus = (): Promise<void> => {
-          const text = statusText();
+          const message = statusMessage();
           statusPublishChain = statusPublishChain
             .catch(() => undefined)
-            .then(() => publishStatusText(text));
+            .then(() => publishDelegationLifecycleMessage(message));
           return statusPublishChain;
         };
 
