@@ -301,3 +301,23 @@ test('replays local tool history with catalog guidance and strips foreign provid
   expect(output.toolExecutions).toEqual([]);
   expect(messages).toEqual(original);
 });
+
+test('replays signed Claude content through HybridAI so the next turn is a prefix of the last', async () => {
+  const anthropic_content = [
+    { type: 'thinking', thinking: '', signature: 'signed-value' },
+    { type: 'tool_use', id: 'previous-read', name: 'read', input: { path: 'notes.txt' } },
+  ];
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'Read the notes.' },
+    { role: 'assistant', content: null, tool_calls: [{
+      id: 'previous-read', type: 'function', function: { name: 'read', arguments: '{"path":"notes.txt"}' },
+    }], anthropic_content },
+    { role: 'tool', tool_call_id: 'previous-read', content: 'Previously read notes.' },
+    { role: 'user', content: 'Use the previous result.' },
+  ];
+  const { output, requests } = await harness([], {
+    messages, provider: 'hybridai', isLocal: false, model: 'claude-sonnet-5-5', chatbotId: 'bot',
+  });
+  expect(output.status).toBe('success');
+  expect(requests[0].messages.find((message) => message.role === 'assistant')?.anthropic_content).toEqual(anthropic_content);
+});
