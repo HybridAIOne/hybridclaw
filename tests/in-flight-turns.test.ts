@@ -1,24 +1,15 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock, fetchHybridAIAccountChatbotIdMock } = vi.hoisted(
+const { runAgentMock } = vi.hoisted(
   () => ({
     runAgentMock: vi.fn(),
-    fetchHybridAIAccountChatbotIdMock: vi.fn(async () => 'bot-test'),
   }),
 );
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
-
-vi.mock('../src/providers/hybridai-bots.js', async () => {
-  const actual = await vi.importActual('../src/providers/hybridai-bots.ts');
-  return {
-    ...actual,
-    fetchHybridAIAccountChatbotId: fetchHybridAIAccountChatbotIdMock,
-  };
-});
 
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: vi.fn(async () => null),

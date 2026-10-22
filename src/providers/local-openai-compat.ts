@@ -83,7 +83,6 @@ function createLocalOpenAICompatProvider(params: {
       if (resolveLocalEndpointForModel(normalized, backend)) return true;
       return getLocalModelInfo(normalized)?.backend === backend;
     },
-    requiresChatbotId: () => false,
     async resolveRuntimeCredentials(
       runtimeParams: ResolveProviderRuntimeParams,
     ): Promise<ResolvedModelRuntimeCredentials> {

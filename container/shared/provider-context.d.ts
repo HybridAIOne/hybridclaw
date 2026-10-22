@@ -4,7 +4,6 @@ export interface ProviderContextValidationParams {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
-  chatbotId?: string;
   toolName: string;
   missingContextSource?: 'active request';
 }

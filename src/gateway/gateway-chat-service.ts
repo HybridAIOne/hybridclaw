@@ -46,7 +46,6 @@ import {
 } from '../channels/channel-registry.js';
 import {
   FULLAUTO_NEVER_APPROVE_TOOLS,
-  HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_DELEGATION_MAX_PER_TURN,
@@ -91,10 +90,7 @@ import {
 } from '../observability/otel.js';
 import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
-import {
-  modelRequiresChatbotId,
-  resolveModelProvider,
-} from '../providers/factory.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 import {
   collectModelLookupCandidates,
@@ -226,7 +222,6 @@ import {
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
   resolveChannelType,
-  resolveGatewayChatbotId,
   resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   resolveTurnBrowserProvider,
@@ -1236,15 +1231,6 @@ async function handleGatewayMessageInner(
   const onboardingModelPinned =
     startupBootstrapFile === 'BOOTSTRAP.md' && model !== resolvedModel;
   let provider = resolveModelProvider(model);
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
   const sessionContext = buildSessionContext({
     source: {
       channelKind: channelType || channel?.kind,
@@ -1578,17 +1564,6 @@ async function handleGatewayMessageInner(
     model = postRoutingModel;
     provider = resolveModelProvider(model);
   }
-  if (model !== resolvedModel) {
-    chatbotResolution = await resolveGatewayChatbotId({
-      model,
-      chatbotId,
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      trigger: 'chat',
-    });
-    chatbotId = chatbotResolution.chatbotId;
-  }
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -1710,84 +1685,6 @@ async function handleGatewayMessageInner(
       messageChars: userTurnContent.length,
       mediaCount: media.length,
     });
-  }
-
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    const error =
-      chatbotResolution.error ||
-      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
-    logger.warn(
-      {
-        ...debugMeta,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        requestChatbotId: req.chatbotId ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        durationMs: Date.now() - startedAt,
-      },
-      'Gateway chat blocked by missing chatbot configuration',
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'configuration',
-        message: error,
-        recoverable: true,
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs: Date.now() - startedAt,
-        },
-      },
-    });
-    const result: GatewayChatResult = {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      agentId,
-      model,
-      provider,
-      error,
-    };
-    captureGatewayChatResultError({
-      message: error,
-      errorType: 'configuration',
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      model,
-      provider,
-      runId,
-      turnIndex,
-      source,
-      stage: 'pre-agent',
-      durationMs: Date.now() - startedAt,
-      toolCallCount: 0,
-    });
-    await continueGoalAfterResult(result);
-    return attachSessionIdentity(result);
   }
 
   const titleRequest = startTitle(

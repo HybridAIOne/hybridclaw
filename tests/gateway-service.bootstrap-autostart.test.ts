@@ -58,18 +58,6 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-const { fetchHybridAIAccountChatbotIdMock } = vi.hoisted(() => ({
-  fetchHybridAIAccountChatbotIdMock: vi.fn(async () => 'user-bootstrap'),
-}));
-
-vi.mock('../src/providers/hybridai-bots.js', async () => {
-  const actual = await vi.importActual('../src/providers/hybridai-bots.ts');
-  return {
-    ...actual,
-    fetchHybridAIAccountChatbotId: fetchHybridAIAccountChatbotIdMock,
-  };
-});
-
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
   listLoadedPluginCommands: vi.fn(() => []),
@@ -83,7 +71,6 @@ const { setupHome } = setupGatewayTest({
   cleanup: () => {
     runAgentMock.mockReset();
     callAuxiliaryModelMock.mockClear();
-    fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
     setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
@@ -143,7 +130,7 @@ test('ensureGatewayBootstrapAutostart stores BOOTSTRAP opener once per agent wor
       }
     | undefined;
   expect(request?.channelId).toBe('web');
-  expect(request?.chatbotId).toBe('user-bootstrap');
+  expect(request?.chatbotId).toBe('');
   expect(request?.messages?.some((message) => message.role === 'system')).toBe(
     true,
   );
@@ -1043,7 +1030,7 @@ test('OPENING.md runs once per session and attributes usage to the invoking Team
         timeoutMs?: number;
       }
     | undefined;
-  expect(request?.fallbackChatbotId).toBe('user-bootstrap');
+  expect(request?.fallbackChatbotId).toBe('');
   expect(request?.maxTokens).toBe(512);
   expect(request?.timeoutMs).toBe(5000);
   expect(

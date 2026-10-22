@@ -47,7 +47,6 @@ test('bot list returns an actionable message on HybridAI auth failure', async ()
 
     return {
       HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
       fetchHybridAIBots: vi.fn(async () => {
         throw new HybridAIBotFetchError({
           status: 401,
@@ -108,7 +107,6 @@ test('bot set fails fast on HybridAI auth failure without mutating session state
 
     return {
       HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
       fetchHybridAIBots: vi.fn(async () => {
         throw new HybridAIBotFetchError({
           status: 401,
@@ -145,19 +143,18 @@ test('bot set fails fast on HybridAI auth failure without mutating session state
   ).toEqual([]);
 });
 
-test('handleGatewayMessage falls back to /bot-management/me when no chatbot is configured', async () => {
+test('handleGatewayMessage runs a HybridAI turn without a chatbot', async () => {
   setupHome();
 
-  const fetchHybridAIAccountChatbotId = vi.fn(async () => 'user-42');
+  const fetchHybridAIBots = vi.fn(async () => []);
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId,
-    fetchHybridAIBots: vi.fn(async () => []),
+    fetchHybridAIBots,
   }));
 
   runAgentMock.mockResolvedValue({
     status: 'success',
-    result: 'Hello from the fallback chatbot.',
+    result: 'Hello without a bot.',
     toolsUsed: [],
     toolExecutions: [],
   });
@@ -169,7 +166,7 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
     '../src/gateway/gateway-chat-service.ts'
   );
   const result = await handleGatewayMessage({
-    sessionId: 'session-chatbot-fallback',
+    sessionId: 'session-no-chatbot',
     guildId: null,
     channelId: 'web',
     userId: 'user-1',
@@ -179,98 +176,15 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
   });
 
   expect(result.status).toBe('success');
-  expect(fetchHybridAIAccountChatbotId).toHaveBeenCalledTimes(1);
+  expect(fetchHybridAIBots).not.toHaveBeenCalled();
   expect(runAgentMock).toHaveBeenCalledWith(
     expect.objectContaining({
-      sessionId: 'session-chatbot-fallback',
-      chatbotId: 'user-42',
+      sessionId: 'session-no-chatbot',
+      chatbotId: '',
       model: 'gpt-5-nano',
     }),
   );
-  expect(getSessionById('session-chatbot-fallback')?.chatbot_id).toBe(
-    'user-42',
-  );
-
-  await handleGatewayMessage({
-    sessionId: 'session-chatbot-fallback',
-    guildId: null,
-    channelId: 'web',
-    userId: 'user-1',
-    username: 'alice',
-    content: 'Say hello again',
-    model: 'gpt-5-nano',
-  });
-
-  expect(fetchHybridAIAccountChatbotId).toHaveBeenCalledTimes(1);
-  expect(runAgentMock).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      sessionId: 'session-chatbot-fallback',
-      chatbotId: 'user-42',
-      model: 'gpt-5-nano',
-    }),
-  );
-});
-
-test('handleGatewayMessage returns an auth error when /bot-management/me fallback fails', async () => {
-  setupHome();
-
-  vi.doMock('../src/providers/hybridai-bots.ts', () => {
-    class HybridAIBotFetchError extends Error {
-      status: number;
-      code?: number | string;
-      type?: string;
-      constructor(params: {
-        status: number;
-        message: string;
-        code?: number | string;
-        type?: string;
-      }) {
-        super(params.message);
-        this.name = 'HybridAIBotFetchError';
-        this.status = params.status;
-        this.code = params.code;
-        this.type = params.type;
-      }
-    }
-
-    return {
-      HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => {
-        throw new HybridAIBotFetchError({
-          status: 401,
-          code: 401,
-          type: 'authentication_error',
-          message: 'Invalid API key provided',
-        });
-      }),
-      fetchHybridAIBots: vi.fn(async () => []),
-    };
-  });
-
-  const { initDatabase } = await import('../src/memory/db.ts');
-  initDatabase({ quiet: true });
-
-  const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-chat-service.ts'
-  );
-  const result = await handleGatewayMessage({
-    sessionId: 'session-chatbot-fallback-auth-error',
-    guildId: null,
-    channelId: 'web',
-    userId: 'user-1',
-    username: 'alice',
-    content: 'Say hello',
-    model: 'gpt-5-nano',
-  });
-
-  expect(result).toMatchObject({
-    status: 'error',
-    result: null,
-  });
-  expect(result.error).toContain(
-    'HybridAI rejected the configured API key: Invalid API key provided.',
-  );
-  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(getSessionById('session-no-chatbot')?.chatbot_id ?? null).toBeNull();
 });
 
 test('bot list works even when the session model is not HybridAI', async () => {
@@ -285,7 +199,6 @@ test('bot list works even when the session model is not HybridAI', async () => {
   ]);
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
     fetchHybridAIBots,
   }));
 
@@ -331,7 +244,6 @@ test('bot set works from a non-HybridAI session and syncs the bot model', async 
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -376,7 +288,6 @@ test('bot info works even when the session model is not HybridAI', async () => {
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -421,12 +332,11 @@ test('bot info works even when the session model is not HybridAI', async () => {
   expect(result.text).toContain('Model: openai-codex/gpt-5.4');
 });
 
-test('bot clear clears configured default chatbot so account fallback can resolve user bot', async () => {
+test('bot clear clears the configured default chatbot', async () => {
   setupHome();
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -467,7 +377,7 @@ test('bot clear clears configured default chatbot so account fallback can resolv
 
   expect(clearResult).toMatchObject({
     kind: 'plain',
-    text: 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI account fallback will be used when required.',
+    text: 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI requests now run without a bot.',
   });
   expect(getRuntimeConfig().hybridai.defaultChatbotId).toBe('');
 
@@ -513,7 +423,6 @@ test('bot list returns a short message when HybridAI is unreachable', async () =
 
     return {
       HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
       fetchHybridAIBots: vi.fn(async () => {
         throw new HybridAIBotFetchError({
           status: 0,
@@ -571,7 +480,6 @@ test('bot list suggests http when HybridAI baseUrl uses https for a local non-TL
 
     return {
       HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
       fetchHybridAIBots: vi.fn(async () => {
         throw new HybridAIBotFetchError({
           status: 0,
@@ -631,7 +539,6 @@ test('bot list error uses HYBRIDAI_BASE_URL from env when present', async () => 
 
     return {
       HybridAIBotFetchError,
-      fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
       fetchHybridAIBots: vi.fn(async () => {
         throw new HybridAIBotFetchError({
           status: 0,
@@ -669,7 +576,6 @@ test('bot list still classifies generic auth errors without HybridAIBotFetchErro
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
     HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
     fetchHybridAIBots: vi.fn(async () => {
       throw new Error('Invalid API key provided');
     }),

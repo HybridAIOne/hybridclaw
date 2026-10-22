@@ -18,11 +18,7 @@ import {
 } from '../audit/audit-events.js';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { getChannel, registerChannel } from '../channels/channel-registry.js';
-import {
-  HEARTBEAT_CHANNEL,
-  HEARTBEAT_ENABLED,
-  HYBRIDAI_CHATBOT_ID,
-} from '../config/config.js';
+import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED } from '../config/config.js';
 import {
   formatCoworkerLivenessPage,
   getCoworkerLivenessSummary,
@@ -31,10 +27,7 @@ import { isHeartbeatOkText } from '../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
-import {
-  modelRequiresChatbotId,
-  resolveModelProvider,
-} from '../providers/factory.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
@@ -209,9 +202,7 @@ export function startHeartbeat(
         session,
       });
       const model = resolvedRuntime.model;
-      const chatbotId = modelRequiresChatbotId(model)
-        ? resolvedRuntime.chatbotId || HYBRIDAI_CHATBOT_ID || agentId
-        : resolvedRuntime.chatbotId;
+      const chatbotId = resolvedRuntime.chatbotId;
       const resolvedAgentId = resolvedRuntime.agentId;
       const enableRag = session.enable_rag !== 0;
       const workspacePath = agentWorkspaceDir(resolvedAgentId);

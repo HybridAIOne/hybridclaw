@@ -5,7 +5,6 @@ import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { HYBRIDAI_CHATBOT_ID } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   createSkillAmendment,
@@ -18,7 +17,6 @@ import {
 } from '../memory/db.js';
 import { deviceDataExcludesImprovement } from '../memory/device-data-privacy.js';
 import { memoryService } from '../memory/memory-service.js';
-import { modelRequiresChatbotId } from '../providers/factory.js';
 import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import type {
   SkillAmendment,
@@ -218,9 +216,7 @@ async function resolveCogneeRuntime(agentId: string, skillName: string) {
     session,
   });
   const model = resolvedRuntime.model;
-  const chatbotId = modelRequiresChatbotId(model)
-    ? resolvedRuntime.chatbotId || HYBRIDAI_CHATBOT_ID || agentId
-    : resolvedRuntime.chatbotId;
+  const chatbotId = resolvedRuntime.chatbotId;
   const enableRag = session.enable_rag !== 0;
   const { messages } = buildConversationContext({
     agentId: resolvedRuntime.agentId,
