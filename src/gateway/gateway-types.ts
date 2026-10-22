@@ -72,6 +72,7 @@ import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type { TaskCost, TaskCostEstimate } from '../usage/task-cost.js';
 import type { GatewayApprovalAnswer } from './approval-answer.js';
+import type { DelegationStatusSnapshot } from './delegation-plan.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
 import type { TurnReceipt } from './turn-receipt.js';
 
@@ -351,6 +352,7 @@ export interface GatewayChatRequest extends ApprovalReplyContext {
     channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
+    delegationStatus?: DelegationStatusSnapshot;
   }) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;

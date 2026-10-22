@@ -40,6 +40,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
 import { displayNameForAgent } from '../agents/agent-registry.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getConfigSnapshot } from '../config/config.js';
 import {
   getRuntimeConfig,
@@ -229,8 +230,17 @@ export interface WebchatVoiceConnectionOptions {
   socketFactory?: RealtimeSocketFactory;
 }
 
+// The first side to end a call names why; `voice.call_ended` reports it.
+interface CallEnding {
+  endedBy: 'caller' | 'gateway' | 'upstream';
+  code: number;
+  reason: string;
+}
+
 export class WebchatVoiceConnection {
   private bridge: RealtimeCallBridge | null = null;
+  private call: { sessionId: string; answeredAt: number | null } | null = null;
+  private ending: CallEnding | null = null;
   private startTimer: NodeJS.Timeout | null = null;
   private closed = false;
   private starting = false;
@@ -254,7 +264,13 @@ export class WebchatVoiceConnection {
     ws.on('message', (raw) => {
       this.handleFrame(raw);
     });
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
+      // 1006: the socket went away without a close frame.
+      this.ending ??= {
+        endedBy: 'caller',
+        code,
+        reason: String(reason ?? '').slice(0, 120),
+      };
       this.teardown();
     });
     ws.on('error', (error) => {
@@ -290,6 +306,7 @@ export class WebchatVoiceConnection {
       return;
     }
     if (frame.type === 'stop') {
+      this.ending ??= { endedBy: 'caller', code: 1000, reason: 'hangup' };
       sendFrame(this.ws, { type: 'ended' });
       this.ws.close(1000, 'Voice session ended');
       return;
@@ -335,6 +352,7 @@ export class WebchatVoiceConnection {
       resolveDefaultAgentId(getRuntimeConfig());
     const sessionId =
       placedCall?.sessionId ?? resolveVoiceSessionId(frame.sessionId, agentId);
+    this.call = { sessionId, answeredAt: null };
     // A call from the phone app continues one of its chats, which must not
     // reset under it any more than when the app writes there.
     const client = frame.client === 'mobile' ? frame.client : undefined;
@@ -395,6 +413,7 @@ export class WebchatVoiceConnection {
           clearTimeout(this.startTimer);
           this.startTimer = null;
         }
+        if (this.call) this.call.answeredAt = Date.now();
         sendFrame(this.ws, { type: 'ready', sessionId });
         logger.info(
           { sessionId, remoteIp: this.remoteIp },
@@ -461,6 +480,11 @@ export class WebchatVoiceConnection {
       },
       onClosed: () => {
         // Upstream loss is unrecoverable; end the browser session too.
+        this.ending ??= {
+          endedBy: 'upstream',
+          code: 1011,
+          reason: 'Realtime session closed',
+        };
         sendFrame(this.ws, { type: 'ended' });
         if (this.ws.readyState === WebSocket.OPEN) {
           this.ws.close(1011, 'Realtime session closed');
@@ -472,6 +496,11 @@ export class WebchatVoiceConnection {
   }
 
   private fail(message: string, code: number, errorCode?: string): void {
+    this.ending ??= {
+      endedBy: 'gateway',
+      code,
+      reason: errorCode ?? message.slice(0, 120),
+    };
     sendFrame(this.ws, {
       type: 'error',
       message,
@@ -490,11 +519,32 @@ export class WebchatVoiceConnection {
       clearTimeout(this.startTimer);
       this.startTimer = null;
     }
+    this.reportEnd();
     this.bridge?.close();
     this.bridge = null;
     if (this.answeredCallId) leavePhoneCall(this.answeredCallId);
     this.answeredCallId = null;
     this.onFinished();
+  }
+
+  // A socket that never started a call has no chat to report into.
+  private reportEnd(): void {
+    if (!this.call || !this.ending) return;
+    const { sessionId, answeredAt } = this.call;
+    const ended = {
+      ...this.ending,
+      answered: answeredAt !== null,
+      durationMs: answeredAt === null ? 0 : Date.now() - answeredAt,
+    };
+    logger.info(
+      { sessionId, remoteIp: this.remoteIp, ...ended },
+      'Webchat voice session ended',
+    );
+    recordAuditEvent({
+      sessionId,
+      runId: makeAuditRunId('voice'),
+      event: { type: 'voice.call_ended', surface: 'web', ...ended },
+    });
   }
 }
 

@@ -121,18 +121,18 @@ test('a parent with active children cannot be archived or deleted', async () => 
   expect(registry.setRegisteredAgentArchived('ams', true).archived).toBe(true);
 });
 
-test('createPersonalAgent seeds the workspace from the parent and skips hatching', async () => {
+test('createPersonalAgent seeds the workspace, reads the persona live from the parent, and skips hatching', async () => {
   const registry = await bootRegistry();
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { createPersonalAgent } = await import(
     '../src/agents/personal-agent.ts'
   );
-  const { isBootstrapping, loadBootstrapFiles } = await import(
-    '../src/workspace.ts'
-  );
+  const { ensureBootstrapFiles, isBootstrapping, loadBootstrapFiles } =
+    await import('../src/workspace.ts');
   const parentDir = agentWorkspaceDir('ams');
   fs.mkdirSync(parentDir, { recursive: true });
-  fs.writeFileSync(path.join(parentDir, 'SOUL.md'), '# AMS soul\n');
+  fs.writeFileSync(path.join(parentDir, 'TOOLS.md'), '# Reporting v1\n');
+  fs.writeFileSync(path.join(parentDir, 'HEARTBEAT.md'), '# Check inbox\n');
   fs.writeFileSync(path.join(parentDir, 'MEMORY.md'), '# private notes\n');
   fs.writeFileSync(path.join(parentDir, 'USER.md'), '# the admin\n');
 
@@ -149,9 +149,6 @@ test('createPersonalAgent seeds the workspace from the parent and skips hatching
   );
 
   const childDir = agentWorkspaceDir(created.id);
-  expect(fs.readFileSync(path.join(childDir, 'SOUL.md'), 'utf-8')).toBe(
-    '# AMS soul\n',
-  );
   expect(fs.readFileSync(path.join(childDir, 'USER.md'), 'utf-8')).toContain(
     'Erika Mustermann',
   );
@@ -160,6 +157,18 @@ test('createPersonalAgent seeds the workspace from the parent and skips hatching
   expect(
     loadBootstrapFiles(created.id).some((file) => file.name === 'BOOTSTRAP.md'),
   ).toBe(false);
+
+  ensureBootstrapFiles(created.id);
+  expect(fs.existsSync(path.join(childDir, 'TOOLS.md'))).toBe(false);
+  expect(fs.readFileSync(path.join(childDir, 'HEARTBEAT.md'), 'utf-8')).toBe(
+    '# Check inbox\n',
+  );
+  const childTools = () =>
+    loadBootstrapFiles(created.id).find((file) => file.name === 'TOOLS.md')
+      ?.content;
+  expect(childTools()).toContain('Reporting v1');
+  fs.writeFileSync(path.join(parentDir, 'TOOLS.md'), '# Reporting v2\n');
+  expect(childTools()).toContain('Reporting v2');
 
   const second = createPersonalAgent({
     parentAgentId: 'ams',

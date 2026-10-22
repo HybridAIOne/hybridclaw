@@ -16,8 +16,26 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
-const OBSERVABILITY_TOKEN_KEY =
-  'https://hybridai.one/api/v1/agent-observability/ingest-token:ensure|bot-observability';
+async function observabilityTokenKey(): Promise<string> {
+  const { resolveLocalInstanceId } = await import(
+    '../src/identity/agent-id.ts'
+  );
+  return `https://hybridai.one/api/v1/agent-observability/ingest-token:ensure|${resolveLocalInstanceId()}`;
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.toString() : input.url;
+}
+
+function okIngestResponse(insertedEvents = 1): Response {
+  return Response.json({
+    status: 'ok',
+    inserted_events: insertedEvents,
+    duplicate_events: 0,
+    broken_chain_events: 0,
+  });
+}
 
 async function configureObservabilityFixture(): Promise<void> {
   const { getRuntimeConfig, saveRuntimeConfig } = await import(
@@ -34,7 +52,6 @@ async function configureObservabilityFixture(): Promise<void> {
       ...runtimeConfig.observability,
       enabled: true,
       botId: 'bot-observability',
-      agentId: 'agent-observability',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -48,7 +65,8 @@ async function seedCachedObservabilityToken(
   const { setObservabilityIngestToken, withMemoryDatabase } = await import(
     '../src/memory/db.ts'
   );
-  setObservabilityIngestToken(OBSERVABILITY_TOKEN_KEY, token);
+  const tokenKey = await observabilityTokenKey();
+  setObservabilityIngestToken(tokenKey, token);
   withMemoryDatabase((database) => {
     database
       .prepare(
@@ -56,7 +74,7 @@ async function seedCachedObservabilityToken(
          SET updated_at = ?
          WHERE token_key = ?`,
       )
-      .run(updatedAt, OBSERVABILITY_TOKEN_KEY);
+      .run(updatedAt, tokenKey);
   });
 }
 
@@ -102,7 +120,6 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
       ...runtimeConfig.observability,
       enabled: true,
       botId: 'bot-observability',
-      agentId: 'agent-observability',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -192,7 +209,7 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
 
   expect(ingestUrl).toContain('/api/v1/agent-observability/events:batch');
   expect(payload.bot_id).toBe('bot-observability');
-  expect(payload.agent_id).toBe('agent-observability');
+  expect(payload.agent_id).toBe('main');
   expect(payload.events).toHaveLength(1);
   expect(payload.events[0]).toMatchObject({
     session_id: 'session-bot-set-observability',
@@ -383,7 +400,7 @@ test('observability ingest reuses an old cached token and rotates only after ing
     '/api/v1/agent-observability/ingest-token:ensure',
     '/api/v1/agent-observability/events:batch',
   ]);
-  expect(getObservabilityIngestToken(OBSERVABILITY_TOKEN_KEY)).toBe(
+  expect(getObservabilityIngestToken(await observabilityTokenKey())).toBe(
     'fresh-ingest-token',
   );
 });
@@ -405,7 +422,6 @@ test('observability ingest restart dispatches a new startup flush without waitin
       ...runtimeConfig.observability,
       enabled: true,
       botId: 'bot-a',
-      agentId: 'agent-a',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -502,7 +518,6 @@ test('observability ingest restart dispatches a new startup flush without waitin
       ...getRuntimeConfig().observability,
       enabled: true,
       botId: 'bot-b',
-      agentId: 'agent-b',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -510,12 +525,12 @@ test('observability ingest restart dispatches a new startup flush without waitin
 
   startObservabilityIngest();
 
+  // The node's cached token survives the bot change, so no second ensure call.
   await vi.waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(getObservabilityIngestState().streamKey).toContain('bot-b');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  const secondBatchCall = fetchMock.mock.calls[3];
+  const secondBatchCall = fetchMock.mock.calls[2];
   const secondBatchBody =
     typeof secondBatchCall?.[1]?.body === 'string'
       ? secondBatchCall[1].body
@@ -526,7 +541,7 @@ test('observability ingest restart dispatches a new startup flush without waitin
   };
   expect(secondPayload).toMatchObject({
     bot_id: 'bot-b',
-    agent_id: 'agent-b',
+    agent_id: 'main',
   });
 
   resolveFirstBatch?.(
@@ -542,11 +557,150 @@ test('observability ingest restart dispatches a new startup flush without waitin
   );
 
   await vi.waitFor(() => {
-    expect(getObservabilityIngestState().streamKey).toContain('bot-b');
     expect(getObservabilityIngestState().lastSuccessAt).not.toBeNull();
   });
 
   stopObservabilityIngest();
+});
+
+test('observability ingest sends one batch per agent, named after the session agent', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  const batches: Array<{ agent_id: string; runIds: string[] }> = [];
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/ingest-token:ensure')) {
+        return Response.json({ success: true, token: 'ingest-token' });
+      }
+      const payload = JSON.parse(String(init?.body)) as {
+        agent_id: string;
+        events: Array<{ run_id: string }>;
+      };
+      batches.push({
+        agent_id: payload.agent_id,
+        runIds: payload.events.map((event) => event.run_id),
+      });
+      return okIngestResponse(payload.events.length);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { buildSessionKey } = await import('../src/session/session-key.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+  initDatabase({ quiet: true });
+  const alphaSession = buildSessionKey('alpha', 'web', 'dm', 'user_a');
+  const betaSession = buildSessionKey('beta', 'web', 'dm', 'user_a');
+  await recordObservabilityBotSetEvent(alphaSession, 'run-alpha-1');
+  await recordObservabilityBotSetEvent(alphaSession, 'run-alpha-2');
+  await recordObservabilityBotSetEvent(betaSession, 'run-beta-1');
+  await recordObservabilityBotSetEvent('scheduler-maintenance', 'run-system');
+
+  startObservabilityIngest();
+  await vi.waitFor(() => {
+    expect(batches).toHaveLength(3);
+  });
+  stopObservabilityIngest();
+
+  expect(batches).toEqual([
+    { agent_id: 'alpha', runIds: ['run-alpha-1', 'run-alpha-2'] },
+    { agent_id: 'beta', runIds: ['run-beta-1'] },
+    { agent_id: 'main', runIds: ['run-system'] },
+  ]);
+});
+
+test('observability ingest resumes from the cursor of the stream keyed by bot and agent', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  const sentRunIds: string[] = [];
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestUrl(input).endsWith('/ingest-token:ensure')) {
+        return Response.json({ success: true, token: 'ingest-token' });
+      }
+      const payload = JSON.parse(String(init?.body)) as {
+        events: Array<{ run_id: string }>;
+      };
+      sentRunIds.push(...payload.events.map((event) => event.run_id));
+      return okIngestResponse(payload.events.length);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase, setObservabilityOffset, withMemoryDatabase } =
+    await import('../src/memory/db.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+  initDatabase({ quiet: true });
+  await recordObservabilityBotSetEvent('session-legacy', 'run-already-sent');
+  const lastSentId = withMemoryDatabase(
+    (database) =>
+      (
+        database.prepare('SELECT MAX(id) AS id FROM audit_events').get() as {
+          id: number;
+        }
+      ).id,
+  );
+  setObservabilityOffset(
+    'https://hybridai.one/api/v1/agent-observability/events:batch|bot-observability|agent_main',
+    lastSentId,
+  );
+  await recordObservabilityBotSetEvent('session-legacy', 'run-new');
+
+  startObservabilityIngest();
+  await vi.waitFor(() => {
+    expect(sentRunIds).toEqual(['run-new']);
+  });
+  stopObservabilityIngest();
+});
+
+test('observability ingest identifies the install with a node id that survives a restart', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  const ensuredNodeIds: string[] = [];
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestUrl(input).endsWith('/ingest-token:ensure')) {
+        const body = JSON.parse(String(init?.body)) as { node_id: string };
+        ensuredNodeIds.push(body.node_id);
+        return Response.json({ success: true, token: 'ingest-token' });
+      }
+      return okIngestResponse();
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const startAndEnsureToken = async (runId: string): Promise<void> => {
+    vi.resetModules();
+    const { initDatabase, deleteObservabilityIngestToken } = await import(
+      '../src/memory/db.ts'
+    );
+    const { startObservabilityIngest, stopObservabilityIngest } = await import(
+      '../src/audit/observability-ingest.ts'
+    );
+    initDatabase({ quiet: true });
+    deleteObservabilityIngestToken(await observabilityTokenKey());
+    await recordObservabilityBotSetEvent('session-node-id', runId);
+    const ensuredBefore = ensuredNodeIds.length;
+    startObservabilityIngest();
+    await vi.waitFor(() => {
+      expect(ensuredNodeIds).toHaveLength(ensuredBefore + 1);
+    });
+    stopObservabilityIngest();
+  };
+
+  await startAndEnsureToken('run-before-restart');
+  await startAndEnsureToken('run-after-restart');
+
+  expect(ensuredNodeIds[0]).toMatch(/^inst-[0-9a-f-]{36}$/);
+  expect(ensuredNodeIds[1]).toBe(ensuredNodeIds[0]);
 });
 
 test('observability ingest rate-limits repeated transient outage warnings', async () => {
@@ -579,7 +733,6 @@ test('observability ingest rate-limits repeated transient outage warnings', asyn
         ...runtimeConfig.observability,
         enabled: true,
         botId: 'bot-observability',
-        agentId: 'agent-observability',
         flushIntervalMs: 10_000,
         batchMaxEvents: 10,
       },

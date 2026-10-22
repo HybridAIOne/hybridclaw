@@ -2,7 +2,7 @@ import type {
   ArtifactMetadata,
   ToolProgressEvent,
 } from '../types/execution.js';
-import { formatDurationMs } from '../utils/text-format.js';
+import { formatDurationMs, pluralize } from '../utils/text-format.js';
 import type {
   DelegationCompletionEntry,
   DelegationMode,
@@ -12,7 +12,7 @@ import { abbreviateForUser } from './gateway-formatting.js';
 
 const MAX_DELEGATION_USER_CHARS = 500;
 
-function formatDelegationTokenCount(tokenCount?: number): string {
+export function formatDelegationTokenCount(tokenCount?: number): string {
   if (!tokenCount || tokenCount <= 0) return '';
   if (tokenCount < 1_000) return `${tokenCount} tokens`;
   return `${(tokenCount / 1_000).toFixed(1)}k tokens`;
@@ -176,6 +176,27 @@ export function formatDelegationCompletion(params: {
   };
 }
 
+/** Delegate models that differ from the parent's, so status lines only name overrides. */
+export function distinctDelegateModels(
+  entries: DelegationStatusEntry[],
+  parentModel?: string,
+): string[] {
+  return Array.from(
+    new Set(
+      entries
+        .map((entry) => entry.model.trim())
+        .filter(
+          (model) =>
+            model &&
+            (!parentModel ||
+              model.localeCompare(parentModel, undefined, {
+                sensitivity: 'accent',
+              }) !== 0),
+        ),
+    ),
+  );
+}
+
 export function formatDelegationStatus(params: {
   label?: string;
   entries: DelegationStatusEntry[];
@@ -185,28 +206,16 @@ export function formatDelegationStatus(params: {
     (entry) => entry.status === 'running' || entry.status === 'queued',
   ).length;
   const finishedCount = params.entries.length - runningCount;
-  const distinctDelegateModels = Array.from(
-    new Set(
-      params.entries
-        .map((entry) => entry.model.trim())
-        .filter(
-          (model) =>
-            model &&
-            (!params.parentModel ||
-              model.localeCompare(params.parentModel, undefined, {
-                sensitivity: 'accent',
-              }) !== 0),
-        ),
-    ),
+  const delegateModels = distinctDelegateModels(
+    params.entries,
+    params.parentModel,
   );
   const modelSuffix =
-    distinctDelegateModels.length > 0
-      ? ` (${distinctDelegateModels.join(', ')})`
-      : '';
+    delegateModels.length > 0 ? ` (${delegateModels.join(', ')})` : '';
   const heading =
     runningCount > 0
-      ? `Running ${runningCount} delegate jobs${modelSuffix}`
-      : `${finishedCount} delegate jobs finished${modelSuffix}`;
+      ? `Running ${runningCount} delegate ${pluralize(runningCount, 'job', 'jobs')}${modelSuffix}`
+      : `${finishedCount} delegate ${pluralize(finishedCount, 'job', 'jobs')} finished${modelSuffix}`;
   const lines = ['[Delegate Status]', heading];
   params.entries.forEach((entry, index) => {
     const prefix = index === params.entries.length - 1 ? '└' : '├';

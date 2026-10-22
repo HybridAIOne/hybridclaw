@@ -431,6 +431,50 @@ function resolveWebSearchToolName(context: PromptHookContext): string {
     : 'hybridai__web_search';
 }
 
+/** Names only offered fetch tools; without `http_request`, HTTP APIs go through `bash` + `curl`. */
+function buildWebRetrievalLines(context: PromptHookContext): string[] {
+  const webSearchTool = resolveWebSearchToolName(context);
+  const webFetch = isToolOffered(context, 'web_fetch');
+  const httpRequest = isToolOffered(context, 'http_request');
+  const curl = !httpRequest && isToolOffered(context, 'bash');
+  return [
+    `## Web Retrieval Routing (${webSearchTool}${webFetch ? '/web_fetch' : ''} vs browser_*)`,
+    `Use connected source-specific tools when their documented scope covers the request. If results lack the requested evidence, continue with a relevant source. For an unknown source URL use \`${webSearchTool}\`; for a known public source, retrieve it directly.`,
+    ...(httpRequest
+      ? [
+          'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
+        ]
+      : []),
+    ...(curl
+      ? [
+          `Use \`bash\` + \`curl\` for HTTP API calls${webFetch ? ' that need a specific method, headers, or JSON body' : ' and direct JSON/XML/text/CSV endpoints'}.`,
+        ]
+      : []),
+    `${httpRequest ? 'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. ' : ''}For browser credential fields, use \`browser_secret_type\` with a stored secret name. When a page asks the user to sign in, use \`browser_sign_in\`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use \`browser_take_over\`. Never emit the real token in prose or tool arguments.`,
+    ...(webFetch
+      ? [
+          'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
+        ]
+      : []),
+    ...(webFetch && isToolOffered(context, 'web_extract')
+      ? [
+          'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
+        ]
+      : []),
+    `Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), ${webFetch ? '(3) `web_fetch` returned escalation hints, (4)' : '(3)'} user explicitly requested browser use.`,
+    'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
+    'For a known public app-like website, navigate directly instead of searching for its URL and fetching its app shell first.',
+    'Once sufficient source evidence covers the requested scope, including any comparisons or multiple sources, answer without collecting unrequested detail.',
+    ...(webFetch
+      ? [
+          'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
+          'For shell-only, JavaScript-required, empty or boilerplate `web_fetch` escalation hints, continue with `browser_navigate` for the requested URL; another search or extraction cannot render it. For `bot_blocked`, report the observed denial or challenge; browser rendering may not resolve it. Claim blocking only for an actual access denial or challenge.',
+          'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
+        ]
+      : []),
+  ];
+}
+
 function buildMessageToolPromptLines(
   activeChannels: readonly MessageToolChannelKind[],
   channelMessageToolHints: readonly string[],
@@ -561,7 +605,9 @@ function buildSafetyHook(context: PromptHookContext): string {
     },
   });
   const activeMessageChannels = collectActiveMessageToolChannelKinds();
-  const webSearchTool = resolveWebSearchToolName(context);
+  const base64Targets = isToolOffered(context, 'http_request')
+    ? 'an MCP connector tool, a plugin tool, or `http_request`'
+    : 'an MCP connector tool or a plugin tool';
   const mobile = isMobileClient(context);
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
@@ -615,7 +661,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'To return a file you wrote, name it in the final reply by its workspace-relative path (for example `reports/prospects.md`); the runtime attaches it. Never use `sandbox:` or absolute host paths in links.',
     ...byClient(mobile, AFTER_FILE_CHANGE_LINES),
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
-    "To send a local file's bytes through an MCP connector tool, a plugin tool, or `http_request` (for example into a connector's base64 content field), use `<file-base64:path>` as the entire argument value. The runtime substitutes the file as base64 before the call runs and reports the bytes it sent; other tools reject the placeholder.",
+    `To send a local file's bytes through ${base64Targets} (for example into a connector's base64 content field), use \`<file-base64:path>\` as the entire argument value. The runtime substitutes the file as base64 before the call runs and reports the bytes it sent; other tools reject the placeholder.`,
     'Never base64-encode a file in `bash` and paste the result into a tool argument. Payloads that large get truncated on the way back out, and the upload is silently corrupted even though the tool reports success.',
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFPreview]`, use that artifact first.',
     ...byClient(mobile, SOURCE_FOLDER_LINES),
@@ -628,19 +674,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     '',
-    `## Web Retrieval Routing (${webSearchTool}/web_fetch vs browser_*)`,
-    `Use connected source-specific tools when their documented scope covers the request. If results lack the requested evidence, continue with a relevant source. For an unknown source URL use \`${webSearchTool}\`; for a known public source, retrieve it directly.`,
-    'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
-    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use `browser_take_over`. Never emit the real token in prose or tool arguments.',
-    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
-    'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
-    'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
-    'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
-    'For a known public app-like website, navigate directly instead of searching for its URL and fetching its app shell first.',
-    'Once sufficient source evidence covers the requested scope, including any comparisons or multiple sources, answer without collecting unrequested detail.',
-    'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
-    'For shell-only, JavaScript-required, empty or boilerplate `web_fetch` escalation hints, continue with `browser_navigate` for the requested URL; another search or `web_extract` cannot render it. For `bot_blocked`, report the observed denial or challenge; browser rendering may not resolve it. Claim blocking only for an actual access denial or challenge.',
-    'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
+    ...buildWebRetrievalLines(context),
     ...byClient(mobile, HEADED_BROWSER_LINES),
     '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
     'For many items or structured data on a rendered page, use one `browser_evaluate` (with `path` for a file) instead of repeated snapshots.',

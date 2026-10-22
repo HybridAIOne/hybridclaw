@@ -65,6 +65,7 @@ import type { ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { normalizeOptionalTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   type PluginAdminRouteMatch,
@@ -387,12 +388,6 @@ function resolveMemoryWriteFilePath(
   return memoryFilePathFromResult(result);
 }
 
-function normalizeTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim();
-  return normalized || undefined;
-}
-
 function normalizePluginKind(value: unknown): PluginManifest['kind'] {
   return value === 'memory' ||
     value === 'provider' ||
@@ -417,8 +412,8 @@ function normalizePluginInstallSpecs(
   if (!Array.isArray(value)) return undefined;
   return value.filter(isRecord).map((entry) => ({
     kind: normalizePluginInstallKind(entry.kind),
-    package: normalizeTrimmedString(entry.package),
-    url: normalizeTrimmedString(entry.url),
+    package: normalizeOptionalTrimmedString(entry.package),
+    url: normalizeOptionalTrimmedString(entry.url),
   }));
 }
 
@@ -429,13 +424,13 @@ function normalizePluginPackageDependencies(
   const out: PluginPackageDependency[] = [];
   for (const entry of value) {
     if (typeof entry === 'string') {
-      const pkg = normalizeTrimmedString(entry);
+      const pkg = normalizeOptionalTrimmedString(entry);
       if (!pkg) continue;
       out.push({ package: pkg });
       continue;
     }
     if (!isRecord(entry)) continue;
-    const pkg = normalizeTrimmedString(entry.package);
+    const pkg = normalizeOptionalTrimmedString(entry.package);
     if (!pkg) continue;
     out.push({ package: pkg });
   }
@@ -449,13 +444,13 @@ function normalizePluginExternalDependencies(
   const out: PluginExternalDependency[] = [];
   for (const entry of value) {
     if (!isRecord(entry)) continue;
-    const name = normalizeTrimmedString(entry.name);
-    const check = normalizeTrimmedString(entry.check);
+    const name = normalizeOptionalTrimmedString(entry.name);
+    const check = normalizeOptionalTrimmedString(entry.check);
     if (!name || !check) continue;
     const installHint =
-      normalizeTrimmedString(entry.installHint) ||
-      normalizeTrimmedString(entry.install);
-    const installUrl = normalizeTrimmedString(entry.installUrl);
+      normalizeOptionalTrimmedString(entry.installHint) ||
+      normalizeOptionalTrimmedString(entry.install);
+    const installUrl = normalizeOptionalTrimmedString(entry.installUrl);
     out.push({
       name,
       check,
@@ -473,17 +468,17 @@ function normalizePluginBinaryRequirements(
   const out: PluginBinaryRequirement[] = [];
   for (const entry of value) {
     if (typeof entry === 'string') {
-      const name = normalizeTrimmedString(entry);
+      const name = normalizeOptionalTrimmedString(entry);
       if (!name) continue;
       out.push({ name });
       continue;
     }
     if (!isRecord(entry)) continue;
-    const name = normalizeTrimmedString(entry.name);
+    const name = normalizeOptionalTrimmedString(entry.name);
     if (!name) continue;
-    const configKey = normalizeTrimmedString(entry.configKey);
-    const installHint = normalizeTrimmedString(entry.installHint);
-    const installUrl = normalizeTrimmedString(entry.installUrl);
+    const configKey = normalizeOptionalTrimmedString(entry.configKey);
+    const installHint = normalizeOptionalTrimmedString(entry.installHint);
+    const installUrl = normalizeOptionalTrimmedString(entry.installUrl);
     out.push({
       name,
       ...(configKey ? { configKey } : {}),
@@ -506,9 +501,9 @@ function normalizePluginConfigUiHints(
         return [
           key,
           {
-            label: normalizeTrimmedString(hint.label),
-            placeholder: normalizeTrimmedString(hint.placeholder),
-            help: normalizeTrimmedString(hint.help),
+            label: normalizeOptionalTrimmedString(hint.label),
+            placeholder: normalizeOptionalTrimmedString(hint.placeholder),
+            help: normalizeOptionalTrimmedString(hint.help),
           },
         ];
       }),
@@ -532,7 +527,7 @@ function normalizeManifest(input: unknown): PluginManifest {
     throw new Error('Plugin manifest must be a YAML object.');
   }
 
-  const id = normalizeTrimmedString(input.id);
+  const id = normalizeOptionalTrimmedString(input.id);
   if (!id) {
     throw new Error('Plugin manifest is missing `id`.');
   }
@@ -540,18 +535,18 @@ function normalizeManifest(input: unknown): PluginManifest {
 
   return {
     id,
-    name: normalizeTrimmedString(input.name),
-    version: normalizeTrimmedString(input.version),
-    description: normalizeTrimmedString(input.description),
+    name: normalizeOptionalTrimmedString(input.name),
+    version: normalizeOptionalTrimmedString(input.version),
+    description: normalizeOptionalTrimmedString(input.description),
     kind: normalizePluginKind(input.kind),
     memoryProvider: input.memoryProvider === true ? true : undefined,
-    author: normalizeTrimmedString(input.author),
-    entrypoint: normalizeTrimmedString(input.entrypoint),
+    author: normalizeOptionalTrimmedString(input.author),
+    entrypoint: normalizeOptionalTrimmedString(input.entrypoint),
     requires: isRecord(input.requires)
       ? {
           bins: normalizePluginBinaryRequirements(input.requires.bins),
           env: normalizeStringArray(input.requires.env),
-          node: normalizeTrimmedString(input.requires.node),
+          node: normalizeOptionalTrimmedString(input.requires.node),
         }
       : undefined,
     credentials: credentials.length > 0 ? credentials : undefined,
@@ -654,7 +649,9 @@ function resolveRequiredBinaryCommand(
   config: Record<string, unknown>,
 ): string {
   if (requirement.configKey) {
-    const configured = normalizeTrimmedString(config[requirement.configKey]);
+    const configured = normalizeOptionalTrimmedString(
+      config[requirement.configKey],
+    );
     if (configured) return configured;
   }
   return requirement.name;

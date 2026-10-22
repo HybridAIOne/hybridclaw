@@ -5,9 +5,10 @@ import {
   removeGatewayPidFile,
 } from '../../gateway/gateway-lifecycle.js';
 import type { GatewayStatus } from '../../gateway/gateway-types.js';
+import { formatDuration } from '../../utils/text-format.js';
 import { restartGatewayFromDoctor } from '../gateway-repair.js';
 import type { DiagResult } from '../types.js';
-import { formatDuration, makeResult, toErrorMessage } from '../utils.js';
+import { makeResult, toErrorMessage } from '../utils.js';
 
 export async function checkGateway(): Promise<DiagResult[]> {
   const pidState = readGatewayPid();

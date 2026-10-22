@@ -675,3 +675,74 @@ test('delegation status tracks duplicate task titles independently', async () =>
     ).toBe(true);
   });
 });
+
+test('delegation status reaches the channel callback as per-job snapshots and is never queued', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'child summary',
+    toolsUsed: [],
+    artifacts: [],
+  });
+
+  const { enqueueDelegationBatchFromSideEffects } = await import(
+    '../src/gateway/gateway-delegation.ts'
+  );
+  const { initDatabase, listQueuedProactiveMessages } = await import(
+    '../src/memory/db.ts'
+  );
+  initDatabase({
+    quiet: true,
+    dbPath: path.join(homeDir, 'hybridclaw.db'),
+  });
+
+  const statuses: Array<{ jobId: string; done: boolean }> = [];
+  const onProactiveMessage = vi.fn(
+    async (message: {
+      delegationStatus?: {
+        jobId: string;
+        entries: Array<{ status: string }>;
+      };
+    }) => {
+      if (!message.delegationStatus) return;
+      statuses.push({
+        jobId: message.delegationStatus.jobId,
+        done: message.delegationStatus.entries[0]?.status === 'completed',
+      });
+      throw new Error('channel unavailable');
+    },
+  );
+  const descriptor = enqueueDelegationBatchFromSideEffects({
+    plans: [
+      {
+        mode: 'single',
+        label: 'snapshot',
+        tasks: [{ prompt: 'Do the thing.', label: 'snapshot', model: 'm' }],
+      },
+    ],
+    parentSessionId: 'snapshot-parent-session',
+    channelId: 'channel-1',
+    chatbotId: 'test-bot',
+    enableRag: false,
+    agentId: 'test-agent',
+    parentModel: 'orchestrator-model',
+    onProactiveMessage,
+    parentDepth: 0,
+    runParentTurn: vi.fn(),
+  });
+
+  await vi.waitFor(() => {
+    expect(statuses.some((status) => status.done)).toBe(true);
+  });
+  expect(new Set(statuses.map((status) => status.jobId))).toEqual(
+    new Set([descriptor?.publicId]),
+  );
+  expect(
+    listQueuedProactiveMessages(20).filter(
+      (message) =>
+        message.channel_id === 'channel-1' &&
+        message.text.startsWith('[Delegate Status]'),
+    ),
+  ).toEqual([]);
+});
