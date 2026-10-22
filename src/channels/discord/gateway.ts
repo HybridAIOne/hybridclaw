@@ -41,6 +41,11 @@ import type { ReplyFn } from './runtime.js';
 
 const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 
+const formatDiscordApprovalTextPrompt = (input: {
+  approvalUserId: string;
+  storedPrompt: string;
+}): string => `<@${input.approvalUserId}> ${input.storedPrompt}`;
+
 export async function startDiscordIntegration(): Promise<boolean> {
   if (!String(DISCORD_TOKEN || '').trim()) {
     logger.info('DISCORD_TOKEN not set; Discord integration disabled');
@@ -97,15 +102,37 @@ export async function startDiscordIntegration(): Promise<boolean> {
                     }
                   },
                   onProactiveMessage: async (message) => {
+                    const targetChannelId = message.channelId || channelId;
                     if (message.delegationStatus) {
                       await publishDiscordDelegationStatus(
-                        message.channelId || channelId,
+                        targetChannelId,
                         message.delegationStatus,
                       );
                       return;
                     }
+                    if (message.approval && targetChannelId === channelId) {
+                      await handlePendingApprovalRouting({
+                        pendingApproval: message.approval,
+                        responseText: message.text,
+                        sessionId,
+                        userId,
+                        channelId,
+                        buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
+                        sendApprovalNotification:
+                          context.sendApprovalNotification,
+                        sendText: async (text) => {
+                          await deliverProactiveMessage(
+                            channelId,
+                            text,
+                            'delegate',
+                          );
+                        },
+                        formatTextPrompt: formatDiscordApprovalTextPrompt,
+                      });
+                      return;
+                    }
                     await deliverProactiveMessage(
-                      message.channelId || channelId,
+                      targetChannelId,
                       message.text,
                       'delegate',
                       message.artifacts,
@@ -170,8 +197,7 @@ export async function startDiscordIntegration(): Promise<boolean> {
                 buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
                 sendApprovalNotification: context.sendApprovalNotification,
                 sendText: (text) => context.stream.finalize(text),
-                formatTextPrompt: ({ approvalUserId, storedPrompt }) =>
-                  `<@${approvalUserId}> ${storedPrompt}`,
+                formatTextPrompt: formatDiscordApprovalTextPrompt,
               });
               if (cleanup) {
                 await context.stream.discard();
