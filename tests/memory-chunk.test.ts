@@ -103,6 +103,35 @@ describe('chunkMessage', () => {
     ]);
   });
 
+  test('repeats the table header in every chunk a long table is split into', () => {
+    const rows = Array.from(
+      { length: 40 },
+      (_, index) => `| ${index + 1} | SLS0169${index} | Open |`,
+    );
+    const text = [
+      'Quote lines:',
+      '',
+      '| # | Quote | Status |',
+      '| --- | --- | :---: |',
+      ...rows,
+      '',
+      'Want the full export?',
+    ].join('\n');
+
+    const chunks = chunkMessage(text, { maxChars: 400 });
+
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks.every((chunk) => chunk.length <= 400)).toBe(true);
+    const tableChunks = chunks.filter((chunk) => chunk.includes('| Open |'));
+    expect(
+      tableChunks.every((chunk) =>
+        chunk.includes('| # | Quote | Status |\n| --- | --- | :---: |\n'),
+      ),
+    ).toBe(true);
+    expect(chunks.join('\n').split('| Open |')).toHaveLength(41);
+    expect(chunks.at(-1)).toMatch(/Want the full export\?$/);
+  });
+
   test('reserves closing-fence headroom within the character limit', () => {
     const chunks = chunkMessage(`\`\`\`ts\n${'x'.repeat(194)}`, {
       maxChars: 200,

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.6',
+  version: '0.40.7',
   highlights: [
-    'Scheduled-job failure notices',
-    'Personal agents follow parent instructions',
-    'Clearer Teams attachment errors',
-    'Cleaner error tracking',
+    'Live Discord delegate progress',
+    'Readable tables across messages',
+    'Voice call end diagnostics',
+    'Updated image TLS trust',
   ],
 } as const;
 

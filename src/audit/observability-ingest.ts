@@ -1,12 +1,17 @@
-import { createHash, randomUUID } from 'node:crypto';
+/**
+ * Observability push — forwards local audit rows to the platform ingest API.
+ *
+ * The stream is keyed by this install's node id, not by bot or agent; each
+ * batch carries the one agent its sessions belong to. NOT the audit trail
+ * itself (`audit-trail.ts` owns the hash chain this module only relays).
+ */
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
-import { repairUnicodeForJson } from '../../container/shared/unicode-utils.js';
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,
   HYBRIDAI_CHATBOT_ID,
-  OBSERVABILITY_AGENT_ID,
   OBSERVABILITY_BASE_URL,
   OBSERVABILITY_BATCH_MAX_EVENTS,
   OBSERVABILITY_BOT_ID,
@@ -16,22 +21,27 @@ import {
   OBSERVABILITY_INGEST_PATH,
   OBSERVABILITY_LABEL,
 } from '../config/config.js';
+import { resolveDefaultAgentId } from '../config/runtime-config.js';
+import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import { getStructuredAuditAfterId } from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
+  getLatestObservabilityOffsetWithPrefix,
   getObservabilityIngestToken,
   getObservabilityOffset,
   setObservabilityIngestToken,
   setObservabilityOffset,
 } from '../memory/observability-store.js';
 import { getAnyChatbotId } from '../memory/sessions.js';
+import { parseSessionKey } from '../session/session-key.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import { SlidingWindowRateLimiter } from '../utils/rate-limiter.js';
 import {
   describeExpectedTransportError,
   isExpectedTransportError,
 } from '../utils/transport-errors.js';
+import { mapAuditRowToEvent } from './observability-events.js';
 
 const PLATFORM_MAX_EVENTS = 1_000;
 const PLATFORM_MAX_PAYLOAD_BYTES = 2_000_000;
@@ -46,7 +56,8 @@ interface ResolvedIngestConfig {
   tokenAdminUrl: string;
   apiKey: string;
   botId: string;
-  agentId: string;
+  nodeId: string;
+  defaultAgentId: string;
   label: string;
   environment: string;
   flushIntervalMs: number;
@@ -183,7 +194,8 @@ function resolveConfig(): ResolvedIngestConfig {
     tokenAdminUrl: normalizeIngestUrl(OBSERVABILITY_BASE_URL, TOKEN_ADMIN_PATH),
     apiKey: HYBRIDAI_API_KEY.trim(),
     botId,
-    agentId: OBSERVABILITY_AGENT_ID.trim() || 'agent_main',
+    nodeId: resolveLocalInstanceId(),
+    defaultAgentId: resolveDefaultAgentId(),
     label,
     environment,
     flushIntervalMs,
@@ -202,8 +214,6 @@ function validateConfig(config: ResolvedIngestConfig): {
       ok: false,
       reason: 'missing observability.botId (or hybridai.defaultChatbotId)',
     };
-  if (!config.agentId)
-    return { ok: false, reason: 'missing observability.agentId' };
   if (!config.apiKey) {
     return {
       ok: false,
@@ -215,11 +225,18 @@ function validateConfig(config: ResolvedIngestConfig): {
 }
 
 function buildStreamKey(config: ResolvedIngestConfig): string {
-  return `${config.ingestUrl}|${config.botId}|${config.agentId}`;
+  return `${config.ingestUrl}|${config.nodeId}`;
 }
 
 function buildTokenCacheKey(config: ResolvedIngestConfig): string {
-  return `${config.tokenAdminUrl}|${config.botId}`;
+  return `${config.tokenAdminUrl}|${config.nodeId}`;
+}
+
+function agentIdForRow(
+  config: ResolvedIngestConfig,
+  row: StructuredAuditEntry,
+): string {
+  return parseSessionKey(row.session_id)?.agentId || config.defaultAgentId;
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -232,158 +249,15 @@ function parseMessage(value: unknown): string | null {
   return normalized || null;
 }
 
-function parsePayload(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // Best effort fallback.
-  }
-  return {};
-}
-
-function readNullableString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = payload[key];
-  return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function readNullableInteger(
-  payload: Record<string, unknown>,
-  key: string,
-): number | null {
-  const value = payload[key];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function readNullableBoolean(
-  payload: Record<string, unknown>,
-  key: string,
-): boolean | null {
-  const value = payload[key];
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') return true;
-    if (normalized === 'false') return false;
-  }
-  return null;
-}
-
-function inferDenied(payload: Record<string, unknown>): boolean {
-  if (typeof payload.denied === 'boolean') return payload.denied;
-  if (payload.approved === false) return true;
-  if (payload.allowed === false) return true;
-  return false;
-}
-
-function enrichObservabilityPayload(
-  eventType: string,
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
-  if (eventType !== 'bot.set') return payload;
-  if (typeof payload.modelChanged === 'boolean') return payload;
-
-  const previousModel = readNullableString(payload, 'previousModel');
-  const syncedModel = readNullableString(payload, 'syncedModel');
-  return {
-    ...payload,
-    modelChanged: syncedModel ? previousModel !== syncedModel : false,
-  };
-}
-
-function repairObservabilityEventUnicode(
-  event: Record<string, unknown>,
-): Record<string, unknown> {
-  return repairUnicodeForJson(event) as Record<string, unknown>;
-}
-
-function buildEventUid(
-  config: ResolvedIngestConfig,
-  row: StructuredAuditEntry,
-): string {
-  const raw = [
-    config.botId,
-    config.agentId,
-    row.session_id,
-    String(row.seq),
-    row.event_type,
-    row.timestamp,
-    row.run_id,
-  ].join('|');
-  // lgtm[js/insufficient-password-hash] This digest is an event idempotency
-  // key, not a credential or password verifier.
-  return createHash('sha256').update(raw).digest('hex');
-}
-
-function mapAuditRowToEvent(
-  config: ResolvedIngestConfig,
-  row: StructuredAuditEntry,
-): Record<string, unknown> {
-  const payload = enrichObservabilityPayload(
-    row.event_type,
-    parsePayload(row.payload),
-  );
-  return repairObservabilityEventUnicode({
-    session_id: row.session_id,
-    run_id: row.run_id,
-    parent_run_id: row.parent_run_id || null,
-    seq: row.seq,
-    event_type: row.event_type,
-    event_timestamp: row.timestamp,
-    payload,
-    wire_hash: row.wire_hash,
-    wire_prev_hash: row.wire_prev_hash || null,
-    denied: inferDenied(payload),
-    error_type: readNullableString(payload, 'errorType'),
-    duration_ms: readNullableInteger(payload, 'durationMs'),
-    model_calls: readNullableInteger(payload, 'modelCalls'),
-    prompt_chars: readNullableInteger(payload, 'promptChars'),
-    completion_chars: readNullableInteger(payload, 'completionChars'),
-    prompt_tokens: readNullableInteger(payload, 'promptTokens'),
-    completion_tokens: readNullableInteger(payload, 'completionTokens'),
-    total_tokens: readNullableInteger(payload, 'totalTokens'),
-    estimated_prompt_tokens: readNullableInteger(
-      payload,
-      'estimatedPromptTokens',
-    ),
-    estimated_completion_tokens: readNullableInteger(
-      payload,
-      'estimatedCompletionTokens',
-    ),
-    estimated_total_tokens: readNullableInteger(
-      payload,
-      'estimatedTotalTokens',
-    ),
-    api_usage_available: readNullableBoolean(payload, 'apiUsageAvailable'),
-    api_prompt_tokens: readNullableInteger(payload, 'apiPromptTokens'),
-    api_completion_tokens: readNullableInteger(payload, 'apiCompletionTokens'),
-    api_total_tokens: readNullableInteger(payload, 'apiTotalTokens'),
-    api_cache_read_tokens: readNullableInteger(payload, 'apiCacheReadTokens'),
-    api_cache_write_tokens: readNullableInteger(payload, 'apiCacheWriteTokens'),
-    event_uid: buildEventUid(config, row),
-  });
-}
-
 function buildBatchPayloadText(
   config: ResolvedIngestConfig,
+  agentId: string,
   events: Record<string, unknown>[],
   batchId: string,
 ): string {
   return JSON.stringify({
     bot_id: config.botId,
-    agent_id: config.agentId,
+    agent_id: agentId,
     batch_id: batchId,
     sent_at: new Date().toISOString(),
     label: config.label,
@@ -404,14 +278,23 @@ function prepareBatch(
   let lastEventId = currentCursor;
   let droppedUntilEventId = currentCursor;
   const batchId = `batch_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  // One agent per batch, ending where another agent's row starts, so the cursor stays a prefix.
+  let agentId = '';
 
   for (const row of rows) {
     if (selectedEvents.length >= maxEvents) break;
     if (selectedEvents.length >= PLATFORM_MAX_EVENTS) break;
+    const rowAgentId = agentIdForRow(config, row);
+    if (agentId && rowAgentId !== agentId) break;
 
-    const nextEvent = mapAuditRowToEvent(config, row);
+    const nextEvent = mapAuditRowToEvent(config.nodeId, rowAgentId, row);
     const candidateEvents = [...selectedEvents, nextEvent];
-    const payloadText = buildBatchPayloadText(config, candidateEvents, batchId);
+    const payloadText = buildBatchPayloadText(
+      config,
+      rowAgentId,
+      candidateEvents,
+      batchId,
+    );
     const payloadSize = Buffer.byteLength(payloadText, 'utf8');
     if (payloadSize > PLATFORM_MAX_PAYLOAD_BYTES) {
       if (selectedEvents.length === 0) {
@@ -424,6 +307,7 @@ function prepareBatch(
     }
 
     selectedEvents.push(nextEvent);
+    agentId = rowAgentId;
     lastEventId = row.id;
   }
 
@@ -438,7 +322,12 @@ function prepareBatch(
   }
 
   return {
-    payloadText: buildBatchPayloadText(config, selectedEvents, batchId),
+    payloadText: buildBatchPayloadText(
+      config,
+      agentId,
+      selectedEvents,
+      batchId,
+    ),
     eventCount: selectedEvents.length,
     lastEventId,
     droppedUntilEventId,
@@ -475,6 +364,7 @@ async function requestIngestToken(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        node_id: config.nodeId,
         bot_id: config.botId,
         ...(rotate ? { rotate: true } : {}),
       }),
@@ -796,7 +686,10 @@ async function flushObservability(reason: string): Promise<void> {
     const streamKey = buildStreamKey(config);
     const observabilityHost = resolveObservabilityHost(config.ingestUrl);
     ingestState.streamKey = streamKey;
-    let cursor = getObservabilityOffset(streamKey);
+    let cursor =
+      getObservabilityOffset(streamKey) ||
+      // compat: remove after v0.42 — resume the stream keyed by bot and agent instead of re-sending history.
+      getLatestObservabilityOffsetWithPrefix(`${config.ingestUrl}|`);
     ingestState.lastCursor = cursor;
     const fetchLimit = clampInteger(
       config.batchMaxEvents * FETCH_LIMIT_FACTOR,
@@ -991,7 +884,7 @@ export function startObservabilityIngest(): void {
     {
       ingestUrl: config.ingestUrl,
       botId: config.botId || '(pending)',
-      agentId: config.agentId,
+      nodeId: config.nodeId,
       flushIntervalMs: config.flushIntervalMs,
       batchMaxEvents: config.batchMaxEvents,
       deferredStart: !validation.ok,

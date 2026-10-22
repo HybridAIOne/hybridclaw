@@ -64,10 +64,12 @@ class FakeBrowserSocket {
     cb?.();
   }
 
-  close(code?: number): void {
+  close(code?: number, reason = ''): void {
+    if (this.readyState === 3) return;
     this.readyState = 3;
     this.closeCode = code ?? 1000;
-    for (const listener of this.listeners.get('close') || []) listener();
+    for (const listener of this.listeners.get('close') || [])
+      listener(this.closeCode, Buffer.from(reason));
   }
 
   async clientFrame(frame: Record<string, unknown>): Promise<void> {
@@ -89,6 +91,7 @@ const handleGatewayMessage = vi.fn(async (_request: unknown) => ({
 }));
 
 const persistVoiceTranscript = vi.fn();
+const recordAuditEvent = vi.fn();
 const loadVoiceHistory = vi.fn(async () => [] as Array<{ role: 'user' | 'assistant'; text: string }>);
 const consultInstructions = vi.fn((timeZone?: string) => `Clock context for ${timeZone ?? 'unknown timezone'}`);
 
@@ -110,6 +113,10 @@ function mockScopeSession(): void {
 
 function mockVoiceContext() {
   mockScopeSession();
+  vi.doMock('../src/audit/audit-events.js', () => ({
+    recordAuditEvent,
+    makeAuditRunId: () => 'voice-run',
+  }));
   vi.doMock('../src/gateway/webchat-voice-context.js', () => ({
     loadWebchatVoiceHistory: loadVoiceHistory, voiceConsultInstructions: consultInstructions,
   }));
@@ -222,6 +229,7 @@ async function flushAsync(): Promise<void> {
 afterEach(() => {
   handleGatewayMessage.mockClear();
   persistVoiceTranscript.mockClear();
+  recordAuditEvent.mockClear();
   loadVoiceHistory.mockReset();
   loadVoiceHistory.mockResolvedValue([]);
   consultInstructions.mockClear();
@@ -230,6 +238,7 @@ afterEach(() => {
   deletedScopeError.mockReset();
   deletedScopeError.mockReturnValue(null);
   vi.doUnmock('../src/scopes/scope-session.js');
+  vi.doUnmock('../src/audit/audit-events.js');
   vi.doUnmock('../src/gateway/webchat-voice-context.js');
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/config/runtime-config.js');
@@ -607,6 +616,69 @@ test('stop ends the session and closes the upstream socket', async () => {
   expect(browser.closeCode).toBe(1000);
   expect(realtime.readyState).toBe(3);
   expect(finished).toHaveBeenCalled();
+});
+
+test.each([
+  {
+    end: 'the caller hangs up',
+    act: (browser: FakeBrowserSocket) => browser.clientFrame({ type: 'stop' }),
+    ended: { endedBy: 'caller', code: 1000, reason: 'hangup' },
+  },
+  {
+    end: 'the phone gives up on its playback',
+    act: (browser: FakeBrowserSocket) =>
+      browser.close(4001, 'playback_overflow'),
+    ended: { endedBy: 'caller', code: 4001, reason: 'playback_overflow' },
+  },
+  {
+    end: 'the connection drops',
+    act: (browser: FakeBrowserSocket) => browser.close(1006),
+    ended: { endedBy: 'caller', code: 1006, reason: '' },
+  },
+  {
+    end: 'the realtime provider closes',
+    act: (_browser: FakeBrowserSocket, realtime: FakeRealtimeSocket) =>
+      realtime.close(),
+    ended: { endedBy: 'upstream', code: 1011 },
+  },
+])('an answered call reports once how it ended: $end', async ({ act, ended }) => {
+  const { browser, realtime } = await createConnection();
+  await browser.clientFrame({ type: 'start' });
+  realtime.open();
+
+  await act(browser, realtime);
+
+  expect(recordAuditEvent).toHaveBeenCalledTimes(1);
+  expect(recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: expect.stringMatching(/^agent:main:channel:web:/),
+    runId: 'voice-run',
+    event: expect.objectContaining({
+      type: 'voice.call_ended',
+      surface: 'web',
+      answered: true,
+      durationMs: expect.any(Number),
+      ...ended,
+    }),
+  });
+});
+
+test('a call that fails before it is answered reports the gateway reason', async () => {
+  loadVoiceHistory.mockRejectedValue(new Error('history unavailable'));
+  const { browser } = await createConnection();
+
+  await browser.clientFrame({ type: 'start' });
+  await flushAsync();
+
+  expect(recordAuditEvent).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: expect.objectContaining({
+        endedBy: 'gateway',
+        code: 1011,
+        answered: false,
+        durationMs: 0,
+      }),
+    }),
+  );
 });
 
 test('starting without an OpenAI key fails closed', async () => {

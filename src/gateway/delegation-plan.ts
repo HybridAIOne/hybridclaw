@@ -73,6 +73,14 @@ export interface DelegationStatusEntry {
   lastToolDetail?: string;
 }
 
+/** One delegate batch's progress; a later snapshot of a job supersedes earlier ones. */
+export interface DelegationStatusSnapshot {
+  jobId: string;
+  startedAt: number;
+  parentModel?: string;
+  entries: DelegationStatusEntry[];
+}
+
 export interface DelegationTaskRunInput {
   parentSessionId: string;
   childDepth: number;

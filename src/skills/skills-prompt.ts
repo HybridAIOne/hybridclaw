@@ -280,7 +280,7 @@ export function buildSkillsSection(
     '- A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
     format.namedRule,
     format.readRule,
-    '- After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
+    '- After reading SKILL.md, use ordinary available tools exactly as the skill instructs.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',

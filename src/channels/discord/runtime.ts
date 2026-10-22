@@ -2630,7 +2630,7 @@ export async function sendToChannel(
   channelId: string,
   text: string,
   files?: AttachmentBuilder[],
-): Promise<void> {
+): Promise<DiscordMessage[]> {
   const activeClient = await requireDiscordClientReady();
   const channel = await activeClient.channels.fetch(channelId);
   if (!channel || !('send' in channel)) {
@@ -2678,9 +2678,15 @@ export async function sendToChannel(
     send: (payload: {
       content: string;
       files?: AttachmentBuilder[];
-    }) => Promise<void>;
+    }) => Promise<DiscordMessage>;
   };
+  const sent: DiscordMessage[] = [];
   for (const payload of payloads) {
-    await withDiscordRetry('send-channel', () => sendableChannel.send(payload));
+    sent.push(
+      await withDiscordRetry('send-channel', () =>
+        sendableChannel.send(payload),
+      ),
+    );
   }
+  return sent;
 }

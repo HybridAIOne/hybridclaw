@@ -1773,12 +1773,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 3978,
     },
     {
-      path: 'observability.agentId',
-      section: 'observability',
-      kind: 'string',
-      defaultValue: 'agent_main',
-    },
-    {
       path: 'observability.baseUrl',
       section: 'observability',
       kind: 'string',

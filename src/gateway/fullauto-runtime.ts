@@ -12,6 +12,7 @@ import {
 import { logger } from '../logger.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
+import type { DelegationStatusSnapshot } from './delegation-plan.js';
 import {
   appendFullAutoRunLogEntry,
   looksLikeSyntheticFullAutoPrompt,
@@ -40,6 +41,8 @@ export interface ProactiveMessagePayload {
   artifacts?: ArtifactMetadata[];
   /** Set when `text` is an approval prompt the transport can render as buttons. */
   approval?: GatewayChatApprovalEvent;
+  /** Set on delegate progress; transports that can edit update one message per job. */
+  delegationStatus?: DelegationStatusSnapshot;
 }
 
 export interface FullAutoRequestContext {

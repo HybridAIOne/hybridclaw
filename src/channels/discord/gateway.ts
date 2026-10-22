@@ -34,6 +34,7 @@ import {
 import { logger } from '../../logger.js';
 import { memoryService } from '../../memory/memory-service.js';
 import { discordRuntimeLoader } from '../channel-runtime-loaders.js';
+import { publishDiscordDelegationStatus } from './delegation-status.js';
 import { buildResponseText } from './delivery.js';
 import { rewriteUserMentionsForMessage } from './mentions.js';
 import type { ReplyFn } from './runtime.js';
@@ -102,6 +103,13 @@ export async function startDiscordIntegration(): Promise<boolean> {
                   },
                   onProactiveMessage: async (message) => {
                     const targetChannelId = message.channelId || channelId;
+                    if (message.delegationStatus) {
+                      await publishDiscordDelegationStatus(
+                        targetChannelId,
+                        message.delegationStatus,
+                      );
+                      return;
+                    }
                     if (message.approval && targetChannelId === channelId) {
                       await handlePendingApprovalRouting({
                         pendingApproval: message.approval,
