@@ -65,6 +65,14 @@ const MEMORY_FILE_MAX_CHARS = 12_000;
 const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
 const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
 const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
+// Largest answer the caps keep at ~3 chars per token, plus reasoning tokens that count against the same limit.
+const MEMORY_CLEANUP_MAX_TOKENS =
+  Math.ceil(
+    (MEMORY_SECTION_NAMES.size *
+      MODEL_MEMORY_MAX_ITEMS_PER_SECTION *
+      MODEL_MEMORY_ITEM_MAX_CHARS) /
+      3,
+  ) + 8_192;
 const MEMORY_SECTION_PLACEHOLDERS: Record<
   keyof CanonicalMemorySections,
   string
@@ -454,7 +462,7 @@ async function rewriteMemoryContentWithModel(params: {
     fallbackModel: runtime.model,
     fallbackChatbotId: runtime.chatbotId,
     fallbackEnableRag: false,
-    maxTokens: 2048,
+    maxTokens: MEMORY_CLEANUP_MAX_TOKENS,
     messages: [
       { role: 'system', content: MEMORY_CLEANUP_SYSTEM_PROMPT },
       {
@@ -886,14 +894,16 @@ export class MemoryConsolidationEngine {
           });
           next = rewriteResult.content;
           if (!next && rewriteResult.fallbackReason) {
+            // A cut-off or unusable answer is retried next run; the digest would only duplicate recent notes.
             logger.warn(
               {
                 agentId,
                 workspaceDir,
                 fallbackReason: rewriteResult.fallbackReason,
               },
-              'Model-backed memory cleanup returned unusable output; falling back to deterministic consolidation',
+              'Model-backed memory cleanup returned unusable output; leaving MEMORY.md unchanged',
             );
+            continue;
           }
         } catch (err) {
           logger.warn(

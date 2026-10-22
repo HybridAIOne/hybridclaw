@@ -162,6 +162,8 @@ describe.sequential('memory consolidation', () => {
     fs.writeFileSync(path.join(workspaces.main, 'dreams'), 'Blocked directory');
     const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaces);
     const { logger } = await import('../src/logger.js');
+    const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+    vi.mocked(callAuxiliaryModel).mockRejectedValue(new Error('Unavailable'));
     const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
     const report = await engine.consolidateWithCleanup();
     expect(report.workspacesUpdated).toBe(2);
@@ -551,7 +553,7 @@ describe.sequential('memory consolidation', () => {
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 
-  test('cleanup exceeding the file budget preserves operator content through fallback', async () => {
+  test('cleanup exceeding the file budget leaves MEMORY.md unchanged', async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-preservation-budget-'));
     try {
       const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
@@ -561,7 +563,7 @@ describe.sequential('memory consolidation', () => {
       fs.writeFileSync(memoryPath, custom);
       vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['y'.repeat(280)], decisions: [], patterns: [] }) });
       const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
-      expect((await engine.consolidateWithCleanup()).fallbacksUsed).toBe(1);
+      expect((await engine.consolidateWithCleanup()).fallbacksUsed).toBe(0);
       expect(fs.readFileSync(memoryPath, 'utf8')).toBe(custom);
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
@@ -608,7 +610,6 @@ describe.sequential('memory consolidation', () => {
 
     expect(callAuxiliaryModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        maxTokens: 2048,
         messages: expect.arrayContaining([
           expect.objectContaining({
             role: 'user',
@@ -665,35 +666,34 @@ describe.sequential('memory consolidation', () => {
     expect(memoryContent).toContain('Durable fallback memory.');
   });
 
-  test('logs a fallback reason when model cleanup returns unusable output', async () => {
-    const workspaceDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-fallback-log-'),
-    );
+  test('an answer cut off at the output limit leaves MEMORY.md as it was and is retried', async () => {
+    const workspaceDir = makeTempDir();
     const dailyDir = path.join(workspaceDir, 'memory');
-    fs.mkdirSync(dailyDir, { recursive: true });
-
+    fs.mkdirSync(dailyDir);
     const { MemoryConsolidationEngine, currentDateStamp } =
       await loadConsolidationModule(workspaceDir);
     const { logger } = await import('../src/logger.js');
     const { callAuxiliaryModel } = await import(
       '../src/providers/auxiliary.js'
     );
-    const older = new Date();
-    older.setDate(older.getDate() - 1);
-    const olderStamp = currentDateStamp(older);
-
+    const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+    const memory = '# Memory\n\n## Facts\n- Existing fact.\n';
+    fs.writeFileSync(memoryPath, memory);
+    const yesterday = currentDateStamp(new Date(Date.now() - 86_400_000));
     fs.writeFileSync(
-      path.join(dailyDir, `${olderStamp}.md`),
-      '- Durable fallback memory.\n',
-      'utf-8',
+      path.join(dailyDir, `${yesterday}.md`),
+      '- Yesterday note.\n',
     );
-
-    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({
-      provider: 'openai-codex',
-      model: 'openai-codex/gpt-5-codex',
-      content: 'not valid json',
+    const answer = JSON.stringify({
+      facts: Array.from({ length: 18 }, (_, i) => `Fact ${i} ${'x'.repeat(200)}`),
+      decisions: [],
+      patterns: [],
     });
-
+    vi.mocked(callAuxiliaryModel).mockResolvedValue({
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      content: answer.slice(0, answer.length / 2),
+    });
     const engine = new MemoryConsolidationEngine(makeBackend(), {
       decayRate: 0.1,
       staleAfterDays: 7,
@@ -702,14 +702,53 @@ describe.sequential('memory consolidation', () => {
 
     const report = await engine.consolidateWithCleanup();
 
-    expect(report.fallbacksUsed).toBe(1);
+    expect(report).toMatchObject({
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
+    });
+    expect(fs.readFileSync(memoryPath, 'utf8')).toBe(memory);
+    expect(fs.existsSync(path.join(workspaceDir, 'dreams'))).toBe(false);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'main',
         workspaceDir,
         fallbackReason: 'invalid_model_output',
       }),
-      'Model-backed memory cleanup returned unusable output; falling back to deterministic consolidation',
+      'Model-backed memory cleanup returned unusable output; leaving MEMORY.md unchanged',
+    );
+    await engine.consolidateWithCleanup();
+    expect(callAuxiliaryModel).toHaveBeenCalledTimes(2);
+  });
+
+  test('model-backed cleanup leaves room for the largest answer the caps keep', async () => {
+    const workspaceDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(workspaceDir, 'MEMORY.md'),
+      '# Memory\n\n## Facts\n- Existing fact.\n',
+    );
+    const { MemoryConsolidationEngine } =
+      await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import(
+      '../src/providers/auxiliary.js'
+    );
+    const items = Array.from({ length: 18 }, () => 'x'.repeat(280));
+    const largestAnswer = JSON.stringify({
+      facts: items,
+      decisions: items,
+      patterns: items,
+    });
+    const engine = new MemoryConsolidationEngine(makeBackend(), {
+      decayRate: 0.1,
+      staleAfterDays: 7,
+      minConfidence: 0.1,
+    });
+
+    await engine.consolidateWithCleanup();
+
+    const { maxTokens } = vi.mocked(callAuxiliaryModel).mock.calls[0][0];
+    expect(maxTokens).toBeGreaterThanOrEqual(
+      Math.ceil(largestAnswer.length / 2),
     );
   });
 
