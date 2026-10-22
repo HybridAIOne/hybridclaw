@@ -7,7 +7,6 @@ const { fetchHybridAIBotsMock } = vi.hoisted(() => ({
 
 vi.mock('../src/providers/hybridai-bots.ts', () => ({
   HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-  fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
   fetchHybridAIBots: fetchHybridAIBotsMock,
 }));
 

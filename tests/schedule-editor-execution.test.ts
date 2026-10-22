@@ -8,7 +8,6 @@ vi.mock('../src/scheduler/scheduled-task-runner.js', () => ({runIsolatedSchedule
 vi.mock('../src/gateway/gateway-service.js', () => ({
   prepareSessionAutoReset: vi.fn(async () => undefined),
   resolveSessionAutoResetPolicy: () => ({mode: 'none'}),
-  resolveGatewayChatbotId: vi.fn(async () => ({chatbotId: 'test', source: 'session'})),
 }));
 vi.mock('../src/agents/agent-registry.js', () => ({resolveAgentForRequest: () => ({agentId: 'main', model: 'openai/gpt-4o', chatbotId: 'test'})}));
 

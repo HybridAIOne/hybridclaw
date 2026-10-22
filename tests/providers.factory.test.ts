@@ -152,38 +152,6 @@ test('provider factory resolves adapters by model family', async () => {
     'kilo',
   );
 
-  expect(factory.modelRequiresChatbotId('gpt-5-nano')).toBe(true);
-  expect(factory.modelRequiresChatbotId('openai/gpt-5.6-sol')).toBe(false);
-  expect(factory.modelRequiresChatbotId('openai-codex/gpt-5-codex')).toBe(
-    false,
-  );
-  expect(
-    factory.modelRequiresChatbotId('openrouter/anthropic/claude-sonnet-4'),
-  ).toBe(false);
-  expect(factory.modelRequiresChatbotId('mistral/mistral-large-latest')).toBe(
-    false,
-  );
-  expect(
-    factory.modelRequiresChatbotId(
-      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-    ),
-  ).toBe(false);
-  expect(factory.modelRequiresChatbotId('anthropic/claude-3-7-sonnet')).toBe(
-    false,
-  );
-  expect(factory.modelRequiresChatbotId('gemini/gemini-2.5-pro')).toBe(false);
-  expect(factory.modelRequiresChatbotId('deepseek/deepseek-chat')).toBe(false);
-  expect(factory.modelRequiresChatbotId('xai/grok-3')).toBe(false);
-  expect(factory.modelRequiresChatbotId('zai/glm-5')).toBe(false);
-  expect(factory.modelRequiresChatbotId('kimi/kimi-k2.5')).toBe(false);
-  expect(factory.modelRequiresChatbotId('minimax/MiniMax-M2.5')).toBe(false);
-  expect(factory.modelRequiresChatbotId('dashscope/qwen3-coder-plus')).toBe(
-    false,
-  );
-  expect(factory.modelRequiresChatbotId('xiaomi/mimo-v2-pro')).toBe(false);
-  expect(
-    factory.modelRequiresChatbotId('kilo/anthropic/claude-sonnet-4.6'),
-  ).toBe(false);
 });
 
 test('provider factory rejects unknown provider prefixes', async () => {
@@ -192,9 +160,6 @@ test('provider factory rejects unknown provider prefixes', async () => {
   const factory = await importFreshFactory(homeDir);
 
   expect(() => factory.resolveModelProvider('openrotuer/gpt-5-nano')).toThrow(
-    'Unknown provider prefix `openrotuer`',
-  );
-  expect(() => factory.modelRequiresChatbotId('openrotuer/gpt-5-nano')).toThrow(
     'Unknown provider prefix `openrotuer`',
   );
   await expect(
@@ -214,7 +179,6 @@ test('provider factory preserves HybridAI fallback for disabled known prefixes',
   expect(factory.resolveModelProvider('openrouter/openai/gpt-5')).toBe(
     'hybridai',
   );
-  expect(factory.modelRequiresChatbotId('openrouter/openai/gpt-5')).toBe(true);
 });
 
 test('provider factory routes discovered bare local models to their backend', async () => {
@@ -234,7 +198,6 @@ test('provider factory routes discovered bare local models to their backend', as
   const factory = await importFreshFactory(homeDir);
 
   expect(factory.resolveModelProvider('llama3.1:8b')).toBe('ollama');
-  expect(factory.modelRequiresChatbotId('llama3.1:8b')).toBe(false);
 });
 
 test('provider factory resolves HybridAI runtime credentials', async () => {

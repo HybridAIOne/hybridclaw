@@ -77,6 +77,5 @@ export const ollamaProvider: AIProvider = {
     if (normalized.toLowerCase().startsWith(OLLAMA_MODEL_PREFIX)) return true;
     return getLocalModelInfo(normalized)?.backend === 'ollama';
   },
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveOllamaRuntimeCredentials,
 };

@@ -18,7 +18,6 @@ async function createAgentWorkspace(agentId: string) {
   vi.stubEnv('HYBRIDCLAW_DATA_DIR', dataDir);
   vi.stubEnv('HYBRIDAI_API_KEY', 'hai-cloud-memory-test');
   vi.stubEnv('HYBRIDAI_BASE_URL', 'https://hybridai.example/');
-  vi.stubEnv('HYBRIDAI_CHATBOT_ID', 'bot-cloud-memory');
 
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
   const workspaceDir = agentWorkspaceDir(agentId);
@@ -90,11 +89,11 @@ test('syncCloudMemoryNow pushes local agent memory and caches shared memory', as
     'Content-Type': 'application/json',
   });
   const body = JSON.parse(String(init.body)) as {
-    chatbot_id: string;
     agent_id: string;
     files: Array<{ scope: string; path: string; content: string }>;
   };
-  expect(body.chatbot_id).toBe('bot-cloud-memory');
+  // Memory belongs to the agent, so no bot is configured or sent.
+  expect(body).not.toHaveProperty('chatbot_id');
   expect(body.agent_id).toBe(agentId);
   expect(body.files.map((file) => file.path)).toEqual([
     '/MEMORY.md',
@@ -120,7 +119,6 @@ test('syncCloudMemoryNow pushes local agent memory and caches shared memory', as
 test('syncCloudMemoryNow tolerates partial config mocks', async () => {
   vi.doMock('../src/config/config.js', () => ({
     HYBRIDAI_API_KEY: 'hai-cloud-memory-test',
-    HYBRIDAI_BASE_URL: 'https://hybridai.example/',
   }));
 
   try {

@@ -856,7 +856,6 @@ async function importFreshHealth(options?: {
     requestHeaders: {},
     agentId: 'main',
   }));
-  const modelRequiresChatbotId = vi.fn(() => false);
   const callOpenAICompatibleModel = vi.fn(async () => ({
     id: 'resp_tool',
     model: 'gpt-5',
@@ -947,10 +946,6 @@ async function importFreshHealth(options?: {
         : null;
     },
   );
-  const resolveGatewayChatbotId = vi.fn(async () => ({
-    chatbotId: 'bot_1',
-    source: 'configured' as const,
-  }));
   const handleGatewayPluginWebhook = vi.fn(async (_req, res) => {
     res.statusCode = 202;
     res.end('plugin-webhook');
@@ -2803,7 +2798,6 @@ async function importFreshHealth(options?: {
     previewGatewayAdminA2APairing,
     readSystemPromptMessage,
     renderGatewayCommand,
-    resolveGatewayChatbotId,
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
@@ -2879,7 +2873,6 @@ async function importFreshHealth(options?: {
     buildConversationContext,
   }));
   vi.doMock('../src/providers/factory.js', () => ({
-    modelRequiresChatbotId,
     resolveModelRuntimeCredentials,
   }));
   vi.doMock('../src/gateway/openai-compatible-model.ts', () => ({
@@ -3148,9 +3141,7 @@ async function importFreshHealth(options?: {
     loggerWarn,
     stopSessionExecution,
     mapOpenAICompatibleUsageToTokenStats,
-    modelRequiresChatbotId,
     readSystemPromptMessage,
-    resolveGatewayChatbotId,
     resolveModelRuntimeCredentials,
     handleIMessageWebhook,
     handleMSTeamsWebhook,

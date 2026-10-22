@@ -165,10 +165,6 @@ export function isCodexModel(model: string): boolean {
   return isProviderModel(model, 'openai-codex');
 }
 
-export function modelRequiresChatbotId(model: string): boolean {
-  return resolveProviderForModel(model).requiresChatbotId(model);
-}
-
 export async function resolveModelRuntimeCredentials(
   params?: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
