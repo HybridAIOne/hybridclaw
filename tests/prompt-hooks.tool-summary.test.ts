@@ -129,7 +129,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If exactly one skill clearly applies: read `skills/<name>/SKILL.md` with `read`',
   );
   expect(prompt).toContain(
-    'After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
+    'After reading SKILL.md, use ordinary available tools exactly as the skill instructs.',
   );
   expect(prompt).toContain(
     'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
@@ -944,4 +944,34 @@ test('web retrieval routing names the search tool the instance offers', () => {
   });
   expect(hosted.match(/## Web Retrieval Routing \(([^/]+)\/web_fetch/)?.[1]).toBe('hybridai__web_search');
   expect(hosted).not.toContain('use `web_search`');
+});
+
+test('with fetch tools disabled, web guidance never names them and routes HTTP through curl', async () => {
+  const original = runtimeConfig.getRuntimeConfig();
+  const spy = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
+    ...original,
+    tools: { ...original.tools, disabled: ['http_request', 'web_fetch', 'web_extract', 'web_search'] },
+  });
+  try {
+    const { buildConversationContext } = await import('../src/agent/conversation.js');
+    const prompt = buildConversationContext({ agentId: 'test-agent', history: [] })
+      .messages.filter((message) => message.role === 'system')
+      .map((message) => String(message.content))
+      .join('\n\n');
+    expect(prompt).toContain('## Web Retrieval Routing (hybridai__web_search vs browser_*)');
+    expect(prompt).toContain('Use `bash` + `curl` for HTTP API calls and direct JSON/XML/text/CSV endpoints.');
+    expect(prompt).not.toMatch(/http_request|web_fetch|web_extract/);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test('with fetch tools enabled, web guidance keeps naming them', () => {
+  const prompt = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [] });
+  expect(prompt).toContain('## Web Retrieval Routing (web_search/web_fetch vs browser_*)');
+  expect(prompt).toContain('Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection.');
+  expect(prompt).toContain('Use `web_extract` when you want the fetched page condensed');
+  expect(prompt).toContain('Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints');
+  expect(prompt).toContain('(3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.');
+  expect(prompt).not.toContain('`curl` for HTTP API calls');
 });
