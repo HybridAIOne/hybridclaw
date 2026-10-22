@@ -2990,6 +2990,7 @@ test('status reuses the context window recorded by model set when later discover
     expect(setResult.kind).toBe('plain');
   }
 
+  await cleanupGatewayRuntime();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
