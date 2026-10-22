@@ -3,7 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedString,
+  normalizeOptionalTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { turnOffAgentOnboarding } from './agent-onboarding.js';
@@ -62,12 +65,6 @@ type AgentConfigJsonPayload = Record<string, unknown> & {
   markdown?: unknown;
 };
 
-function normalizeOptionalString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim();
-  return normalized || undefined;
-}
-
 function normalizeRequiredStringField(
   fieldName: string,
   value: unknown,
@@ -115,7 +112,7 @@ function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
   }
   if (!isRecord(value)) return undefined;
 
-  const primary = normalizeOptionalString(value.primary);
+  const primary = normalizeOptionalTrimmedString(value.primary);
   if (!primary) return undefined;
   return { primary };
 }
@@ -534,7 +531,7 @@ export async function applyAgentConfigJson(
 ): Promise<ApplyAgentConfigJsonResult> {
   const payload = parseAgentConfigJson(rawJson);
   const configInput = resolveAgentConfigInput(payload);
-  const id = normalizeOptionalString(configInput.id);
+  const id = normalizeOptionalTrimmedString(configInput.id);
   if (!id) {
     throw new Error('Agent config JSON requires a non-empty `id`.');
   }

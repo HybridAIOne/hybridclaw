@@ -11,6 +11,7 @@ import {
   runtimeSecretsPath,
 } from '../security/runtime-secrets.js';
 import type { AnthropicMethod } from '../types/models.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 
 const CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH = '.claude/.credentials.json';
@@ -69,10 +70,6 @@ export function claudeCliKeychainLabel(): string {
   return `macOS Keychain (${CLAUDE_CLI_KEYCHAIN_SERVICE})`;
 }
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function maskValue(value: string): string {
   const normalized = value.trim();
   if (!normalized) return '';
@@ -85,8 +82,8 @@ function parseClaudeCliCredential(
   source: CliSource,
 ): ClaudeCliCredential | null {
   if (!isRecord(value)) return null;
-  const accessToken = normalizeString(value.accessToken);
-  const refreshToken = normalizeString(value.refreshToken);
+  const accessToken = normalizeTrimmedString(value.accessToken);
+  const refreshToken = normalizeTrimmedString(value.refreshToken);
   const expiresAt =
     typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
       ? value.expiresAt

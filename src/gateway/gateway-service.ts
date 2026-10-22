@@ -2436,7 +2436,7 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     ...(unavailableMedia.length > 0
       ? [
           `UnavailableMedia: ${JSON.stringify(unavailableMedia)}`,
-          'The attachments listed in UnavailableMedia could NOT be downloaded from the channel, so their content is unknown to you. Tell the user that attachment did not arrive and ask them to send it again; do not guess what it contained or answer as if you had seen it.',
+          'The attachments listed in UnavailableMedia did NOT reach you, so their content is unknown to you. Tell the user why, using its reason; do not guess what it contained or answer as if you had seen it.',
         ]
       : []),
     'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
@@ -8769,8 +8769,9 @@ let remoteAgentListCache: {
 } | null = null;
 
 function getGatewayLocalAgentListItems(): GatewayAgentListResponse['agents'] {
+  // Personal agents hold one person's memory; only their own channel reaches them.
   return listAgents()
-    .filter((agent) => !agent.archived)
+    .filter((agent) => !agent.archived && !agent.extends)
     .map((agent) => {
       const presentation = getGatewayAssistantPresentationForAgent(agent.id);
       return {

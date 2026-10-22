@@ -3,7 +3,7 @@
 # platform-independent JS, and compiling it under QEMU for arm64 took ~13 of
 # the ~17 minutes of a main build (2026-10-01). Install scripts are skipped
 # because nothing here loads a native addon; those come from `deps` below.
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ RUN npm --prefix container run build
 # Runs per target platform, so better-sqlite3 and node-pty get native addons
 # for the image's architecture. Depends only on the lockfiles, so a source
 # change reuses it from cache.
-FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS deps
+FROM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS deps
 
 # better-sqlite3 requires native compilation; node-pty may fall back to it
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -60,7 +60,7 @@ RUN npm prune --omit=dev \
        container/node_modules/.package-lock.json
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime
+FROM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS runtime
 
 ARG TARGETARCH
 # 0.14.7 (maintainer diagnosis, 2026-08-23): Signal rejects 0.14.2's final

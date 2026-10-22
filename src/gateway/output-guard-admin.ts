@@ -8,6 +8,7 @@ import {
 import { listRuntimeConfigRevisions } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
@@ -97,10 +98,6 @@ interface ClassifierVerdict {
 // defaults, prompts, verdict parsing, and rule summaries aligned with the
 // plugin runtime when either side changes.
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function normalizeStringArray(value: unknown, fieldLabel: string): string[] {
   if (!Array.isArray(value)) return [];
   if (value.length > MAX_PROFILE_LIST_ITEMS) {
@@ -111,7 +108,7 @@ function normalizeStringArray(value: unknown, fieldLabel: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
-    const normalized = normalizeString(entry);
+    const normalized = normalizeTrimmedString(entry);
     const key = normalized.toLowerCase();
     if (!normalized || seen.has(key)) continue;
     seen.add(key);
@@ -121,7 +118,7 @@ function normalizeStringArray(value: unknown, fieldLabel: string): string[] {
 }
 
 function normalizeMode(value: unknown): GatewayAdminOutputGuardProfile['mode'] {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = normalizeTrimmedString(value).toLowerCase();
   return SUPPORTED_MODES.includes(
     normalized as GatewayAdminOutputGuardProfile['mode'],
   )
@@ -130,7 +127,7 @@ function normalizeMode(value: unknown): GatewayAdminOutputGuardProfile['mode'] {
 }
 
 function normalizeModelSource(value: unknown): OutputGuardModelSource {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = normalizeTrimmedString(value).toLowerCase();
   if (!normalized) return 'default';
   if (SUPPORTED_MODEL_SOURCES.includes(normalized as OutputGuardModelSource)) {
     return normalized as OutputGuardModelSource;
@@ -139,7 +136,7 @@ function normalizeModelSource(value: unknown): OutputGuardModelSource {
 }
 
 function normalizeFailureMode(value: unknown): OutputGuardFailureMode {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = normalizeTrimmedString(value).toLowerCase();
   return SUPPORTED_FAILURE_MODES.includes(normalized as OutputGuardFailureMode)
     ? (normalized as OutputGuardFailureMode)
     : 'allow';
@@ -158,7 +155,7 @@ function normalizeModelConfig(
 ): OutputGuardModelClientConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
-  const model = normalizeString(raw.model);
+  const model = normalizeTrimmedString(raw.model);
   if (provider === 'model' && !model) {
     throw new Error(`Output guard ${label} model is required.`);
   }
@@ -171,7 +168,7 @@ function normalizeProfileModelConfig(
   if (value === undefined) return defaultModelConfig();
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
-  const model = normalizeString(raw.model);
+  const model = normalizeTrimmedString(raw.model);
   return { provider, model: provider === 'model' ? model : '' };
 }
 
@@ -180,7 +177,7 @@ function runtimeModelConfigToProfile(
 ): GatewayAdminOutputGuardModelConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
-  const model = normalizeString(raw.model);
+  const model = normalizeTrimmedString(raw.model);
   return { provider, model: provider === 'model' ? model : '' };
 }
 
@@ -223,7 +220,7 @@ function normalizeProfile(value: unknown): GatewayAdminOutputGuardProfile {
   return {
     enabled: raw.enabled !== false,
     mode: normalizeMode(raw.mode),
-    policy: normalizeString(raw.policy),
+    policy: normalizeTrimmedString(raw.policy),
     doList: normalizeStringArray(raw.doList, 'Do list'),
     dontList: normalizeStringArray(raw.dontList, "Don't list"),
     bannedPhrases: normalizeStringArray(raw.bannedPhrases, 'Banned phrases'),
@@ -533,14 +530,14 @@ function parseClassifierVerdict(text: string): ClassifierVerdict | null {
     return null;
   }
   if (!isRecord(parsed)) return null;
-  const verdict = normalizeString(parsed.verdict).toLowerCase();
+  const verdict = normalizeTrimmedString(parsed.verdict).toLowerCase();
   if (verdict !== 'compliant' && verdict !== 'non_compliant') return null;
   const reasons = Array.isArray(parsed.reasons)
     ? parsed.reasons.filter(
         (entry): entry is string => typeof entry === 'string',
       )
     : [];
-  const severity = normalizeString(parsed.severity).toLowerCase();
+  const severity = normalizeTrimmedString(parsed.severity).toLowerCase();
   return {
     verdict,
     reasons,
@@ -729,7 +726,7 @@ export async function previewGatewayAdminOutputGuardProfile(
   body: unknown,
 ): Promise<GatewayAdminOutputGuardPreviewResponse> {
   const raw = isRecord(body) ? body : {};
-  const sample = normalizeString(raw.sample);
+  const sample = normalizeTrimmedString(raw.sample);
   if (!sample) {
     throw new Error('Sample output is required.');
   }

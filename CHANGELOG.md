@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+## [0.40.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.7) - 2026-10-22
+
+### Changed
+
+- **Discord delegate progress**: Each delegation job uses one live status
+  message that updates in place and collapses to a compact summary when
+  finished. Results still arrive as separate messages.
+- **Voice call diagnostics**: Web and app voice calls record who ended the
+  call, the close code and reason, whether it was answered, and its duration
+  in the audit log.
+- **Image TLS trust**: Gateway and agent images use Node 22.23.4 with an
+  updated certificate root store that removes the emSign G3, C1, and C3 roots.
+
+### Fixed
+
+- **Split tables**: Long replies repeat table headers in continuation messages
+  when the header and next row fit, keeping tables readable across chunks.
+- **Telemetry attribution**: Forwarded events identify their actual agent,
+  and telemetry streams use a stable installation ID. Upgrades resume from
+  the previous stream cursor instead of resending history.
+- **Web retrieval guidance**: Prompt instructions name only available HTTP
+  and fetch tools and direct API calls to `bash` + `curl` when `http_request`
+  is unavailable and `bash` is enabled.
+
+### Upgrade Notes
+
+- Remove `observability.agentId` from custom configuration; agent attribution
+  comes from each event's session, with non-agent events assigned to the
+  default agent. The installation requests an ingest token under its stable
+  node ID after upgrading.
+- TLS connections that rely solely on the removed emSign roots fail
+  certificate verification in the updated images.
+
+## [0.40.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.6) - 2026-10-20
+
+### Fixed
+
+- **Scheduled-job failures**: Runs that fail before delivery send a one-line
+  failure notice to their configured channel, webhook, or web chat. Delivery
+  failures do not trigger a second send attempt.
+- **Personal-agent instructions**: Personal agents read their parent's current
+  `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and `TOOLS.md` on each turn, so parent
+  edits reach existing children while each child's `USER.md` and memory stay
+  separate.
+- **Personal-agent visibility**: Personal agents are excluded from the chat
+  agent selector and remain available on the admin Agents page.
+- **Teams attachment errors**: Oversized attachments are identified as exceeding
+  the configured limit instead of prompting users to resend the same file.
+  Failed downloads explain that another attempt may help.
+- **Error tracking**: Stopped turns and provider HTTP 429 rate-limit or quota
+  responses are excluded from Sentry error reports while retaining their
+  existing logs, audit records, and responses.
+
+### Upgrade Notes
+
+- Existing personal agents ignore local copies of the four inherited persona
+  files. Move any instructions that should apply to all children into the
+  parent's corresponding files; keep person-specific context in `USER.md`.
+
 ## [0.40.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.5) - 2026-10-18
 
 ### Added

@@ -14,6 +14,18 @@ export function getObservabilityOffset(streamKey: string): number {
   });
 }
 
+export function getLatestObservabilityOffsetWithPrefix(prefix: string): number {
+  return withMemoryDatabase((database) => {
+    const row = queryOne<{ last_event_id: number | null }, [string, string]>(
+      database,
+      'SELECT MAX(last_event_id) AS last_event_id FROM observability_offsets WHERE substr(stream_key, 1, length(?)) = ?',
+      prefix,
+      prefix,
+    );
+    return Math.max(0, Math.floor(row?.last_event_id ?? 0));
+  });
+}
+
 export function setObservabilityOffset(
   streamKey: string,
   lastEventId: number,
