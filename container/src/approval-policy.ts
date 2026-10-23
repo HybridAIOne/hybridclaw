@@ -418,6 +418,7 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
   Math.round(YELLOW_IMPLICIT_DELAY_MS / 1_000),
 );
 const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
+  'browser_evaluate',
   'browser_press',
   'browser_type',
   'browser_secret_type',
@@ -442,14 +443,15 @@ const SCRATCH_ROOTS = Array.from(
       .flatMap((value) => [path.resolve(value), resolveCanonicalPath(value)]),
   ),
 );
-// Args naming the local files a tool reads. Pinned path rules only match
-// pathHints, so a tool that reports none reads `.env*` unprompted.
+// Args naming the local files a tool reads or writes. Pinned path rules only
+// match pathHints, so a tool that reports none touches `.env*` unprompted.
 const PATH_ARG_KEYS = new Map<string, readonly string[]>([
   ['read', ['path']],
   ['glob', ['pattern']],
   ['grep', ['path', 'include']],
   // Every key the upload executor reads, not only the schema's path/files.
   ['browser_upload', ['path', 'file', 'files', 'paths']],
+  ['browser_evaluate', ['path']],
 ]);
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {

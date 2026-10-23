@@ -46,7 +46,7 @@ export type PlaywrightNavigationOptions = {
 };
 
 export type PlaywrightPageShape = {
-  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
+  evaluate<T>(fn: BrowserEvaluateFunction<T> | string): Promise<T>;
   screenshot(opts?: PlaywrightScreenshotOptions): Promise<Buffer | Uint8Array>;
   pdf?(opts?: {
     printBackground?: boolean;
@@ -129,7 +129,7 @@ export class PlaywrightBrowserSession<
     });
   }
 
-  async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
+  async evaluate<T>(fn: BrowserEvaluateFunction<T> | string): Promise<T> {
     return await this.page.evaluate(fn);
   }
 

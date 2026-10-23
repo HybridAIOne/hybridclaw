@@ -77,8 +77,10 @@ export interface BrowserSession {
   /**
    * Runs in the browser renderer context, not Node.js. Implementations should
    * restrict this path because page state may include cookies and localStorage.
+   * A string is a JavaScript expression (`browser_evaluate`); a returned
+   * promise is awaited either way, as Playwright's `page.evaluate` does.
    */
-  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
+  evaluate<T>(fn: BrowserEvaluateFunction<T> | string): Promise<T>;
   screenshot(opts?: ScreenshotOptions): Promise<Buffer>;
   /**
    * Implementations must reject unsafe schemes such as file:// and javascript:.

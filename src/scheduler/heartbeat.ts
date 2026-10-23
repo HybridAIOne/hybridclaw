@@ -75,6 +75,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_get_images',
   'browser_console',
   'browser_network',
+  'browser_evaluate',
   'browser_close',
 ];
 

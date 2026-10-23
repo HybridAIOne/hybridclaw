@@ -680,6 +680,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     ...buildWebRetrievalLines(context),
     ...byClient(mobile, HEADED_BROWSER_LINES),
     '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
+    'For many items or structured data on a rendered page, use one `browser_evaluate` (with `path` for a file) instead of repeated snapshots.',
     ...byClient(mobile, BROWSER_DETAIL_LINES),
     '',
     '## Browser Auth Handling',

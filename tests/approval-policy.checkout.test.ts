@@ -175,6 +175,17 @@ describe('browser checkout classification', () => {
     expect(classifyBrowserCheckout('browser_press', { key: 'Tab' })).toBeNull();
   });
 
+  test('on a checkout page, a page script asks first', () => {
+    onCheckout();
+    expect(
+      classifyBrowserCheckout('browser_evaluate', { expression: 'buy()' }),
+    ).toMatchObject({ kind: 'purchase', host: 'shop.example' });
+    recordBrowserPage({ url: 'https://news.example/today' });
+    expect(
+      classifyBrowserCheckout('browser_evaluate', { expression: 'read()' }),
+    ).toBeNull();
+  });
+
   test('off a checkout page, only a buying label counts', () => {
     recordBrowserPage({ url: 'https://news.example/today', title: 'News' });
     expect(classifyBrowserCheckout('browser_click', { x: 1, y: 2 })).toBeNull();

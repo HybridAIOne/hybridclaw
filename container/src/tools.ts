@@ -43,6 +43,10 @@ import {
   pauseBrowserFramesUntilNavigation,
 } from './browser-checkout.js';
 import {
+  BROWSER_EVALUATE_TOOL,
+  runBrowserEvaluate,
+} from './browser-evaluate.js';
+import {
   BROWSER_TOOL_DEFINITIONS,
   emitBrowserSignInRequest,
   executeBrowserTool,
@@ -4078,6 +4082,24 @@ async function executeToolInternal(
         return failTool(output);
       }
       return output;
+    }
+
+    case BROWSER_EVALUATE_TOOL: {
+      try {
+        return await runBrowserEvaluate(args, {
+          evaluate: (evaluateArgs) =>
+            executeBrowserTool(
+              BROWSER_EVALUATE_TOOL,
+              evaluateArgs,
+              currentSessionId || 'default',
+            ),
+          writeFile: writeWorkspaceFile,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     case 'cron': {

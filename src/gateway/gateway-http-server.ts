@@ -1638,6 +1638,20 @@ async function handleApiBrowserTool(
     return;
   }
 
+  if (toolName === 'browser_evaluate') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isNativeGatewaySession(active)) unsupportedGatewayBrowserTool(toolName);
+    if (args.frame != null) {
+      throw new GatewayRequestError(
+        400,
+        'browser_evaluate takes no frame when the browser runs in the gateway.',
+      );
+    }
+    const result = await active.session.evaluate(String(args.expression || ''));
+    sendJson(res, 200, { success: true, result: result ?? null });
+    return;
+  }
+
   if (toolName === 'browser_upload') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (!active.session.upload) unsupportedGatewayBrowserTool(toolName);
