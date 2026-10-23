@@ -24,7 +24,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { CronExpressionParser } from 'cron-parser';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { isValidTimezone } from '#shared/workspace-time.js';
 import { TRIGGER_PATH_PREFIX } from '../gateway/trigger-webhook.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { createJob, deleteJob, getAllJobs, getJob } from '../memory/jobs.js';

@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
-} from '../../container/shared/approval-mode.js';
+} from '#shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from 'vitest';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
+import { readPdfPages } from '#shared/pdf-reader.js';
 import { useTempDir } from './test-utils.ts';
 
 /**

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, test, vi } from 'vitest';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
+import { readPdfPages } from '#shared/pdf-reader.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();

@@ -13,9 +13,9 @@
     "Dockerfile"
   ],
   "scripts": {
-    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});\"",
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('shared/dist',{recursive:true,force:true});\"",
     "build": "node scripts/bundle.mjs",
-    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "lint": "tsc -b shared && tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",
     "publish:dry": "npm publish --dry-run"

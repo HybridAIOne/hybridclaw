@@ -7,26 +7,26 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describeBashStatePersistence } from '../shared/bash-state.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
+import { describeBashStatePersistence } from '#shared/bash-state.js';
+import type { BoostAnswer } from '#shared/boost-offer.js';
+import { DAILY_MEMORY_MAX_CHARS } from '#shared/daily-memory.js';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
-} from '../shared/memory-file.js';
+} from '#shared/memory-file.js';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
-} from '../shared/message-tool-channels.js';
+} from '#shared/message-tool-channels.js';
 import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
-} from '../shared/msteams-session-ids.js';
+} from '#shared/msteams-session-ids.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   readUserTimezoneFile,
-} from '../shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import {
   BASH_DOCKER_CONTAINER,
   BASH_EXEC_MAX_BUFFER_BYTES,

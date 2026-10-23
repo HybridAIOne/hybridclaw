@@ -1,5 +1,5 @@
-import type { McpServerConfig } from '../../../container/shared/mcp-server-config.js';
-import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
+import type { McpServerConfig } from '#shared/mcp-server-config.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
   GatewayAdminStatisticsChannelRow,

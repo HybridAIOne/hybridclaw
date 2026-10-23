@@ -1,5 +1,5 @@
-import { isRecord, readString } from '../../shared/primitive-values.js';
-import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
+import { isRecord, readString } from '#shared/primitive-values.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
 import type {

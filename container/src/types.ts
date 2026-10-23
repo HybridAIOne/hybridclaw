@@ -1,23 +1,23 @@
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
-} from '../shared/approval-reply.js';
-import type { ApprovalRule } from '../shared/approval-rules.js';
-import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import type { ReasoningEffort } from '../shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
-import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
+} from '#shared/approval-reply.js';
+import type { ApprovalRule } from '#shared/approval-rules.js';
+import type { BoostOffer, BoostPrompt } from '#shared/boost-offer.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
+import type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
-} from '../shared/stakes-classifier.js';
+} from '#shared/stakes-classifier.js';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
-} from '../shared/visual-snapshots.js';
-import type { WebSearchConfig } from '../shared/web-search-config.js';
+} from '#shared/visual-snapshots.js';
+import type { WebSearchConfig } from '#shared/web-search-config.js';
 import type { McpServerConfig } from './mcp/types.js';
 import type { ModelBehavior } from './model-behavior.js';
 
@@ -206,8 +206,8 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
-export type { WebSearchConfig } from '../shared/web-search-config.js';
+export type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
+export type { WebSearchConfig } from '#shared/web-search-config.js';
 
 export interface AddressEnvelope {
   to: string | string[];
@@ -223,7 +223,7 @@ export interface ContainerInput
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see shared/ipc-output-files.js. */
+  /** Names this request's reply file; see shared/src/ipc-output-files.ts. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -233,7 +233,7 @@ export interface ContainerInput
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * shared/ipc-input-auth.js).
+   * shared/src/ipc-input-auth.ts).
    */
   ipcAuthSecret?: string;
   baseUrl: string;

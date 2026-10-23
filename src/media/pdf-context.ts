@@ -8,11 +8,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  PDF_PREVIEW_MAX_CHARS,
-  readPdfPages,
-} from '../../container/shared/pdf-reader.js';
-import type { VisualAttachment } from '../../container/shared/visual-snapshots.js';
+import { PDF_PREVIEW_MAX_CHARS, readPdfPages } from '#shared/pdf-reader.js';
+import type { VisualAttachment } from '#shared/visual-snapshots.js';
 import { containerDependencyRepairHint } from '../infra/host-runtime-setup.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';

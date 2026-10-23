@@ -6,7 +6,7 @@
  * ratings or improvement feedback. The bound session operator owns both surfaces.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readSingleEmoji } from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '#shared/reactions.js';
 import { setMessageReaction } from '../memory/db.js';
 import { isRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';

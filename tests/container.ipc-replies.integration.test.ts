@@ -8,8 +8,8 @@ import { afterEach, expect, test } from 'vitest';
 import {
   encodeAuthenticatedInput,
   generateIpcAuthSecret,
-} from '../container/shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+} from '#shared/ipc-input-auth.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
 import type {
   ChatMessage,
   ContainerInput,

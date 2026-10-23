@@ -1,5 +1,5 @@
-import { getProviderContextError } from '../../shared/provider-context.js';
-import { resolveProviderRequestMaxTokens } from '../../shared/request-max-tokens.js';
+import { getProviderContextError } from '#shared/provider-context.js';
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,

@@ -12,8 +12,10 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "paths": { "#shared/*": ["./container/shared/src/*"] }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "container"]
+  "exclude": ["node_modules", "dist", "container"],
+  "references": [{ "path": "./container/shared" }]
 }

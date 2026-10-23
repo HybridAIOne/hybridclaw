@@ -13,7 +13,7 @@ test('memory inspect reports the built-in memory layers for the current session'
   setupHome();
 
   const { currentDateStampInTimezone } = await import(
-    '../container/shared/workspace-time.js'
+    '#shared/workspace-time.js'
   );
   const { initDatabase } = await import('../src/memory/db.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');

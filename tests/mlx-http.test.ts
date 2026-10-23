@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { fetchMlxWithIdleTimeout, MLX_IDLE_TIMEOUT_MS } from '../container/shared/mlx-http.js';
+import { fetchMlxWithIdleTimeout, MLX_IDLE_TIMEOUT_MS } from '#shared/mlx-http.js';
 import { fetchMlx } from '../container/src/providers/mlx-transport.js';
 
 beforeEach(() => vi.useFakeTimers());

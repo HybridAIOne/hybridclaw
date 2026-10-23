@@ -1,5 +1,5 @@
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
+import type { MessageEmailDraft } from '#shared/email-draft.js';
 import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
 import type { RoutingTrace } from './routing-trace.js';

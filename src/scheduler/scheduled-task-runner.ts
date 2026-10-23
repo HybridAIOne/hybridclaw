@@ -65,7 +65,7 @@ export async function runIsolatedScheduledTask(params: {
   channelId: string;
   chatbotId: string;
   model: string;
-  reasoningEffort?: import('../../container/shared/reasoning-effort.js').ReasoningEffort;
+  reasoningEffort?: import('#shared/reasoning-effort.js').ReasoningEffort;
   agentId: string;
   sessionId?: string;
   sessionKey?: string;

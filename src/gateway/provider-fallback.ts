@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import {
   classifyProviderError,
   type FallbackReason,
-} from '../../container/shared/provider-fallback.js';
+} from '#shared/provider-fallback.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import { isRecord } from '../utils/type-guards.js';

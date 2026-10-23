@@ -20,8 +20,8 @@ import {
   parseApprovalTrustStore,
   revokeApprovalTrust,
   serializeApprovalTrustStore,
-} from '../../container/shared/approval-rules.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+} from '#shared/approval-rules.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { APPROVALS_RULES_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type { Session } from '../types/session.js';

@@ -11,7 +11,7 @@
  */
 
 import type { ServerResponse } from 'node:http';
-import { readSingleEmoji } from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '#shared/reactions.js';
 import {
   findAgentConfig,
   resolveAgentForRequest,

@@ -9,7 +9,7 @@
  *
  * `input.json` lives where this agent's own tools can write, so a follow-up is
  * honored only when its authenticity envelope verifies against the per-worker
- * secret received on stdin (`setIpcAuthSecret`, see shared/ipc-input-auth.js);
+ * secret received on stdin (`setIpcAuthSecret`, see shared/src/ipc-input-auth.ts);
  * an input that fails to verify is dropped, not run. `health-input.json` is
  * read as a liveness probe only: it yields a turn's input never — just the
  * nonce to echo — so an unauthenticated health file cannot become a turn.
@@ -21,14 +21,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../shared/ipc-output-files.js';
+import { decodeAuthenticatedInput } from '#shared/ipc-input-auth.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
 import {
   createIpcWakeup,
   IPC_RECONCILE_INTERVAL_MS,
-} from '../shared/ipc-wakeup.js';
-import { writeMemoryFileAtomic } from '../shared/memory-file.js';
-import { decodeSteerNote, type SteerNote } from '../shared/steer-inbox.js';
+} from '#shared/ipc-wakeup.js';
+import { writeMemoryFileAtomic } from '#shared/memory-file.js';
+import { decodeSteerNote, type SteerNote } from '#shared/steer-inbox.js';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';

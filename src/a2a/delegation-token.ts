@@ -9,7 +9,7 @@ import {
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import {
   isCanonicalAgentIdentity,

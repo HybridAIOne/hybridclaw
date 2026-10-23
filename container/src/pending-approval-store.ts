@@ -10,7 +10,7 @@
  * tracks the prompt a channel shows.
  */
 import fs from 'node:fs';
-import { writeFileAtomic } from '../shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 
 export interface PendingApproval {
   id: string;

@@ -4,7 +4,7 @@
  * replacement. Unlike gateway session compaction, this changes only loop input;
  * failed or empty summaries never authorize a lossy heuristic replacement.
  */
-import { extractResponseTextContent } from '../shared/response-text.js';
+import { extractResponseTextContent } from '#shared/response-text.js';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import { isContextWindowExceededError } from './model-retry.js';
 import { estimateMessageTokens } from './token-usage.js';

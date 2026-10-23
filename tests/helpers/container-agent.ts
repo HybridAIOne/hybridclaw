@@ -13,7 +13,7 @@ import { afterEach } from 'vitest';
 import {
   encodeAuthenticatedInput,
   generateIpcAuthSecret,
-} from '../../container/shared/ipc-input-auth.js';
+} from '#shared/ipc-input-auth.js';
 import type {
   ContainerInput,
   ContainerOutput,

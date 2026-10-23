@@ -17,7 +17,7 @@ RUN npm --prefix container ci --ignore-scripts
 
 COPY . .
 RUN npm run build:console
-RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
+RUN npx tsc -b && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
 RUN node scripts/bundle-gateway.mjs
 RUN npm --prefix container run build
 

@@ -2,7 +2,7 @@
 import {
   type ConnectorApproval,
   connectorApprovalId,
-} from '../shared/connector-approval.js';
+} from '#shared/connector-approval.js';
 import type { PendingApproval } from './pending-approval-store.js';
 import type { PendingApproval as ApprovalPrompt } from './types.js';
 export function buildConnectorApproval(

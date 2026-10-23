@@ -11,7 +11,7 @@
  * never written down, only that something was typed. The steps reach the
  * model only when the user asks it to remember how they did it.
  */
-import { asRecord } from '../shared/primitive-values.js';
+import { asRecord } from '#shared/primitive-values.js';
 
 export const TAKE_OVER_TOOL_NAME = 'browser_take_over';
 

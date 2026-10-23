@@ -6,7 +6,7 @@
  * NOT a send: the mail connector's send tool, with its approval, sends. The
  * user's Send comes back as a new message asking for exactly this draft.
  */
-import { normalizeEmailDraft } from '../../shared/email-draft.js';
+import { normalizeEmailDraft } from '#shared/email-draft.js';
 import type { ToolDefinition } from '../types.js';
 
 export const DRAFT_EMAIL_TOOL_DEFINITION: ToolDefinition = {

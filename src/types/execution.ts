@@ -1,9 +1,9 @@
-import type { ApprovalRule } from '../../container/shared/approval-rules.js';
-import type { BoostPrompt } from '../../container/shared/boost-offer.js';
+import type { ApprovalRule } from '#shared/approval-rules.js';
+import type { BoostPrompt } from '#shared/boost-offer.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
-} from '../../container/shared/stakes-classifier.js';
+} from '#shared/stakes-classifier.js';
 
 export interface RuntimeToolSchemaProperty {
   type: string | string[];

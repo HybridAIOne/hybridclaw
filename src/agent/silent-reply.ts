@@ -1,4 +1,4 @@
-import { escapeRegExp } from '../../container/shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 
 export const SILENT_REPLY_TOKEN = '__MESSAGE_SEND_HANDLED__';
 

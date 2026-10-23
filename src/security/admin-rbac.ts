@@ -8,7 +8,7 @@
  * an action from this catalog; a plugin that needs its own actions adds them
  * to `PLUGIN_ADMIN_RBAC_ACTIONS` in core.
  */
-import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
+import { SHELL_RUNTIME_ENV_PATH } from '#shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 
 export const NOTES_PATH = '/api/notes';
