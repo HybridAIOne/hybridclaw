@@ -111,10 +111,16 @@ function unreadReminders(delivery: WebNotificationDelivery): number {
  * data chats, or its agent has none.
  * Looked up per run, so stored tasks follow a new main chat.
  */
-export function mainChatForWebTask(taskSessionId: string): Session | null {
+export function mainChatForWebTask(
+  taskSessionId: string,
+  ownerUserId?: string,
+): Session | null {
   const origin = memoryService.getSessionById(taskSessionId);
   if (origin?.channel_id !== 'web' || isAppDataChat(origin.session_key))
     return null;
+  // An authenticated main chat is already the owner’s destination. This also
+  // keeps one-shot routine tests out of another owner’s newer main chat.
+  if (ownerUserId && origin.session_key.startsWith('main-')) return null;
   const main = getAgentMainSession(origin.agent_id);
   return main && main.session_key !== origin.session_key ? main : null;
 }

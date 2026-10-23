@@ -112,7 +112,7 @@ export async function runScheduledTask(
     !request.routine &&
     request.source === 'scheduled-task' &&
     resolvedDeliveryChannelId === 'web'
-      ? mainChatForWebTask(request.sessionId)
+      ? mainChatForWebTask(request.sessionId, request.taskOwner?.userId)
       : null;
   const deliverySessionId = mainChat?.id ?? request.sessionId;
   const runChannelId =
