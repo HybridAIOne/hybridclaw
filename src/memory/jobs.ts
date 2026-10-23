@@ -27,6 +27,8 @@ export interface GetAllJobsQuery {
 
 export interface CreateJobInput {
   kind: 'scheduled_task';
+  managedKey?: string;
+  managedScope?: string;
   sessionId: string;
   channelId: string;
   cronExpr: string;
@@ -175,6 +177,8 @@ function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
  * runtime-config action shape, so they are read and kept apart from it.
  */
 function addOptionsOf(rawAction: string): {
+  managedKey?: string;
+  managedScope?: string;
   alert?: string;
   replyOnly?: true;
   ownerUserId?: string;
@@ -189,6 +193,8 @@ function addOptionsOf(rawAction: string): {
   triggerEvent?: TriggerEvent;
 } {
   const action = parseJobJson<{
+    managedKey?: string;
+    managedScope?: string;
     alert?: unknown;
     replyOnly?: unknown;
     ownerUserId?: unknown;
@@ -203,6 +209,9 @@ function addOptionsOf(rawAction: string): {
     freshSession?: boolean;
   } | null>(rawAction, null);
   return {
+    ...(action?.managedKey
+      ? { managedKey: action.managedKey, managedScope: action.managedScope }
+      : {}),
     ...(typeof action?.title === 'string' ? { title: action.title } : {}),
     ...(typeof action?.model === 'string' ? { model: action.model } : {}),
     ...(action?.effort ? { effort: action.effort } : {}),
@@ -271,6 +280,8 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
   });
   const options = addOptionsOf(row.action);
   return {
+    managed_key: options.managedKey,
+    managed_scope: options.managedScope,
     id: row.legacy_task_id ?? 0,
     session_id: row.session_id || '',
     channel_id: row.channel_id || '',
@@ -421,6 +432,9 @@ export function createJob(input: CreateJobInput): number {
         JSON.stringify({
           kind: 'agent_turn',
           message: input.prompt,
+          ...(input.managedKey
+            ? { managedKey: input.managedKey, managedScope: input.managedScope }
+            : {}),
           ...(input.alert ? { alert: input.alert } : {}),
           ...(input.replyOnly ? { replyOnly: true } : {}),
           ...(ownerUserId ? { ownerUserId } : {}),
@@ -720,11 +734,22 @@ export function deleteJob(jobId: string | number): void {
 
 export function setJobEnabled(jobId: string | number, enabled: boolean): void {
   withMemoryDatabase((database) => {
-    database
-      .prepare(
-        "UPDATE jobs SET enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
-      )
-      .run(enabled ? 1 : 0, normalizeJobId(jobId));
+    const id = normalizeJobId(jobId);
+    database.transaction(() => {
+      database
+        .prepare(
+          "UPDATE jobs SET enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        )
+        .run(enabled ? 1 : 0, id);
+      // Explicit withdrawal also retires saved output. Resuming waits for a new slot.
+      if (!enabled)
+        database
+          .prepare(`UPDATE routine_editions SET delivered = 1
+        WHERE task_id = (SELECT legacy_task_id FROM jobs WHERE id = ?)
+        AND scope = (SELECT json_extract(action, '$.managedScope') FROM jobs WHERE id = ?)
+        AND routine_key = (SELECT json_extract(action, '$.managedKey') FROM jobs WHERE id = ?)`)
+          .run(id, id, id);
+    })();
   });
 }
 

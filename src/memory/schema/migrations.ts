@@ -15,6 +15,7 @@ import {
 } from '../../identity/agent-id.js';
 import { parseUserId } from '../../identity/user-id.js';
 import { logger } from '../../logger.js';
+import { createRoutineSchema } from '../../scheduler/routine-schema.js';
 import { createTaskRunsSchema } from '../../scheduler/task-runs-schema.js';
 import {
   buildSessionKey,
@@ -27,7 +28,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 77;
+export const DATABASE_SCHEMA_VERSION = 78;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4078,6 +4079,10 @@ export function runMigrations(
       `);
     }
     recordMigration(database, 77, 'Index request_log by age for retention');
+  }
+  if (currentVersion < 78) {
+    createRoutineSchema(database);
+    recordMigration(database, 78, 'Managed routine identity and editions');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
