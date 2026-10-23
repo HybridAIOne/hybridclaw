@@ -696,9 +696,7 @@ async function main(): Promise<void> {
     }
 
     const shouldRestartObservability =
-      JSON.stringify(next.observability) !==
-        JSON.stringify(prev.observability) ||
-      next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId;
+      JSON.stringify(next.observability) !== JSON.stringify(prev.observability);
     const localConfigChanged =
       JSON.stringify(next.local) !== JSON.stringify(prev.local);
     if (localConfigChanged) {
@@ -711,10 +709,7 @@ async function main(): Promise<void> {
     if (!shouldRestartObservability) return;
 
     logger.info(
-      {
-        enabled: next.observability.enabled,
-        botId: next.observability.botId || next.hybridai.defaultChatbotId || '',
-      },
+      { enabled: next.observability.enabled },
       'Config changed, restarting observability ingest',
     );
     startObservabilityIngest();

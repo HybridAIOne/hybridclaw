@@ -1278,7 +1278,6 @@ export interface RuntimeConfig {
     baseUrl: string;
     ingestPath: string;
     statusPath: string;
-    botId: string;
     label: string;
     environment: string;
     flushIntervalMs: number;
@@ -2089,7 +2088,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     baseUrl: 'https://hybridai.one',
     ingestPath: '/api/v1/agent-observability/events:batch',
     statusPath: '/api/v1/agent-observability/status',
-    botId: '',
     label: '',
     environment: 'prod',
     flushIntervalMs: 10_000,
@@ -7968,9 +7966,6 @@ function normalizeRuntimeConfig(
         rawObservability.statusPath,
         DEFAULT_RUNTIME_CONFIG.observability.statusPath,
       ),
-      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, {
-        allowEmpty: true,
-      }),
       label: normalizeString(
         rawObservability.label,
         DEFAULT_RUNTIME_CONFIG.observability.label,

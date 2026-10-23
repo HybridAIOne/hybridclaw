@@ -926,17 +926,6 @@ export function switchCurrentSessionInstance(params: {
   return { previousSession, session: requireSessionById(target.id) };
 }
 
-export function getAnyChatbotId(): string | null {
-  const row = queryOne<Pick<Session, 'chatbot_id'>>(
-    getSessionDatabase(),
-    `SELECT chatbot_id FROM sessions
-     WHERE chatbot_id IS NOT NULL AND chatbot_id != ''
-     ORDER BY last_active DESC
-     LIMIT 1`,
-  );
-  return row?.chatbot_id?.trim() || null;
-}
-
 export function updateSessionChatbot(
   sessionId: string,
   chatbotId: string | null,
