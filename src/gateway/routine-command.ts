@@ -3,7 +3,6 @@
  * Schedule settings live only in jobs; callers cannot supply prompts or owners.
  * This command configures work, not its execution or delivery.
  */
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
@@ -31,6 +30,7 @@ import type {
   GatewayCommandResult,
 } from './gateway-types.js';
 import { canManageScheduledTask } from './scheduled-task-access.js';
+import { notificationOperatorId } from './web-notification-store.js';
 
 function templates(): Map<string, { title: string; prompt: string }> {
   const root = resolveInstallPath('skills');
@@ -78,11 +78,9 @@ export function handleRoutineCommand(
       'Use an authenticated main chat for this routine.',
     );
   // The gateway has already bound userId to the credential. Never accept scope in JSON.
-  const scope = createHash('sha256')
-    // lgtm[js/insufficient-password-hash] Stable composite identity lookup only;
-    // this is never a password/token verifier or an authentication decision.
-    .update(JSON.stringify([owner, session.agent_id]))
-    .digest('hex');
+  const scope = notificationOperatorId(
+    JSON.stringify([owner, session.agent_id]),
+  );
   const find = () =>
     getAllJobs({ kind: 'scheduled_task' }).find(
       (task) => task.managed_scope === scope && task.managed_key === key,
