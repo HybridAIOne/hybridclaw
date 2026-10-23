@@ -17,7 +17,6 @@ import {
   deleteMemoryValuesByKeyPrefix,
   forgetSemanticMemory,
   forkSessionBranch,
-  getAnyChatbotId,
   getCanonicalContext,
   getConversationHistoryPage,
   getMemoryValue,
@@ -1290,33 +1289,6 @@ describe.sequential('schema migrations', () => {
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');
     expect(hasUsage?.name).toBe('usage_events');
-  });
-
-  test('getAnyChatbotId prefers the most recently active session', () => {
-    const dbPath = createTempDbPath();
-    initDatabase({ quiet: true, dbPath });
-
-    getOrCreateSession('session-older', null, 'channel-a');
-    getOrCreateSession('session-newer', null, 'channel-b');
-
-    const inspect = new Database(dbPath);
-    inspect
-      .prepare(
-        `UPDATE sessions
-         SET chatbot_id = ?, last_active = ?
-         WHERE id = ?`,
-      )
-      .run('bot-older', '2026-03-18T10:00:00.000Z', 'session-older');
-    inspect
-      .prepare(
-        `UPDATE sessions
-         SET chatbot_id = ?, last_active = ?
-         WHERE id = ?`,
-      )
-      .run('bot-newer', '2026-03-18T11:00:00.000Z', 'session-newer');
-    inspect.close();
-
-    expect(getAnyChatbotId()).toBe('bot-newer');
   });
 
   test('storeMessage persists assistant agent identity', () => {

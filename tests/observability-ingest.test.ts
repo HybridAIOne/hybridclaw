@@ -44,14 +44,9 @@ async function configureObservabilityFixture(): Promise<void> {
   const runtimeConfig = getRuntimeConfig();
   saveRuntimeConfig({
     ...runtimeConfig,
-    hybridai: {
-      ...runtimeConfig.hybridai,
-      defaultChatbotId: 'bot-default',
-    },
     observability: {
       ...runtimeConfig.observability,
       enabled: true,
-      botId: 'bot-observability',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -103,7 +98,7 @@ async function recordObservabilityBotSetEvent(
   await flushAuditTrail();
 }
 
-test('observability ingest forwards bot.set audit events to HybridAI', async () => {
+test('observability ingest forwards audit events with no bot configured', async () => {
   setupHome({ HYBRIDAI_API_KEY: 'test-key' });
 
   const { getRuntimeConfig, saveRuntimeConfig } = await import(
@@ -112,14 +107,9 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
   const runtimeConfig = getRuntimeConfig();
   saveRuntimeConfig({
     ...runtimeConfig,
-    hybridai: {
-      ...runtimeConfig.hybridai,
-      defaultChatbotId: 'bot-default',
-    },
     observability: {
       ...runtimeConfig.observability,
       enabled: true,
-      botId: 'bot-observability',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -202,13 +192,12 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
       ? ingestInit.body
       : String(ingestInit?.body ?? '');
   const payload = JSON.parse(bodyText) as {
-    bot_id: string;
     agent_id: string;
     events: Array<Record<string, unknown>>;
   };
 
   expect(ingestUrl).toContain('/api/v1/agent-observability/events:batch');
-  expect(payload.bot_id).toBe('bot-observability');
+  expect(payload).not.toHaveProperty('bot_id');
   expect(payload.agent_id).toBe('main');
   expect(payload.events).toHaveLength(1);
   expect(payload.events[0]).toMatchObject({
@@ -339,10 +328,7 @@ test('observability ingest reuses an old cached token and rotates only after ing
       if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
         const bodyText =
           typeof init?.body === 'string' ? init.body : String(init?.body ?? '');
-        expect(JSON.parse(bodyText)).toMatchObject({
-          bot_id: 'bot-observability',
-          rotate: true,
-        });
+        expect(JSON.parse(bodyText)).toMatchObject({ rotate: true });
         return Response.json({
           success: true,
           rotated: true,
@@ -414,14 +400,10 @@ test('observability ingest restart dispatches a new startup flush without waitin
   const runtimeConfig = getRuntimeConfig();
   saveRuntimeConfig({
     ...runtimeConfig,
-    hybridai: {
-      ...runtimeConfig.hybridai,
-      defaultChatbotId: 'bot-default',
-    },
     observability: {
       ...runtimeConfig.observability,
       enabled: true,
-      botId: 'bot-a',
+      label: 'node-a',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -454,13 +436,13 @@ test('observability ingest restart dispatches a new startup flush without waitin
         const bodyText =
           typeof init?.body === 'string' ? init.body : String(init?.body ?? '');
         const payload = JSON.parse(bodyText) as {
-          bot_id: string;
+          label: string;
           agent_id: string;
         };
-        if (payload.bot_id === 'bot-a') {
+        if (payload.label === 'node-a') {
           return firstBatchResponse;
         }
-        if (payload.bot_id === 'bot-b') {
+        if (payload.label === 'node-b') {
           return new Response(
             JSON.stringify({
               status: 'ok',
@@ -517,7 +499,7 @@ test('observability ingest restart dispatches a new startup flush without waitin
     observability: {
       ...getRuntimeConfig().observability,
       enabled: true,
-      botId: 'bot-b',
+      label: 'node-b',
       flushIntervalMs: 60_000,
       batchMaxEvents: 10,
     },
@@ -525,7 +507,7 @@ test('observability ingest restart dispatches a new startup flush without waitin
 
   startObservabilityIngest();
 
-  // The node's cached token survives the bot change, so no second ensure call.
+  // The node's cached token survives the config change, so no second ensure call.
   await vi.waitFor(() => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -536,11 +518,11 @@ test('observability ingest restart dispatches a new startup flush without waitin
       ? secondBatchCall[1].body
       : String(secondBatchCall?.[1]?.body ?? '');
   const secondPayload = JSON.parse(secondBatchBody) as {
-    bot_id: string;
+    label: string;
     agent_id: string;
   };
   expect(secondPayload).toMatchObject({
-    bot_id: 'bot-b',
+    label: 'node-b',
     agent_id: 'main',
   });
 
@@ -725,14 +707,9 @@ test('observability ingest rate-limits repeated transient outage warnings', asyn
     const runtimeConfig = getRuntimeConfig();
     saveRuntimeConfig({
       ...runtimeConfig,
-      hybridai: {
-        ...runtimeConfig.hybridai,
-        defaultChatbotId: 'bot-default',
-      },
       observability: {
         ...runtimeConfig.observability,
         enabled: true,
-        botId: 'bot-observability',
         flushIntervalMs: 10_000,
         batchMaxEvents: 10,
       },

@@ -203,7 +203,7 @@ function createGatewayMainTestState(options?: {
         decayRate: 0.25,
         consolidationLanguage: 'en',
       },
-      observability: { enabled: false, botId: '' },
+      observability: { enabled: false },
       ops: { healthPort: 9090 },
     },
     currentSession: {
@@ -3082,7 +3082,7 @@ describe('gateway bootstrap', () => {
         decayRate: 0.5,
         consolidationLanguage: 'en',
       },
-      observability: { enabled: true, botId: 'bot-obs' },
+      observability: { enabled: true },
     };
 
     state.currentConfig = nextConfig;
