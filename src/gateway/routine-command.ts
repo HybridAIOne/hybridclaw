@@ -79,6 +79,8 @@ export function handleRoutineCommand(
     );
   // The gateway has already bound userId to the credential. Never accept scope in JSON.
   const scope = createHash('sha256')
+    // lgtm[js/insufficient-password-hash] Stable composite identity lookup only;
+    // this is never a password/token verifier or an authentication decision.
     .update(JSON.stringify([owner, session.agent_id]))
     .digest('hex');
   const find = () =>
