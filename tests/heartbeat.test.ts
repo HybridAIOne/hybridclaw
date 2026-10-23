@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
     getOrCreateSession: vi.fn(() => ({ message_count: 0 })),
     storeTurn: vi.fn(),
   },
-  modelRequiresChatbotId: vi.fn(() => false),
   processSideEffects: vi.fn(),
   proactiveWindowLabel: vi.fn(() => 'always-on'),
   recordAuditEvent: vi.fn(),
@@ -106,7 +105,6 @@ vi.mock('../src/memory/memory-service.js', () => ({
 }));
 
 vi.mock('../src/providers/factory.js', () => ({
-  modelRequiresChatbotId: mocks.modelRequiresChatbotId,
   resolveModelProvider: mocks.resolveModelProvider,
 }));
 

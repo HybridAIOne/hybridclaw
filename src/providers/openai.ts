@@ -51,7 +51,6 @@ async function resolveOpenAIAPIRuntimeCredentials(
 export const openAIAPIProvider: AIProvider = {
   id: 'openai',
   matchesModel: isOpenAIModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveOpenAIAPIRuntimeCredentials,
 };
 
@@ -82,6 +81,5 @@ async function resolveOpenAIRuntimeCredentials(
 export const openAIProvider: AIProvider = {
   id: 'openai-codex',
   matchesModel: isOpenAICodexModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveOpenAIRuntimeCredentials,
 };

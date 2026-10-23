@@ -281,7 +281,6 @@ export function getVisionModelContextError(
     baseUrl: params.baseUrl,
     apiKey: params.apiKey,
     model: params.model,
-    chatbotId: params.chatbotId,
     toolName,
   });
 }

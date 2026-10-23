@@ -76,12 +76,10 @@ function beginCloudMemorySync(agentId: string): StartedCloudMemorySync | null {
 function getCloudMemoryConfig(): {
   apiKey: string;
   baseUrl: string;
-  chatbotId: string;
 } {
   return {
     apiKey: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_API_KEY),
     baseUrl: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_BASE_URL),
-    chatbotId: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_CHATBOT_ID),
   };
 }
 
@@ -104,9 +102,7 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 function isCloudMemoryConfigured(): boolean {
   const config = getCloudMemoryConfig();
-  return Boolean(
-    config.apiKey.trim() && config.baseUrl.trim() && config.chatbotId.trim(),
-  );
+  return Boolean(config.apiKey.trim() && config.baseUrl.trim());
 }
 
 function cloudMemoryCachePath(agentId: string): string {
@@ -296,8 +292,7 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
   const config = getCloudMemoryConfig();
   const apiKey = config.apiKey.trim();
   const baseUrl = config.baseUrl.trim();
-  const chatbotId = config.chatbotId.trim();
-  if (!apiKey || !baseUrl || !chatbotId) return;
+  if (!apiKey || !baseUrl) return;
   const localFiles = collectLocalAgentMemoryFiles(normalizedAgentId);
   const url = `${normalizeBaseUrl(baseUrl)}/api/hybridclaw/memory/sync`;
   const controller = new AbortController();
@@ -314,7 +309,6 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        chatbot_id: chatbotId,
         agent_id: normalizedAgentId,
         files: localFiles,
       }),

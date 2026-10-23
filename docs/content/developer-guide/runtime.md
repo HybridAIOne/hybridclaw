@@ -247,7 +247,8 @@ Core details:
   configuration should use `{ "source": "store", "id": "SECRET_NAME" }`;
   legacy Browser Use Cloud env refs are migrated to stored refs.
 - Some settings still require restart, such as bind host and port.
-- Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
+- A default HybridAI chatbot is optional, set with `hybridai.defaultChatbotId`.
+  Without one, HybridAI calls run on the model alone; RAG needs a chatbot.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
   to an agent, and that agent owns the workspace under
   `~/.hybridclaw/data/agents/<workspace>/workspace/`.

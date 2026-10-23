@@ -10,13 +10,11 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const {
   runAgentMock,
-  fetchHybridAIAccountChatbotIdMock,
   ensurePluginManagerInitializedMock,
   reloadPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
 } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
-  fetchHybridAIAccountChatbotIdMock: vi.fn(async () => 'user-bootstrap'),
   ensurePluginManagerInitializedMock: vi.fn(async () => null),
   reloadPluginManagerMock: vi.fn(async () => null),
   setPluginInboundMessageDispatcherMock: vi.fn(),
@@ -25,14 +23,6 @@ const {
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
-
-vi.mock('../src/providers/hybridai-bots.js', async () => {
-  const actual = await vi.importActual('../src/providers/hybridai-bots.ts');
-  return {
-    ...actual,
-    fetchHybridAIAccountChatbotId: fetchHybridAIAccountChatbotIdMock,
-  };
-});
 
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
@@ -47,7 +37,6 @@ const { setupHome } = setupGatewayTest({
   cleanup: () => {
     runAgentMock.mockReset();
     callAuxiliaryModelMock.mockClear();
-    fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
     reloadPluginManagerMock.mockClear();
     setPluginInboundMessageDispatcherMock.mockClear();

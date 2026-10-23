@@ -49,6 +49,5 @@ async function resolveHybridAIRuntimeCredentials(
 export const hybridAIProvider: AIProvider = {
   id: 'hybridai',
   matchesModel: () => true,
-  requiresChatbotId: () => true,
   resolveRuntimeCredentials: resolveHybridAIRuntimeCredentials,
 };

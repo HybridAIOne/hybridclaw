@@ -218,3 +218,68 @@ test('a question about a photo keeps the system prompt and tool list', async () 
   expect(calls[1].blockedTools).toEqual(calls[0].blockedTools);
   expect(calls[1].blockedTools ?? []).not.toContain('browser_vision');
 });
+
+test('turns from different Teams conversations share one system prompt', async () => {
+  await setupSession();
+  const { registerChannel } = await import(
+    '../src/channels/channel-registry.js'
+  );
+  const { MSTEAMS_CAPABILITIES } = await import('../src/channels/channel.js');
+  const { buildSessionKey } = await import('../src/session/session-key.js');
+  registerChannel({
+    kind: 'msteams',
+    id: 'msteams',
+    capabilities: MSTEAMS_CAPABILITIES,
+  });
+  const requests: ChatMessage[][] = [];
+  runAgentMock.mockImplementation(async (params: ExecutorRequest) => {
+    requests.push(structuredClone(params.messages));
+    return success();
+  });
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.js'
+  );
+  const conversations = [
+    {
+      sessionId: buildSessionKey('main', 'msteams', 'dm', 'aad-user-a'),
+      channelId: 'a:1on1-conversation',
+      userId: 'aad-user-a',
+      username: 'Ada',
+    },
+    {
+      sessionId: buildSessionKey(
+        'main',
+        'msteams',
+        'group',
+        '19:group@thread.v2',
+      ),
+      channelId: '19:group@thread.v2',
+      userId: 'aad-user-b',
+      username: 'Bo',
+    },
+  ];
+  for (const conversation of conversations) {
+    await handleGatewayMessage({
+      ...REQUEST,
+      ...conversation,
+      source: 'msteams',
+      content: 'Hello',
+    });
+  }
+
+  const system = (messages: ChatMessage[]) =>
+    messages.filter((message) => message.role === 'system');
+  expect(JSON.stringify(system(requests[0]))).toContain('Adaptive Card');
+  expect(system(requests[1])).toEqual(system(requests[0]));
+  const contexts = requests.map((messages) =>
+    String(
+      messages
+        .filter((message) => isDynamicContextMessageText(message.content))
+        .at(-1)?.content,
+    ),
+  );
+  expect(contexts[0]).toContain('**Chat ID:** a:1on1-conversation');
+  expect(contexts[0]).toContain('(direct message)');
+  expect(contexts[1]).toContain('**Chat ID:** 19:group@thread.v2');
+  expect(contexts[1]).toContain('(group chat)');
+});

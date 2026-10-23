@@ -532,7 +532,7 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
       },
     });
 
-    expect(prompt).toContain('Current email peer: `peer@example.com`');
+    expect(prompt).not.toContain('peer@example.com');
     expect(prompt).toContain(
       'Use the `message` tool for sending or reading messages on active communication channels: email.',
     );
@@ -719,9 +719,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   const web = buildSystemPromptFromHooks({
     agentId: 'test-agent',
     skills: [],
-    runtimeInfo: { channelType: 'web', channelId: 'web', guildId: null },
+    runtimeInfo: { channelType: 'web', channelId: 'web' },
   });
-  expect(web).toContain('Guild ID: dm');
   expect(web).toContain('Browser notifications require the user');
   expect(web).not.toContain('## Client');
 
@@ -731,11 +730,9 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
     runtimeInfo: {
       channelType: 'web',
       channelId: 'web',
-      guildId: null,
       client: 'mobile',
     },
   });
-  expect(mobile).not.toContain('Guild ID:');
   expect(mobile).not.toContain('Browser notifications');
   expect(mobile).toContain(
     'Scheduled task output is saved in the originating chat',

@@ -80,7 +80,6 @@ function getAuxiliaryContextError(params: {
     baseUrl: params.context.baseUrl,
     apiKey: params.context.apiKey,
     model: params.context.model,
-    chatbotId: params.context.chatbotId,
     toolName: params.toolName,
     missingContextSource: params.missingContextSource,
   });

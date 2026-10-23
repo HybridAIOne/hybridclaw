@@ -9,10 +9,6 @@ vi.mock('../src/scheduler/scheduled-task-runner.js', () => ({
 vi.mock('../src/gateway/gateway-service.js', () => ({
   prepareSessionAutoReset: vi.fn(async () => undefined),
   resolveSessionAutoResetPolicy: () => ({ mode: 'none' }),
-  resolveGatewayChatbotId: vi.fn(async () => ({
-    chatbotId: 'test-chatbot',
-    source: 'session',
-  })),
 }));
 
 const { setupHome } = setupGatewayTest({

@@ -34,7 +34,6 @@ export interface ResolveProviderRuntimeParams {
 export interface AIProvider {
   readonly id: AIProviderId;
   matchesModel(model: string): boolean;
-  requiresChatbotId(model: string): boolean;
   resolveRuntimeCredentials(
     params: ResolveProviderRuntimeParams,
   ): Promise<ResolvedModelRuntimeCredentials>;

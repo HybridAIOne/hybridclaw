@@ -66,9 +66,11 @@ function buildHybridAIRequestBody(
   const model = stripHybridAIModelPrefix(args.model);
   const request: Record<string, unknown> = {
     model,
-    chatbot_id: args.chatbotId,
     messages: args.messages,
-    enable_rag: args.enableRag,
+    // The bot is optional, and RAG searches the bot's knowledge.
+    ...(args.chatbotId
+      ? { chatbot_id: args.chatbotId, enable_rag: args.enableRag }
+      : {}),
   };
   if (args.tools.length > 0) {
     request.tools = args.tools;

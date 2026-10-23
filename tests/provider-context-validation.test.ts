@@ -11,7 +11,6 @@ describe('provider context validation', () => {
         baseUrl: '',
         apiKey: '',
         model: 'lmstudio/qwen/qwen2.5-instruct',
-        chatbotId: '',
         toolName: 'compression',
       }),
     ).toBe('compression is not configured: missing base URL context.');
@@ -24,7 +23,6 @@ describe('provider context validation', () => {
         baseUrl: 'https://openrouter.ai/api/v1',
         apiKey: '',
         model: 'openrouter/anthropic/claude-sonnet-4',
-        chatbotId: '',
         toolName: 'compression',
       }),
     ).toBe('compression is not configured: missing API key context.');
@@ -37,7 +35,6 @@ describe('provider context validation', () => {
         baseUrl: 'https://api.openai.com/v1',
         apiKey: '',
         model: 'openai/gpt-5.6-sol',
-        chatbotId: '',
         toolName: 'compression',
       }),
     ).toBe('compression is not configured: missing API key context.');
@@ -53,23 +50,9 @@ describe('provider context validation', () => {
         baseUrl: 'https://router.huggingface.co/v1',
         apiKey: '',
         model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-        chatbotId: '',
         toolName: 'compression',
       }),
     ).toBe('compression is not configured: missing API key context.');
-  });
-
-  test('requires chatbot_id for HybridAI contexts', () => {
-    expect(
-      getProviderContextError({
-        provider: 'hybridai',
-        baseUrl: 'https://hybridai.one/v1',
-        apiKey: 'test-key',
-        model: 'gpt-5-nano',
-        chatbotId: '',
-        toolName: 'vision_analyze',
-      }),
-    ).toBe('vision_analyze is not configured: missing chatbot_id context.');
   });
 
   test('preserves active request wording for browser vision errors', () => {
@@ -79,7 +62,6 @@ describe('provider context validation', () => {
         baseUrl: '',
         apiKey: '',
         model: '',
-        chatbotId: '',
         toolName: 'browser_vision',
         missingContextSource: 'active request',
       }),

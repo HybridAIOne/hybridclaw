@@ -165,7 +165,6 @@ export async function runIsolatedScheduledTask(params: {
       defaultModel: model,
       channelType: 'scheduler',
       channelId,
-      guildId: null,
       sessionContext,
       workspacePath: scopeRun?.workspaceDir ?? workspacePath,
     },

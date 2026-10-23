@@ -19,10 +19,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getDelegationJob } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import {
-  modelRequiresChatbotId,
-  resolveModelRuntimeCredentials,
-} from '../providers/factory.js';
+import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { ChatMessage } from '../types/api.js';
@@ -34,10 +31,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
-import {
-  getGatewayAdminModels,
-  resolveGatewayChatbotId,
-} from './gateway-service.js';
+import { getGatewayAdminModels } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   callOpenAICompatibleModel,
@@ -422,39 +416,6 @@ async function buildToolAwareMessages(params: {
   return [...messages, ...input.messages];
 }
 
-async function resolveToolAwareRuntime(params: {
-  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
-}): Promise<Awaited<ReturnType<typeof resolveModelRuntimeCredentials>>> {
-  const runtime = await resolveModelRuntimeCredentials({
-    model: params.prepared.model,
-    agentId: params.prepared.requestAgentId,
-  });
-  if (!modelRequiresChatbotId(params.prepared.model) || runtime.chatbotId) {
-    return runtime;
-  }
-  const fallback = await resolveGatewayChatbotId({
-    model: params.prepared.model,
-    chatbotId: runtime.chatbotId,
-    sessionId: params.prepared.sessionId,
-    channelId: 'openai',
-    agentId: params.prepared.requestAgentId,
-    trigger: 'chat',
-  });
-  if (!fallback.chatbotId) {
-    throw new OpenAICompatibleRequestError(
-      500,
-      fallback.error || 'No chatbot configured for the selected model.',
-      {
-        type: 'server_error',
-      },
-    );
-  }
-  return {
-    ...runtime,
-    chatbotId: fallback.chatbotId,
-  };
-}
-
 function toRequestError(error: unknown): OpenAICompatibleRequestError {
   if (error instanceof OpenAICompatibleRequestError) return error;
   return new OpenAICompatibleRequestError(
@@ -619,7 +580,10 @@ async function handleOpenAICompatibleToolChat(
   created: number,
   traceHeaders: Record<string, string>,
 ): Promise<void> {
-  const runtime = await resolveToolAwareRuntime({ prepared });
+  const runtime = await resolveModelRuntimeCredentials({
+    model: prepared.model,
+    agentId: prepared.requestAgentId,
+  });
   const messages = await buildToolAwareMessages({ input, prepared });
   const result = await callWithProviderFallback({
     primaryRuntime: runtime,
@@ -833,7 +797,10 @@ async function handleOpenAICompatibleStreamingToolChat(
   );
 
   try {
-    const runtime = await resolveToolAwareRuntime({ prepared });
+    const runtime = await resolveModelRuntimeCredentials({
+      model: prepared.model,
+      agentId: prepared.requestAgentId,
+    });
     const messages = await buildToolAwareMessages({ input, prepared });
     let streamStarted = false;
     const result = await callWithProviderFallback({

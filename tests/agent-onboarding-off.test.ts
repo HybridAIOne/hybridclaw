@@ -29,7 +29,6 @@ const { runAgentMock, pluginManagerMock } = vi.hoisted(() => ({
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 vi.mock('../src/providers/hybridai-bots.js', async () => ({
   ...(await vi.importActual('../src/providers/hybridai-bots.ts')),
-  fetchHybridAIAccountChatbotId: vi.fn(async () => 'bot-test'),
 }));
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: vi.fn(async () => pluginManagerMock),

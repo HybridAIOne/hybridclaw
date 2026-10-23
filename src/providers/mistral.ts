@@ -31,6 +31,5 @@ async function resolveMistralRuntimeCredentials(
 export const mistralProvider: AIProvider = {
   id: 'mistral',
   matchesModel: isMistralModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveMistralRuntimeCredentials,
 };

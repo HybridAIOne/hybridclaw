@@ -43,6 +43,5 @@ async function resolveOpenRouterRuntimeCredentials(
 export const openrouterProvider: AIProvider = {
   id: 'openrouter',
   matchesModel: isOpenRouterModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveOpenRouterRuntimeCredentials,
 };

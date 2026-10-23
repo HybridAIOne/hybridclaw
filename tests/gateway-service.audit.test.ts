@@ -797,7 +797,7 @@ test('bot clear clears the session chatbot and records a structured audit event'
 
   expect(result).toMatchObject({
     kind: 'plain',
-    text: 'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+    text: 'Chatbot cleared for this session.',
   });
   expect(getSessionById('session-bot-clear-audit')?.chatbot_id).toBeNull();
 

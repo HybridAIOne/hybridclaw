@@ -25,7 +25,6 @@ export interface ProviderContextValidationParams {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
-  chatbotId?: string;
   toolName: string;
   missingContextSource?: 'active request';
 }
@@ -59,13 +58,6 @@ export function getProviderContextError(
     return buildMissingContextError({
       toolName: params.toolName,
       field: 'API key',
-      missingContextSource: params.missingContextSource,
-    });
-  }
-  if (provider === 'hybridai' && !String(params.chatbotId || '').trim()) {
-    return buildMissingContextError({
-      toolName: params.toolName,
-      field: 'chatbot_id',
       missingContextSource: params.missingContextSource,
     });
   }

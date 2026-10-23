@@ -33,7 +33,7 @@ export function formatGatewayChatApprovalSummary(
 }
 
 export function extractGatewayChatApprovalEvent(
-  result: GatewayChatResult,
+  result: Pick<GatewayChatResult, 'pendingApproval'>,
 ): GatewayChatApprovalEvent | null {
   const approval = result.pendingApproval;
   if (!approval) return null;
