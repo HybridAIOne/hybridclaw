@@ -420,7 +420,6 @@ import {
   previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminMcpServer,
-  resolveGatewayChatbotId,
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
   revokeGatewayAdminA2ATrustPeer,
@@ -8494,23 +8493,11 @@ async function runLiveAppBridgeTool(params: {
         resolved.agentId,
       )
     : session;
-  const chatbotResolution = await resolveGatewayChatbotId({
-    model: resolved.model,
-    chatbotId: resolved.chatbotId,
-    sessionId: runSession.id,
-    channelId: 'web',
-    agentId: resolved.agentId,
-    trigger: 'chat',
-  });
-  if (chatbotResolution.error) {
-    throw new GatewayRequestError(503, chatbotResolution.error);
-  }
-
   const output = await runAgent({
     sessionId: runSession.id,
     agentId: resolved.agentId,
     model: resolved.model,
-    chatbotId: chatbotResolution.chatbotId,
+    chatbotId: resolved.chatbotId,
     enableRag: runSession.enable_rag === 1,
     channelId: 'web',
     messages: [

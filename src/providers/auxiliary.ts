@@ -310,7 +310,6 @@ function validateContext(
     baseUrl: context.baseUrl,
     apiKey: context.apiKey,
     model: context.model,
-    chatbotId: context.chatbotId,
     toolName: task,
   });
   if (contextError) throw new Error(contextError);
@@ -1076,9 +1075,11 @@ async function callHybridAITextModel(
   const body = withCoreRequestBody(
     {
       model: stripHybridAIModelPrefix(context.model),
-      chatbot_id: context.chatbotId,
       messages,
-      enable_rag: context.enableRag,
+      // The bot is optional, and RAG searches the bot's knowledge.
+      ...(context.chatbotId
+        ? { chatbot_id: context.chatbotId, enable_rag: context.enableRag }
+        : {}),
       ...(options.tools.length > 0
         ? { tools: options.tools, tool_choice: 'auto' }
         : {}),

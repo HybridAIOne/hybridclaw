@@ -26,6 +26,7 @@ import { memoryService } from '../memory/memory-service.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
+import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import { runDelegationTaskWithRetry } from './delegation-child-run.js';
 import {
   formatDelegationCompletion,
@@ -47,6 +48,10 @@ import {
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import type {
+  GatewayChatApprovalEvent,
+  GatewayChatResult,
+} from './gateway-types.js';
 import { notifyWebSession } from './web-notifications.js';
 
 const MAX_QUEUED_DELEGATION_MESSAGES = 500;
@@ -154,6 +159,7 @@ async function publishDelegationLifecycleMessage(params: {
   channelId: string;
   text: string;
   artifacts?: ArtifactMetadata[];
+  approval?: GatewayChatApprovalEvent;
   delegationStatus?: DelegationStatusSnapshot;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
@@ -168,6 +174,7 @@ async function publishDelegationLifecycleMessage(params: {
       await params.onProactiveMessage({
         text,
         artifacts: params.artifacts,
+        ...(params.approval ? { approval: params.approval } : {}),
         delegationStatus: params.delegationStatus,
       });
       return;
@@ -398,11 +405,9 @@ async function withActiveChildContext<T>(
 export type DelegationParentTurnRunner = (params: {
   content: string;
   onTextDelta?: (delta: string) => void;
-}) => Promise<{
-  status: 'success' | 'error';
-  result: string | null;
-  artifacts?: ArtifactMetadata[];
-}>;
+}) => Promise<
+  Pick<GatewayChatResult, 'status' | 'result' | 'artifacts' | 'pendingApproval'>
+>;
 
 export function enqueueDelegationBatchFromSideEffects(params: {
   plans: NormalizedDelegationPlan[];
@@ -602,11 +607,15 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           if (channelId === 'web') {
             notifyWebSession(parentSessionId, 'turn', publicId);
           } else {
+            const approval = replyText
+              ? extractGatewayChatApprovalEvent(reply ?? {})
+              : null;
             await publishDelegationLifecycleMessage({
               parentSessionId,
               channelId,
               text: resultText,
               artifacts,
+              ...(approval ? { approval } : {}),
               onProactiveMessage,
             });
           }

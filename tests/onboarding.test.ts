@@ -1329,53 +1329,6 @@ test('interactive HybridAI onboarding defaults the saved bot to the account chat
   );
 });
 
-test('ensureRuntimeCredentials backfills the default HybridAI bot from account fallback when credentials already exist', async () => {
-  const homeDir = makeTempHome();
-  writeRuntimeConfig(homeDir);
-
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
-  process.env.HYBRIDAI_API_KEY = 'hai-existing1234567890';
-  Object.defineProperty(process.stdin, 'isTTY', {
-    value: true,
-    configurable: true,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    value: true,
-    configurable: true,
-  });
-
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/bot-management/me')) {
-        return new Response(JSON.stringify({ user_id: 'user-42' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      throw new Error(`Unexpected onboarding fetch: ${url}`);
-    }),
-  );
-  vi.resetModules();
-
-  const runtimeConfig = await import('../src/config/runtime-config.ts');
-  runtimeConfig.acceptSecurityTrustModel({
-    acceptedAt: '2026-03-10T10:00:00.000Z',
-    acceptedBy: 'test',
-  });
-
-  const onboarding = await import('../src/onboarding.ts');
-  await onboarding.ensureRuntimeCredentials({
-    commandName: 'hybridclaw tui',
-  });
-
-  expect(runtimeConfig.getRuntimeConfig().hybridai.defaultChatbotId).toBe(
-    'user-42',
-  );
-});
-
 const MASKED_PROVIDER_CASES = [
   {
     name: 'Anthropic',

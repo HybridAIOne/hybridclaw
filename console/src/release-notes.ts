@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.7',
+  version: '0.40.8',
   highlights: [
-    'Live Discord delegate progress',
-    'Readable tables across messages',
-    'Voice call end diagnostics',
-    'Updated image TLS trust',
+    'Reliable memory compaction and cleanup',
+    'Better prompt-cache reuse',
+    'HybridAI without a chatbot',
+    'Discord delegate approval buttons',
   ],
 } as const;
 

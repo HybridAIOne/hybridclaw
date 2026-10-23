@@ -80,6 +80,42 @@ afterEach(() => {
 });
 
 describe('HybridAI container provider', () => {
+  test('sends chatbot_id and enable_rag only when a bot is configured', async () => {
+    const requestBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBodies.push(
+          JSON.parse(String(init?.body)) as Record<string, unknown>,
+        );
+        return makeEventStreamResponse([
+          'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      enableRag: true,
+      onTextDelta: vi.fn(),
+    });
+    await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      chatbotId: 'bot_123',
+      enableRag: true,
+      onTextDelta: vi.fn(),
+    });
+
+    // HybridAI rejects a blank chatbot_id, and RAG without a bot.
+    expect(requestBodies[0]).not.toHaveProperty('chatbot_id');
+    expect(requestBodies[0]).not.toHaveProperty('enable_rag');
+    expect(requestBodies[1]).toMatchObject({
+      chatbot_id: 'bot_123',
+      enable_rag: true,
+    });
+  });
+
   test('sends an explicit thinking override for supported Qwen3.8 models', async () => {
     let requestBody: Record<string, unknown> | undefined;
     vi.stubGlobal(

@@ -70,6 +70,5 @@ async function resolveAnthropicRuntimeCredentials(
 export const anthropicProvider: AIProvider = {
   id: 'anthropic',
   matchesModel: isAnthropicModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveAnthropicRuntimeCredentials,
 };

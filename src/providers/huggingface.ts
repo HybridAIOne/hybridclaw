@@ -36,6 +36,5 @@ async function resolveHuggingFaceRuntimeCredentials(
 export const huggingfaceProvider: AIProvider = {
   id: 'huggingface',
   matchesModel: isHuggingFaceModel,
-  requiresChatbotId: () => false,
   resolveRuntimeCredentials: resolveHuggingFaceRuntimeCredentials,
 };

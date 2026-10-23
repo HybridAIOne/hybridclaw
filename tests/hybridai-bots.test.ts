@@ -260,101 +260,7 @@ test('fetchHybridAIBots scopes cached bot lists by base URL', async () => {
   ]);
 });
 
-test('fetchHybridAIAccountChatbotId reads the current user id from /bot-management/me', async () => {
-  process.env.HOME = os.homedir();
-  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
-
-  const fetchSpy = vi.fn(
-    async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            user_id: 'user-42',
-            email: 'alice@example.com',
-          },
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      ),
-  );
-  vi.stubGlobal('fetch', fetchSpy);
-
-  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
-
-  await expect(fetchHybridAIAccountChatbotId()).resolves.toBe('user-42');
-  expect(fetchSpy).toHaveBeenCalledWith(
-    expect.stringContaining('/api/v1/bot-management/me'),
-    expect.any(Object),
-  );
-});
-
-test('fetchHybridAIAccountChatbotId prefers user_id even when /bot-management/me also returns id', async () => {
-  process.env.HOME = os.homedir();
-  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
-
-  const fetchSpy = vi.fn(
-    async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            id: 'bot-712e4236-8166-4159-a4da-25ec708b5f2e',
-            user_id: 'user-42',
-            email: 'alice@example.com',
-          },
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      ),
-  );
-  vi.stubGlobal('fetch', fetchSpy);
-
-  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
-
-  await expect(fetchHybridAIAccountChatbotId()).resolves.toBe('user-42');
-});
-
-test('fetchHybridAIAccountChatbotId fails when /bot-management/me omits a user id', async () => {
-  process.env.HOME = os.homedir();
-  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: {
-              name: 'Alice',
-            },
-          }),
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          },
-        ),
-    ),
-  );
-
-  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
-
-  await expect(fetchHybridAIAccountChatbotId()).rejects.toThrow(
-    'HybridAI /api/v1/bot-management/me did not include a user id.',
-  );
-});
-
-test.each([
-  'fetchHybridAIBots',
-  'fetchHybridAIAccountChatbotId',
-] as const)('%s rejects a missing API key without sending a request', async (fetcher) => {
+test('fetchHybridAIBots rejects a missing API key without sending a request', async () => {
   vi.stubEnv('HYBRIDAI_API_KEY', '');
   vi.stubEnv('API_KEY', '');
   const fetchSpy = vi.fn();
@@ -365,7 +271,7 @@ test.each([
     '../src/config/config.ts'
   );
 
-  await expect(bots[fetcher]()).rejects.toBeInstanceOf(
+  await expect(bots.fetchHybridAIBots()).rejects.toBeInstanceOf(
     MissingRequiredEnvVarError,
   );
   expect(fetchSpy).not.toHaveBeenCalled();

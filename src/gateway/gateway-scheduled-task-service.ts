@@ -1,6 +1,5 @@
 import { CronExpressionParser } from 'cron-parser';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
-import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
   DEFAULT_ONE_SHOT_MAX_RETRIES,
   migrateLegacySchedulerJobsFromRuntimeConfig,
@@ -25,7 +24,6 @@ import {
   getQueuedProactiveMessageCount,
   listFailedProactiveMessages,
 } from '../memory/proactive-queue.js';
-import { modelRequiresChatbotId } from '../providers/factory.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,
@@ -42,7 +40,6 @@ import { isRecord } from '../utils/type-guards.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import {
   prepareSessionAutoReset,
-  resolveGatewayChatbotId,
   resolveSessionAutoResetPolicy,
 } from './gateway-service.js';
 import type {
@@ -543,46 +540,13 @@ export async function runGatewayScheduledTask(
   const task = taskId > 0 ? getJob(taskId, { kind: 'scheduled_task' }) : null;
   const {
     agentId,
-    chatbotId: requestedChatbotId,
+    chatbotId,
     model: inheritedModel,
   } = resolveAgentForRequest({
     session,
     agentId: preferredAgentId,
   });
   const model = task?.model || inheritedModel;
-  const chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId: requestedChatbotId,
-    sessionId: currentSessionId,
-    channelId,
-    agentId,
-    trigger: 'scheduler',
-    taskId,
-  });
-  const chatbotId = chatbotResolution.chatbotId;
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    logger.warn(
-      {
-        sessionId: currentSessionId,
-        channelId,
-        taskId,
-        model,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        resolutionError: chatbotResolution.error ?? null,
-      },
-      'Scheduled task skipped due to missing chatbot configuration',
-    );
-    onError(
-      new Error(
-        `No chatbot configured for model "${model}"${chatbotResolution.error ? `: ${chatbotResolution.error}` : ''}. Set a default HybridAI chatbot id or assign one to the session before this task can run.`,
-      ),
-    );
-    return;
-  }
 
   await runIsolatedScheduledTask({
     originSessionId: session.id,

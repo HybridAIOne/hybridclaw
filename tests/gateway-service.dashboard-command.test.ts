@@ -10,7 +10,6 @@ const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 vi.mock('../src/providers/hybridai-bots.js', async () => ({
   ...(await vi.importActual('../src/providers/hybridai-bots.ts')),
-  fetchHybridAIAccountChatbotId: vi.fn(async () => 'bot-test'),
 }));
 
 const { setupHome } = setupGatewayTest({

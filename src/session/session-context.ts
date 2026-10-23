@@ -5,6 +5,7 @@ import {
   normalizeChannelValue,
 } from '../channels/channel-registry.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
+import { parseSessionKey } from './session-key.js';
 
 export type SessionChatType =
   | 'channel'
@@ -13,6 +14,23 @@ export type SessionChatType =
   | 'group'
   | 'system'
   | 'thread';
+
+const CONVERSATION_CHAT_TYPES: readonly string[] = [
+  'channel',
+  'dm',
+  'group',
+  'thread',
+] satisfies SessionChatType[];
+
+/** The chat type a channel encoded in a canonical session key. */
+export function chatTypeFromSessionKey(
+  sessionKey: string | null | undefined,
+): SessionChatType | undefined {
+  const chatType = parseSessionKey(String(sessionKey || ''))?.chatType;
+  return chatType && CONVERSATION_CHAT_TYPES.includes(chatType)
+    ? (chatType as SessionChatType)
+    : undefined;
+}
 
 export interface SessionSource {
   channelKind?: string;

@@ -319,13 +319,9 @@ import {
 import { handlePreferencesCommand } from '../preferences/preferences-command.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
-import {
-  modelRequiresChatbotId,
-  resolveModelProvider,
-} from '../providers/factory.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import { discoverHuggingFaceModels } from '../providers/huggingface-discovery.js';
 import {
-  fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
@@ -2791,88 +2787,6 @@ function formatHybridAIBotFetchError(error: unknown): string {
   return `Failed to fetch bots: ${failure.message}`;
 }
 
-function formatHybridAIAccountChatbotResolutionError(error: unknown): string {
-  const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
-  const reachabilityHint =
-    'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
-  const failure = describeHybridAIBotFetchFailure(error);
-
-  if (failure.kind === 'missing_credentials') {
-    return `HybridAI chatbot fallback requires HybridAI API credentials. ${keyHint}`;
-  }
-  if (failure.kind === 'auth') {
-    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
-  }
-  if (failure.kind === 'tls' || failure.kind === 'network') {
-    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
-  }
-  return `Failed to resolve the HybridAI account chatbot id: ${failure.message}`;
-}
-
-export async function resolveGatewayChatbotId(params: {
-  model: string;
-  chatbotId: string;
-  sessionId: string;
-  channelId: string;
-  agentId: string;
-  trigger: 'bootstrap' | 'chat' | 'scheduler';
-  taskId?: string | number | null;
-}): Promise<{
-  chatbotId: string;
-  source: 'configured' | 'hybridai-account' | 'missing';
-  error?: string;
-}> {
-  const configuredChatbotId = String(params.chatbotId || '').trim();
-  if (configuredChatbotId) {
-    return { chatbotId: configuredChatbotId, source: 'configured' };
-  }
-  if (!modelRequiresChatbotId(params.model)) {
-    return { chatbotId: '', source: 'missing' };
-  }
-
-  try {
-    const fallbackChatbotId = await fetchHybridAIAccountChatbotId({
-      cacheTtlMs: BOT_CACHE_TTL,
-    });
-    updateSessionChatbot(params.sessionId, fallbackChatbotId);
-    logger.info(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId,
-        model: params.model,
-        trigger: params.trigger,
-        taskId: params.taskId ?? null,
-        fallbackChatbotId,
-      },
-      'Resolved HybridAI chatbot ID from /bot-management/me fallback',
-    );
-    return {
-      chatbotId: fallbackChatbotId,
-      source: 'hybridai-account',
-    };
-  } catch (error) {
-    const formattedError = formatHybridAIAccountChatbotResolutionError(error);
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId,
-        model: params.model,
-        trigger: params.trigger,
-        taskId: params.taskId ?? null,
-        err: error,
-      },
-      'Failed to resolve HybridAI chatbot ID from /bot-management/me fallback',
-    );
-    return {
-      chatbotId: '',
-      source: 'missing',
-      error: `No chatbot configured. ${formattedError}`,
-    };
-  }
-}
-
 function isLocalModelProvider(model: string | null | undefined): boolean {
   const normalized = String(model || '')
     .trim()
@@ -4294,20 +4208,11 @@ export async function runDashboardRefresh(
     'web',
     run.agentId,
   );
-  const resolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: session.id,
-    channelId: 'web',
-    agentId: run.agentId,
-    trigger: 'chat',
-  });
-  if (resolution.error) return { error: resolution.error };
   const output = await runAgent({
     sessionId: session.id,
     agentId: run.agentId,
     model,
-    chatbotId: resolution.chatbotId,
+    chatbotId,
     enableRag: false,
     channelId: 'web',
     messages: [{ role: 'user', content: run.prompt }],
@@ -8127,67 +8032,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     if (onboardingAuditContext) {
       recordBootstrapOnboardingStart(onboardingAuditContext);
     }
-    const chatbotResolution = await resolveGatewayChatbotId({
-      model,
-      chatbotId: resolved.chatbotId,
-      sessionId: session.id,
-      channelId,
-      agentId: resolved.agentId,
-      trigger: 'bootstrap',
-    });
-    const chatbotId = chatbotResolution.chatbotId;
-
-    if (modelRequiresChatbotId(model) && !chatbotId) {
-      deleteMemoryValue(claimScope, markerKey);
-      const error =
-        chatbotResolution.error ||
-        'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
-      logger.warn(
-        {
-          sessionId: session.id,
-          channelId,
-          agentId: resolved.agentId,
-          model,
-          sessionChatbotId: session.chatbot_id ?? null,
-          fallbackSource: chatbotResolution.source,
-        },
-        'Gateway bootstrap autostart blocked by missing chatbot configuration',
-      );
-      recordAuditEvent({
-        sessionId: session.id,
-        runId,
-        event: {
-          type: 'error',
-          errorType: 'configuration',
-          message: error,
-          recoverable: true,
-        },
-      });
-      recordAuditEvent({
-        sessionId: session.id,
-        runId,
-        event: {
-          type: 'turn.end',
-          turnIndex,
-          finishReason: 'error',
-        },
-      });
-      recordAuditEvent({
-        sessionId: session.id,
-        runId,
-        event: {
-          type: 'session.end',
-          reason: 'error',
-          stats: {
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: 0,
-            durationMs: Date.now() - startedAt,
-          },
-        },
-      });
-      return;
-    }
+    const chatbotId = resolved.chatbotId;
 
     const storeBootstrapAssistantMessage = (
       content: string,
@@ -8268,7 +8113,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         defaultModel: HYBRIDAI_MODEL,
         channelType: channelId,
         channelId,
-        guildId: null,
         sessionContext,
         workspacePath,
       },
@@ -9971,8 +9815,8 @@ export async function handleGatewayCommand(
           });
           return plainCommand(
             previousDefaultChatbotId
-              ? 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI account fallback will be used when required.'
-              : 'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+              ? 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI requests now run without a bot.'
+              : 'Chatbot cleared for this session.',
           );
         }
 

@@ -713,18 +713,19 @@ export function getMessageToolDescription(
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
-  const otherChannels = configuredChannels
-    .filter((id) => !activeChannelId || id !== activeChannelId)
-    .slice(0, 6);
+  // Tool definitions open the cached prompt prefix: no per-conversation ids.
   if (activeChannelId) {
-    const withOthers =
-      otherChannels.length > 0
-        ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
+    const withConfigured =
+      configuredChannels.length > 0
+        ? ` Configured channels: ${configuredChannels
+            .slice(0, 6)
+            .map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`)
+            .join(', ')}.`
         : '';
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. The current Discord channel supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withConfigured}`;
   }
   if (activeTeamsChannelId) {
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads.`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. The current Teams conversation supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads.`;
   }
   if (activeChannels.length === 0) {
     return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: none.`;

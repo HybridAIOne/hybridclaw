@@ -277,9 +277,9 @@ test('the registration answers target and prompt questions for core', () => {
   expect(registration.normalizeTarget(` LINE:${SELF_MID} `)).toBe(
     `line:${SELF_MID}`,
   );
-  expect(
-    registration.messageToolHints?.({ channelId: `line:${SELF_MID}` })[0],
-  ).toContain(`line:${SELF_MID}`);
+  expect(registration.messageToolHints?.({ channelId: null })[0]).toContain(
+    'current LINE self-chat',
+  );
 });
 
 test('the registered LINE plugin decides which line: ids are targets', () => {

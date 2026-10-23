@@ -102,7 +102,6 @@ export interface PromptRuntimeInfo {
   defaultModel?: string;
   channelType?: string;
   channelId?: string;
-  guildId?: string | null;
   channel?: ChannelInfo;
   sessionContext?: SessionContext;
   workspacePath?: string;
@@ -496,7 +495,12 @@ function buildMessageToolPromptLines(
   }
 
   if (channelMessageToolHints.length > 0) {
-    lines.push('', '### Message Tool Hints', ...channelMessageToolHints);
+    lines.push(
+      '',
+      '### Message Tool Hints',
+      '- The current chat is the **Chat ID** in the latest `<context>` message, and its server, team, or workspace is the **Guild** there.',
+      ...channelMessageToolHints,
+    );
   }
 
   const examples: string[] = [];
@@ -601,7 +605,6 @@ function buildSafetyHook(context: PromptHookContext): string {
       channel: context.runtimeInfo?.channel,
       channelType: context.runtimeInfo?.channelType,
       channelId: context.runtimeInfo?.channelId,
-      guildId: context.runtimeInfo?.guildId,
     },
   });
   const activeMessageChannels = collectActiveMessageToolChannelKinds();
@@ -760,10 +763,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
   const workspaceLabel =
     runtimeInfo.workspacePath?.trim() || 'current agent workspace';
   const mobileClient = runtimeInfo.client === 'mobile';
-  const guildLabel =
-    runtimeInfo.guildId === null
-      ? 'dm'
-      : runtimeInfo.guildId?.trim() || 'unknown';
   const formattedModel = sanitizePromptInlineValue(
     formatRuntimeModelForPrompt(model, provider),
   );
@@ -778,10 +777,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `HybridClaw version: v${APP_VERSION}`,
     'HybridClaw Documentation: [/docs/](/docs/)',
     modelSentence,
-    runtimeInfo.channelId?.trim()
-      ? `Channel ID: ${runtimeInfo.channelId.trim()}`
-      : '',
-    mobileClient ? '' : `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
     `Workspace: ${workspaceLabel}`,
