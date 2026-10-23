@@ -464,7 +464,7 @@ the message tool; it asks the registration for the channel-specific facts:
 | `resetAuth()` | yes | `hybridclaw auth <kind> reset` and `channels <kind> setup --reset`; returns the cleared directory |
 | `getPairingState()` | no | The admin console pairing prompt (`pairingQrText`, `updatedAt`, `error`, extra fields) |
 | `doctorChecks({ enabled })` | no | `hybridclaw doctor` findings |
-| `messageToolHints({ channelId })` | no | Channel-specific lines in the agent prompt |
+| `messageToolHints()` | no | Channel-specific lines in the system prompt, the same for every conversation; the current chat id reaches the model in the per-turn context |
 | `describeSend({ target, auth })` | no | `sentFrom`, `recipient`, and `note` on message-tool results |
 
 ```js

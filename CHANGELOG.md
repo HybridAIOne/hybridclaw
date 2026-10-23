@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## [0.40.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.8) - 2026-10-22
+
+### Changed
+
+- **Optional HybridAI chatbots**: Model calls and cloud memory sync work
+  without a chatbot ID. Requests without a configured chatbot go directly to
+  the model; selecting a chatbot still applies its instructions and knowledge.
+
+### Fixed
+
+- **Session compaction**: A full daily memory note no longer blocks compaction
+  or causes repeated flush attempts. Flushes use the timezone in `USER.md`
+  when choosing today's note.
+- **Nightly memory cleanup**: Consolidation allows room for the full answer
+  and model reasoning. Truncated or unusable answers leave `MEMORY.md`
+  unchanged for a later retry instead of adding duplicate daily-note content.
+- **Prompt-cache reuse**: Channel agents keep conversation IDs in per-turn
+  context instead of system prompts and tool descriptions. Claude conversations
+  through HybridAI replay signed reasoning and native tool blocks so follow-up
+  turns can reuse cached history.
+- **Discord delegate approvals**: Approval requests from delegate follow-up
+  turns show buttons in the same channel and remain answerable by typed reply.
+
+### Upgrade Notes
+
+- If no chatbot is configured, HybridAI calls no longer fall back to the
+  account's bot. Set `hybridai.defaultChatbotId` or use `/bot set` to retain
+  that bot's instructions and RAG knowledge. Saved chatbot selections continue
+  to apply. Calls without a chatbot require a HybridAI API that supports them.
+- Channel plugins should return static `messageToolHints` shared across
+  conversations; the hook receives `channelId: null`. Current chat and guild
+  IDs remain available in the per-turn context.
+
 ## [0.40.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.7) - 2026-10-22
 
 ### Changed

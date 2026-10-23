@@ -176,7 +176,8 @@ export interface ChannelTransportRegistration {
   doctorChecks?(params: {
     enabled: boolean;
   }): Promise<ChannelTransportDoctorFinding[]>;
-  messageToolHints?(params: { channelId: string | null }): string[];
+  /** Rendered into the system prompt every conversation shares; `channelId` is always null. */
+  messageToolHints?(params: { channelId: null }): string[];
   describeSend?(params: {
     target: string;
     auth: ChannelTransportAuthStatus;

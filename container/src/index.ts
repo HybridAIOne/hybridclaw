@@ -1218,7 +1218,9 @@ async function processRequestInner(
       : injectRuntimeCapabilitiesMessage(messages)
   ).map((message) => {
     const next = { ...message };
-    if (provider !== 'anthropic') delete next.anthropic_content;
+    // HybridAI relays Claude and needs the signed blocks back for a cache hit.
+    if (provider !== 'anthropic' && provider !== 'hybridai')
+      delete next.anthropic_content;
     if (provider !== 'openai-codex') delete next.openai_response_items;
     return next;
   });

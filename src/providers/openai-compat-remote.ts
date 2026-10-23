@@ -80,7 +80,6 @@ export function createOpenAICompatRemoteProvider(
   return {
     id: def.id,
     matchesModel,
-    requiresChatbotId: () => false,
     resolveRuntimeCredentials,
   };
 }

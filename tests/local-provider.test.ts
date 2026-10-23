@@ -93,7 +93,6 @@ describe('local providers', () => {
     const { factory } = await importFreshModules(homeDir);
 
     expect(factory.resolveModelProvider('ollama/llama3.2')).toBe('ollama');
-    expect(factory.modelRequiresChatbotId('ollama/llama3.2')).toBe(false);
   });
 
   test('explicit llamacpp model prefixes resolve to the llamacpp provider', async () => {
@@ -108,9 +107,6 @@ describe('local providers', () => {
     expect(
       factory.resolveModelProvider('llamacpp/Meta-Llama-3-8B-Instruct'),
     ).toBe('llamacpp');
-    expect(
-      factory.modelRequiresChatbotId('llamacpp/Meta-Llama-3-8B-Instruct'),
-    ).toBe(false);
   });
 
   test('discovered bare model names resolve to the local backend', async () => {

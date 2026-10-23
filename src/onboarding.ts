@@ -59,7 +59,6 @@ import {
   UnknownModelProviderError,
 } from './providers/factory.js';
 import {
-  fetchHybridAIAccountChatbotId,
   normalizeBots,
   normalizeHybridAIAccountChatbotId,
 } from './providers/hybridai-bots.js';
@@ -281,31 +280,6 @@ function saveDefaultModel(model: string): void {
   updateRuntimeConfig((draft) => {
     draft.hybridai.defaultModel = model.trim();
   });
-}
-
-async function maybeBackfillDefaultHybridAIChatbotId(params: {
-  authMethod: OnboardingOptions['preferredAuth'] | 'hybridai';
-  existingKey: string;
-  forcePrint?: boolean;
-}): Promise<boolean> {
-  if (params.authMethod !== 'hybridai') return false;
-  if (!params.existingKey.trim()) return false;
-
-  const configuredChatbotId =
-    getRuntimeConfig().hybridai.defaultChatbotId.trim();
-  if (configuredChatbotId) return false;
-
-  try {
-    const chatbotId = (await fetchHybridAIAccountChatbotId()).trim();
-    if (!chatbotId) return false;
-    saveDefaultChatbotId(chatbotId);
-    if (params.forcePrint) {
-      printSuccess(`Default bot set to: ${chatbotId}`);
-    }
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function defaultHybridAIModel(): string {
@@ -1667,12 +1641,6 @@ export async function ensureRuntimeCredentials(
     (hasRequiredCredentials || !requireCredentials)
   ) {
     if (rl) await maybeRunSpeechToTextProviderOnboarding(rl);
-    if (resolvedCurrentProvider !== null) {
-      await maybeBackfillDefaultHybridAIChatbotId({
-        authMethod: currentAuth,
-        existingKey,
-      });
-    }
     rl?.close();
     return;
   }
@@ -1813,13 +1781,6 @@ export async function ensureRuntimeCredentials(
     }
 
     if ((refreshedHasRequiredCredentials || !requireCredentials) && !force) {
-      if (refreshedResolvedProvider !== null) {
-        await maybeBackfillDefaultHybridAIChatbotId({
-          authMethod: refreshedAuth,
-          existingKey: refreshedExistingKey,
-          forcePrint: refreshedHasRequiredCredentials,
-        });
-      }
       if (refreshedHasRequiredCredentials) {
         printSuccess(
           'Security trust model already accepted and the active model provider is configured.',
