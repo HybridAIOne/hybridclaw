@@ -231,7 +231,7 @@ should verify no broken references.
 ```bash
 npm install                          # install deps + Husky hooks
 npm run setup                        # install container/ and container/tools/ deps
-npm run build                        # compile root + container TypeScript
+npm run build                        # bundle gateway + agent runtime (esbuild), emit .d.ts
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # tsc --noEmit with unused detection
 npm run check                        # biome check src
