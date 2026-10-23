@@ -10,12 +10,13 @@ import {
   getAgentMainSession,
   isAppDataChat,
 } from '../memory/agent-main-session.js';
+import { withMemoryDatabase } from '../memory/database.js';
 import { setMessageEmailDraft } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
-import { updateWork } from '../work/work-store.js';
+import { readWork, updateWork } from '../work/work-store.js';
 import { waitWhileAtComputer } from './computer-presence.js';
 import type { StoredProactiveMessage } from './fullauto-runtime.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
@@ -110,10 +111,16 @@ function unreadReminders(delivery: WebNotificationDelivery): number {
  * data chats, or its agent has none.
  * Looked up per run, so stored tasks follow a new main chat.
  */
-export function mainChatForWebTask(taskSessionId: string): Session | null {
+export function mainChatForWebTask(
+  taskSessionId: string,
+  ownerUserId?: string,
+): Session | null {
   const origin = memoryService.getSessionById(taskSessionId);
   if (origin?.channel_id !== 'web' || isAppDataChat(origin.session_key))
     return null;
+  // An authenticated main chat is already the owner’s destination. This also
+  // keeps one-shot routine tests out of another owner’s newer main chat.
+  if (ownerUserId && origin.session_key.startsWith('main-')) return null;
   const main = getAgentMainSession(origin.agent_id);
   return main && main.session_key !== origin.session_key ? main : null;
 }
@@ -129,29 +136,39 @@ export function deliverWebScheduledMessage(
   const session = memoryService.getSessionById(sessionId);
   if (session?.channel_id !== 'web')
     throw new Error('Scheduled web delivery requires an existing web session.');
-  const messageId =
-    storedMessage?.sessionId === session.id
-      ? storedMessage.id
-      : memoryService.storeMessage({
-          sessionId: session.id,
-          userId: 'scheduler',
-          username: 'HybridClaw',
-          role: 'assistant',
-          content: text,
-          agentId: session.agent_id,
-          artifacts,
-          source,
+  const messageId = withMemoryDatabase((db) =>
+    db.transaction(() => {
+      const previous = workId ? readWork(workId) : null;
+      const messageId =
+        previous?.sessionId === session.id &&
+        previous.savedAt &&
+        previous.messageId
+          ? previous.messageId
+          : storedMessage?.sessionId === session.id
+            ? storedMessage.id
+            : memoryService.storeMessage({
+                sessionId: session.id,
+                userId: 'scheduler',
+                username: 'Hy',
+                role: 'assistant',
+                content: text,
+                agentId: session.agent_id,
+                artifacts,
+                source,
+              });
+      // A run kept apart from this chat stored its reply elsewhere; the copy here
+      // shows the same email card.
+      if (storedMessage?.emailDraft && storedMessage.sessionId !== session.id)
+        setMessageEmailDraft(messageId, storedMessage.emailDraft);
+      if (workId)
+        updateWork(workId, (work) => {
+          work.sessionId = session.id;
+          work.messageId = messageId;
+          work.savedAt ??= new Date().toISOString();
         });
-  // A run kept apart from this chat stored its reply elsewhere; the copy here
-  // shows the same email card.
-  if (storedMessage?.emailDraft && storedMessage.sessionId !== session.id)
-    setMessageEmailDraft(messageId, storedMessage.emailDraft);
-  if (workId)
-    updateWork(workId, (work) => {
-      work.sessionId = session.id;
-      work.messageId = messageId;
-      work.savedAt ??= new Date().toISOString();
-    });
+      return messageId;
+    })(),
+  );
   // Feed and Ideas replies are app data, never reminders for the user.
   if (isAppDataChat(session.session_key)) {
     skipWorkNotification(workId, 'not_requested');

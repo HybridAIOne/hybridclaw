@@ -13,10 +13,12 @@ import { CronExpressionParser } from 'cron-parser';
 import { queueRoutineNotice } from '../gateway/routine-notices.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { describeJobError, getJob } from '../memory/jobs.js';
+import { getSessionById } from '../memory/sessions.js';
 import { queryAll, queryOne } from '../memory/sqlite.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { TaskCost } from '../usage/task-cost.js';
 import { readWork } from '../work/work-store.js';
+import { routineDue } from './routine-time.js';
 import { parseSchedulerTimestampMs } from './scheduler.js';
 
 export type TaskRunOutcome =
@@ -37,6 +39,7 @@ export interface TaskRunJson {
   cost: TaskCost | null;
   /** The message the run posted, in the chat it delivered to. */
   message_id: number | null;
+  session_id: string | null;
 }
 
 export interface TaskRunsSummary {
@@ -90,8 +93,12 @@ export function missedDueTimes(task: ScheduledTask, dueMs: number): number[] {
       currentDate: new Date(dueMs),
       tz: task.tz?.trim() || 'UTC',
     });
+    let previous = dueMs;
     while (missed.length < MAX_TASK_RUNS) {
-      const at = cron.prev().getTime();
+      const at = task.managed_key
+        ? routineDue(task, previous - 1, 'previous')
+        : cron.prev().getTime();
+      previous = at;
       if (at <= since) break;
       missed.push(at);
     }
@@ -289,6 +296,10 @@ export function listTaskRuns(taskId: number, limit: number): TaskRunJson[] {
       duration_ms:
         started != null && ended != null ? Math.max(0, ended - started) : null,
       cost: row.cost ? (JSON.parse(row.cost) as TaskCost) : null,
+      session_id: row.work_id
+        ? (getSessionById(readWork(row.work_id)?.sessionId ?? '')
+            ?.session_key ?? null)
+        : null,
       message_id: row.work_id
         ? (readWork(row.work_id)?.messageId ?? null)
         : null,
