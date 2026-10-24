@@ -3,9 +3,11 @@
  * Commands carry user decisions; tools can describe state and link evidence only.
  */
 
-import { plainCommand } from '../gateway/gateway-command-results.js';
+import {
+  chatSafeJson,
+  plainCommand,
+} from '../gateway/gateway-command-results.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
-import { chatSafeJson } from '../gateway/schedule-command.js';
 import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
 import {

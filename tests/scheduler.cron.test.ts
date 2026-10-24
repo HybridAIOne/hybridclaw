@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import {
-  getScheduledTaskNextRunAt,
-  normalizeMondayZeroBasedCronExpressionWeekdays,
-  wrapCronPrompt,
-} from '../src/scheduler/scheduler.js';
+import { getScheduledTaskNextRunAt, normalizeMondayZeroBasedCronExpressionWeekdays } from '../src/scheduler/schedule-time.js';
+import { wrapCronPrompt } from '../src/scheduler/scheduler.js';
 import type { ScheduledTask } from '../src/types/scheduler.js';
 
 function makeCronTask(cronExpr: string, tz = ''): ScheduledTask {

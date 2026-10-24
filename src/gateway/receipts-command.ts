@@ -32,6 +32,7 @@ import type { Session } from '../types/session.js';
 import { readWork } from '../work/work-store.js';
 import {
   badCommand,
+  chatSafeJson,
   infoCommand,
   plainCommand,
 } from './gateway-command-results.js';
@@ -49,7 +50,6 @@ import {
   serviceOf,
   short,
 } from './receipt-proof.js';
-import { chatSafeJson } from './schedule-command.js';
 import {
   canSeeSession,
   listManageableScheduledTasks,

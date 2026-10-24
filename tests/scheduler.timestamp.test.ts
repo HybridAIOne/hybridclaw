@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { parseSchedulerTimestampMs } from '../src/scheduler/scheduler.js';
+import { parseSchedulerTimestampMs } from '../src/scheduler/schedule-time.js';
 
 describe('parseSchedulerTimestampMs', () => {
   test('interprets legacy SQLite second-precision timestamps as UTC', () => {

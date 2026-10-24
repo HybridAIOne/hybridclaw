@@ -10,7 +10,8 @@ import { createJob, deleteJob, getAllJobs, getJob } from '../memory/jobs.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { queueTriggerRelayEvent } from './event-triggers.js';
-import { getScheduledTaskNextRunAt, rearmScheduler } from './scheduler.js';
+import { getScheduledTaskNextRunAt } from './schedule-time.js';
+import { rearmScheduler } from './scheduler.js';
 
 // Engineering choices (2026-10-03): debounce bursts for 15s, at most one extra
 // check per five minutes, retain the latest 128 event IDs per policy for one day.

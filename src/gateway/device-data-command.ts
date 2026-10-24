@@ -19,12 +19,15 @@ import {
   readDeviceSources,
   writeDeviceSources,
 } from './device-data.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 const USAGE =
   'Usage: `device-data set <payload>`, `device-data show`, `device-data clear`. `<payload>` is `{"sources": {"<id>": "<text>" | null}}` compressed with raw DEFLATE and encoded as base64url. Add `--json` for a machine-readable answer.';

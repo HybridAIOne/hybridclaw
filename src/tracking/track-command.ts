@@ -13,6 +13,7 @@ import { parseLowerArg } from '../command-parsing.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   badCommand,
+  chatSafeJson,
   infoCommand,
   plainCommand,
 } from '../gateway/gateway-command-results.js';
@@ -20,7 +21,6 @@ import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from '../gateway/gateway-types.js';
-import { chatSafeJson } from '../gateway/schedule-command.js';
 import { getSessionById } from '../memory/db.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import { beginTurnUser } from '../session/turn-user.js';

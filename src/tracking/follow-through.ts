@@ -19,7 +19,7 @@ import { getSessionById } from '../memory/db.js';
 import { getJob } from '../memory/jobs.js';
 import { getSessionAssistantMessage } from '../memory/messages.js';
 import { resolveSessionIdCompat } from '../memory/sessions.js';
-import { getScheduledTaskNextRunAt } from '../scheduler/scheduler.js';
+import { getScheduledTaskNextRunAt } from '../scheduler/schedule-time.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 import { todoOwnerOf } from '../todos/todo-store.js';
 import type { Session } from '../types/session.js';

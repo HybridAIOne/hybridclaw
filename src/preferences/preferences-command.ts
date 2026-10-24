@@ -5,13 +5,13 @@
  */
 import {
   badCommand,
+  chatSafeJson,
   plainCommand,
 } from '../gateway/gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from '../gateway/gateway-types.js';
-import { chatSafeJson } from '../gateway/schedule-command.js';
 import {
   mergePreferences,
   PreferenceError,
