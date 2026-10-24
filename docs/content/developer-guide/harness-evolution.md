@@ -292,9 +292,9 @@ came from (the evolve-agent with its provider and model, the debugger report,
 or a dry run). `manifest` prints the F12 entries for one round. Both read runs
 written by `hybridclaw harness-evolve` in v0.39.
 
-Installs from v0.39 or earlier that still run `hybridclaw harness-evolve` get
-an error that points here. The `/admin/harness-evolution` console page is
-gone; use `list` and `status` instead.
+Use `npm run eval -- harness-evolve` from a source checkout. Installed releases
+have no `hybridclaw harness-evolve` command or `/admin/harness-evolution`
+console page; use the source harness's `list` and `status` commands.
 
 ## Candidate External Benchmarks
 

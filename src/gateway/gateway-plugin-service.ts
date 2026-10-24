@@ -16,7 +16,6 @@ import {
   diffChannelPluginTransportAvailability,
   snapshotChannelPluginTransportAvailability,
 } from '../channels/channel-transport.js';
-import { resolveLegacyTwilioVoiceWebhookPath } from '../channels/voice/twilio-voice-compat.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
@@ -1301,10 +1300,7 @@ export async function handleGatewayPluginWebhook(
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  const pluginPathname = isPluginInboundWebhookPath(url.pathname)
-    ? url.pathname
-    : resolveLegacyTwilioVoiceWebhookPath(url.pathname);
-  if (!pluginPathname) {
+  if (!isPluginInboundWebhookPath(url.pathname)) {
     sendWebhookJson(res, 404, { error: 'Not Found' });
     return;
   }
@@ -1324,7 +1320,7 @@ export async function handleGatewayPluginWebhook(
   try {
     const handled = await pluginManager.handleInboundWebhook({
       method: req.method || 'GET',
-      pathname: pluginPathname,
+      pathname: url.pathname,
       url,
       req,
       res,

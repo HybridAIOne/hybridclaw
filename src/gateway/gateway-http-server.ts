@@ -85,7 +85,6 @@ import {
   getSignalLinkState,
   startSignalLink,
 } from '../channels/signal/pairing.js';
-import { isLegacyTwilioVoiceWebhookPath } from '../channels/voice/twilio-voice-compat.js';
 import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
@@ -10371,12 +10370,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           peerTrustLevel: trust.trustLevel,
           peerId: trust.peerId,
         }),
-      );
-      return;
-    }
-    if (isLegacyTwilioVoiceWebhookPath(pathname)) {
-      dispatchWebhookRoute(res, () =>
-        handleGatewayPluginWebhook(req, res, url),
       );
       return;
     }

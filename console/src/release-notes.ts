@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.8',
+  version: '0.41.0',
   highlights: [
-    'Reliable memory compaction and cleanup',
-    'Better prompt-cache reuse',
-    'HybridAI without a chatbot',
-    'Discord delegate approval buttons',
+    'Daily briefs on your schedule',
+    'Persistent follow-through and draft reviews',
+    'Run JavaScript in browser pages',
+    'Telemetry without a chatbot',
   ],
 } as const;
 

@@ -1,3 +1,8 @@
+/**
+ * Database schema upgrades preserve the gateway's stored state.
+ * Unmigrated Teams registries require an intermediate release before cleanup;
+ * unlike the channel-user store, this module never serves user lookups.
+ */
 import type Database from 'better-sqlite3';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import {
@@ -28,7 +33,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 78;
+export const DATABASE_SCHEMA_VERSION = 79;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3668,19 +3673,6 @@ function migrateV62(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
-  // compat: remove after v0.41 — read only by 0.39.x binaries since v73.
-  database.exec(`CREATE TABLE IF NOT EXISTS msteams_users (
-    tenant_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    teams_user_id TEXT,
-    entra_object_id TEXT,
-    display_name TEXT,
-    agent_id TEXT,
-    message_count INTEGER NOT NULL DEFAULT 0,
-    first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (tenant_id, user_id)
-  )`);
   if (tableExists(database, 'usage_events')) {
     for (const column of ['user_id', 'channel_kind', 'tenant_id']) {
       addColumnIfMissing({
@@ -3747,20 +3739,6 @@ function migrateV65(
   recordMigration(database, 65, 'Add per-session approval mode column');
 }
 
-function migrateV66(
-  database: Database.Database,
-  opts?: InitDatabaseOptions,
-): void {
-  addColumnIfMissing({
-    database,
-    table: 'msteams_users',
-    column: 'email',
-    ddl: 'email TEXT',
-    quiet: opts?.quiet === true,
-  });
-  recordMigration(database, 66, 'Track Teams user emails');
-}
-
 // In a one-to-one chat only the other side reacts to a message: the agent to
 // the user's, the user to the agent's. One emoji each, so one column holds it.
 function migrateV67(
@@ -3779,26 +3757,6 @@ function migrateV67(
   recordMigration(database, 67, 'Persist emoji reactions on chat messages');
 }
 
-// The v62 Teams-only table becomes channel_users, keyed like usage_events.
-// compat: remove after v0.41 — this one-shot copy and msteams_users itself.
-// The table stays so a 0.39.x binary opening a v73 database (a rollback, or an
-// old gateway still running while a new CLI migrates) keeps serving Teams from
-// its frozen copy instead of failing every turn.
-function migrateV73(database: Database.Database): void {
-  database.transaction(() => {
-    createChannelUsersSchema(database);
-    database.exec(`INSERT OR IGNORE INTO channel_users
-      (channel_kind, tenant_id, user_id, display_name, email, agent_id,
-        profile_json, message_count, first_seen, last_seen)
-      SELECT 'msteams', tenant_id, user_id, display_name, email, agent_id,
-        json_patch('{}', json_object('teamsUserId', teams_user_id,
-          'entraObjectId', entra_object_id)),
-        message_count, first_seen, last_seen
-      FROM msteams_users`);
-    recordMigration(database, 73, 'Copy Teams users into channel_users');
-  })();
-}
-
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3813,6 +3771,12 @@ export function runMigrations(
       );
     }
     return;
+  }
+
+  if (currentVersion < 73 && tableExists(database, 'msteams_users')) {
+    throw new Error(
+      'Upgrade through HybridClaw v0.40.8 first to migrate Teams user mappings before installing v0.41 or later.',
+    );
   }
 
   if (currentVersion < 1) migrateV1(database);
@@ -3981,7 +3945,6 @@ export function runMigrations(
   if (currentVersion < 63) migrateV63(database, opts);
   if (currentVersion < 64) migrateV64(database, opts);
   if (currentVersion < 65) migrateV65(database, opts);
-  if (currentVersion < 66) migrateV66(database, opts);
   if (currentVersion < 67) migrateV67(database, opts);
   if (currentVersion < 68) {
     addColumnIfMissing({
@@ -4030,7 +3993,10 @@ export function runMigrations(
     });
     recordMigration(database, 72, 'Let an agent opt out of onboarding');
   }
-  if (currentVersion < 73) migrateV73(database);
+  if (currentVersion < 73) {
+    createChannelUsersSchema(database);
+    recordMigration(database, 73, 'Create channel_users');
+  }
   if (currentVersion < 74) {
     // The email a reply showed as a card, from its `draft_email` call.
     addColumnIfMissing({
@@ -4083,6 +4049,14 @@ export function runMigrations(
   if (currentVersion < 78) {
     createRoutineSchema(database);
     recordMigration(database, 78, 'Managed routine identity and editions');
+  }
+  if (currentVersion < 79) {
+    database.exec('DROP TABLE IF EXISTS msteams_users');
+    recordMigration(
+      database,
+      79,
+      'Remove retired Teams user compatibility table',
+    );
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

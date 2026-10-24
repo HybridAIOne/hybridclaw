@@ -40,8 +40,7 @@ const requiredExactPaths = [
   'plugins/line/src/connection.js',
   'plugins/line/src/delivery.js',
   'plugins/line/src/inbound.js',
-  // Upgraded configs that selected a vendor browser enable these bundled
-  // plugins in place (runtime-config migrateLegacyBrowserPluginConfig).
+  // Vendor browser providers are bundled install-on-demand plugins.
   'plugins/browser-use-cloud/hybridclaw.plugin.yaml',
   'plugins/browser-use-cloud/src/index.js',
   'plugins/camofox/hybridclaw.plugin.yaml',
@@ -51,7 +50,7 @@ const requiredExactPaths = [
   'plugins/mac-cua/src/index.js',
   'plugins/managed-cloud/hybridclaw.plugin.yaml',
   'plugins/managed-cloud/src/index.js',
-  // Twilio voice moved out of core; upgraded installs enable it from here.
+  // Twilio voice ships as an explicitly enabled plugin.
   'plugins/twilio-voice/hybridclaw.plugin.yaml',
   'plugins/twilio-voice/package.json',
   'plugins/twilio-voice/src/index.js',

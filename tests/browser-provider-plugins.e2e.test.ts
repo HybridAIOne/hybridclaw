@@ -7,12 +7,11 @@ import path from 'node:path';
 
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { V0_39_1_BROWSER } from './fixtures/v0-39-1-browser-config.ts';
 import { cleanupTrackedTempDirs } from './test-utils.ts';
 
 /**
  * Vendor browser providers as plugins (#1801), through real gateway processes
- * started on v0.39.1-shaped configs. The managed browser pool and the Browser
+ * with explicitly enabled plugins. The managed browser pool and the Browser
  * Use Cloud API are local fakes that speak their HTTP protocol and hand out a
  * real Chromium over CDP. Needs `npm run build` and a Playwright Chromium.
  * HYBRIDCLAW_E2E_PORT_BASE pins every listener to ten ports from that base.
@@ -141,9 +140,9 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     throw new Error(`timed out; last=${JSON.stringify(last)}\n${logs}`);
   }
 
-  /** A data dir holding a v0.39.1 config that selected `browser`'s provider. */
-  async function startUpgradedGateway(
-    browser: Record<string, unknown>,
+  async function startPluginGateway(
+    provider: string,
+    config: Record<string, unknown>,
     secrets: Record<string, string>,
   ): Promise<{ dataDir: string; url: string; log: () => string }> {
     const dataDir = fs.mkdtempSync(
@@ -166,7 +165,8 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
           trustModelAcceptedAt: '2026-10-08T00:00:00Z',
           trustModelVersion: '2026-02-28',
         },
-        browser: { ...V0_39_1_BROWSER, allowPrivateNetwork: true, ...browser },
+        browser: { provider, allowPrivateNetwork: true },
+        plugins: { list: [{ id: provider, enabled: true, config }] },
       }),
     );
     for (const [name, value] of Object.entries(secrets)) {
@@ -248,28 +248,9 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     });
 
     [managed, browserUse, camofox] = await Promise.all([
-      startUpgradedGateway(
-        {
-          provider: 'managed-cloud',
-          managedCloud: {
-            ...V0_39_1_BROWSER.managedCloud,
-            endpointUrl: poolUrl,
-            poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
-          },
-        },
-        { MANAGED_BROWSER_POOL_TOKEN: POOL_TOKEN },
-      ),
-      startUpgradedGateway(
-        {
-          provider: 'browser-use-cloud',
-          browserUseCloud: {
-            ...V0_39_1_BROWSER.browserUseCloud,
-            baseUrl: browserUseUrl,
-          },
-        },
-        { BROWSER_USE_API_KEY: API_KEY },
-      ),
-      startUpgradedGateway({ provider: 'camofox' }, {}),
+      startPluginGateway('managed-cloud', { endpointUrl: poolUrl }, { MANAGED_BROWSER_POOL_TOKEN: POOL_TOKEN }),
+      startPluginGateway('browser-use-cloud', { baseUrl: browserUseUrl }, { BROWSER_USE_API_KEY: API_KEY }),
+      startPluginGateway('camofox', {}, {}),
     ]);
   }, 120_000);
 
@@ -300,7 +281,7 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     cleanupTrackedTempDirs(tempDirs);
   });
 
-  test('an upgraded managed-cloud config enables the bundled plugin and keeps its pool', async () => {
+  test('an explicitly enabled managed-cloud plugin keeps its pool', async () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(managed.dataDir, 'config.json'), 'utf8'),
     );
@@ -358,16 +339,15 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     expect(response.status).toBe(404);
   });
 
-  test('an upgraded camofox config enables the bundled plugin, which names its install step', async () => {
+  test('an explicitly enabled camofox plugin names its install step', async () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(camofox.dataDir, 'config.json'), 'utf8'),
     );
     expect(config.plugins.list).toContainEqual({
       id: 'camofox',
       enabled: true,
-      config: { headed: false, launchOptions: {} },
+      config: {},
     });
-    expect(camofox.log()).toContain('hybridclaw plugin install camofox');
 
     // The bundled copy ships without camoufox-js.
     const result = await waitFor(

@@ -2,17 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
+import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-// compat: remove after v0.41, together with src/config/legacy-twilio-voice.ts
-// and src/channels/voice/twilio-voice-compat.ts.
-
-const makeTempDir = useTempDir('hybridclaw-twilio-compat-');
+const makeTempDir = useTempDir('hybridclaw-twilio-config-');
 useCleanMocks({ unstubAllEnvs: true, resetModules: true });
 
 type PluginEntry = { id: string; enabled: boolean; path?: string };
 
-async function loadStartupConfig(edit: (config: Record<string, any>) => void) {
+async function loadStartupConfig(edit: (config: RuntimeConfig) => void) {
   const home = makeTempDir();
   const configPath = path.join(home, '.hybridclaw', 'config.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -36,11 +34,11 @@ async function loadStartupConfig(edit: (config: Record<string, any>) => void) {
 
 test.each([
   {
-    name: 'a v0.39 config with voice.enabled loads the bundled plugin',
+    name: 'old voice settings do not implicitly enable the plugin',
     version: 40,
     enabled: true,
     list: [],
-    expected: [{ id: 'twilio-voice', enabled: true }],
+    expected: [],
   },
   {
     name: 'a v0.39 config with voice off gains nothing',
@@ -80,45 +78,28 @@ test.each([
   expect(stored.version).toBe(configVersion);
 });
 
-test('only /voice/webhook is aliased, to the plugin incoming-call webhook', async () => {
-  const { resolveLegacyTwilioVoiceWebhookPath } = await import(
-    '../src/channels/voice/twilio-voice-compat.ts'
-  );
-
-  expect(resolveLegacyTwilioVoiceWebhookPath('/voice/webhook')).toBe(
-    '/api/plugin-webhooks/twilio-voice/webhook',
-  );
-  for (const pathname of ['/voice/action', '/voice/relay', '/voice', '/x']) {
-    expect(resolveLegacyTwilioVoiceWebhookPath(pathname)).toBeNull();
-  }
-});
-
 test.each([
-  { voiceEnabled: false, plugin: undefined, active: false, warns: false },
+  { voiceEnabled: false, plugin: undefined, active: false },
   {
     voiceEnabled: true,
     plugin: { id: 'twilio-voice', enabled: true },
     active: true,
-    warns: false,
   },
   {
     voiceEnabled: true,
     plugin: { id: 'twilio-voice', enabled: false },
     active: false,
-    warns: true,
   },
   {
     voiceEnabled: true,
     plugin: { id: 'twilio-voice', enabled: true, error: 'boom' },
     active: false,
-    warns: true,
   },
-  { voiceEnabled: true, plugin: undefined, active: false, warns: true },
+  { voiceEnabled: true, plugin: undefined, active: false },
 ])('the voice channel starts active only with the plugin loaded (%#)', async ({
   voiceEnabled,
   plugin,
   active,
-  warns,
 }) => {
   const warn = vi.fn();
   vi.doMock('../src/config/config.js', () => ({
@@ -133,5 +114,5 @@ test.each([
   const { descriptor } = await import('../src/channels/voice/descriptor.ts');
 
   await expect(descriptor.start()).resolves.toBe(active);
-  expect(warn).toHaveBeenCalledTimes(warns ? 1 : 0);
+  expect(warn).not.toHaveBeenCalled();
 });

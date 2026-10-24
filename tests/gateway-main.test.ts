@@ -1055,34 +1055,19 @@ describe('gateway bootstrap', () => {
   });
 
   test.each([
-    { loadedPluginIds: [], warns: true },
-    { loadedPluginIds: ['twilio-voice'], warns: false },
+    { loadedPluginIds: [], active: false },
+    { loadedPluginIds: ['twilio-voice'], active: true },
   ])(
     'voice.enabled reports the twilio-voice plugin state at startup: %j',
-    async ({ loadedPluginIds, warns }) => {
+    async ({ loadedPluginIds, active }) => {
       const state = await importFreshGatewayMain({
         voiceEnabled: true,
         loadedPluginIds,
       });
-
-      const installHint = expect.objectContaining({
-        installCommand: 'hybridclaw plugin install twilio-voice',
-      });
-      if (warns) {
-        expect(state.loggerWarn).toHaveBeenCalledWith(
-          installHint,
-          expect.stringContaining('twilio-voice'),
-        );
-      } else {
-        expect(state.loggerWarn).not.toHaveBeenCalledWith(
-          installHint,
-          expect.anything(),
-        );
-      }
       expectInfoLog(
         state,
         'Gateway channels',
-        expect.objectContaining({ voice: !warns }),
+        expect.objectContaining({ voice: active }),
       );
     },
   );

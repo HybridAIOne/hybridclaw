@@ -18,8 +18,15 @@ export const descriptor = {
   matchesTarget: (target) => target.trim().startsWith(VOICE_CHANNEL_PREFIX),
   supportsProactive: false,
 
-  start: async () =>
-    (await import('./twilio-voice-compat.js')).warnIfTwilioVoicePluginMissing(),
+  start: async () => {
+    const { getConfigSnapshot } = await import('../../config/config.js');
+    const { readTwilioVoicePluginState } = await import(
+      './twilio-voice-plugin-state.js'
+    );
+    return (
+      getConfigSnapshot().voice.enabled && readTwilioVoicePluginState().loaded
+    );
+  },
   stop: async () => {},
   configChanged: () => false,
 } satisfies ChannelDescriptor;

@@ -257,8 +257,7 @@ describe('config reload integration', () => {
     );
   });
 
-  // compat: remove after v0.41 together with migrateLegacyBrowserPluginConfig.
-  it('reloadRuntimeConfig moves the selected legacy browser provider into its plugin', () => {
+  it('reloadRuntimeConfig does not enable a plugin from retired browser settings', () => {
     writeConfig({
       browser: {
         provider: 'camofox',
@@ -277,16 +276,7 @@ describe('config reload integration', () => {
       allowPrivateNetwork: false,
       local: { profileRoot: '', headed: false },
     });
-    expect(cfg.plugins.list).toEqual([
-      {
-        id: 'camofox',
-        enabled: true,
-        config: {
-          headed: true,
-          launchOptions: { os: ['linux'], block_webrtc: true },
-        },
-      },
-    ]);
+    expect(cfg.plugins.list).toEqual([]);
   });
 
   it('reloadRuntimeConfig normalizes trajectory retention policy', () => {

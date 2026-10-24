@@ -514,7 +514,7 @@ The released WhatsApp plugin (0.1.x) still registers only `{ kind, create }`
 and expects auth, pairing, and phone helpers on its host. Core adapts that one
 registration through `src/channels/whatsapp/legacy-registration.ts`, and the
 SDK keeps exporting its `WhatsAppTransportHost` type, until the plugin ships
-the full contract. A registration that names any contract hook must supply all
+the full contract (removal deferred to v0.42). A registration that names any contract hook must supply all
 required ones; any other create-only registration is refused with a
 `hybridclaw plugin reinstall` hint.
 
