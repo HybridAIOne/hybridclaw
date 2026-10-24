@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw plugin providing turn-based phone calls through the Vonage Voice API",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

@@ -1,16 +1,19 @@
+import { checkNodeVersion } from '../../node-version.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, runVersionCommand } from '../utils.js';
 
 export async function checkRuntime(): Promise<DiagResult[]> {
-  const nodeMajor = Number.parseInt(
-    process.versions.node.split('.')[0] || '0',
-    10,
-  );
+  const nodeCheck = checkNodeVersion();
   const npmVersion = runVersionCommand('npm');
   const pnpmVersion = runVersionCommand('pnpm');
-  const severity =
-    nodeMajor < 22 ? 'error' : npmVersion || pnpmVersion ? 'ok' : 'warn';
+  const severity = !nodeCheck.ok
+    ? 'error'
+    : npmVersion || pnpmVersion
+      ? 'ok'
+      : 'warn';
   const messageParts = [`Node.js v${process.versions.node}`];
+  if (!nodeCheck.ok)
+    messageParts.push(nodeCheck.message ?? 'Unsupported Node.js');
   messageParts.push(npmVersion ? `npm ${npmVersion}` : 'npm missing');
   messageParts.push(pnpmVersion ? `pnpm ${pnpmVersion}` : 'pnpm missing');
   return [makeResult('runtime', 'Runtime', severity, messageParts.join(', '))];

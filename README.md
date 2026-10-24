@@ -3,7 +3,7 @@
 [![CI](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/HybridAIOne/hybridclaw/gh-pages/badge/coverage.json)](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@hybridaione/hybridclaw)](https://www.npmjs.com/package/@hybridaione/hybridclaw)
-[![Node](https://img.shields.io/badge/node-22.x-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.23.4%20%3C23-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://hybridaione.github.io/hybridclaw/docs/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
@@ -98,7 +98,7 @@ hybridclaw gateway
 hybridclaw tui
 ```
 
-Requirements: Node.js 22. Docker is recommended for the default sandbox.
+Requirements: Node.js `>=22.23.4 <23`. Docker is recommended for the default sandbox.
 
 ## First Run
 

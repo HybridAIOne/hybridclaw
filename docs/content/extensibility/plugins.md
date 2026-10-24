@@ -316,9 +316,13 @@ retrieval or prompt context in parallel.
 `configSchema` is validated with Ajv, so standard JSON Schema keywords such as
 `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum` are enforced.
 
-For `requires.node`, use `>=22` for a minimum supported runtime. A bare numeric
+For `requires.node`, use `>=22.23.4 <23` to match HybridClaw's supported runtime.
+Minimum-only requirements such as `>=22` are also recognized. A bare numeric
 version pins the components you provide: `22` means Node 22.x, `22.3` means
-Node 22.3.x, and `22.3.1` means exactly 22.3.1.
+Node 22.3.x, and `22.3.1` means exactly 22.3.1. Bounded stable-release
+ranges such as `>=22.23.4 <23` enforce both the minimum patch and the next-major
+ceiling. Bundled plugins use HybridClaw's range from the root `package.json`;
+`npm run version:sync` keeps their manifests aligned.
 Use `requires.bins` for required host executables. Entries can be bare strings
 such as `qmd` or objects with `name` plus an optional `configKey` when the
 binary path is configurable from plugin config.

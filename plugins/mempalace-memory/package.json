@@ -5,6 +5,6 @@
   "type": "module",
   "description": "HybridClaw memory plugin for MemPalace CLI recall",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

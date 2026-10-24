@@ -5,7 +5,7 @@ kind: channel
 description: Inbound and outbound phone calls through Twilio, as ConversationRelay text turns or realtime speech-to-speech.
 entrypoint: src/index.js
 requires:
-  node: 22.x
+  node: '>=22.23.4 <23'
 credentials:
   - TWILIO_AUTH_TOKEN
 commands:

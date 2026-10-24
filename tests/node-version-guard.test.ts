@@ -1,91 +1,82 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import {
-  REQUIRED_NODE_MAJOR,
-  checkNodeVersion,
-  enforceNodeVersion,
-  parseRequiredMajor,
-} from '../src/node-version-guard.ts';
+import { parseNodeRange } from '../container/shared/node-version.js';
+import { enforceNodeVersion } from '../src/node-version-guard.ts';
+import { REQUIRED_NODE_RANGE, checkNodeVersion } from '../src/node-version.ts';
 
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-) as { engines?: { node?: string } };
+);
 
-test('parses the required major from an engines.node range', () => {
-  expect(parseRequiredMajor('22.x')).toBe(22);
-  expect(parseRequiredMajor('>=22 <23')).toBe(22);
-  expect(parseRequiredMajor('20.18.1')).toBe(20);
-  expect(() => parseRequiredMajor('')).toThrow();
-});
-
-test('sources REQUIRED_NODE_MAJOR from package.json engines.node', () => {
-  expect(REQUIRED_NODE_MAJOR).toBe(parseRequiredMajor(pkg.engines?.node ?? ''));
-});
-
-test('accepts a matching Node major', () => {
-  expect(checkNodeVersion('22.14.0', 22)).toMatchObject({
-    ok: true,
-    requiredMajor: 22,
-    actualMajor: 22,
+test('sources the supported range from package.json', () => {
+  expect(REQUIRED_NODE_RANGE).toBe(pkg.engines.node);
+  expect(parseNodeRange(REQUIRED_NODE_RANGE)).toEqual({
+    minimum: '22.23.4',
+    major: 22,
   });
 });
 
-test('rejects an older Node major with a clean message', () => {
-  const result = checkNodeVersion('20.18.1', 22);
-  expect(result.ok).toBe(false);
-  expect(result.actualMajor).toBe(20);
-  expect(result.message).toContain('requires Node.js 22.x');
-  expect(result.message).toContain('20.18.1');
+test.each(['', '22.x', '>=22', '>=22.23.4 <24', '>=22.23.4 <23 || >=24'])(
+  'fails closed on unsupported range %s',
+  (range) => {
+    expect(() => parseNodeRange(range)).toThrow();
+  },
+);
+
+test.each([
+  ['22.23.3', false],
+  ['22.22.99', false],
+  ['20.19.0', false],
+  ['22.23.4', true],
+  ['v22.23.4', true],
+  ['22.23.5', true],
+  ['22.24.0', true],
+  ['23.0.0', false],
+  ['24.0.0', false],
+  ['22.23.4-rc.1', false],
+  ['22.23.4junk', false],
+  ['22.23', false],
+  ['22.023.4', false],
+  ['not-a-version', false],
+])('checks complete stable version %s', (version, ok) => {
+  const check = checkNodeVersion(version);
+  expect(check.ok).toBe(ok);
+  if (!ok) {
+    expect(check.message).toContain(REQUIRED_NODE_RANGE);
+    expect(check.message).toContain(version);
+  }
 });
 
-test('rejects a newer Node major as well', () => {
-  expect(checkNodeVersion('24.0.0', 22)).toMatchObject({
-    ok: false,
-    actualMajor: 24,
-  });
-});
-
-test('accepts a v-prefixed version string', () => {
-  expect(checkNodeVersion('v22.1.0', 22)).toMatchObject({
-    ok: true,
-    actualMajor: 22,
-  });
-});
-
-test('treats an unparseable version as major 0', () => {
-  expect(checkNodeVersion('not-a-version', 22)).toMatchObject({
-    ok: false,
-    actualMajor: 0,
-  });
-});
-
-test('enforceNodeVersion reports the message and exits 1 on a bad runtime', () => {
+test.each([
+  ['22.23.3', [1]],
+  ['22.23.4', []],
+] as const)('enforces %s with the right exit status', (version, expected) => {
   const errors: string[] = [];
-  const exitCodes: number[] = [];
+  const codes: number[] = [];
   enforceNodeVersion(
-    checkNodeVersion('20.18.1', 22),
+    checkNodeVersion(version),
     (message) => errors.push(message),
-    (code) => exitCodes.push(code),
+    (code) => codes.push(code),
   );
-  expect(errors).toHaveLength(1);
-  expect(errors[0]).toContain('requires Node.js 22.x');
-  expect(exitCodes).toEqual([1]);
+  expect(codes).toEqual(expected);
+  expect(errors).toHaveLength(expected.length);
 });
 
-test('enforceNodeVersion is a no-op on a supported runtime', () => {
-  const errors: string[] = [];
-  const exitCodes: number[] = [];
-  enforceNodeVersion(
-    checkNodeVersion('22.0.0', 22),
-    (message) => errors.push(message),
-    (code) => exitCodes.push(code),
-  );
-  expect(errors).toEqual([]);
-  expect(exitCodes).toEqual([]);
-});
+test.each(['src/cli.ts', 'container/src/index.ts'])(
+  '%s imports its version guard first',
+  (file) => {
+    const firstImport = readFileSync(file, 'utf8').match(/^import\b.*$/m)?.[0];
+    expect(firstImport).toBe("import './node-version-guard.js';");
+  },
+);
 
-test('cli.ts imports the version guard before any other module', () => {
-  const cli = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8');
-  const firstImport = cli.match(/^import\b.*$/m)?.[0];
-  expect(firstImport).toBe("import './node-version-guard.js';");
+test('generated Node requirements and pins have no drift', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/sync-package-versions.mjs', '--check'],
+    { encoding: 'utf8', timeout: 15_000 },
+  );
+  expect(result.stderr).toBe('');
+  expect(result.status).toBe(0);
 });

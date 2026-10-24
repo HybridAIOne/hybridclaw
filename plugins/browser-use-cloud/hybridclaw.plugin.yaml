@@ -5,7 +5,7 @@ kind: tool
 description: Remote Chromium sessions from the Browser Use Cloud API, driven over CDP from the gateway. Select with browser.provider = browser-use-cloud.
 entrypoint: src/index.js
 requires:
-  node: '>=22'
+  node: '>=22.23.4 <23'
 credentials:
   - BROWSER_USE_API_KEY
 configSchema:

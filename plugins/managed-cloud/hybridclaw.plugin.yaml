@@ -5,7 +5,7 @@ kind: tool
 description: Chromium workers leased from an operator-run HybridClaw browser pool (infra/managed-browser), with the pool's navigation guard. Select with browser.provider = managed-cloud.
 entrypoint: src/index.js
 requires:
-  node: '>=22'
+  node: '>=22.23.4 <23'
 credentials:
   - MANAGED_BROWSER_POOL_TOKEN
 commands:

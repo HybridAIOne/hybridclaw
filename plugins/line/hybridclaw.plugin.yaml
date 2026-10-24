@@ -5,4 +5,4 @@ kind: channel
 description: Unofficial LINE personal-account channel transport for HybridClaw.
 entrypoint: src/index.js
 requires:
-  node: 22.x
+  node: '>=22.23.4 <23'
