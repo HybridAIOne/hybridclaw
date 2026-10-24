@@ -8552,6 +8552,7 @@ export function getGatewayHistory(
     .filter((message) => {
       if (message.role === 'user') {
         return (
+          message.user_id !== 'scheduler' &&
           !isHiddenUserSource(message.source) &&
           !isDelegationResultsMessage(message.content)
         );
