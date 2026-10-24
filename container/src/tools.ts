@@ -106,7 +106,7 @@ import {
 } from './tools/dashboard.js';
 import {
   DRAFT_EMAIL_TOOL_DEFINITION,
-  runDraftEmailTool,
+  runTrackedDraftEmailTool,
 } from './tools/draft-email.js';
 import {
   ESTIMATE_COST_TOOL_DEFINITION,
@@ -3697,7 +3697,11 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
     case 'draft_email': {
-      const { ok, text } = runDraftEmailTool(args);
+      const { ok, text } = await runTrackedDraftEmailTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
       return ok ? text : failTool(text);
     }
     case INBOX_CLEANUP_TOOL: {

@@ -26,6 +26,12 @@ import { rearmScheduler } from '../scheduler/scheduler.js';
 import { beginTurnUser } from '../session/turn-user.js';
 import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
+import { followThroughCapabilities, getTracked } from './follow-through.js';
+
+import {
+  handleFollowThroughCommand,
+  runFollowThroughTool,
+} from './follow-through-command.js';
 import {
   addStep,
   addTracked,
@@ -121,13 +127,19 @@ function runCommand(
 ): GatewayCommandResult {
   const sub = parseLowerArg(req.args, 1);
   const rest = req.args.slice(2).map(String);
+  const followThrough = handleFollowThroughCommand(session, sub, rest);
+  if (followThrough) return followThrough;
 
   if (sub === 'list') {
     const { json } = readOptions(rest);
     const items = listTracked(session);
     if (json) {
       return plainCommand(
-        chatSafeJson({ version: 1, items: items.map(trackedView) }),
+        chatSafeJson({
+          version: 1,
+          follow_through: followThroughCapabilities,
+          items: items.map(trackedView),
+        }),
       );
     }
     if (items.length === 0) return plainCommand('No goals.');
@@ -249,6 +261,14 @@ const TOOL_ACTIONS: Record<
   string,
   (session: Session, body: Record<string, unknown>, id: number) => string
 > = {
+  validate_draft: (session, _body, id) => {
+    if (getTracked(session, id).done)
+      throw new TrackError('Reopen the item before preparing a review.');
+    return 'The tracked item can receive this draft.';
+  },
+  get: runFollowThroughTool,
+  state: runFollowThroughTool,
+  link: runFollowThroughTool,
   list: (session) => {
     const items = listTracked(session);
     return items.length === 0

@@ -13,6 +13,7 @@ import {
 import { withMemoryDatabase } from '../memory/database.js';
 import { setMessageEmailDraft } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { recordTrackedDraft } from '../tracking/follow-through.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
@@ -169,6 +170,7 @@ export function deliverWebScheduledMessage(
       return messageId;
     })(),
   );
+  recordTrackedDraft(session.id, messageId, workId);
   // Feed and Ideas replies are app data, never reminders for the user.
   if (isAppDataChat(session.session_key)) {
     skipWorkNotification(workId, 'not_requested');

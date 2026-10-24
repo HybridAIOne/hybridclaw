@@ -187,15 +187,28 @@ function visibleSessions(requester: Session): Map<string, number | null> {
   return sessions;
 }
 
-export function listReceipts(requester: Session, limit: number): Receipt[] {
+export function listReceipts(
+  requester: Session,
+  limit: number,
+  reference?: { session_id: string; receipt_id: string },
+): Receipt[] {
   const sessions = visibleSessions(requester);
+  if (reference) {
+    if (!sessions.has(reference.session_id)) return [];
+    for (const id of sessions.keys())
+      if (id !== reference.session_id) sessions.delete(id);
+  }
   const calls = new Map<string, Record<string, Record<string, unknown>>>();
   const order: string[] = [];
   const meta = new Map<
     string,
     { session: string; at: string; runId: string }
   >();
-  for (const entry of listActionAuditEntries([...sessions.keys()], limit)) {
+  for (const entry of listActionAuditEntries(
+    [...sessions.keys()],
+    limit,
+    reference?.receipt_id,
+  )) {
     const payload = payloadOf(entry);
     const id = typeof payload.toolCallId === 'string' ? payload.toolCallId : '';
     if (!id) continue;
