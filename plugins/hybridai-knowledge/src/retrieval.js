@@ -64,8 +64,8 @@ export async function searchKnowledge({
       }).then((result) => ({ collection, result })),
     ),
   );
-  const seen = new Set();
-  const hits = [];
+  // One entry per section, the best-scored occurrence of it.
+  const best = new Map();
   for (const outcome of settled) {
     if (outcome.status === 'rejected') {
       onError?.(outcome.reason);
@@ -77,13 +77,11 @@ export async function searchKnowledge({
       const hit = normalizeHit(raw, collection || '');
       if (!hit) continue;
       const key = `${hit.collection}/${hit.location}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      hits.push(hit);
+      const known = best.get(key);
+      if (!known || hit.score > known.score) best.set(key, hit);
     }
   }
-  hits.sort((a, b) => b.score - a.score);
-  return hits;
+  return [...best.values()].sort((a, b) => b.score - a.score);
 }
 
 const HEADER = [

@@ -15,7 +15,9 @@ export async function callGatewayTool({
   timeoutMs,
   fetchImpl = fetch,
 }) {
-  const url = `${String(baseUrl || 'https://hybridai.one').replace(/\/+$/, '')}${GATEWAY_PATH}`;
+  let base = String(baseUrl || 'https://hybridai.one');
+  while (base.endsWith('/')) base = base.slice(0, -1);
+  const url = `${base}${GATEWAY_PATH}`;
   const response = await fetchImpl(url, {
     method: 'POST',
     headers: {

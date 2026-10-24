@@ -21,7 +21,7 @@ gateway costs nothing but the context; the turn goes on without it.
           "collections": [],
           "limit": 5,
           "maxInjectedChars": 4000,
-          "timeoutMs": 8000,
+          "timeoutMs": 3000,
           "maintenance": { "enabled": true, "hourUtc": 3 }
         }
       }
@@ -38,3 +38,15 @@ duplicates merged, orphans linked, pages refreshed from newer sources, missing
 
 Needs the `HYBRIDAI_API_KEY` credential, the same key the HybridAI provider
 uses; the gateway URL follows `hybridai.baseUrl`.
+
+The plugin acts as the platform user who owns that key: what it can read is
+that user's company collections and shared bot collections. On a gateway that
+serves several chat users, every one of them gets that user's knowledge; use
+`collections` to narrow it, or give such a gateway a key of its own.
+
+Retrieval runs before the prompt is built, so a slow gateway can delay a turn
+by up to `timeoutMs`. After a failed or timed-out call the plugin skips
+retrieval for a minute, so an outage costs one timeout per minute, not one per
+turn. The maintenance turn may use only the `hybridai__knowledge_*` tools and
+is aborted after twelve `knowledge_write` calls; every write is a revision the
+platform can restore.

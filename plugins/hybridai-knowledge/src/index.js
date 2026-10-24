@@ -8,6 +8,9 @@ import {
 
 const LAYER_ID = 'hybridai-knowledge';
 const MEMORY_LAYER_PRIORITY = 40;
+// After a failed or timed-out call, turns skip retrieval for this long, so a
+// gateway outage costs one timeout per minute instead of one per turn.
+const FAILURE_COOLDOWN_MS = 60_000;
 
 function resolveConfig(pluginConfig) {
   const raw =
@@ -27,7 +30,7 @@ function resolveConfig(pluginConfig) {
       : 4000,
     timeoutMs: Number.isFinite(raw.timeoutMs)
       ? Math.trunc(raw.timeoutMs)
-      : 8000,
+      : 3000,
     maintenance: Object.freeze({
       enabled: maintenance.enabled === true,
       hourUtc: Number.isFinite(maintenance.hourUtc)
@@ -61,11 +64,14 @@ export default {
         timeoutMs: config.timeoutMs,
       });
 
+    let pausedUntil = 0;
+
     api.registerMemoryLayer({
       id: LAYER_ID,
       priority: MEMORY_LAYER_PRIORITY,
       async getContextForPrompt({ recentMessages }) {
         if (!credential()) return null;
+        if (Date.now() < pausedUntil) return null;
         const query = latestUserQuery(recentMessages);
         if (!query) return null;
         const hits = await searchKnowledge({
@@ -73,11 +79,17 @@ export default {
           collections: config.collections,
           limit: config.limit,
           callTool,
-          onError: (error) =>
+          onError: (error) => {
+            pausedUntil = Date.now() + FAILURE_COOLDOWN_MS;
             api.logger.warn(
-              { error, timeoutMs: config.timeoutMs },
-              'Knowledge retrieval failed',
-            ),
+              {
+                error,
+                timeoutMs: config.timeoutMs,
+                cooldownMs: FAILURE_COOLDOWN_MS,
+              },
+              'Knowledge retrieval failed; skipping retrieval during the cooldown',
+            );
+          },
         });
         const context = buildKnowledgeContext(hits, {
           maxInjectedChars: config.maxInjectedChars,

@@ -55,8 +55,8 @@ test('searchKnowledge merges collections best first, drops duplicates and failur
           path: 'concepts/a.md',
           location: 'concepts/a.md#x',
           title: 'A',
-          score: 0.4,
-          content: 'duplicate of the same section',
+          score: args.collection === 'One_1' ? 0.7 : 0.4,
+          content: 'duplicate of the same section, scored differently',
         },
       ],
     };
@@ -71,9 +71,10 @@ test('searchKnowledge merges collections best first, drops duplicates and failur
   });
   expect(callTool).toHaveBeenCalledTimes(3);
   expect(errors).toHaveLength(1);
+  // The best-scored occurrence of a section wins, whichever came first.
   expect(hits.map((hit) => [hit.collection, hit.score])).toEqual([
     ['Two_1', 0.9],
-    ['One_1', 0.5],
+    ['One_1', 0.7],
   ]);
 
   await searchKnowledge({ query: 'q', collections: [], limit: 2, callTool });
@@ -180,7 +181,16 @@ test('maintenance runs daily at the configured hour on its own session', async (
   expect(buildMaintenancePrompt({ collection: 'Handbook_1' })).toContain('`Handbook_1`');
   expect(buildMaintenancePrompt({ collection: '' })).toContain('knowledge_list');
 
-  const dispatch = vi.fn(async () => ({ result: 'Merged two pages.' }));
+  const dispatch = vi.fn(async (request: { onToolProgress?: (e: unknown) => void }) => {
+    for (let n = 0; n < 3; n += 1) {
+      request.onToolProgress?.({
+        sessionId: 's',
+        toolName: 'hybridai__knowledge_write',
+        phase: 'start',
+      });
+    }
+    return { result: 'Merged two pages.' };
+  });
   const api = {
     getDefaultAgentId: () => 'main',
     dispatchInboundMessage: dispatch,
@@ -197,7 +207,31 @@ test('maintenance runs daily at the configured hour on its own session', async (
       channelId: 'knowledge-maintenance',
       agentId: 'main',
       sessionMode: 'resume',
+      allowedTools: expect.arrayContaining(['hybridai__knowledge_write']),
     }),
+  );
+  expect(dispatch.mock.calls[0]?.[0].allowedTools).not.toContain('write_file');
+
+  // The thirteenth write aborts the turn; the run still reports what it has.
+  const runaway = vi.fn(async (request: { onToolProgress?: (e: unknown) => void; abortSignal?: AbortSignal }) => {
+    for (let n = 0; n < 13; n += 1) {
+      request.onToolProgress?.({
+        sessionId: 's',
+        toolName: 'hybridai__knowledge_write',
+        phase: 'start',
+      });
+    }
+    expect(request.abortSignal?.aborted).toBe(true);
+    throw new Error('aborted');
+  });
+  const capped = await runMaintenance({
+    api: { ...api, dispatchInboundMessage: runaway },
+    config,
+  });
+  expect(capped).toBe('');
+  expect(api.logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ writes: 13 }),
+    'Knowledge maintenance turn aborted: write budget exhausted',
   );
 
   vi.useFakeTimers();

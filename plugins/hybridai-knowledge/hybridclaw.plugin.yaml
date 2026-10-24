@@ -38,7 +38,7 @@ configSchema:
       maximum: 20000
     timeoutMs:
       type: number
-      default: 8000
+      default: 3000
       minimum: 1000
       maximum: 60000
       description: The turn goes on without knowledge when the gateway is slower than this.

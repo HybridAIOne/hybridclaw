@@ -38,22 +38,57 @@ export function buildMaintenancePrompt({ collection }) {
  * Runs the maintenance turn once through the gateway's own agent turn path,
  * on a session of its own, so it leaves no trace in the user's chats.
  */
+/** The only tools a maintenance turn may use: the platform's knowledge tools. */
+export const MAINTENANCE_TOOLS = Object.freeze([
+  'hybridai__knowledge_list',
+  'hybridai__knowledge_read',
+  'hybridai__knowledge_search',
+  'hybridai__knowledge_write',
+  'hybridai__knowledge_ingest',
+]);
+
+/** Writes a maintenance turn may make; the turn is aborted on the next one. */
+export const MAX_MAINTENANCE_WRITES = 12;
+
 export async function runMaintenance({ api, config, now = new Date() }) {
   const agentId = config.maintenance.agentId || api.getDefaultAgentId();
   const prompt = buildMaintenancePrompt({
     collection: config.maintenance.collection,
   });
   const started = Date.now();
-  const result = await api.dispatchInboundMessage({
-    sessionId: `knowledge-maintenance:${agentId}`,
-    sessionMode: 'resume',
-    guildId: null,
-    channelId: 'knowledge-maintenance',
-    userId: 'knowledge-maintenance',
-    username: 'Knowledge maintenance',
-    content: prompt,
-    agentId,
-  });
+  const controller = new AbortController();
+  let writes = 0;
+  let result;
+  try {
+    result = await api.dispatchInboundMessage({
+      sessionId: `knowledge-maintenance:${agentId}`,
+      sessionMode: 'resume',
+      guildId: null,
+      channelId: 'knowledge-maintenance',
+      userId: 'knowledge-maintenance',
+      username: 'Knowledge maintenance',
+      content: prompt,
+      agentId,
+      allowedTools: [...MAINTENANCE_TOOLS],
+      abortSignal: controller.signal,
+      onToolProgress: ({ toolName, phase }) => {
+        if (phase !== 'start' || toolName !== 'hybridai__knowledge_write') {
+          return;
+        }
+        writes += 1;
+        if (writes > MAX_MAINTENANCE_WRITES) {
+          api.logger.warn(
+            { agentId, writes },
+            'Knowledge maintenance turn aborted: write budget exhausted',
+          );
+          controller.abort();
+        }
+      },
+    });
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    result = null;
+  }
   const text = typeof result?.result === 'string' ? result.result : '';
   api.logger.info(
     {
@@ -62,6 +97,8 @@ export async function runMaintenance({ api, config, now = new Date() }) {
       durationMs: Date.now() - started,
       ranAt: now.toISOString(),
       reportChars: text.length,
+      writes: Math.min(writes, MAX_MAINTENANCE_WRITES),
+      aborted: controller.signal.aborted,
     },
     'Knowledge maintenance turn completed',
   );
