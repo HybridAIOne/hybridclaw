@@ -49,6 +49,7 @@ const AGENT_ROUTES = [
   '/api/secret/inject',
   '/api/todo',
   '/api/track',
+  '/api/trigger',
   '/api/work',
   BROWSER_SIGN_IN_LOOKUP_PATH,
 ];
@@ -69,6 +70,8 @@ const OPERATOR_ROUTES: Array<[string, string]> = [
   ['POST', '/api/chat'],
   ['POST', '/api/command'],
   ['GET', '/v1/models'],
+  ['GET', '/api/trigger'],
+  ['POST', '/api/trigger/extra'],
 ];
 
 describe('agent runtime RBAC claims', () => {
@@ -313,6 +316,109 @@ describe('agent runtime gateway credential', () => {
     expect(withToken.status).toBe(200);
     expect(withoutToken.status).toBe(401);
   });
+
+  test('the trigger tool creates, lists and removes a persisted mail trigger', async () => {
+    const { handler, runtimeToken } = await startGateway();
+    const { initDatabase, getOrCreateSession } = await import(
+      '../src/memory/db.js'
+    );
+    const { getAllJobs, getJob } = await import('../src/memory/jobs.js');
+    const { beginTurnUser } = await import('../src/session/turn-user.js');
+    const { runTriggerTool } = await import('../container/src/tools/trigger.js');
+    initDatabase({ quiet: true });
+    const session = getOrCreateSession('trigger-chat', null, 'web', 'main');
+    const other = getOrCreateSession('other-chat', null, 'discord', 'main');
+    const endTurn = beginTurnUser(session.id, 'user_a');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const response = await send(handler, {
+        method: init?.method ?? 'GET',
+        url: new URL(String(input)).pathname,
+        token: new Headers(init?.headers)
+          .get('authorization')
+          ?.replace(/^Bearer /, ''),
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(response.body, { status: response.status });
+    });
+    const gateway = {
+      baseUrl: 'http://127.0.0.1:9090',
+      apiToken: runtimeToken,
+      sessionId: session.id,
+    };
+    const defaults = { tz: 'UTC', channelId: 'web' };
+    try {
+      expect(
+        await runTriggerTool(
+          {
+            action: 'add',
+            on: 'mail',
+            title: 'File receipts',
+            prompt: 'Save new receipts.',
+          },
+          gateway,
+          defaults,
+        ),
+      ).toMatchObject({ ok: true });
+      const tasks = getAllJobs({ kind: 'scheduled_task' });
+      expect(tasks).toHaveLength(1);
+      const task = tasks[0];
+      expect(task).toMatchObject({
+        session_id: session.id,
+        owner_user_id: 'user_a',
+        title: 'File receipts',
+        trigger: { source: 'mail' },
+        cron_expr: '0 8-20/2 * * *',
+        tz: 'UTC',
+      });
+      expect(
+        await runTriggerTool({ action: 'list' }, gateway, defaults),
+      ).toMatchObject({ ok: true, text: expect.stringContaining(`#${task.id}`) });
+      const otherGateway = { ...gateway, sessionId: other.id };
+      expect(
+        await runTriggerTool({ action: 'list' }, otherGateway, defaults),
+      ).toMatchObject({
+        ok: true,
+        text: expect.not.stringContaining('File receipts'),
+      });
+      expect(
+        await runTriggerTool(
+          { action: 'remove', taskId: task.id },
+          otherGateway,
+          defaults,
+        ),
+      ).toMatchObject({ ok: false });
+      expect(getJob(task.id, { kind: 'scheduled_task' })).toBeTruthy();
+      expect(
+        await runTriggerTool(
+          { action: 'remove', taskId: task.id },
+          gateway,
+          defaults,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(getJob(task.id, { kind: 'scheduled_task' })).toBeNull();
+    } finally {
+      endTurn();
+    }
+  });
+
+  test.each([undefined, 'invalid-test-token'])(
+    'rejects trigger creation without a valid credential (%s)',
+    async (token) => {
+      const { handler } = await startGateway();
+      const response = await send(handler, {
+        method: 'POST',
+        url: '/api/trigger',
+        token,
+        body: {
+          action: 'add',
+          sessionId: 'unknown',
+          on: 'mail',
+          prompt: 'Save new receipts.',
+        },
+      });
+      expect(response.status).toBe(401);
+    },
+  );
 
   test('reaches decision completions but not agent turns', async () => {
     const { handler, runtimeToken, callAuxiliaryModel } = await startGateway();

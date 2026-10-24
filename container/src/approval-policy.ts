@@ -3577,7 +3577,9 @@ export class TrustedAgentApprovalRuntime {
       commandPreview: normalizePreview(JSON.stringify(args)),
       pathHints: [],
       hostHints: [],
-      writeIntent: false,
+      writeIntent:
+        lowerTool === 'trigger' &&
+        ['add', 'remove'].includes(normalizeText(args.action)),
       promotableRed: false,
       stickyYellow: false,
     };

@@ -167,6 +167,7 @@ const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   '/api/secret/inject',
   '/api/todo',
   '/api/track',
+  '/api/trigger',
   '/api/work',
   SHELL_RUNTIME_ENV_PATH,
 ]);
