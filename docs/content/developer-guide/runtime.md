@@ -488,6 +488,9 @@ Session behavior matches the routing rules above:
   in the app, sets `appNotice: true`. The agent reads `content` as usual, but
   the stored message is tagged `app-notice` and `/api/history` leaves it out,
   as it does for approval answers, so clients never hide turns by their wording
+- `/api/history` also omits user turns stored by the scheduler. Scheduled
+  prompts remain in persisted agent context and audit records; only their
+  visible assistant replies appear in chat, including for existing runs.
 - Hy clients choose emoji reactions separately from the main chat model, using
   the phone model first and `auxiliary/quick_decision` second. No suitable emoji is
   a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
