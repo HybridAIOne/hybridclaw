@@ -71,7 +71,6 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
-  setMessageEmailDraft,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -186,7 +185,11 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
-import { replyWithEmailDraft, turnEmailDraft } from './email-draft.js';
+import {
+  replyWithEmailDraft,
+  storeEmailDraft,
+  turnEmailDraft,
+} from './email-draft.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -2944,7 +2947,11 @@ async function handleGatewayMessageInner(
     });
     turnPersisted = true;
     if (shown.emailDraft) {
-      setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
+      storeEmailDraft(
+        req.sessionId,
+        storedTurn.assistantMessageId,
+        shown.emailDraft,
+      );
     }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {

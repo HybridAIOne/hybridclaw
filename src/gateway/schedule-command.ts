@@ -71,6 +71,7 @@ import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   badCommand,
+  chatSafeJson,
   infoCommand,
   plainCommand,
 } from './gateway-command-results.js';
@@ -97,24 +98,6 @@ const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
 const MAX_RESULTS = 200;
-const STREAM_UNSAFE: Record<string, string> = {
-  '\\\\': '\\u005c',
-  '\\n': '\\u000a',
-  '\\r': '\\u000d',
-};
-
-/**
- * One line of JSON that survives a chat relay: relays escape line breaks as
- * the two characters backslash-n and their clients turn every such pair back
- * into a line break, which would corrupt a string holding an escaped one.
- */
-export function chatSafeJson(value: unknown): string {
-  return JSON.stringify(value).replace(
-    /\\[\\nr]/g,
-    (pair) => STREAM_UNSAFE[pair] ?? pair,
-  );
-}
-
 function isoTime(raw: string | null | undefined): string | null {
   return parseTimestamp(raw)?.toISOString() ?? null;
 }

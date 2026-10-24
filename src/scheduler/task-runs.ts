@@ -19,7 +19,7 @@ import type { ScheduledTask } from '../types/scheduler.js';
 import type { TaskCost } from '../usage/task-cost.js';
 import { readWork } from '../work/work-store.js';
 import { routineDue } from './routine-time.js';
-import { parseSchedulerTimestampMs } from './scheduler.js';
+import { parseSchedulerTimestampMs } from './schedule-time.js';
 
 export type TaskRunOutcome =
   | 'running'

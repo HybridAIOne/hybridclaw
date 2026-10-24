@@ -11,12 +11,15 @@ import {
   resolveEffectiveTimezone,
 } from '../../container/shared/workspace-time.js';
 import { readUserTimezone, writeUserTimezone } from '../workspace.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 const USAGE =
   'Usage: `/timezone` shows your time zone, `/timezone set <zone>` changes it, `/timezone clear` removes it. Add `--json` for a machine-readable answer.';

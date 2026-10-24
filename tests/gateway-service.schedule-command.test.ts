@@ -20,7 +20,7 @@ async function load() {
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  const { chatSafeJson } = await import('../src/gateway/schedule-command.ts');
+  const { chatSafeJson } = await import('../src/gateway/gateway-command-results.ts');
   initDatabase({ quiet: true });
 
   const run = async (

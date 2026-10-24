@@ -23,12 +23,15 @@ import path from 'node:path';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { createMediaHostPathResolver } from '../media/media-host-path.js';
 import { isRecord } from '../utils/type-guards.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 export const IMPORT_SOURCES = [
   'chatgpt',

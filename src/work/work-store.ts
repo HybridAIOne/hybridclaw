@@ -16,7 +16,10 @@ export interface WorkRecord {
   owner: string | null;
   sessionId: string;
   runSessionId: string;
+  /** The requesting chat, retained when delivery moves to the main chat. */
+  originSessionId?: string;
   taskId: number | null;
+  trackedItem?: { scope: string; id: number };
   startedAt: string;
   completedAt: string | null;
   failedAt: string | null;
@@ -73,11 +76,18 @@ export function listWork(agent: string, owner: string): WorkRecord[] {
 export function startWork(
   input: Pick<
     WorkRecord,
-    'id' | 'agentId' | 'owner' | 'sessionId' | 'runSessionId' | 'taskId'
+    | 'id'
+    | 'agentId'
+    | 'owner'
+    | 'sessionId'
+    | 'runSessionId'
+    | 'taskId'
+    | 'trackedItem'
   >,
 ): void {
   const work: WorkRecord = {
     ...input,
+    originSessionId: input.sessionId,
     startedAt: new Date().toISOString(),
     completedAt: null,
     failedAt: null,
@@ -118,5 +128,26 @@ export function updateWork(
         'UPDATE work_records SET session_id = ?, message_id = ?, data = ? WHERE id = ?',
       ).run(work.sessionId, work.messageId, JSON.stringify(work), id);
     })(),
+  );
+}
+
+/** Recent attempts for one continuing item, including tasks removed after completion. */
+export function listTrackedWork(
+  agent: string,
+  owner: string,
+  scope: string,
+  id: number,
+): WorkRecord[] {
+  return withMemoryDatabase((db) =>
+    queryAll<{ data: string }>(
+      db,
+      `SELECT data FROM work_records WHERE agent_id = ? AND owner = ?
+     AND json_extract(data, '$.trackedItem.scope') = ?
+     AND json_extract(data, '$.trackedItem.id') = ? ORDER BY rowid DESC LIMIT 50`,
+      agent,
+      owner,
+      scope,
+      id,
+    ).map((row) => JSON.parse(row.data) as WorkRecord),
   );
 }

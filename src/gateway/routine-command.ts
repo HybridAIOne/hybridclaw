@@ -15,10 +15,8 @@ import {
   setJobEnabled,
   updateScheduledTask,
 } from '../memory/jobs.js';
-import {
-  getScheduledTaskNextRunAt,
-  rearmScheduler,
-} from '../scheduler/scheduler.js';
+import { getScheduledTaskNextRunAt } from '../scheduler/schedule-time.js';
+import { rearmScheduler } from '../scheduler/scheduler.js';
 import { taskRevision } from '../scheduler/task-revision.js';
 import { listTaskRuns } from '../scheduler/task-runs.js';
 import type { ScheduledTask } from '../types/scheduler.js';

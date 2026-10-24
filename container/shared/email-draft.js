@@ -52,6 +52,11 @@ export function normalizeEmailDraft(args) {
   if (!body) return { error: '"body" is required.' };
   if (body.length > BODY_MAX) return { error: '"body" is too long.' };
   const draft = {};
+  if (args.track_id !== undefined) {
+    if (!Number.isSafeInteger(args.track_id) || args.track_id < 1)
+      return { error: '"track_id" must be an existing positive item id.' };
+    draft.track_id = args.track_id;
+  }
   for (const [field, max] of [
     ['from', ADDRESS_MAX],
     ['subject', SUBJECT_MAX],

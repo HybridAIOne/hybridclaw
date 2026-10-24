@@ -648,6 +648,9 @@ has `id`, `title`, `repeat` (day names or `null`), `due`, `remind`, `tz`,
 /track step <id> add <title>
 /track step <id> done|undo|remove <step>
 /track done|undo|remove <id>
+/track overview --json
+/track get <id> --json
+/track update <id> <base64url-JSON> --json
 ```
 
 Goals are what the user wants to reach (`--kind goal`, the default); tracked
@@ -669,13 +672,15 @@ it alone.
 Lists are shared like todos. The agent reads and changes them with the
 `track` tool, and every turn's context lists the open items with their
 status, so it can keep them current. A change through `/track` counts as the
-user's and one through the tool as the agent's. Done items are dropped after
-90 days. With `--json` every subcommand answers one line of JSON:
+user's and one through the tool as the agent's. Done items remain until deleted. With `--json` every subcommand answers one line of JSON:
 `{"version": 1, "items": […]}`, `{"version": 1, "item": …}` or
 `{"version": 1, "removed": id}`. An item has `id`, `kind`, `title`,
 `outcome`, `status`, `status_by`, `status_at`, `notes` (`at`, `by`, `text`),
 `steps` (`id`, `title`, `done`), `every` (day names or `null`), `at`, `tz`,
 `done`, `done_by`, `done_at`, `created_at` and `created_by`.
+
+The [follow-through contract](./follow-through.md) adds structured phases,
+validated evidence links, revision checks and shared draft reviews.
 
 ### Name
 

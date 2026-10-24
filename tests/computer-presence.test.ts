@@ -11,6 +11,9 @@ vi.mock('../src/memory/database.js', () => ({
   withMemoryDatabase: (run: (db: { transaction: (body: () => unknown) => () => unknown }) => unknown) =>
     run({ transaction: (body) => body }),
 }));
+// These notification fixtures store plain replies without linked draft reviews.
+vi.mock('../src/memory/db.js', () => ({ getSessionById: mocks.getSession }));
+vi.mock('../src/memory/messages.js', () => ({ getSessionAssistantMessage: () => null }));
 vi.mock('../src/memory/memory-service.js', () => ({ memoryService: { getSessionById: mocks.getSession, storeMessage: mocks.storeMessage } }));
 vi.mock('../src/agents/agent-registry.js', () => ({ getAgentById: mocks.agent }));
 vi.mock('../src/logger.js', () => ({ logger: { warn: mocks.warn } }));
