@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw plugin providing phone calls through Twilio ConversationRelay and Media Streams",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

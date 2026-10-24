@@ -53,6 +53,22 @@ echo "== package.json consistency =="
 engines_major="$(tr -d ' \t\n' < "$HERE/../package.json" \
   | sed -n 's/.*"engines":{[^}]*"node":"[^0-9"]*\([0-9][0-9]*\).*/\1/p')"
 expect_eq "REQUIRED_NODE_MAJOR matches engines.node" "$engines_major" "$REQUIRED_NODE_MAJOR"
+engines_range="$(node -p 'require(process.argv[1]).engines.node' "$HERE/../package.json")"
+expect_eq "installer range matches engines.node" "$engines_range" "$REQUIRED_NODE_RANGE"
+for version in 22.23.3 22.22.99 20.19.0 23.0.0 24.0.0 22.23 22.23.4-rc.1 22.bad.4; do
+  is_supported_node "$version"
+  expect_rc "rejects $version" 1 "$?"
+  out="$( ( HYBRIDCLAW_NODE_VERSION="$version" resolve_node_version ) 2>&1 )"
+  expect_rc "explicit unsupported pin $version dies" 1 "$?"
+done
+for version in 22.23.4 v22.23.4 22.23.5 22.24.0; do
+  is_supported_node "$version"
+  expect_rc "accepts $version" 0 "$?"
+done
+v="$( ( curl() { printf 'abc1  node-v22.23.3-linux-x64.tar.gz\n'; }
+  PLATFORM_OS=linux; PLATFORM_ARCH=x64
+  resolve_node_version 2>/dev/null; echo "$NODE_VERSION" ) )"
+expect_eq "stale discovery uses supported fallback" "$REQUIRED_NODE_MINIMUM" "$v"
 
 echo "== is_truthy / NO_PROMPT derivation =="
 is_truthy 1 && is_truthy true && is_truthy YES && is_truthy On
@@ -107,13 +123,13 @@ v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
         resolve_node_version 2>/dev/null; echo "$NODE_VERSION" ) )"
 expect_eq "release without this platform's build -> fallback" "$NODE_VERSION_FALLBACK" "$v"
 v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
-        HYBRIDCLAW_NODE_VERSION=22.11.0 resolve_node_version; echo "$NODE_VERSION" ) )"
-expect_eq "explicit HYBRIDCLAW_NODE_VERSION pin wins" "22.11.0" "$v"
-v="$( ( HYBRIDCLAW_NODE_VERSION=v22.11.0 resolve_node_version; echo "$NODE_VERSION" ) )"
-expect_eq "pin tolerates a leading v" "22.11.0" "$v"
+        HYBRIDCLAW_NODE_VERSION=22.23.4 resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "explicit HYBRIDCLAW_NODE_VERSION pin wins" "22.23.4" "$v"
+v="$( ( HYBRIDCLAW_NODE_VERSION=v22.23.4 resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "pin tolerates a leading v" "22.23.4" "$v"
 out="$( ( HYBRIDCLAW_NODE_VERSION=20.11.1 resolve_node_version ) 2>&1 )"
 expect_rc "pin with the wrong major dies" 1 "$?"
-expect_contains "wrong-major pin message" "not a ${REQUIRED_NODE_MAJOR}.x version" "$out"
+expect_contains "wrong-major pin message" "requires Node ${REQUIRED_NODE_RANGE}" "$out"
 # The stubs above ignore curl's arguments; pin the actual URLs requested.
 url_log="$TEST_TMPDIR/urls"
 url_capturing_curl() { # records https URLs to $url_log, then fails the fetch
@@ -146,7 +162,7 @@ echo "== detect_platform =="
 # desc | uname -s | uname -m | expected "os arch libc"
 plat() { # stubs uname, runs detect_platform in a subshell, echoes result
   local s="$1" m="$2"
-  ( uname() { case "$1" in -s) echo "$s" ;; -m) echo "$m" ;; esac; }
+  ( uname() { case "$1" in (-s) echo "$s" ;; (-m) echo "$m" ;; esac; }
     detect_platform 2>/dev/null # silence the armv7l limited-support warning
     echo "$PLATFORM_OS $PLATFORM_ARCH $PLATFORM_LIBC" )
 }
@@ -157,7 +173,7 @@ expect_eq "darwin/arm64"               "darwin arm64 glibc" "$(plat Darwin arm64
 
 # musl detection: stub `ls` so the ld-musl glob "matches".
 musl_libc="$(
-  ( uname() { case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }
+  ( uname() { case "$1" in (-s) echo Linux ;; (-m) echo x86_64 ;; esac; }
     ls() { return 0; }
     detect_platform
     echo "$PLATFORM_LIBC" )
@@ -165,12 +181,12 @@ musl_libc="$(
 expect_eq "musl loader present -> musl" "musl" "$musl_libc"
 
 # unsupported arch and Windows must die loudly.
-out="$( ( uname() { case "$1" in -s) echo Linux ;; -m) echo ppc64 ;; esac; }
+out="$( ( uname() { case "$1" in (-s) echo Linux ;; (-m) echo ppc64 ;; esac; }
         detect_platform ) 2>&1 )"
 expect_rc "unsupported arch dies" 1 "$?"
 expect_contains "unsupported arch message" "unsupported architecture" "$out"
 
-out="$( ( uname() { case "$1" in -s) echo MINGW64_NT ;; -m) echo x86_64 ;; esac; }
+out="$( ( uname() { case "$1" in (-s) echo MINGW64_NT ;; (-m) echo x86_64 ;; esac; }
         detect_platform ) 2>&1 )"
 expect_rc "windows dies" 1 "$?"
 expect_contains "windows -> WSL2 hint" "WSL2" "$out"
@@ -251,20 +267,20 @@ expect_contains "warns when toolchain missing" "Build tools may be missing" "$ou
 out="$( ( have() { [ "$1" = make ] && return 1; return 0; }
           check_build_prereqs ) 2>&1 )"
 expect_contains "only make listed missing" "missing: make." "$out"
-out="$( ( have() { case "$1" in g++|clang++|c++) return 1 ;; *) return 0 ;; esac; }
+out="$( ( have() { case "$1" in (g++|clang++|c++) return 1 ;; (*) return 0 ;; esac; }
           check_build_prereqs ) 2>&1 )"
 expect_contains "compiler alternatives all probed" "missing: a C/C++ compiler (g++)." "$out"
 
 echo "== ensure_node =="
-# Matching major short-circuits; the managed install must not run.
+# Supported version short-circuits; the managed install must not run.
 out="$( ( have() { [ "$1" = node ]; }
-          node() { echo "v${REQUIRED_NODE_MAJOR}.4.0"; }
+          node() { echo "v${REQUIRED_NODE_MINIMUM}"; }
           install_managed_node() { echo "MANAGED_INSTALL_CALLED"; }
           ensure_node ) 2>&1 )"
-expect_contains "matching major detected" "v${REQUIRED_NODE_MAJOR}.4.0 detected" "$out"
+expect_contains "supported version detected" "v${REQUIRED_NODE_MINIMUM} detected" "$out"
 case "$out" in
-  *MANAGED_INSTALL_CALLED*) bad "matching major skips managed install" ;;
-  *) ok "matching major skips managed install" ;;
+  *MANAGED_INSTALL_CALLED*) bad "supported version skips managed install" ;;
+  *) ok "supported version skips managed install" ;;
 esac
 # Wrong major with --skip-node dies, naming the found version.
 out="$( ( have() { [ "$1" = node ]; }
@@ -285,6 +301,18 @@ out="$( ( have() { [ "$1" = node ]; }
           ensure_node ) 2>&1 )"
 expect_contains "broken node falls through to managed install" "MANAGED_INSTALL_CALLED" "$out"
 
+for version in 22.23.3 22.22.99 23.0.0 22.23.4-rc.1; do
+  out="$( ( have() { [ "$1" = node ]; }
+    node() { echo "$version"; }
+    install_managed_node() { echo "MANAGED_INSTALL_CALLED"; }
+    ensure_node ) 2>&1 )"
+  expect_contains "unsupported $version gets managed Node" "MANAGED_INSTALL_CALLED" "$out"
+  out="$( ( have() { [ "$1" = node ]; }
+    node() { echo "$version"; }
+    MANAGE_NODE=0; ensure_node ) 2>&1 )"
+  expect_rc "unsupported $version with --skip-node dies" 1 "$?"
+done
+
 echo "== ensure_npm =="
 # npm <= 6 cannot honor the lockfileVersion-3 shrinkwrap and must die.
 out="$( ( have() { return 0; }
@@ -303,7 +331,7 @@ expect_contains "modern npm reported" "npm 11.6.0 detected" "$out"
 echo "== ensure_writable_npm_prefix =="
 # An exported NPM_CONFIG_PREFIX overrides the ~/.npmrc write; the fallback must
 # redirect it for this process so the install lands in the user prefix.
-out="$( ( npm() { case "$1" in prefix) echo /usr/local ;; config) : ;; esac; }
+out="$( ( npm() { case "$1" in (prefix) echo /usr/local ;; (config) : ;; esac; }
           dir_writable() { return 1; }
           add_to_path() { :; }
           NPM_USER_PREFIX="$TEST_TMPDIR/npm-global"

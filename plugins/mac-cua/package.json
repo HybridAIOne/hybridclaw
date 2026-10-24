@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw browser provider that drives the operator's macOS browser through the Cua Driver",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "packageManager": "npm@11.10.0",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   },
   "files": [
     "dist/",

@@ -6,6 +6,8 @@
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 
+import './node-version-guard.js';
+
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';

@@ -11,7 +11,7 @@ to the platform's `hybridai__transit_routes` tool instead.
 
 ## Reproduce
 
-Use Node 22, installed root/container dependencies, browser binaries, and stored
+Use Node.js `>=22.23.4 <23`, installed root/container dependencies, browser binaries, and stored
 credentials for each requested provider. Record `hybridclaw gateway status`.
 A running gateway is needed for gateway-dependent tools; local browser reads
 can run in isolated workers while it is stopped. Capture the baseline before
