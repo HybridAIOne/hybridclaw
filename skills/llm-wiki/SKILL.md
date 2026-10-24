@@ -106,7 +106,8 @@ read them through this mapping, which overrides any file step:
 
 - `wiki/<family>/page.md` means the page `<family>/page.md` in the collection.
 - "create the layout" or "seed starter files" means nothing: a collection has
-  its families from the start; at most write `AGENTS.md` as a page.
+  its families from the start, and the schema page is one page among the others,
+  `AGENTS.md` included.
 - "capture into `raw/`" means: read the source and write its summary page
   under `sources/`; the original is not stored by you.
 - "update `index.md`" and "append to `log.md`" mean: give the
@@ -160,8 +161,8 @@ wiki. Copy only missing files unless the user asks to replace existing ones.
 
 ## Initialization Workflow
 
-Folder wikis only. In collection mode, create the collection if needed and
-write `AGENTS.md` as a page; there are no folders or starter files to seed.
+Folder wikis only. In collection mode there are no folders or starter files
+to seed; the schema page `AGENTS.md` is a normal page of the collection.
 
 When the wiki does not exist yet:
 
