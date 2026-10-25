@@ -143,8 +143,12 @@ test('the tool reads only the data of the user whose turn is running', async () 
   );
 });
 
-test('the tool is offered only to a user whose phone shares something', async () => {
+test('the tool is offered to a user whose phone shares something, and in the app', async () => {
   const { send, device } = await load();
+  // The app may still be sending what the user just connected.
+  expect(device.blockDeviceDataToolUnlessShared(undefined, 'user_a', true)).toBe(
+    undefined,
+  );
   await send(`/device-data set ${payload({ calendar: CALENDAR })}`);
 
   expect(device.blockDeviceDataToolUnlessShared(undefined, 'user_a')).toBe(

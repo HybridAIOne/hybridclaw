@@ -196,6 +196,8 @@ test("the main chat keeps the agent's memory and every connector", async () => {
   expect(request.workspacePathOverride).toBeUndefined();
   expect(request.runtimeScope).toBeUndefined();
   expect(request.blockedTools ?? []).not.toContain('hybridai__*__*');
+  // Before the phone has shared anything, the app's turn still offers it.
+  expect(request.blockedTools ?? []).not.toContain('device_data');
 });
 
 test('a chat whose scope was deleted runs nothing', async () => {
