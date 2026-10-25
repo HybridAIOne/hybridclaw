@@ -192,6 +192,8 @@ test('maintenance runs daily at the configured hour on its own session', async (
     return { result: 'Merged two pages.' };
   });
   const api = {
+    getCredential: () => 'test-key',
+    getMcpServerConfig: () => null,
     getDefaultAgentId: () => 'main',
     dispatchInboundMessage: dispatch,
     logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },

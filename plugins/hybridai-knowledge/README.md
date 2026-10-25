@@ -39,6 +39,12 @@ duplicates merged, orphans linked, pages refreshed from newer sources, missing
 Needs the `HYBRIDAI_API_KEY` credential, the same key the HybridAI provider
 uses; the gateway URL follows `hybridai.baseUrl`.
 
+Retrieval and maintenance skip work when the key is missing or
+`mcpServers.hybridai.enabled` is `false`. Both check the current settings before
+each run, so removing the key or disabling the connection also stops future
+work after startup. With a key and no explicit MCP configuration, HybridClaw's
+automatic HybridAI connection remains available.
+
 The plugin acts as the platform user who owns that key: what it can read is
 that user's company collections and shared bot collections. On a gateway that
 serves several chat users, every one of them gets that user's knowledge; use

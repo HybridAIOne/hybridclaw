@@ -1,3 +1,9 @@
+/**
+ * Scheduled knowledge turns require current credentials and no MCP opt-out.
+ * Unlike retrieval, maintenance dispatches a worker turn; it does not connect MCP.
+ */
+import { getKnowledgeApiKey } from './gateway-client.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Milliseconds until the next `hourUtc` boundary after `now`. */
@@ -51,6 +57,7 @@ export const MAINTENANCE_TOOLS = Object.freeze([
 export const MAX_MAINTENANCE_WRITES = 12;
 
 export async function runMaintenance({ api, config, now = new Date() }) {
+  if (!getKnowledgeApiKey(api)) return '';
   const agentId = config.maintenance.agentId || api.getDefaultAgentId();
   const prompt = buildMaintenancePrompt({
     collection: config.maintenance.collection,

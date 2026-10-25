@@ -1,4 +1,4 @@
-import { callGatewayTool } from './gateway-client.js';
+import { callGatewayTool, getKnowledgeApiKey } from './gateway-client.js';
 import { runMaintenance, startMaintenanceSchedule } from './maintenance.js';
 import {
   buildKnowledgeContext,
@@ -53,8 +53,7 @@ export default {
   register(api) {
     const config = resolveConfig(api.pluginConfig);
     const baseUrl = api.config?.hybridai?.baseUrl || 'https://hybridai.one';
-    const credential = () =>
-      (api.getCredential('HYBRIDAI_API_KEY') || '').trim();
+    const credential = () => getKnowledgeApiKey(api);
     const callTool = (name, args) =>
       callGatewayTool({
         baseUrl,

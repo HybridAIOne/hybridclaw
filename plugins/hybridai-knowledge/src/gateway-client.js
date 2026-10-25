@@ -1,4 +1,13 @@
+/**
+ * Knowledge access follows the live HybridAI credential and MCP opt-out.
+ * This direct HTTP client does not establish the worker's MCP connection.
+ */
 const GATEWAY_PATH = '/api/v1/connectors/mcp';
+
+export function getKnowledgeApiKey(api) {
+  if (api.getMcpServerConfig('hybridai')?.enabled === false) return '';
+  return (api.getCredential('HYBRIDAI_API_KEY') || '').trim();
+}
 
 /**
  * Calls one HybridAI gateway tool over JSON-RPC and returns its parsed result.
