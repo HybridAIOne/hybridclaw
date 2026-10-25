@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.0',
+  version: '0.41.1',
   highlights: [
-    'Daily briefs on your schedule',
-    'Persistent follow-through and draft reviews',
-    'Run JavaScript in browser pages',
-    'Telemetry without a chatbot',
+    'Shared HybridAI knowledge and wikis',
+    'Optional nightly wiki maintenance',
+    'Cleaner reminders and working event triggers',
+    'Requires Node 22.23.4 or later in Node 22',
   ],
 } as const;
 

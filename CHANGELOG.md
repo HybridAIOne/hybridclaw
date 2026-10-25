@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## [0.41.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.1) - 2026-10-25
+
+### Added
+
+- **HybridAI knowledge plugin**: An optional bundled plugin retrieves relevant
+  sections from shared knowledge collections before each turn, with source
+  references and configurable collection, score, and context limits. Optional
+  nightly wiki maintenance permits at most twelve write attempts per run,
+  including across worker replacement, while retaining existing approvals.
+- **Shared company wikis**: The `llm-wiki` skill supports HybridAI knowledge
+  collections for team knowledge, with section citations and conflict-checked
+  writes. Local folder wikis remain available for personal notes.
+
+### Changed
+
+- **Patched Node runtime**: CLI, workers, plugins, installer, desktop packaging,
+  and container images require Node.js `>=22.23.4 <23`. Version checks reject
+  older Node 22 releases and unsupported majors.
+
+### Fixed
+
+- **Scheduled chat history**: Internal scheduled-task prompts are hidden from
+  chat history while assistant reminders and genuine user messages remain
+  visible. Persisted agent context and audit records are unchanged.
+- **Event triggers**: Runtime credentials can create and manage triggers through
+  the existing endpoint. Add and remove operations are classified as writes,
+  so failed changes no longer appear as failed reads.
+
+### Upgrade Notes
+
+- Update host Node to `>=22.23.4 <23`, pull or rebuild gateway and agent images,
+  and restart the affected processes before using this release. Updating npm
+  packages alone does not update Node's bundled Brotli decoder.
+- Enable `hybridai-knowledge` explicitly; nightly maintenance is separately
+  opt-in. Retrieval and maintenance respect a disabled HybridAI MCP connection
+  and missing credentials. All chat users share the configured API key's
+  collection access; restrict `collections` to the intended shared knowledge.
+
 ## [0.41.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.0) - 2026-10-24
 
 ### Added
