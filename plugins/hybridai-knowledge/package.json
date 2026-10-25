@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-hybridai-knowledge",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Per-turn retrieval from the HybridAI knowledge collections and the nightly wiki maintenance turn",
+  "engines": {
+    "node": ">=22.23.4 <23"
+  }
+}

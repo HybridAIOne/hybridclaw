@@ -2,6 +2,7 @@ import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
+import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 import type { ChatMessage } from '../types/api.js';
@@ -21,7 +22,8 @@ import type { PromptClient } from './prompt-hooks.js';
 
 export interface ExecutorRequest
   extends SessionAttachmentAccess,
-    ApprovalReplyContext {
+    ApprovalReplyContext,
+    ToolCallLimits {
   sessionId: string;
   runId?: string;
   messages: ChatMessage[];

@@ -134,6 +134,7 @@ import {
   type ToolApprovalEvaluation,
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
+import { setToolCallLimits } from './tool-call-limits.js';
 import {
   invalidToolCallCorrection,
   validateStructuredToolCalls,
@@ -2369,6 +2370,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  setToolCallLimits(firstInput);
   approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
@@ -2540,6 +2542,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    setToolCallLimits(input);
     approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);
     setPersistentBashStateEnabled(input.persistBashState !== false);

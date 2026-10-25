@@ -45,6 +45,7 @@
     "plugins/concierge-router/",
     "plugins/connector-events/",
     "plugins/distill/",
+    "plugins/hybridai-knowledge/",
     "plugins/media-tools/",
     "plugins/public-warnings/",
     "plugins/line/",

@@ -13,6 +13,7 @@ import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
 } from '../shared/stakes-classifier.js';
+import type { ToolCallLimits } from '../shared/tool-call-limits.js';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
@@ -217,7 +218,8 @@ export interface AddressEnvelope {
 
 export interface ContainerInput
   extends SessionAttachmentAccess,
-    ApprovalReplyContext {
+    ApprovalReplyContext,
+    ToolCallLimits {
   healthCheck?: {
     nonce: string;
   };

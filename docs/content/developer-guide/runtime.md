@@ -117,6 +117,14 @@ Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
 
+Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
+maximum execution attempts. The worker reserves each attempt synchronously
+before execution and persists counts under its protected session state directory
+in `tool-call-limits-<run-key>.json`. Replacement workers with the same run ID
+inherit those counts; a new run receives its own budget. Missing or corrupt
+state during execution fails closed. Limits do not grant tool access or approval,
+and failed attempts still consume budget.
+
 Session approval grants are written through to
 `.hybridclaw-runtime/sessions/<session-key>/approval-session-trust.json`.
 A replacement worker reloads them; switching sessions clears the prior session's
