@@ -853,6 +853,8 @@ test('ContainerExecutor disables internal text streaming when no text callback i
 
   await executor.exec({
     sessionId: 'session-no-stream-ipc',
+    runId: 'bounded-run',
+    toolCallLimits: { example__write: 12 },
     messages: [{ role: 'user', content: 'hello' }],
     chatbotId: 'bot-a',
     enableRag: false,
@@ -866,6 +868,8 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as Record<string, unknown>;
   expect(firstInput).toMatchObject({
+    runId: 'bounded-run',
+    toolCallLimits: { example__write: 12 },
     approvalUserText: null,
     streamTextDeltas: false,
   });

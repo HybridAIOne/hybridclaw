@@ -1008,6 +1008,7 @@ async function runHostProcessInner(
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    toolCallLimits: params.toolCallLimits,
     requestId,
     agentId,
     messages,

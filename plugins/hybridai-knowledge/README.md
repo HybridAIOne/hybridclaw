@@ -6,9 +6,10 @@ company wiki tidy with a nightly maintenance turn.
 Before each turn the plugin sends the latest user message to the platform's
 `knowledge_search` and injects the best sections as retrieved context, each
 tagged `[knowledge: <collection>/<path>#anchor]`. The platform decides what
-the user may read: company collections by role, plus the bot document
-collections the user shared with agents under Connectors. A slow or failing
-gateway costs nothing but the context; the turn goes on without it.
+the API key's owner may read: company collections by role, plus that owner's
+shared bot document collections. This is key-wide access, not per-chat-user
+authorization. A failed retrieval lets the turn continue without knowledge;
+a slow call can delay it by up to `timeoutMs`.
 
 ```json
 {
@@ -31,7 +32,7 @@ gateway costs nothing but the context; the turn goes on without it.
 ```
 
 `collections` narrows retrieval to named collection ids (see `knowledge_list`);
-empty means everything the user may read. With `maintenance.enabled` the
+empty means everything the API key's owner may read. With `maintenance.enabled` the
 plugin runs the `llm-wiki` lint workflow once a day on a session of its own:
 duplicates merged, orphans linked, pages refreshed from newer sources, missing
 `sources/` pages written, at most twelve writes per run.
@@ -53,6 +54,7 @@ serves several chat users, every one of them gets that user's knowledge; use
 Retrieval runs before the prompt is built, so a slow gateway can delay a turn
 by up to `timeoutMs`. After a failed or timed-out call the plugin skips
 retrieval for a minute, so an outage costs one timeout per minute, not one per
-turn. The maintenance turn may use only the `hybridai__knowledge_*` tools and
-is aborted after twelve `knowledge_write` calls; every write is a revision the
-platform can restore.
+turn. Maintenance may use only knowledge list, read, search and write tools.
+The worker rejects write attempts beyond twelve before executing them, even
+with hidden progress events or a replacement worker. Ingest is excluded because
+it can also mutate collections. Every write is a revision the platform can restore.

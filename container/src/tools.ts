@@ -1,8 +1,9 @@
 /**
  * Tool implementations execute only after the agent loop's permission checks.
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
- * local guards still apply, and this dispatcher does not grant action approval.
+ * Run limits reserve attempts before dispatch; this never grants action approval.
  */
+
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -95,6 +96,7 @@ import {
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import { reserveToolCall } from './tool-call-limits.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -4343,6 +4345,7 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
+    reserveToolCall(name);
     const result = await executeToolInternal(name, argsJson, sentFiles, boost);
     const metadata =
       typeof result === 'string' ? { output: result, isError: false } : result;

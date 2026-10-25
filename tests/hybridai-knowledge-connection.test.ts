@@ -10,11 +10,48 @@ import type { McpServerConfig } from '../src/types/models.js';
 import { useCleanMocks } from './test-utils.js';
 
 useCleanMocks({
+  restoreAllMocks: true,
   unstubAllGlobals: true,
   cleanup: () => {
     vi.useRealTimers();
   },
 });
+
+test.each(['error', 'timeout'])(
+  'retrieval %s skips subsequent calls until the cooldown expires',
+  async (failure) => {
+    const { layer, fetchMock } = setup();
+    if (failure === 'timeout') {
+      vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error('timeout')), ms);
+        return controller.signal;
+      });
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) throw new Error('Expected a timeout signal');
+            signal.addEventListener('abort', () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      );
+    } else {
+      fetchMock.mockRejectedValueOnce(new Error('connection refused'));
+    }
+    const pending = layer.getContextForPrompt!(request);
+    if (failure === 'timeout') await vi.advanceTimersByTimeAsync(3000);
+    expect(await pending).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(await layer.getContextForPrompt!(request)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await layer.getContextForPrompt!(request);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  },
+);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const disabledServer: McpServerConfig = { enabled: false };
@@ -38,7 +75,7 @@ const request = {
 function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-25T02:59:00Z'));
-  const fetchMock = vi.fn(async () =>
+  const fetchMock = vi.fn<typeof fetch>(async () =>
     Response.json({ result: { content: [] } }),
   );
   vi.stubGlobal('fetch', fetchMock);

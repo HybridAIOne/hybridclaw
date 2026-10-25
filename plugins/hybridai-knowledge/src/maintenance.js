@@ -33,7 +33,7 @@ export function buildMaintenancePrompt({ collection }) {
     '   update pages from their sources, write the missing sources/ pages, and',
     '   mark open contradictions in the affected pages. Give every write a',
     '   one-line reason and overwrite only with the content_hash you read.',
-    '4. Keep the pass small: at most twelve writes; leave the rest for the next run.',
+    `4. Keep the pass small: at most ${MAX_MAINTENANCE_WRITES} write attempts; leave the rest for the next run.`,
     '',
     'Reply with a short report: pages written, pages merged, open questions.',
     'If nothing needed work, reply with one line saying so.',
@@ -50,10 +50,9 @@ export const MAINTENANCE_TOOLS = Object.freeze([
   'hybridai__knowledge_read',
   'hybridai__knowledge_search',
   'hybridai__knowledge_write',
-  'hybridai__knowledge_ingest',
 ]);
 
-/** Writes a maintenance turn may make; the turn is aborted on the next one. */
+/** Write attempts a maintenance run may execute, enforced by the worker. */
 export const MAX_MAINTENANCE_WRITES = 12;
 
 export async function runMaintenance({ api, config, now = new Date() }) {
@@ -63,39 +62,18 @@ export async function runMaintenance({ api, config, now = new Date() }) {
     collection: config.maintenance.collection,
   });
   const started = Date.now();
-  const controller = new AbortController();
-  let writes = 0;
-  let result;
-  try {
-    result = await api.dispatchInboundMessage({
-      sessionId: `knowledge-maintenance:${agentId}`,
-      sessionMode: 'resume',
-      guildId: null,
-      channelId: 'knowledge-maintenance',
-      userId: 'knowledge-maintenance',
-      username: 'Knowledge maintenance',
-      content: prompt,
-      agentId,
-      allowedTools: [...MAINTENANCE_TOOLS],
-      abortSignal: controller.signal,
-      onToolProgress: ({ toolName, phase }) => {
-        if (phase !== 'start' || toolName !== 'hybridai__knowledge_write') {
-          return;
-        }
-        writes += 1;
-        if (writes > MAX_MAINTENANCE_WRITES) {
-          api.logger.warn(
-            { agentId, writes },
-            'Knowledge maintenance turn aborted: write budget exhausted',
-          );
-          controller.abort();
-        }
-      },
-    });
-  } catch (error) {
-    if (!controller.signal.aborted) throw error;
-    result = null;
-  }
+  const result = await api.dispatchInboundMessage({
+    sessionId: `knowledge-maintenance:${agentId}`,
+    sessionMode: 'resume',
+    guildId: null,
+    channelId: 'knowledge-maintenance',
+    userId: 'knowledge-maintenance',
+    username: 'Knowledge maintenance',
+    content: prompt,
+    agentId,
+    allowedTools: [...MAINTENANCE_TOOLS],
+    toolCallLimits: { hybridai__knowledge_write: MAX_MAINTENANCE_WRITES },
+  });
   const text = typeof result?.result === 'string' ? result.result : '';
   api.logger.info(
     {
@@ -104,8 +82,6 @@ export async function runMaintenance({ api, config, now = new Date() }) {
       durationMs: Date.now() - started,
       ranAt: now.toISOString(),
       reportChars: text.length,
-      writes: Math.min(writes, MAX_MAINTENANCE_WRITES),
-      aborted: controller.signal.aborted,
     },
     'Knowledge maintenance turn completed',
   );

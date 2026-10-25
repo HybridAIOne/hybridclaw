@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,
@@ -519,7 +520,8 @@ export interface PluginInboundProactiveMessage {
 }
 
 export interface PluginDispatchInboundMessageRequest
-  extends ApprovalReplyContext {
+  extends ApprovalReplyContext,
+    ToolCallLimits {
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;

@@ -1,8 +1,11 @@
 import { expect, test, vi } from 'vitest';
+import type { PluginDispatchInboundMessageRequest } from '../src/plugins/plugin-types.js';
 
 import { callGatewayTool } from '../plugins/hybridai-knowledge/src/gateway-client.js';
 import {
   buildMaintenancePrompt,
+  MAINTENANCE_TOOLS,
+  MAX_MAINTENANCE_WRITES,
   msUntilNextRun,
   runMaintenance,
   startMaintenanceSchedule,
@@ -181,16 +184,9 @@ test('maintenance runs daily at the configured hour on its own session', async (
   expect(buildMaintenancePrompt({ collection: 'Handbook_1' })).toContain('`Handbook_1`');
   expect(buildMaintenancePrompt({ collection: '' })).toContain('knowledge_list');
 
-  const dispatch = vi.fn(async (request: { onToolProgress?: (e: unknown) => void }) => {
-    for (let n = 0; n < 3; n += 1) {
-      request.onToolProgress?.({
-        sessionId: 's',
-        toolName: 'hybridai__knowledge_write',
-        phase: 'start',
-      });
-    }
-    return { result: 'Merged two pages.' };
-  });
+  const dispatch = vi.fn<(request: PluginDispatchInboundMessageRequest) => Promise<{ result: string }>>(
+    async () => ({ result: 'Merged two pages.' }),
+  );
   const api = {
     getCredential: () => 'test-key',
     getMcpServerConfig: () => null,
@@ -209,32 +205,13 @@ test('maintenance runs daily at the configured hour on its own session', async (
       channelId: 'knowledge-maintenance',
       agentId: 'main',
       sessionMode: 'resume',
-      allowedTools: expect.arrayContaining(['hybridai__knowledge_write']),
+      allowedTools: [...MAINTENANCE_TOOLS],
+      toolCallLimits: { hybridai__knowledge_write: MAX_MAINTENANCE_WRITES },
     }),
   );
   expect(dispatch.mock.calls[0]?.[0].allowedTools).not.toContain('write_file');
 
-  // The thirteenth write aborts the turn; the run still reports what it has.
-  const runaway = vi.fn(async (request: { onToolProgress?: (e: unknown) => void; abortSignal?: AbortSignal }) => {
-    for (let n = 0; n < 13; n += 1) {
-      request.onToolProgress?.({
-        sessionId: 's',
-        toolName: 'hybridai__knowledge_write',
-        phase: 'start',
-      });
-    }
-    expect(request.abortSignal?.aborted).toBe(true);
-    throw new Error('aborted');
-  });
-  const capped = await runMaintenance({
-    api: { ...api, dispatchInboundMessage: runaway },
-    config,
-  });
-  expect(capped).toBe('');
-  expect(api.logger.warn).toHaveBeenCalledWith(
-    expect.objectContaining({ writes: 13 }),
-    'Knowledge maintenance turn aborted: write budget exhausted',
-  );
+  expect(dispatch.mock.calls[0]?.[0].allowedTools).not.toContain('hybridai__knowledge_ingest');
 
   vi.useFakeTimers();
   try {

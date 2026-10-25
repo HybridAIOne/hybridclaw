@@ -2,7 +2,7 @@ id: hybridai-knowledge
 name: HybridAI Knowledge
 version: 0.1.0
 kind: memory
-description: Grounds every turn in the HybridAI knowledge collections the user may read, and runs the nightly maintenance turn on the company wiki.
+description: Grounds every turn in the HybridAI knowledge collections the API key owner may read, and runs the nightly maintenance turn on the company wiki.
 entrypoint: src/index.js
 credentials:
   - HYBRIDAI_API_KEY
@@ -14,7 +14,7 @@ configSchema:
       type: array
       default: []
       maxItems: 32
-      description: Collection ids to retrieve from before each turn; empty means every collection the user may read (company collections plus the bot collections shared with agents).
+      description: Collection ids to retrieve from before each turn; empty means every collection the API key owner may read, shared across all chat users on this gateway.
       items:
         type: string
         minLength: 1
