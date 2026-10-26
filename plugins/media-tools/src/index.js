@@ -1,12 +1,35 @@
-import { runAudioTranscribe } from './audio-transcribe.js';
-import { runImageGenerate } from './image-generation.js';
+/**
+ * Media tools share provider selection between execution and per-turn readiness.
+ * Readiness exposes configuration only, never credentials or a permission grant;
+ * unlike a provider call it does not inspect media or validate service access.
+ */
+import {
+  listAudioTranscriptionProviders,
+  runAudioTranscribe,
+} from './audio-transcribe.js';
+import {
+  listImageGenerationProviders,
+  runImageGenerate,
+} from './image-generation.js';
 import { MEDIA_TOOL_DEFINITIONS } from './tool-definitions.js';
-import { runVideoGenerate } from './video-generation.js';
+import {
+  listVideoGenerationProviders,
+  runVideoGenerate,
+} from './video-generation.js';
 
 const RUNNERS = {
-  image_generate: runImageGenerate,
-  audio_transcribe: runAudioTranscribe,
-  video_generate: runVideoGenerate,
+  image_generate: {
+    run: runImageGenerate,
+    providers: listImageGenerationProviders,
+  },
+  audio_transcribe: {
+    run: runAudioTranscribe,
+    providers: listAudioTranscriptionProviders,
+  },
+  video_generate: {
+    run: runVideoGenerate,
+    providers: listVideoGenerationProviders,
+  },
 };
 
 function credential(api, ...names) {
@@ -72,11 +95,11 @@ async function resolveSessionModel(api, toolContext) {
     return await api.media.getSessionModelCredentials(toolContext.sessionId);
   } catch (error) {
     // Without session credentials the tools still use dedicated provider keys.
-    toolContext.logger.debug(
+    api.logger.debug(
       { error },
       'media-tools: session model credentials unavailable',
     );
-    return { provider: '', model: '', baseUrl: '', apiKey: '' };
+    return null;
   }
 }
 
@@ -97,8 +120,45 @@ async function buildRuntimeContext(api, toolContext) {
 export default {
   id: 'media-tools',
   register(api) {
+    api.registerPromptHook({
+      id: 'media-tool-readiness',
+      async render(context) {
+        const sessionModel = await resolveSessionModel(api, context);
+        const runtime = {
+          ...sessionModel,
+          providerCredentials: resolveProviderCredentials(api),
+        };
+        const readiness = MEDIA_TOOL_DEFINITIONS.map(({ name }) => {
+          const providers = RUNNERS[name]
+            .providers(runtime)
+            .providers.filter((provider) => provider.ready)
+            .map((provider) => provider.id);
+          return {
+            tool: name,
+            status: providers.length
+              ? 'configured'
+              : sessionModel
+                ? 'unavailable'
+                : 'unknown',
+            providers,
+            ...(providers.length
+              ? {}
+              : {
+                  reason: sessionModel
+                    ? 'No configured provider. Use action="list" for setup requirements.'
+                    : 'Session credentials could not be checked; no dedicated provider is configured.',
+                }),
+          };
+        });
+        return [
+          '## Tool capability readiness',
+          'Current configuration snapshot, not a service health check or permission grant. Configured providers may still reject a request. Tool schemas and approvals still apply. Use action="list" to recheck after configuration changes.',
+          JSON.stringify(readiness),
+        ].join('\n');
+      },
+    });
     for (const definition of MEDIA_TOOL_DEFINITIONS) {
-      const run = RUNNERS[definition.name];
+      const { run } = RUNNERS[definition.name];
       api.registerTool({
         ...definition,
         async handler(args, toolContext) {

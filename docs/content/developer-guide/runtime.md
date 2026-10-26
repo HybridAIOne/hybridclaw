@@ -389,6 +389,28 @@ The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
+## Tool Recovery
+
+The system prompt distinguishes a failed method from a blocked task. It uses
+current capability readiness, directs the model to investigate inconclusive
+results and try materially different permitted methods, and bounds recovery by
+useful progress and the remaining execution budget. Missing configuration does
+not grant permission to obtain credentials or broaden access. Runtime blocks
+and denied approvals must never be bypassed. Unread source content must not be
+replaced with invented findings.
+
+`tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
+`tests/media-tools-readiness.test.ts` checks configuration snapshots and their
+agreement with provider selection. The opt-in scripted model checks in
+`tests/safety-guardrails.live.test.ts` cover recovery, completion after a
+successful fallback, and preservation of denial boundaries; enable them with
+`HYBRIDCLAW_RUN_LIVE_SAFETY=1`. By default they use the configured runtime
+model and its provider transport and credentials, with retrieval disabled and
+only synthetic scenarios. Proposed tools are inspected, never executed. To use
+an explicit OpenAI-compatible endpoint instead, set both
+`HYBRIDCLAW_LIVE_SAFETY_BASE_URL` and `HYBRIDCLAW_LIVE_SAFETY_MODEL` (plus
+`HYBRIDCLAW_LIVE_SAFETY_API_KEY` when required).
+
 ## Prompt Context Assembly
 
 HybridClaw separates the static system prompt from per-turn dynamic context.
