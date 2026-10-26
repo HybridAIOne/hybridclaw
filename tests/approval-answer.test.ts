@@ -26,6 +26,16 @@ it.each([
   [{ approvalId: '1a2b3c4d', decision: 'yes' }, 'yes 1a2b3c4d'],
   [{ approvalId: '1a2b3c4d', decision: 'no' }, 'no 1a2b3c4d'],
   [{ approvalId: '1a2b3c4d', decision: 'session' }, 'yes 1a2b3c4d for session'],
+  [{ approvalId: '1a2b3c4d', decision: 'draft' }, 'draft 1a2b3c4d'],
+  [
+    {
+      approvalId: '1a2b3c4d',
+      decision: 'draft',
+      email: { subject: 'Friday', body: 'See you then.', extra: 1 },
+    },
+    'draft 1a2b3c4d\n{"subject":"Friday","body":"See you then."}',
+  ],
+  [{ approvalId: '1a2b3c4d', decision: 'draft', email: { to: 'x' } }, null],
   [{ approvalId: '1a2b3c4d', decision: 'maybe' }, null],
   [{ approvalId: 'not an id', decision: 'yes' }, null],
   [{ decision: 'yes' }, null],

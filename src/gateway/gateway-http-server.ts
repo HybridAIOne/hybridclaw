@@ -3461,7 +3461,7 @@ async function handleApiChat(
   if (approval === null) {
     sendJson(res, 400, {
       error:
-        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, or no.',
+        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, no, or draft.',
     });
     return;
   }
