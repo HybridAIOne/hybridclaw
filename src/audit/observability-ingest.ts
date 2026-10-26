@@ -2,7 +2,7 @@
  * Observability push — forwards local audit rows to the platform ingest API.
  *
  * The stream is keyed by this install's node id, not by bot or agent; each
- * batch carries the one agent its sessions belong to. NOT the audit trail
+ * batch carries the executing agent recorded at run start. NOT the audit trail
  * itself (`audit-trail.ts` owns the hash chain this module only relays).
  */
 import { randomUUID } from 'node:crypto';
@@ -22,7 +22,10 @@ import {
 import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
-import { getStructuredAuditAfterId } from '../memory/audit.js';
+import {
+  getAuditRunAgentId,
+  getStructuredAuditAfterId,
+} from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
   getLatestObservabilityOffsetWithPrefix,
@@ -221,7 +224,11 @@ function agentIdForRow(
   config: ResolvedIngestConfig,
   row: StructuredAuditEntry,
 ): string {
-  return parseSessionKey(row.session_id)?.agentId || config.defaultAgentId;
+  return (
+    getAuditRunAgentId(row.session_id, row.run_id) ||
+    parseSessionKey(row.session_id)?.agentId ||
+    config.defaultAgentId
+  );
 }
 
 function parseBoolean(value: unknown): boolean {

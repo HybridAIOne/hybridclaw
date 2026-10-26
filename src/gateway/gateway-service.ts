@@ -8022,6 +8022,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       runId,
       event: {
         type: 'session.start',
+        executingAgentId: resolved.agentId,
         userId: normalizedUserId,
         channel: channelId,
         cwd: workspacePath,

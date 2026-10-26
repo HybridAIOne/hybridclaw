@@ -790,8 +790,11 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - source table: local `audit_events`, ordered by `id`
 - stream identity: the install's node id (`identity/instance-id.json` in the
   data dir), sent as `node_id` when the ingest token is requested
-- agent: each batch carries one `agent_id`, taken from its events' session
-  keys; events outside an agent session go to the default agent
+- agent: each batch carries one `agent_id`, taken from the run's durable
+  `session.start.executingAgentId`. All events in that session/run use this
+  identity, including app-generated session IDs and delayed uploads after an
+  agent switch. Records without a captured execution identity retain the
+  session-key/default-agent fallback; already exported history is not rewritten.
 - persisted cursor: `observability_offsets`
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`

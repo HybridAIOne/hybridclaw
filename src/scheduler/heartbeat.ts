@@ -246,6 +246,7 @@ export function startHeartbeat(
         runId,
         event: {
           type: 'session.start',
+          executingAgentId: resolvedAgentId,
           userId: 'heartbeat',
           channel: heartbeatChannelId,
           cwd: workspacePath,

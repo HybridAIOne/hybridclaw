@@ -188,6 +188,7 @@ export async function runIsolatedScheduledTask(params: {
     runId,
     event: {
       type: 'session.start',
+      executingAgentId: agentId,
       userId: 'scheduler',
       channel: channelId,
       cwd: workspacePath,

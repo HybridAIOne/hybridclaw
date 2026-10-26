@@ -580,17 +580,34 @@ test('observability ingest sends one batch per agent, named after the session ag
   await recordObservabilityBotSetEvent(alphaSession, 'run-alpha-1');
   await recordObservabilityBotSetEvent(alphaSession, 'run-alpha-2');
   await recordObservabilityBotSetEvent(betaSession, 'run-beta-1');
+  const { recordAuditEventStrict } = await import(
+    '../src/audit/audit-events.js'
+  );
+  await recordAuditEventStrict({
+    sessionId: betaSession,
+    runId: 'run-alpha-in-beta-session',
+    event: { type: 'session.start', executingAgentId: 'alpha' },
+  });
+  await recordAuditEventStrict({
+    sessionId: betaSession,
+    runId: 'run-alpha-in-beta-session',
+    event: { type: 'tool.result', executingAgentId: 'unrelated-target' },
+  });
   await recordObservabilityBotSetEvent('scheduler-maintenance', 'run-system');
 
   startObservabilityIngest();
   await vi.waitFor(() => {
-    expect(batches).toHaveLength(3);
+    expect(batches).toHaveLength(4);
   });
   stopObservabilityIngest();
 
   expect(batches).toEqual([
     { agent_id: 'alpha', runIds: ['run-alpha-1', 'run-alpha-2'] },
     { agent_id: 'beta', runIds: ['run-beta-1'] },
+    {
+      agent_id: 'alpha',
+      runIds: ['run-alpha-in-beta-session', 'run-alpha-in-beta-session'],
+    },
     { agent_id: 'main', runIds: ['run-system'] },
   ]);
 });
