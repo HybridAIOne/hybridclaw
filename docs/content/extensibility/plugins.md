@@ -134,7 +134,13 @@ in a hand-edited config are dropped when the plugin loads.
 - `media-tools` provides `image_generate`, `video_generate`, and
   `audio_transcribe`. Provider calls run in the gateway with keys from the
   secret store (or the session model's credentials), so no provider key enters
-  the sandbox. Reference media and outputs go through `api.media`
+  the sandbox. Reference media and outputs go through `api.media`.
+  Its per-turn prompt hook reports each tool as `configured`, `unavailable`
+  (no configured provider), or `unknown` (session credentials could not be
+  checked). The snapshot uses the same provider selection as execution,
+  contains no credentials, and does not change tool schemas or permissions.
+  Configuration does not prove service health or model access. `action="list"`
+  rechecks readiness after configuration changes and provides setup details.
 - `public-warnings` provides `public_warnings` for official German warnings
   (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) by
   town or district. Places the agent watches are checked every 10 minutes,
