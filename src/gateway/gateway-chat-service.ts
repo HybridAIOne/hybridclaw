@@ -1634,6 +1634,7 @@ async function handleGatewayMessageInner(
     runId,
     event: {
       type: 'session.start',
+      executingAgentId: agentId,
       userId: req.userId,
       channel: req.channelId,
       cwd: workspacePath,
