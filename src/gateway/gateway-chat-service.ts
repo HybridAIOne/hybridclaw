@@ -1832,7 +1832,11 @@ async function handleGatewayMessageInner(
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
   const blockedTools = blockAppOnlyToolsUnlessApp(
-    blockDeviceDataToolUnlessShared(scopeRun?.blockedTools, req.userId),
+    blockDeviceDataToolUnlessShared(
+      scopeRun?.blockedTools,
+      req.userId,
+      req.client === 'mobile',
+    ),
     req.client,
   );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
