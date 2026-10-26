@@ -134,7 +134,14 @@ in a hand-edited config are dropped when the plugin loads.
 - `media-tools` provides `image_generate`, `video_generate`, and
   `audio_transcribe`. Provider calls run in the gateway with keys from the
   secret store (or the session model's credentials), so no provider key enters
-  the sandbox. Reference media and outputs go through `api.media`
+  the sandbox. Reference media and outputs go through `api.media`.
+  `audio_transcribe` uses the default HybridAI credentials and platform URL
+  automatically, including when chat uses another provider. An explicit
+  provider override or configured speech-to-text preference still takes
+  precedence. HybridAI returns transcript text; timestamps, speaker labels,
+  and language-detection metadata require another configured provider.
+  `image_generate` and `video_generate` require their own supported provider
+  credentials; they do not yet support HybridAI credentials.
 - `public-warnings` provides `public_warnings` for official German warnings
   (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) by
   town or district. Places the agent watches are checked every 10 minutes,

@@ -2,11 +2,12 @@ id: media-tools
 name: Media Tools
 version: 0.1.0
 kind: tool
-description: image_generate, video_generate, and audio_transcribe tools that call OpenAI, Gemini, xAI, Black Forest Labs, Deepgram, or AssemblyAI from the gateway, so provider keys never enter the sandbox.
+description: image_generate, video_generate, and audio_transcribe tools that call HybridAI, OpenAI, Gemini, xAI, Black Forest Labs, Deepgram, or AssemblyAI from the gateway, so provider keys never enter the sandbox.
 entrypoint: src/index.js
 requires:
   node: '>=22.23.4 <23'
 credentials:
+  - HYBRIDAI_API_KEY
   - OPENAI_API_KEY
   - OPENAI_BASE_URL
   - OPENAI_AUDIO_MODEL
