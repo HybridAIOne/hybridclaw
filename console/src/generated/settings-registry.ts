@@ -806,6 +806,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: [],
     },
     {
+      path: 'discord.approverUserIds',
+      section: 'discord',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
       path: 'discord.botMessageChannels',
       section: 'discord',
       kind: 'list',

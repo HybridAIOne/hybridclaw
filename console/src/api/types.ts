@@ -591,6 +591,7 @@ export interface AdminConfig {
     commandAllowedUserIds: string[];
     allowFrom: string[];
     commandUserId: string;
+    approverUserIds: string[];
     groupPolicy: 'open' | 'allowlist' | 'disabled';
     sendPolicy: 'open' | 'allowlist' | 'disabled';
     sendAllowedChannelIds: string[];

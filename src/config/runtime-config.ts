@@ -1069,6 +1069,7 @@ export interface RuntimeConfig {
     commandMode: DiscordCommandMode;
     commandAllowedUserIds: string[];
     commandUserId: string;
+    approverUserIds: string[];
     groupPolicy: DiscordGroupPolicy;
     sendPolicy: DiscordSendPolicy;
     sendAllowedChannelIds: string[];
@@ -1563,6 +1564,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     commandMode: 'public',
     commandAllowedUserIds: [],
     commandUserId: '',
+    approverUserIds: [],
     groupPolicy: 'open',
     sendPolicy: 'open',
     sendAllowedChannelIds: [],
@@ -7237,6 +7239,10 @@ function normalizeRuntimeConfig(
       commandMode: normalizedCommandMode,
       commandAllowedUserIds: normalizedCommandAllowedUserIds,
       commandUserId: normalizedCommandUserId,
+      approverUserIds: normalizeStringArray(
+        rawDiscord.approverUserIds,
+        DEFAULT_RUNTIME_CONFIG.discord.approverUserIds,
+      ),
       groupPolicy: normalizeDiscordGroupPolicy(
         rawDiscord.groupPolicy,
         DEFAULT_RUNTIME_CONFIG.discord.groupPolicy,

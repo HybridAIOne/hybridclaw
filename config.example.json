@@ -166,6 +166,7 @@
     "commandMode": "public",
     "commandAllowedUserIds": [],
     "commandUserId": "",
+    "approverUserIds": [],
     "groupPolicy": "open",
     "sendPolicy": "open",
     "sendAllowedChannelIds": [],

@@ -93,6 +93,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       commandAllowedUserIds: [],
       allowFrom: [],
       commandUserId: '',
+      approverUserIds: [],
       groupPolicy: 'open',
       sendPolicy: 'open',
       sendAllowedChannelIds: [],

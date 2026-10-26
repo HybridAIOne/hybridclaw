@@ -251,6 +251,32 @@ test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong use
   await pendingApprovals.clearPendingApproval('session-5');
 });
 
+test('claimPendingApprovalByApprovalId lets an approver answer for the requester', async () => {
+  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+
+  await pendingApprovals.setPendingApproval('session-bot', {
+    approvalId: 'claim77',
+    prompt: 'started by a deploy bot',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'deploy-bot',
+    resolvedAt: null,
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim77',
+      userId: 'operator-1',
+      approverUserIds: ['operator-1'],
+    }),
+  ).toMatchObject({
+    status: 'claimed',
+    sessionId: 'session-bot',
+  });
+
+  await pendingApprovals.clearPendingApproval('session-bot');
+});
+
 test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async () => {
   const pendingApprovals = await import('../src/gateway/pending-approvals.js');
 

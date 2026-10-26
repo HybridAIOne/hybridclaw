@@ -15,6 +15,7 @@ import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
   DISCORD_ALLOW_FROM,
+  DISCORD_APPROVER_USER_IDS,
   DISCORD_BOT_MESSAGE_CHANNELS,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
   DISCORD_COMMAND_MODE,
@@ -1680,6 +1681,7 @@ export async function initDiscord(
       const pending = claimPendingApprovalByApprovalId({
         approvalId: parsed.approvalId,
         userId: interaction.user.id,
+        approverUserIds: DISCORD_APPROVER_USER_IDS,
       });
       if (pending.status === 'not_found') {
         await interaction.reply({

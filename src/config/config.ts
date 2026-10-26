@@ -303,6 +303,7 @@ export let DISCORD_COMMAND_MODE: RuntimeConfig['discord']['commandMode'] =
 export let DISCORD_COMMAND_ALLOWED_USER_IDS: string[] = [];
 export let DISCORD_ALLOW_FROM: string[] = [];
 export let DISCORD_COMMAND_USER_ID = '';
+export let DISCORD_APPROVER_USER_IDS: string[] = [];
 export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
   'open';
 export let DISCORD_SEND_POLICY: RuntimeConfig['discord']['sendPolicy'] = 'open';
@@ -825,6 +826,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_COMMAND_MODE = config.discord.commandMode;
   DISCORD_COMMAND_ALLOWED_USER_IDS = [...config.discord.commandAllowedUserIds];
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
+  DISCORD_APPROVER_USER_IDS = [...config.discord.approverUserIds];
   DISCORD_GROUP_POLICY = config.discord.groupPolicy;
   DISCORD_SEND_POLICY = config.discord.sendPolicy;
   DISCORD_SEND_ALLOWED_CHANNEL_IDS = [...config.discord.sendAllowedChannelIds];

@@ -63,6 +63,18 @@ it. Bot authors stay governed by `discord.botMessageChannels`.
 /config set discord.allowFrom ["123456789012345678","234567890123456789"]
 ```
 
+## Optional: Let Operators Answer Approvals
+
+An approval card normally only takes a click from the person whose message
+started the turn. When another bot or a webhook starts it, for example a
+deploy alert in a `discord.botMessageChannels` channel, nobody can click.
+List Discord user IDs in `discord.approverUserIds` to let those people
+answer any approval the bot posts, besides the requester.
+
+```text
+/config set discord.approverUserIds ["123456789012345678"]
+```
+
 ## What Counts As Addressing The Bot
 
 A direct bot mention, a mention of the bot's role, or a reply ping counts as

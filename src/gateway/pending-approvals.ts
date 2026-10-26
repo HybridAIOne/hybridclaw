@@ -354,6 +354,8 @@ export function findPendingApprovalByApprovalId(approvalId: string): {
 export function claimPendingApprovalByApprovalId(params: {
   approvalId: string;
   userId: string;
+  /** Users who may answer any approval, not only their own. */
+  approverUserIds?: readonly string[];
 }):
   | {
       status: 'claimed';
@@ -383,7 +385,10 @@ export function claimPendingApprovalByApprovalId(params: {
     if (entry.approvalId !== normalizedApprovalId) {
       continue;
     }
-    if (entry.userId !== params.userId) {
+    if (
+      entry.userId !== params.userId &&
+      !params.approverUserIds?.includes(params.userId)
+    ) {
       return { status: 'unauthorized', sessionId, entry };
     }
     if (entry.resolvedAt) {

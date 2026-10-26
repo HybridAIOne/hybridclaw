@@ -606,6 +606,19 @@ function DiscordChannelEditor(props: {
       />
 
       <FormField
+        name="discord.approverUserIds"
+        render={({ field }) => (
+          <ListField
+            label="Approver user IDs (may answer any approval)"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
+      <FormField
         name="discord.sendAllowedChannelIds"
         render={({ field }) => (
           <ListField
