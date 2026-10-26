@@ -76,4 +76,17 @@ test('media-tools plugin registers its tools and answers a list action', async (
     'xai',
     'bfl',
   ]);
+  vi.stubEnv('HYBRIDAI_API_KEY', 'test-platform-key');
+  const audio = JSON.parse(
+    await manager.executeTool({
+      toolName: 'audio_transcribe',
+      args: { action: 'list' },
+      sessionId: 'session-1',
+      channelId: 'web',
+    }),
+  );
+  expect(audio.default_provider).toBe('hybridai');
+  expect(audio.providers).toContainEqual(
+    expect.objectContaining({ id: 'hybridai', ready: true }),
+  );
 });

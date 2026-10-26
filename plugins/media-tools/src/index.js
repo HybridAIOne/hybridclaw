@@ -28,6 +28,10 @@ function providerEntry(fields) {
 // reload. Gemini and xAI base URLs come from the matching core provider config.
 function resolveProviderCredentials(api) {
   return {
+    hybridai: providerEntry({
+      apiKey: credential(api, 'HYBRIDAI_API_KEY'),
+      baseUrl: api.config.hybridai?.baseUrl,
+    }),
     speechToText: {
       defaultProvider: api.config.skills?.speechToText?.defaultProvider,
     },

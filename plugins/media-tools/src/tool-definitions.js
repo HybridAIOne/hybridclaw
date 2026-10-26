@@ -79,7 +79,7 @@ export const MEDIA_TOOL_DEFINITIONS = [
           provider: {
             type: 'string',
             description:
-              'Optional provider override: auto, openai, whisper, deepgram, or assemblyai.',
+              'Optional provider override: auto, hybridai, openai, whisper, deepgram, or assemblyai.',
           },
           audio: {
             type: 'string',

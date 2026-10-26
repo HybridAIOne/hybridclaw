@@ -4,20 +4,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  buildProviderCandidates,
+  listAudioTranscriptionProviders,
+  MAX_AUDIO_BYTES,
+} from './audio-providers.js';
+
+import {
   classifyProviderError,
   isRecord,
-  normalizeBaseUrl,
   ProviderRequestError,
-  readCredentialValue,
   readStringValue,
   sanitizeProviderError,
   shouldFallbackProviderError,
-  stripProviderPrefix,
   writeWorkspaceFile,
 } from './shared.js';
 
+export { listAudioTranscriptionProviders } from './audio-providers.js';
+
 const OUTPUT_DIR = '.transcripts';
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
 const MAX_FETCH_AUDIO_BYTES = 512 * 1024 * 1024;
 const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
@@ -25,12 +29,6 @@ const ASSEMBLYAI_INITIAL_POLL_INTERVAL_MS = 1_000;
 const ASSEMBLYAI_MAX_POLL_INTERVAL_MS = 10_000;
 const ASSEMBLYAI_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const ASSEMBLYAI_POLL_TIMEOUT_MS = 10 * 60_000;
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_DEEPGRAM_BASE_URL = 'https://api.deepgram.com/v1';
-const DEFAULT_ASSEMBLYAI_BASE_URL = 'https://api.assemblyai.com';
-const DEFAULT_OPENAI_AUDIO_MODEL = 'whisper-1';
-const DEFAULT_DEEPGRAM_AUDIO_MODEL = 'nova-3';
-const DEFAULT_ASSEMBLYAI_AUDIO_MODEL = 'universal';
 const DEFAULT_CHUNK_WINDOW_SEC = 25 * 60;
 const DEFAULT_CHUNK_OVERLAP_SEC = 10;
 function readNumberValue(value) {
@@ -50,20 +48,6 @@ function readPositiveInteger(value) {
   const parsed = readNumberValue(value);
   if (parsed == null || parsed <= 0) return null;
   return Math.floor(parsed);
-}
-function hasAudioTranscriptionModelHint(model) {
-  return /whisper|transcribe|transcription/i.test(model);
-}
-function normalizeSpeechToTextProvider(value) {
-  const normalized = readCredentialValue(value).toLowerCase();
-  if (normalized === 'whisper' || normalized === 'openai-whisper') {
-    return 'openai';
-  }
-  return normalized === 'openai' ||
-    normalized === 'deepgram' ||
-    normalized === 'assemblyai'
-    ? normalized
-    : null;
 }
 function extensionFromMimeType(mimeType) {
   const normalized = mimeType.toLowerCase();
@@ -258,175 +242,6 @@ async function normalizeRequest(args, context) {
     warnings,
   };
 }
-function candidateFromCurrentContext(context) {
-  if (!context.apiKey || context.provider !== 'openai-codex') return null;
-  const model = stripProviderPrefix(context.model, 'openai-codex');
-  return {
-    id: 'openai',
-    label: 'OpenAI / Codex',
-    apiKey: context.apiKey,
-    baseUrl: normalizeBaseUrl(context.baseUrl, DEFAULT_OPENAI_BASE_URL),
-    model: hasAudioTranscriptionModelHint(model)
-      ? model
-      : DEFAULT_OPENAI_AUDIO_MODEL,
-    requestHeaders: context.requestHeaders,
-    maxAudioBytes: MAX_AUDIO_BYTES,
-    supportsDiarization: false,
-    supportsWordTimestamps: true,
-    supportsLanguageDetection: true,
-  };
-}
-function buildProviderCandidates(context, providerOverride) {
-  const candidates = [];
-  const openaiConfig = context.providerCredentials?.openai || {};
-  const openaiKey = readCredentialValue(openaiConfig.apiKey);
-  const current = candidateFromCurrentContext(context);
-  if (current) candidates.push(current);
-  if (openaiKey && !candidates.some((entry) => entry.id === 'openai')) {
-    candidates.push({
-      id: 'openai',
-      label: 'OpenAI',
-      apiKey: openaiKey,
-      baseUrl: normalizeBaseUrl(
-        readCredentialValue(openaiConfig.baseUrl),
-        DEFAULT_OPENAI_BASE_URL,
-      ),
-      model:
-        readCredentialValue(openaiConfig.audioModel) ||
-        DEFAULT_OPENAI_AUDIO_MODEL,
-      maxAudioBytes: MAX_AUDIO_BYTES,
-      supportsDiarization: false,
-      supportsWordTimestamps: true,
-      supportsLanguageDetection: true,
-    });
-  }
-  const deepgramConfig = context.providerCredentials?.deepgram || {};
-  const deepgramKey = readCredentialValue(deepgramConfig.apiKey);
-  if (deepgramKey) {
-    candidates.push({
-      id: 'deepgram',
-      label: 'Deepgram',
-      apiKey: deepgramKey,
-      baseUrl: normalizeBaseUrl(
-        readCredentialValue(deepgramConfig.baseUrl),
-        DEFAULT_DEEPGRAM_BASE_URL,
-      ),
-      model:
-        readCredentialValue(deepgramConfig.audioModel) ||
-        DEFAULT_DEEPGRAM_AUDIO_MODEL,
-      maxAudioBytes: 512 * 1024 * 1024,
-      supportsDiarization: true,
-      supportsWordTimestamps: true,
-      supportsLanguageDetection: true,
-    });
-  }
-  const assemblyaiConfig = context.providerCredentials?.assemblyai || {};
-  const assemblyaiKey = readCredentialValue(assemblyaiConfig.apiKey);
-  if (assemblyaiKey) {
-    candidates.push({
-      id: 'assemblyai',
-      label: 'AssemblyAI',
-      apiKey: assemblyaiKey,
-      baseUrl: normalizeBaseUrl(
-        readCredentialValue(assemblyaiConfig.baseUrl),
-        DEFAULT_ASSEMBLYAI_BASE_URL,
-      ),
-      model:
-        readCredentialValue(assemblyaiConfig.audioModel) ||
-        DEFAULT_ASSEMBLYAI_AUDIO_MODEL,
-      maxAudioBytes: 512 * 1024 * 1024,
-      supportsDiarization: true,
-      supportsWordTimestamps: true,
-      supportsLanguageDetection: true,
-    });
-  }
-  const requested = String(providerOverride || 'auto')
-    .trim()
-    .toLowerCase();
-  if (!requested || requested === 'auto' || requested === 'default') {
-    const defaultProvider = normalizeSpeechToTextProvider(
-      context.providerCredentials?.speechToText?.defaultProvider,
-    );
-    if (defaultProvider) {
-      return [
-        ...candidates.filter((candidate) => candidate.id === defaultProvider),
-        ...candidates.filter((candidate) => candidate.id !== defaultProvider),
-      ];
-    }
-    return candidates;
-  }
-  const normalized =
-    requested === 'whisper' || requested === 'openai-whisper'
-      ? 'openai'
-      : requested;
-  return candidates.filter((candidate) => candidate.id === normalized);
-}
-export function listAudioTranscriptionProviders(context) {
-  const candidates = buildProviderCandidates(context);
-  const ready = new Set(candidates.map((entry) => entry.id));
-  const active = candidateFromCurrentContext(context)?.id || null;
-  const candidateById = new Map(candidates.map((entry) => [entry.id, entry]));
-  return {
-    success: true,
-    configured_count: candidates.length,
-    default_provider: candidates[0]?.id || null,
-    providers: [
-      {
-        id: 'openai',
-        label: 'OpenAI Whisper',
-        ready: ready.has('openai'),
-        active: active === 'openai',
-        model:
-          candidates.find((entry) => entry.id === 'openai')?.model ||
-          DEFAULT_OPENAI_AUDIO_MODEL,
-        missing: ready.has('openai')
-          ? null
-          : 'Store OPENAI_API_KEY with `hybridclaw secret set OPENAI_API_KEY <key>` or in TUI with `/secret set OPENAI_API_KEY <key>`, or use an openai-codex model with credentials.',
-        capabilities: {
-          language_detection: true,
-          segment_timestamps: true,
-          word_timestamps: true,
-          diarization: false,
-        },
-      },
-      {
-        id: 'deepgram',
-        label: 'Deepgram',
-        ready: ready.has('deepgram'),
-        active: false,
-        model:
-          candidateById.get('deepgram')?.model || DEFAULT_DEEPGRAM_AUDIO_MODEL,
-        missing: ready.has('deepgram')
-          ? null
-          : 'Store DEEPGRAM_API_KEY with `hybridclaw secret set DEEPGRAM_API_KEY <key>` or in TUI with `/secret set DEEPGRAM_API_KEY <key>`.',
-        capabilities: {
-          language_detection: true,
-          segment_timestamps: true,
-          word_timestamps: true,
-          diarization: true,
-        },
-      },
-      {
-        id: 'assemblyai',
-        label: 'AssemblyAI',
-        ready: ready.has('assemblyai'),
-        active: false,
-        model:
-          candidateById.get('assemblyai')?.model ||
-          DEFAULT_ASSEMBLYAI_AUDIO_MODEL,
-        missing: ready.has('assemblyai')
-          ? null
-          : 'Store ASSEMBLYAI_API_KEY with `hybridclaw secret set ASSEMBLYAI_API_KEY <key>` or in TUI with `/secret set ASSEMBLYAI_API_KEY <key>`.',
-        capabilities: {
-          language_detection: true,
-          segment_timestamps: true,
-          word_timestamps: true,
-          diarization: true,
-        },
-      },
-    ],
-  };
-}
 function normalizeHeaders(headers) {
   const normalized = {};
   for (const [key, value] of Object.entries(headers || {})) {
@@ -531,7 +346,10 @@ function formatSpeaker(value) {
 async function transcribeWithOpenAi(candidate, request) {
   const form = new FormData();
   form.set('model', candidate.model);
-  form.set('response_format', 'verbose_json');
+  form.set(
+    'response_format',
+    candidate.id === 'hybridai' ? 'json' : 'verbose_json',
+  );
   form.set(
     'file',
     new Blob([bufferAsBlobPart(request.audio.buffer)], {
@@ -541,7 +359,7 @@ async function transcribeWithOpenAi(candidate, request) {
   );
   if (request.language) form.set('language', request.language);
   if (request.prompt) form.set('prompt', request.prompt);
-  if (request.timestamps !== 'none') {
+  if (candidate.id !== 'hybridai' && request.timestamps !== 'none') {
     form.append(
       'timestamp_granularities[]',
       request.timestamps === 'word' ? 'word' : 'segment',
@@ -558,15 +376,20 @@ async function transcribeWithOpenAi(candidate, request) {
       body: form,
     },
   );
-  const parsed = await parseProviderJson(response, 'OpenAI');
+  const parsed = await parseProviderJson(response, candidate.label);
   if (!isRecord(parsed)) {
-    throw new Error('OpenAI transcription returned an unexpected payload');
+    throw new Error(
+      `${candidate.label} transcription returned an unexpected payload`,
+    );
   }
   return {
     text: readStringValue(parsed.text) || '',
     language: readStringValue(parsed.language),
     durationSec: readNumberValue(parsed.duration),
-    segments: normalizeSegments(parsed.segments),
+    segments:
+      candidate.id === 'hybridai'
+        ? buildFallbackSegments(readStringValue(parsed.text), null)
+        : normalizeSegments(parsed.segments),
     words: normalizeWords(parsed.words),
   };
 }
@@ -808,7 +631,12 @@ function collectCandidateWarnings(candidate, request) {
       `${candidate.label} does not support diarization; speaker labels will be omitted.`,
     );
   }
-  if (request.timestamps === 'word' && !candidate.supportsWordTimestamps) {
+  if (candidate.id === 'hybridai' && request.timestamps !== 'none') {
+    warnings.push('HybridAI returns transcript text without timestamps.');
+  } else if (
+    request.timestamps === 'word' &&
+    !candidate.supportsWordTimestamps
+  ) {
     warnings.push(
       `${candidate.label} does not support word timestamps; segment timestamps will be used.`,
     );
@@ -859,16 +687,13 @@ function probeAudioDurationSec(filePath) {
   }
   return duration;
 }
-function createAudioChunks(input, durationSec) {
+function createAudioChunks(input, durationSec, overlapSec) {
   if (!input.localPath) {
     throw new Error('long audio chunking requires a local staged audio file');
   }
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-'));
   const chunks = [];
-  const stepSec = Math.max(
-    1,
-    DEFAULT_CHUNK_WINDOW_SEC - DEFAULT_CHUNK_OVERLAP_SEC,
-  );
+  const stepSec = Math.max(1, DEFAULT_CHUNK_WINDOW_SEC - overlapSec);
   try {
     for (let startSec = 0; startSec < durationSec; startSec += stepSec) {
       const duration = Math.min(
@@ -967,7 +792,10 @@ async function transcribePossiblyChunked(candidate, request) {
   const warnings = collectCandidateWarnings(candidate, request);
   let durationSec = null;
   let shouldChunk = request.audio.buffer.length > candidate.maxAudioBytes;
-  if (candidate.id === 'openai' && request.audio.localPath) {
+  if (
+    ['openai', 'hybridai'].includes(candidate.id) &&
+    request.audio.localPath
+  ) {
     try {
       durationSec = probeAudioDurationSec(request.audio.localPath);
       shouldChunk ||= durationSec > DEFAULT_CHUNK_WINDOW_SEC;
@@ -994,7 +822,10 @@ async function transcribePossiblyChunked(candidate, request) {
     }
     durationSec = probeAudioDurationSec(request.audio.localPath);
   }
-  const chunks = createAudioChunks(request.audio, durationSec);
+  // Text-only responses cannot remove overlap using segment timestamps.
+  const overlapSec =
+    candidate.id === 'hybridai' ? 0 : DEFAULT_CHUNK_OVERLAP_SEC;
+  const chunks = createAudioChunks(request.audio, durationSec, overlapSec);
   const results = await Promise.all(
     chunks.map(async (chunk) => {
       const chunkResult = await transcribeWithCandidate(candidate, {
@@ -1005,10 +836,10 @@ async function transcribePossiblyChunked(candidate, request) {
     }),
   );
   warnings.push(
-    `audio was split into ${chunks.length} chunks with ${DEFAULT_CHUNK_OVERLAP_SEC}s overlap.`,
+    `audio was split into ${chunks.length} chunks with ${overlapSec}s overlap.`,
   );
   return {
-    result: stitchTranscriptionChunks(results, DEFAULT_CHUNK_OVERLAP_SEC),
+    result: stitchTranscriptionChunks(results, overlapSec),
     warnings,
   };
 }
@@ -1064,15 +895,25 @@ export async function runAudioTranscribe(args, context) {
     return JSON.stringify(listAudioTranscriptionProviders(context), null, 2);
   }
   const request = await normalizeRequest(args, context);
-  const candidates = buildProviderCandidates(context, request.provider);
-  if (candidates.length === 0) {
-    throw new Error(
-      request.provider
-        ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`hybridclaw secret set <name> <key>\` or in TUI with \`/secret set <name> <key>\`, or use provider "auto".`
-        : 'audio_transcribe is not configured: store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex model.',
-    );
-  }
   try {
+    const candidates = buildProviderCandidates(
+      context,
+      request.provider,
+    ).filter(
+      (candidate) =>
+        action !== 'detect-language' || candidate.supportsLanguageDetection,
+    );
+    if (candidates.length === 0) {
+      if (request.detectLanguageOnly)
+        throw new Error(
+          'audio_transcribe requires a configured provider with language-detection metadata.',
+        );
+      throw new Error(
+        request.provider
+          ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`hybridclaw secret set <name> <key>\` or in TUI with \`/secret set <name> <key>\`, or use provider "auto".`
+          : 'audio_transcribe is not configured for this action: sign in to HybridAI for transcription, store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex model.',
+      );
+    }
     const attempts = [];
     const errors = [];
     for (let index = 0; index < candidates.length; index += 1) {
