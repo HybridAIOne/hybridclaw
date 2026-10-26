@@ -5,6 +5,15 @@
 import type { ApprovalPrelude } from './approval-policy.js';
 
 type ApprovalMode = NonNullable<ApprovalPrelude['approvalMode']>;
+export interface ApprovalDirective {
+  kind: 'approve' | 'deny' | 'draft';
+  mode?: ApprovalMode;
+  requestId: string;
+  // `draft`: the user's own version of the email, data for the prompt only.
+  email?: Record<string, unknown>;
+}
+// `draft <id>`, optionally followed by the user's version as JSON on its own lines.
+const DRAFT_RE = /^draft\s+([a-f0-9-]{6,64})(?:\s*\n([\s\S]+))?$/i;
 const APPROVE_RE =
   /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
@@ -18,11 +27,20 @@ function parseModeFromApproveMatch(
   return 'once';
 }
 
-export function parseApprovalDirective(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
+function draftEmail(json: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(json);
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function parseApprovalDirective(
+  input: string,
+): ApprovalDirective | null {
   const normalized = input.trim();
   if (!normalized) return null;
 
@@ -33,6 +51,16 @@ export function parseApprovalDirective(input: string): {
 
   for (const candidate of directiveCandidates) {
     if (!candidate) continue;
+    const draftMatch = candidate.match(DRAFT_RE);
+    if (draftMatch) {
+      const email = draftMatch[2] ? draftEmail(draftMatch[2]) : undefined;
+      if (email === null) return null;
+      return {
+        kind: 'draft',
+        requestId: draftMatch[1],
+        ...(email ? { email } : {}),
+      };
+    }
     const approveMatch = candidate.match(APPROVE_RE);
     if (approveMatch) {
       return {
@@ -54,11 +82,9 @@ export function parseApprovalDirective(input: string): {
   return null;
 }
 
-export function parseApprovalUserResponse(input: string): {
-  kind: 'approve' | 'deny';
-  mode?: ApprovalMode;
-  requestId: string;
-} | null {
+export function parseApprovalUserResponse(
+  input: string,
+): ApprovalDirective | null {
   const normalized = input.trim();
   if (!normalized) return null;
 
