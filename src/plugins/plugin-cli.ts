@@ -88,7 +88,9 @@ export function resolvePluginPath(value: unknown, cwd: string): string {
 export function normalizeCliText(value: unknown): string {
   return String(value || '')
     .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

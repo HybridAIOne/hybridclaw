@@ -187,3 +187,16 @@ test.each([
   const { resolvePluginPath } = await loadPluginCli();
   expect(resolvePluginPath(value, '/work')).toBe(expected);
 });
+
+test.each([
+  { value: 'a  \t\r\nb', expected: 'a\nb' },
+  { value: '\n\na\n\n\n\nb  \n', expected: 'a\n\nb' },
+  { value: `a${'\t'.repeat(100_000)}b`, expected: `a${'\t'.repeat(100_000)}b` },
+  { value: undefined, expected: '' },
+])('normalizeCliText trims line ends and collapses blank runs', async ({
+  value,
+  expected,
+}) => {
+  const { normalizeCliText } = await loadPluginCli();
+  expect(normalizeCliText(value)).toBe(expected);
+});
