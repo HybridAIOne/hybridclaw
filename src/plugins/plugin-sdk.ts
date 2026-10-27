@@ -81,6 +81,14 @@ export {
 export { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 export type { StoredMessage } from '../types/session.js';
 export { ensureBootstrapFiles } from '../workspace.js';
+export {
+  type BoundedCliOptions,
+  type BoundedCliResult,
+  buildCliProcessEnv,
+  normalizeCliText,
+  resolvePluginPath,
+  runBoundedCli,
+} from './plugin-cli.js';
 export type {
   PluginMediaHost,
   PluginSessionModelCredentials,

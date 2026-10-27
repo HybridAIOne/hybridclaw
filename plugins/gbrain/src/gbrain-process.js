@@ -1,4 +1,8 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import {
+  buildCliProcessEnv,
+  runBoundedCli,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'according',
@@ -30,34 +34,10 @@ const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'why',
 ]);
 
-const MIN_CAPTURE_BYTES = 32_768;
-const CAPTURE_BYTES_PER_INJECTED_CHAR = 2;
 const MAX_DISCOVERY_CAPTURE_BYTES = 256 * 1024;
 const MAX_PASSTHROUGH_CAPTURE_BYTES = 512 * 1024;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 30_000;
 const MIN_PASSTHROUGH_TIMEOUT_MS = 15 * 60 * 1000;
-const GBRAIN_TIMEOUT_KILL_GRACE_MS = 250;
-const GBRAIN_ENV_ALLOWLIST = [
-  'HOME',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE',
-  'PATH',
-  'TMPDIR',
-  'XDG_CACHE_HOME',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-];
-const GBRAIN_WINDOWS_ENV_ALLOWLIST = [
-  'APPDATA',
-  'ComSpec',
-  'LOCALAPPDATA',
-  'PATHEXT',
-  'SystemRoot',
-  'TEMP',
-  'TMP',
-  'USERPROFILE',
-];
 const GBRAIN_CREDENTIAL_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'DATABASE_URL',
@@ -107,81 +87,15 @@ function appendTruncationNotice(text, label) {
   return normalized ? `${normalized}\n\n${notice}` : notice;
 }
 
-function resolveCaptureLimitBytes(config, preferredMaxBytes) {
-  if (typeof preferredMaxBytes === 'number' && preferredMaxBytes > 0) {
-    return Math.max(MIN_CAPTURE_BYTES, Math.trunc(preferredMaxBytes));
-  }
-
-  const configuredBudget =
-    typeof config?.maxInjectedChars === 'number' &&
-    Number.isFinite(config.maxInjectedChars)
-      ? Math.max(0, Math.trunc(config.maxInjectedChars)) *
-        CAPTURE_BYTES_PER_INJECTED_CHAR
-      : 0;
-  return Math.max(MIN_CAPTURE_BYTES, configuredBudget);
-}
-
-function createOutputCollector(maxBytes) {
-  return {
-    chunks: [],
-    maxBytes,
-    totalBytes: 0,
-    truncated: false,
-  };
-}
-
-function appendOutputChunk(collector, chunk) {
-  const buffer = Buffer.isBuffer(chunk)
-    ? chunk
-    : Buffer.from(String(chunk), 'utf-8');
-  const remaining = collector.maxBytes - collector.totalBytes;
-  if (remaining <= 0) {
-    collector.truncated = true;
-    return;
-  }
-
-  if (buffer.length <= remaining) {
-    collector.totalBytes += buffer.length;
-    collector.chunks.push(buffer);
-    return;
-  }
-
-  collector.totalBytes += remaining;
-  collector.chunks.push(buffer.subarray(0, remaining));
-  collector.truncated = true;
-}
-
-function readCollectedOutput(collector) {
-  if (collector.chunks.length === 0) return '';
-  return Buffer.concat(collector.chunks).toString('utf-8');
-}
-
-function buildGbrainProcessEnv(config) {
+function buildGbrainCredentialEnv(config) {
   const env = {};
-  const allowlist =
-    process.platform === 'win32'
-      ? [...GBRAIN_ENV_ALLOWLIST, ...GBRAIN_WINDOWS_ENV_ALLOWLIST]
-      : GBRAIN_ENV_ALLOWLIST;
-
-  for (const key of allowlist) {
-    const value = process.env[key];
-    if (typeof value === 'string' && value.length > 0) {
-      env[key] = value;
-    }
-  }
-
   for (const key of GBRAIN_CREDENTIAL_ENV_KEYS) {
-    const configured = config?.credentialEnv?.[key];
-    if (typeof configured === 'string' && configured.trim()) {
-      env[key] = configured.trim();
-      continue;
-    }
-    const value = process.env[key];
-    if (typeof value === 'string' && value.trim()) {
-      env[key] = value.trim();
-    }
+    const value = firstNonEmptyString(
+      config?.credentialEnv?.[key],
+      process.env[key],
+    );
+    if (value) env[key] = value;
   }
-
   return env;
 }
 
@@ -322,102 +236,18 @@ function normalizeDiscoveredTool(item) {
 }
 
 export async function runGbrain(args, config, options) {
-  const timeoutMs =
-    options && Object.hasOwn(options, 'timeoutMs')
-      ? options.timeoutMs
-      : config.timeoutMs;
-
-  return await new Promise((resolve) => {
-    const captureLimitBytes = resolveCaptureLimitBytes(
-      config,
-      options?.captureLimitBytes,
-    );
-    const child = spawn(config.command, args, {
-      cwd: config.workingDirectory,
-      env: buildGbrainProcessEnv(config),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutCollector = createOutputCollector(captureLimitBytes);
-    const stderrCollector = createOutputCollector(captureLimitBytes);
-    let settled = false;
-    let timedOut = false;
-    let killTimer = null;
-
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(killTimer);
-      resolve({
-        ...result,
-        stderr: readCollectedOutput(stderrCollector),
-        stderrTruncated: stderrCollector.truncated,
-        stdout: readCollectedOutput(stdoutCollector),
-        stdoutTruncated: stdoutCollector.truncated,
-      });
-    };
-
-    const timer =
-      typeof timeoutMs === 'number' &&
-      Number.isFinite(timeoutMs) &&
-      timeoutMs > 0
-        ? setTimeout(() => {
-            timedOut = true;
-            child.kill('SIGTERM');
-            killTimer = setTimeout(() => {
-              if (!settled) {
-                child.kill('SIGKILL');
-              }
-            }, GBRAIN_TIMEOUT_KILL_GRACE_MS);
-          }, timeoutMs)
-        : null;
-
-    child.stdout?.on('data', (chunk) => {
-      appendOutputChunk(stdoutCollector, chunk);
-    });
-
-    child.stderr?.on('data', (chunk) => {
-      appendOutputChunk(stderrCollector, chunk);
-    });
-
-    child.on('error', (error) => {
-      finish({ ok: false, error });
-    });
-
-    child.on('close', (code, signal) => {
-      if (timedOut) {
-        finish({
-          ok: false,
-          error: new Error(`GBrain timed out after ${timeoutMs}ms.`),
-        });
-        return;
-      }
-      if (signal) {
-        finish({
-          ok: false,
-          error: new Error(`GBrain terminated with signal ${signal}.`),
-        });
-        return;
-      }
-      if (code !== 0) {
-        const stderrText = readCollectedOutput(stderrCollector);
-        finish({
-          ok: false,
-          error: new Error(
-            stderrCollector.truncated
-              ? appendTruncationNotice(
-                  stderrText || `GBrain exited with code ${code}.`,
-                  'stderr',
-                )
-              : collapseTextWhitespace(stderrText) ||
-                  `GBrain exited with code ${code}.`,
-          ),
-        });
-        return;
-      }
-      finish({ ok: true });
-    });
+  return await runBoundedCli({
+    command: config.command,
+    args,
+    cwd: config.workingDirectory,
+    env: buildGbrainCredentialEnv(config),
+    timeoutMs:
+      options && Object.hasOwn(options, 'timeoutMs')
+        ? options.timeoutMs
+        : config.timeoutMs,
+    maxBytes: options?.captureLimitBytes,
+    maxChars: config.maxInjectedChars,
+    label: 'GBrain',
   });
 }
 
@@ -549,7 +379,7 @@ export function discoverGbrainToolsSync(config) {
       : DEFAULT_DISCOVERY_TIMEOUT_MS;
   const result = spawnSync(config.command, ['--tools-json'], {
     cwd: config.workingDirectory,
-    env: buildGbrainProcessEnv(config),
+    env: buildCliProcessEnv(buildGbrainCredentialEnv(config)),
     encoding: 'utf-8',
     maxBuffer: MAX_DISCOVERY_CAPTURE_BYTES,
     timeout: discoveryTimeoutMs,

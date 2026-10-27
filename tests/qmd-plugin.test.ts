@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
@@ -6,6 +5,12 @@ import { parse as parseYaml } from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
+import { usePluginSdkSource } from './helpers/plugin-sdk-source.ts';
+
+vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
+  import('../src/plugins/plugin-sdk.ts'),
+);
+usePluginSdkSource();
 
 const makeTempDir = useTempDir();
 
@@ -449,127 +454,6 @@ test('QMD plugin uses the latest user message even when recentMessages are rever
   expect(promptContext[0]).toContain('Latest user question won.');
 });
 
-test('runQmd caps captured stdout for verbose commands', async () => {
-  const cwd = makeTempDir('hybridclaw-qmd-project-');
-  const qmdCommand = writeQmdStub(cwd, {
-    statusText: 'A'.repeat(80_000),
-  });
-
-  const { runQmd } = await import('../plugins/qmd-memory/src/qmd-process.js');
-  const result = await runQmd(['status'], {
-    command: qmdCommand,
-    workingDirectory: cwd,
-    timeoutMs: 1000,
-    maxInjectedChars: 500,
-  });
-
-  expect(result.ok).toBe(true);
-  expect(result.stdoutTruncated).toBe(true);
-  expect(Buffer.byteLength(result.stdout, 'utf-8')).toBeLessThanOrEqual(32_768);
-});
-
-test('runQmd sends SIGTERM before SIGKILL when a timed-out child does not exit', async () => {
-  const cwd = makeTempDir('hybridclaw-qmd-project-');
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
-  const child = new EventEmitter() as EventEmitter & {
-    stdout: EventEmitter;
-    stderr: EventEmitter;
-    kill: ReturnType<typeof vi.fn>;
-  };
-  child.stdout = stdout;
-  child.stderr = stderr;
-  child.kill = vi.fn((signal: string) => {
-    if (signal === 'SIGKILL') {
-      setTimeout(() => {
-        child.emit('close', null, 'SIGKILL');
-      }, 0);
-    }
-    return true;
-  });
-
-  vi.useFakeTimers();
-  vi.doMock('node:child_process', () => ({
-    spawn: vi.fn(() => child),
-  }));
-
-  try {
-    const { runQmd } = await import('../plugins/qmd-memory/src/qmd-process.js');
-    const resultPromise = runQmd(['status'], {
-      command: 'qmd',
-      workingDirectory: cwd,
-      timeoutMs: 100,
-      maxInjectedChars: 500,
-    });
-
-    await vi.advanceTimersByTimeAsync(100);
-    expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
-
-    await vi.advanceTimersByTimeAsync(250);
-    await vi.runAllTimersAsync();
-    expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
-
-    const result = await resultPromise;
-    expect(result.ok).toBe(false);
-    expect(result.error.message).toContain('QMD timed out after 100ms.');
-  } finally {
-    vi.useRealTimers();
-    vi.doUnmock('node:child_process');
-  }
-});
-
-test('runQmd passes a reduced environment to the QMD child process', async () => {
-  const cwd = makeTempDir('hybridclaw-qmd-project-');
-  const scriptPath = path.join(cwd, 'mock-qmd-env.mjs');
-  fs.writeFileSync(
-    scriptPath,
-    [
-      '#!/usr/bin/env node',
-      'const payload = {',
-      '  path: process.env.PATH || null,',
-      '  home: process.env.HOME || process.env.USERPROFILE || null,',
-      '  tmpdir: process.env.TMPDIR || process.env.TMP || process.env.TEMP || null,',
-      '  secret: process.env.HYBRIDCLAW_QMD_SECRET_TEST || null,',
-      '};',
-      'await new Promise((resolve, reject) => {',
-      '  process.stdout.write(`${JSON.stringify(payload)}\\n`, (error) => {',
-      '    if (error) reject(error);',
-      '    else resolve();',
-      '  });',
-      '});',
-      'process.exit(0);',
-      '',
-    ].join('\n'),
-    'utf-8',
-  );
-  fs.chmodSync(scriptPath, 0o755);
-
-  const previousSecret = process.env.HYBRIDCLAW_QMD_SECRET_TEST;
-  process.env.HYBRIDCLAW_QMD_SECRET_TEST = 'super-secret';
-
-  try {
-    const { runQmd } = await import('../plugins/qmd-memory/src/qmd-process.js');
-    const result = await runQmd(['status'], {
-      command: scriptPath,
-      workingDirectory: cwd,
-      timeoutMs: 1000,
-      maxInjectedChars: 500,
-    });
-
-    expect(result.ok).toBe(true);
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.path).toBeTypeOf('string');
-    expect(parsed.home).toBeTypeOf('string');
-    expect(parsed.secret).toBeNull();
-  } finally {
-    if (previousSecret === undefined) {
-      delete process.env.HYBRIDCLAW_QMD_SECRET_TEST;
-    } else {
-      process.env.HYBRIDCLAW_QMD_SECRET_TEST = previousSecret;
-    }
-  }
-});
-
 test('QMD prompt search fails cleanly when search output exceeds the capture limit', async () => {
   const cwd = makeTempDir('hybridclaw-qmd-project-');
   const qmdCommand = writeQmdStub(cwd, {
@@ -1009,58 +893,34 @@ test('QMD passthrough commands are not cut off by the short prompt-search timeou
 });
 
 test('runQmdCommandText uses a larger but finite timeout for passthrough commands', async () => {
-  const cwd = makeTempDir('hybridclaw-qmd-project-');
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
-  const child = new EventEmitter() as EventEmitter & {
-    stdout: EventEmitter;
-    stderr: EventEmitter;
-    kill: ReturnType<typeof vi.fn>;
-  };
-  child.stdout = stdout;
-  child.stderr = stderr;
-  child.kill = vi.fn((signal: string) => {
-    if (signal === 'SIGKILL') {
-      setTimeout(() => {
-        child.emit('close', null, 'SIGKILL');
-      }, 0);
-    }
-    return true;
-  });
-
-  vi.useFakeTimers();
-  vi.doMock('node:child_process', () => ({
-    spawn: vi.fn(() => child),
+  const runBoundedCli = vi.fn(async () => ({
+    ok: true,
+    stdout: 'Embeddings updated.',
+    stderr: '',
+    stdoutTruncated: false,
+    stderrTruncated: false,
   }));
+  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () => ({ runBoundedCli }));
 
   try {
     const { runQmdCommandText } = await import(
       '../plugins/qmd-memory/src/qmd-process.js'
     );
-    const resultPromise = runQmdCommandText(['embed'], {
-      command: 'qmd',
-      workingDirectory: cwd,
-      timeoutMs: 1_000,
-      maxInjectedChars: 500,
-    });
-    const rejection = expect(resultPromise).rejects.toThrow(
-      'QMD timed out after 900000ms.',
+    await expect(
+      runQmdCommandText(['embed'], {
+        command: 'qmd',
+        workingDirectory: '/work',
+        timeoutMs: 1_000,
+        maxInjectedChars: 500,
+      }),
+    ).resolves.toBe('Embeddings updated.');
+    expect(runBoundedCli).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 900_000, label: 'QMD' }),
     );
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(child.kill).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(840_000);
-    expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
-
-    await vi.advanceTimersByTimeAsync(250);
-    await vi.runAllTimersAsync();
-    expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
-
-    await rejection;
   } finally {
-    vi.useRealTimers();
-    vi.doUnmock('node:child_process');
+    vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
+      import('../src/plugins/plugin-sdk.ts'),
+    );
   }
 });
 

@@ -5,6 +5,12 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { usePluginSdkSource } from './helpers/plugin-sdk-source.ts';
+
+vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
+  import('../src/plugins/plugin-sdk.ts'),
+);
+usePluginSdkSource();
 
 const tempDirs: string[] = [];
 const originalBrvApiKey = process.env.BRV_API_KEY;

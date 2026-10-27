@@ -1,5 +1,5 @@
-import os from 'node:os';
 import path from 'node:path';
+import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -12,27 +12,17 @@ function normalizeValidatedInteger(value, key) {
   return Math.trunc(value);
 }
 
-function resolveRuntimePath(value, runtime) {
-  const normalized = normalizeString(value);
-  if (!normalized) return '';
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  if (path.isAbsolute(normalized)) return normalized;
-  return path.resolve(runtime.cwd, normalized);
-}
-
 export function resolveMempalacePluginConfig(pluginConfig, runtime) {
   const workingDirectory =
-    resolveRuntimePath(pluginConfig?.workingDirectory, runtime) || runtime.cwd;
+    resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
+    runtime.cwd;
   return Object.freeze({
     command: normalizeString(pluginConfig?.command) || 'mempalace',
     workingDirectory,
-    palacePath: resolveRuntimePath(pluginConfig?.palacePath, runtime) || '',
+    palacePath: resolvePluginPath(pluginConfig?.palacePath, runtime.cwd) || '',
     mcpServerName: normalizeString(pluginConfig?.mcpServerName) || 'mempalace',
     sessionExportDir:
-      resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||
+      resolvePluginPath(pluginConfig?.sessionExportDir, runtime.cwd) ||
       path.resolve(runtime.cwd, '.hybridclaw', 'mempalace-turns'),
     wakeUpEnabled: pluginConfig?.wakeUpEnabled !== false,
     wakeUpWing: normalizeString(pluginConfig?.wakeUpWing),

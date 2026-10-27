@@ -1,9 +1,16 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
+import { usePluginSdkSource } from './helpers/plugin-sdk-source.ts';
+
+vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
+  import('../src/plugins/plugin-sdk.ts'),
+);
+usePluginSdkSource();
 
 const makeTempDir = useTempDir();
 
@@ -224,7 +231,7 @@ useCleanMocks({
 test('resolveGbrainPluginConfig normalizes defaults and runtime-relative paths', async () => {
   const runtime = {
     cwd: '/tmp/project',
-    homeDir: '/Users/example',
+    homeDir: '/tmp/hybridclaw-home',
   };
 
   const { resolveGbrainPluginConfig } = await import(
@@ -251,7 +258,7 @@ test('resolveGbrainPluginConfig normalizes defaults and runtime-relative paths',
     maxSnippetChars: 600,
     searchMode: 'search',
     timeoutMs: 9000,
-    workingDirectory: '/Users/example/brain',
+    workingDirectory: path.join(os.homedir(), 'brain'),
   });
 });
 

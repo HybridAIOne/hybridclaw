@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_MAX_INJECTED_CHARS = 4000;
 const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
@@ -38,17 +39,6 @@ function normalizeInteger(value, fallback, key, bounds = {}) {
   return raw;
 }
 
-function resolveRuntimePath(value, runtime) {
-  const normalized = normalizeString(value);
-  if (!normalized) return '';
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  if (path.isAbsolute(normalized)) return normalized;
-  return path.resolve(runtime.cwd, normalized);
-}
-
 function resolveDefaultWorkingDirectory(runtime) {
   const runtimeHome = normalizeString(runtime?.homeDir);
   if (runtimeHome) {
@@ -61,7 +51,7 @@ export function resolveByteRoverPluginConfig(pluginConfig, runtime) {
   return Object.freeze({
     command: normalizeString(pluginConfig?.command) || 'brv',
     workingDirectory:
-      resolveRuntimePath(pluginConfig?.workingDirectory, runtime) ||
+      resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
       resolveDefaultWorkingDirectory(runtime),
     autoCurate: pluginConfig?.autoCurate !== false,
     mirrorMemoryWrites: pluginConfig?.mirrorMemoryWrites !== false,

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_SEARCH_MODE = 'query';
 
@@ -13,21 +14,11 @@ function normalizeValidatedInteger(value, key) {
   return Math.trunc(value);
 }
 
-function resolveRuntimePath(value, runtime) {
-  const normalized = normalizeString(value);
-  if (!normalized) return '';
-  if (normalized === '~') return runtime.homeDir;
-  if (normalized.startsWith('~/')) {
-    return path.join(runtime.homeDir, normalized.slice(2));
-  }
-  if (path.isAbsolute(normalized)) return normalized;
-  return path.resolve(runtime.cwd, normalized);
-}
-
 export function resolveQmdPluginConfig(pluginConfig, runtime) {
   const searchMode = normalizeString(pluginConfig?.searchMode).toLowerCase();
   const workingDirectory =
-    resolveRuntimePath(pluginConfig?.workingDirectory, runtime) || runtime.cwd;
+    resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
+    runtime.cwd;
   return Object.freeze({
     command: normalizeString(pluginConfig?.command) || 'qmd',
     workingDirectory,
@@ -50,7 +41,7 @@ export function resolveQmdPluginConfig(pluginConfig, runtime) {
     timeoutMs: normalizeValidatedInteger(pluginConfig?.timeoutMs, 'timeoutMs'),
     sessionExport: pluginConfig?.sessionExport === true,
     sessionExportDir:
-      resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||
+      resolvePluginPath(pluginConfig?.sessionExportDir, runtime.cwd) ||
       path.join(workingDirectory, '.hybridclaw', 'qmd-sessions'),
   });
 }

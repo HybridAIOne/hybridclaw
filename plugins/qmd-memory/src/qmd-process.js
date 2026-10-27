@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { runBoundedCli } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'according',
@@ -28,31 +28,7 @@ const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'why',
 ]);
 
-const MIN_CAPTURE_BYTES = 32_768;
-const CAPTURE_BYTES_PER_INJECTED_CHAR = 2;
 const MIN_PASSTHROUGH_TIMEOUT_MS = 15 * 60 * 1000;
-const QMD_TIMEOUT_KILL_GRACE_MS = 250;
-const QMD_ENV_ALLOWLIST = [
-  'PATH',
-  'HOME',
-  'TMPDIR',
-  'XDG_CACHE_HOME',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE',
-];
-const QMD_WINDOWS_ENV_ALLOWLIST = [
-  'APPDATA',
-  'ComSpec',
-  'LOCALAPPDATA',
-  'PATHEXT',
-  'SystemRoot',
-  'TEMP',
-  'TMP',
-  'USERPROFILE',
-];
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -106,172 +82,20 @@ function normalizeResultItem(item) {
   };
 }
 
-function resolveCaptureLimitBytes(config) {
-  const configuredBudget =
-    typeof config?.maxInjectedChars === 'number' &&
-    Number.isFinite(config.maxInjectedChars)
-      ? Math.max(0, Math.trunc(config.maxInjectedChars)) *
-        CAPTURE_BYTES_PER_INJECTED_CHAR
-      : 0;
-  return Math.max(MIN_CAPTURE_BYTES, configuredBudget);
-}
-
-function createOutputCollector(maxBytes) {
-  return {
-    maxBytes,
-    totalBytes: 0,
-    truncated: false,
-    chunks: [],
-  };
-}
-
-function appendOutputChunk(collector, chunk) {
-  const buffer = Buffer.isBuffer(chunk)
-    ? chunk
-    : Buffer.from(String(chunk), 'utf-8');
-  const remaining = collector.maxBytes - collector.totalBytes;
-  if (remaining <= 0) {
-    collector.truncated = true;
-    return;
-  }
-
-  if (buffer.length <= remaining) {
-    collector.totalBytes += buffer.length;
-    collector.chunks.push(buffer);
-    return;
-  }
-
-  collector.totalBytes += remaining;
-  collector.chunks.push(buffer.subarray(0, remaining));
-  collector.truncated = true;
-}
-
-function readCollectedOutput(collector) {
-  if (collector.chunks.length === 0) return '';
-  return Buffer.concat(collector.chunks).toString('utf-8');
-}
-
 function appendTruncationNotice(text, label) {
   const normalized = collapseTextWhitespace(text);
   const notice = `[QMD ${label} truncated]`;
   return normalized ? `${normalized}\n\n${notice}` : notice;
 }
 
-function buildQmdProcessEnv() {
-  const env = {};
-  const allowlist =
-    process.platform === 'win32'
-      ? [...QMD_ENV_ALLOWLIST, ...QMD_WINDOWS_ENV_ALLOWLIST]
-      : QMD_ENV_ALLOWLIST;
-
-  for (const key of allowlist) {
-    const value = process.env[key];
-    if (typeof value === 'string' && value.length > 0) {
-      env[key] = value;
-    }
-  }
-
-  return env;
-}
-
-export async function runQmd(args, config) {
-  const timeoutMs = config.timeoutMs;
-  return await runQmdWithOptions(args, config, { timeoutMs });
-}
-
-async function runQmdWithOptions(args, config, options) {
-  const timeoutMs =
-    options && Object.hasOwn(options, 'timeoutMs')
-      ? options.timeoutMs
-      : config.timeoutMs;
-  return await new Promise((resolve) => {
-    const captureLimitBytes = resolveCaptureLimitBytes(config);
-    const child = spawn(config.command, args, {
-      cwd: config.workingDirectory,
-      env: buildQmdProcessEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutCollector = createOutputCollector(captureLimitBytes);
-    const stderrCollector = createOutputCollector(captureLimitBytes);
-    let settled = false;
-    let timedOut = false;
-    let killTimer = null;
-
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(killTimer);
-      resolve({
-        ...result,
-        stdout: readCollectedOutput(stdoutCollector),
-        stderr: readCollectedOutput(stderrCollector),
-        stdoutTruncated: stdoutCollector.truncated,
-        stderrTruncated: stderrCollector.truncated,
-      });
-    };
-
-    const timer =
-      typeof timeoutMs === 'number' &&
-      Number.isFinite(timeoutMs) &&
-      timeoutMs > 0
-        ? setTimeout(() => {
-            timedOut = true;
-            child.kill('SIGTERM');
-            killTimer = setTimeout(() => {
-              if (!settled) {
-                child.kill('SIGKILL');
-              }
-            }, QMD_TIMEOUT_KILL_GRACE_MS);
-          }, timeoutMs)
-        : null;
-
-    child.stdout?.on('data', (chunk) => {
-      appendOutputChunk(stdoutCollector, chunk);
-    });
-
-    child.stderr?.on('data', (chunk) => {
-      appendOutputChunk(stderrCollector, chunk);
-    });
-
-    child.on('error', (error) => {
-      finish({ ok: false, error });
-    });
-
-    child.on('close', (code, signal) => {
-      if (timedOut) {
-        finish({
-          ok: false,
-          error: new Error(`QMD timed out after ${timeoutMs}ms.`),
-        });
-        return;
-      }
-      if (signal) {
-        finish({
-          ok: false,
-          error: new Error(`QMD terminated with signal ${signal}.`),
-        });
-        return;
-      }
-      if (code !== 0) {
-        const stderrText = readCollectedOutput(stderrCollector);
-        finish({
-          ok: false,
-          error: new Error(
-            stderrCollector.truncated
-              ? appendTruncationNotice(
-                  stderrText || `QMD exited with code ${code}.`,
-                  'stderr',
-                )
-              : collapseTextWhitespace(stderrText) ||
-                  `QMD exited with code ${code}.`,
-          ),
-        });
-        return;
-      }
-      finish({ ok: true });
-    });
+export async function runQmd(args, config, timeoutMs = config.timeoutMs) {
+  return await runBoundedCli({
+    command: config.command,
+    args,
+    cwd: config.workingDirectory,
+    timeoutMs,
+    maxChars: config.maxInjectedChars,
+    label: 'QMD',
   });
 }
 
@@ -499,9 +323,11 @@ export async function buildQmdStatusText(config) {
 }
 
 export async function runQmdCommandText(args, config) {
-  const result = await runQmdWithOptions(args, config, {
-    timeoutMs: Math.max(config.timeoutMs, MIN_PASSTHROUGH_TIMEOUT_MS),
-  });
+  const result = await runQmd(
+    args,
+    config,
+    Math.max(config.timeoutMs, MIN_PASSTHROUGH_TIMEOUT_MS),
+  );
   if (!result.ok) {
     throw result.error;
   }

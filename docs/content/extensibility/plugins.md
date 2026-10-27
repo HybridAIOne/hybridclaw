@@ -611,6 +611,18 @@ bodies, `parseValueFlag` for `--flag value` / `--flag=value` CLI parsing,
 (`loadConfidentialRules`, `dehydrateConfidential`, `scanForLeaks`), and the
 agent registry and workspace helpers. The `distill` plugin uses all of these.
 
+Plugins that wrap an external CLI call `runBoundedCli({ command, args, cwd,
+env, timeoutMs, maxChars | maxBytes, label })`. The child gets only an
+allowlisted host environment (`PATH`, `HOME`, `TMPDIR`, XDG and locale
+variables, plus the Windows equivalents) and the `env` extras you pass. Each
+output stream is capped at `maxBytes`, or two bytes per `maxChars`, and never
+less than 32 KiB. On timeout the child gets `SIGTERM` and then `SIGKILL`. The
+call always resolves to `{ ok, stdout, stderr, stdoutTruncated,
+stderrTruncated }` and adds `error` when `ok` is false. `buildCliProcessEnv`
+gives a synchronous spawn the same environment. `resolvePluginPath(value, cwd)`
+resolves a configured path, treating `~` as the OS home directory. The qmd,
+gbrain, MemPalace, and ByteRover memory plugins use these helpers.
+
 To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
