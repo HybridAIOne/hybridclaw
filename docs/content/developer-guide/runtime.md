@@ -81,7 +81,11 @@ The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline
 `container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds and npm packages retain their existing build layout.
+`tsc` output. Source builds, npm packages, and desktop packages also run the
+gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+keeps earlier content-hashed chunks so a gateway already running from the
+checkout can still load its own lazily; `npm run clean` removes them, and
+`prepack` cleans before packaging.
 `tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
 layout and checks gateway startup, CLI loading, plugin SDK identity, and the
 embedded terminal when node-pty is available, without requiring Docker.
@@ -388,6 +392,12 @@ Useful flags:
 The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
+
+The gateway (`dist/cli.js`) and the agent runtime (`container/dist/index.js`)
+are esbuild bundles, so stack traces name bundle chunks by default. The npm
+package and the Docker image ship source maps beside them (desktop packages
+strip them), but they are off because they slow startup; run with
+`NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
 
 ## Tool Recovery
 

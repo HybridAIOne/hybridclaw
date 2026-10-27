@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { expect, test } from 'vitest';
 import WebSocket from 'ws';
@@ -17,8 +18,7 @@ const run = promisify(execFile);
 const makeTempDir = useTempDir('hc-gateway-bundle-');
 
 // Exercise the real bundlers and the Dockerfile's gateway COPY instructions.
-// The runtime fixture deliberately has no source tree or container/shared;
-// keeping a working bundle beside broken tsc output must not satisfy this test.
+// The runtime fixture deliberately has no source tree or container/shared.
 async function buildRuntime(root: string): Promise<string> {
   const builder = path.join(root, 'builder');
   const runtime = path.join(root, 'runtime');
@@ -45,23 +45,12 @@ async function buildRuntime(root: string): Promise<string> {
       fs.cpSync(source, destination, { recursive: true });
     else fs.symlinkSync(source, destination);
   }
-  await run(
-    process.execPath,
-    [
-      path.join(REPO, 'node_modules/typescript/bin/tsc'),
-      '--project',
-      path.join(REPO, 'tsconfig.json'),
-      '--noCheck',
-      '--declaration',
-      'false',
-      '--declarationMap',
-      'false',
-      '--sourceMap',
-      'false',
-      '--outDir',
-      path.join(builder, 'dist'),
-    ],
-    { cwd: REPO, timeout: 30_000 },
+  fs.cpSync(path.join(REPO, 'src'), path.join(builder, 'src'), {
+    recursive: true,
+  });
+  fs.copyFileSync(
+    path.join(REPO, 'tsconfig.json'),
+    path.join(builder, 'tsconfig.json'),
   );
   fs.cpSync(
     path.join(REPO, 'container/shared'),
@@ -77,7 +66,7 @@ async function buildRuntime(root: string): Promise<string> {
   const runtimeStage = dockerfile.slice(dockerfile.indexOf(' AS runtime'));
   const copies = [
     ...runtimeStage.matchAll(
-      /^COPY .*--from=builder \/app\/(dist|bundle) \.\/([^\s]+)$/gm,
+      /^COPY .*--from=builder \/app\/(dist) \.\/([^\s]+)$/gm,
     ),
   ];
   expect(copies.length).toBeGreaterThan(0);
@@ -124,6 +113,28 @@ async function buildRuntime(root: string): Promise<string> {
     path.join(runtime, 'container/package.json'),
   );
   return runtime;
+}
+
+const STATIC_IMPORT =
+  /^(?:import|export)\s+(?:[\w*\s{},$]*?\s+from\s+)?["']([^"']+)["']/gm;
+
+// Bare specifiers that load before the body of `entry` runs.
+function staticImportsBeforeBody(entry: string): string[] {
+  const seen = new Set<string>();
+  const specifiers: string[] = [];
+  const visit = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const [, specifier] of fs
+      .readFileSync(file, 'utf8')
+      .matchAll(STATIC_IMPORT)) {
+      if (specifier.startsWith('.'))
+        visit(path.resolve(path.dirname(file), specifier));
+      else specifiers.push(specifier);
+    }
+  };
+  visit(entry);
+  return specifiers;
 }
 
 async function stopGateway(child: ChildProcess): Promise<void> {
@@ -196,13 +207,62 @@ export default {
   };
   expect(fs.existsSync(path.join(runtime, 'container/shared'))).toBe(false);
   expect(fs.existsSync(path.join(runtime, 'src'))).toBe(false);
-  expect(fs.existsSync(path.join(runtime, 'bundle'))).toBe(false);
+
+  const packageJsonPath = path.join(runtime, 'package.json');
+  const packageJson = fs.readFileSync(packageJsonPath, 'utf8');
+  const { bin, version } = JSON.parse(packageJson);
+  const cli = path.join(runtime, bin.hybridclaw);
+  expect(
+    staticImportsBeforeBody(cli).filter((name) => !name.startsWith('node:')),
+  ).toEqual([]);
+  fs.writeFileSync(
+    packageJsonPath,
+    JSON.stringify({ ...JSON.parse(packageJson), engines: { node: '>=99.0.0 <100' } }),
+  );
+  try {
+    await expect(
+      run(process.execPath, [cli, 'help', 'gateway'], {
+        cwd: runtime,
+        env,
+        timeout: 15_000,
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('requires Node.js >=99.0.0 <100'),
+    });
+  } finally {
+    fs.writeFileSync(packageJsonPath, packageJson);
+  }
+
+  // A global install runs the bin through a symlink outside the package and
+  // from any cwd, so neither may be what locates package.json.
+  const versionChunk = fs
+    .readdirSync(path.join(runtime, 'dist'))
+    .map((name) => path.join(runtime, 'dist', name))
+    .find(
+      (file) =>
+        file.endsWith('.js') &&
+        fs.readFileSync(file, 'utf8').includes('Unable to resolve app version'),
+    );
+  expect(versionChunk).toBeDefined();
+  const versions = await run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const m = await import(${JSON.stringify(pathToFileURL(versionChunk!).href)}); console.log('EXPORTED=' + JSON.stringify(Object.values(m).filter((v) => typeof v === 'string')));`,
+    ],
+    { cwd: home, env, timeout: 15_000 },
+  );
+  const exported = versions.stdout
+    .split('\n')
+    .find((line) => line.startsWith('EXPORTED='));
+  expect(JSON.parse(exported?.slice('EXPORTED='.length) ?? '[]')).toContain(
+    version,
+  );
 
   // The package bin and embedded terminal both invoke this path, independently
   // of Docker's CMD. Loading it covers the dynamically imported CLI chunks too.
-  const { bin } = JSON.parse(
-    fs.readFileSync(path.join(runtime, 'package.json'), 'utf8'),
-  );
   await run(
     process.execPath,
     [path.join(runtime, bin.hybridclaw), 'help', 'gateway'],
@@ -304,9 +364,6 @@ export default {
       try {
         await once(socket, 'open', { signal: AbortSignal.timeout(5_000) });
         socket.send(JSON.stringify({ type: 'auth', token: 'test-token' }));
-        const { version } = JSON.parse(
-          fs.readFileSync(path.join(runtime, 'package.json'), 'utf8'),
-        );
         await expect.poll(() => output, { timeout: 15_000 }).toContain(version);
         const beforeHelp = output.length;
         socket.send(JSON.stringify({ type: 'input', data: '/help\r' }));
