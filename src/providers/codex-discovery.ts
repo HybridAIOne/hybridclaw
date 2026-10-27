@@ -6,9 +6,10 @@ import {
 import { logger } from '../logger.js';
 import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { CODEX_CLIENT_VERSION } from './codex-constants.js';
+import { providerModelPrefix } from './provider-ids.js';
 import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
-const CODEX_MODEL_PREFIX = 'openai-codex/';
+const CODEX_MODEL_PREFIX = providerModelPrefix('openai-codex');
 const CODEX_DISCOVERY_TIMEOUT_MS = 5_000;
 const CODEX_SUPPLEMENTAL_MODELS = [
   'openai-codex/gpt-5.1-codex-max',

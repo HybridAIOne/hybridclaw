@@ -1,4 +1,5 @@
-import { detectRuntimeProviderPrefix } from './providers/task-routing.js';
+import { inferProviderFromModelPrefix } from './providers/provider-ids.js';
+import { PROVIDER_META } from './providers/provider-meta.js';
 import { visibleAnsiWidth } from './utils/ansi.js';
 
 export interface TuiBannerPalette {
@@ -245,28 +246,7 @@ function chunkCommands(width: number): string[] {
 }
 
 function resolveProviderLabel(model: string): string {
-  switch (detectRuntimeProviderPrefix(model)) {
-    case 'openai':
-      return 'OpenAI API';
-    case 'openai-codex':
-      return 'Codex';
-    case 'openrouter':
-      return 'OpenRouter';
-    case 'huggingface':
-      return 'Hugging Face';
-    case 'ollama':
-      return 'Ollama';
-    case 'lmstudio':
-      return 'LM Studio';
-    case 'llamacpp':
-      return 'llama.cpp';
-    case 'mlx':
-      return 'MLX';
-    case 'vllm':
-      return 'vLLM';
-    default:
-      return 'HybridAI';
-  }
+  return PROVIDER_META[inferProviderFromModelPrefix(model) ?? 'hybridai'].label;
 }
 
 function renderPanel(

@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import {
+  GATEWAY_MODEL_PROVIDER_KEYS,
+  type GatewayModelProviderKey,
+} from '../../../src/gateway/model-provider-keys';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
@@ -56,37 +60,12 @@ function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
 }
 
 type ModelSortKey = 'model' | 'backend' | 'context' | 'monthlyUsage';
-const PROVIDER_DISPLAY_ORDER = [
-  'hybridai',
-  'codex',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-] as const;
-
-function inferProviderName(
-  model: Pick<ModelEntry, 'id' | 'backend'>,
-): string | null {
-  if (model.backend) return model.backend;
-  const normalized = model.id.trim().toLowerCase();
-  if (normalized.startsWith('openai-codex/')) return 'codex';
-  if (normalized.startsWith('openrouter/')) return 'openrouter';
-  if (normalized.startsWith('mistral/')) return 'mistral';
-  if (normalized.startsWith('huggingface/')) return 'huggingface';
-  return null;
-}
-
 function compareProviderNames(left: string, right: string): number {
-  const leftIndex = PROVIDER_DISPLAY_ORDER.indexOf(
-    left as (typeof PROVIDER_DISPLAY_ORDER)[number],
+  const leftIndex = GATEWAY_MODEL_PROVIDER_KEYS.indexOf(
+    left as GatewayModelProviderKey,
   );
-  const rightIndex = PROVIDER_DISPLAY_ORDER.indexOf(
-    right as (typeof PROVIDER_DISPLAY_ORDER)[number],
+  const rightIndex = GATEWAY_MODEL_PROVIDER_KEYS.indexOf(
+    right as GatewayModelProviderKey,
   );
   if (leftIndex !== -1 || rightIndex !== -1) {
     if (leftIndex === -1) return 1;
@@ -102,8 +81,7 @@ function buildProviderEntries(
   const providerNames = new Set(Object.keys(payload?.providerStatus || {}));
   const catalogModelCounts = new Map<string, number>();
   for (const model of payload?.models || []) {
-    const provider = inferProviderName(model);
-    if (!provider) continue;
+    const provider = model.provider;
     providerNames.add(provider);
     catalogModelCounts.set(
       provider,

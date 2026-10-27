@@ -1,4 +1,6 @@
-export const MISTRAL_MODEL_PREFIX = 'mistral/';
+import { providerModelPrefix } from './provider-ids.js';
+
+export const MISTRAL_MODEL_PREFIX = providerModelPrefix('mistral');
 
 export function normalizeMistralModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();

@@ -13,7 +13,10 @@
  * dispatch, which stays in `src/cli/auth-command.ts`.
  */
 import { getProviderAliasesFor } from '../providers/provider-aliases.js';
-import type { RuntimeProviderId } from '../providers/provider-ids.js';
+import type {
+  LocalBackendType,
+  RuntimeProviderId,
+} from '../providers/provider-ids.js';
 
 interface AuthTargetDef {
   /** Runtime provider whose id and `PROVIDER_ALIASES` synonyms name it. */
@@ -58,6 +61,18 @@ const AUTH_TARGET_DEFS = {
 } as const satisfies Record<string, AuthTargetDef>;
 
 export type AuthTarget = keyof typeof AUTH_TARGET_DEFS;
+
+type TargetProvider<Def> = Def extends { provider: infer Id } ? Id : never;
+// Fails to compile when a remote model provider has no auth target.
+const EVERY_REMOTE_PROVIDER_HAS_A_TARGET: [
+  Exclude<
+    Exclude<RuntimeProviderId, LocalBackendType>,
+    TargetProvider<(typeof AUTH_TARGET_DEFS)[AuthTarget]>
+  >,
+] extends [never]
+  ? true
+  : never = true;
+void EVERY_REMOTE_PROVIDER_HAS_A_TARGET;
 
 export const AUTH_TARGETS = Object.keys(AUTH_TARGET_DEFS) as AuthTarget[];
 

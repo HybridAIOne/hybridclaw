@@ -1,34 +1,4 @@
 const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 300_000;
-const MODEL_PROVIDER_PREFIXES = [
-  'openai-codex',
-  'anthropic',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-];
-
-function inferModelProvider(model) {
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return undefined;
-  return MODEL_PROVIDER_PREFIXES.find((provider) =>
-    normalized.startsWith(`${provider}/`),
-  );
-}
 
 export async function callOutputGuardModel({
   client,
@@ -51,18 +21,12 @@ export async function callOutputGuardModel({
       : client.provider === 'model'
         ? client.model
         : undefined;
-  const provider =
-    client.provider === 'auxiliary'
-      ? undefined
-      : (inferModelProvider(model) ??
-        (client.provider === 'default' ? 'auto' : undefined));
   const result = await api.callAuxiliaryModel({
     task: 'skills_hub',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    provider,
     model,
     fallbackModel,
     fallbackEnableRag: false,

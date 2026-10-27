@@ -13,6 +13,7 @@ import {
   runtimeConfigPath,
 } from '../config/runtime-config.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import {
   GENERIC_PROVIDER_AUTH_DEFS,
@@ -100,23 +101,23 @@ function slackStatusReport(): AuthStatusReport {
 const SHARED_AUTH_STATUS_REPORTS = {
   openrouter: apiKeyStatusReport({
     configKey: 'openrouter',
-    label: 'OpenRouter',
-    secretKey: 'OPENROUTER_API_KEY',
-    envVarNames: ['OPENROUTER_API_KEY'],
+    label: PROVIDER_META.openrouter.label,
+    secretKey: PROVIDER_META.openrouter.secretKey,
+    envVarNames: PROVIDER_META.openrouter.envVars,
     catalog: 'auto-discovered',
   }),
   mistral: apiKeyStatusReport({
     configKey: 'mistral',
-    label: 'Mistral',
-    secretKey: 'MISTRAL_API_KEY',
-    envVarNames: ['MISTRAL_API_KEY'],
+    label: PROVIDER_META.mistral.label,
+    secretKey: PROVIDER_META.mistral.secretKey,
+    envVarNames: PROVIDER_META.mistral.envVars,
     catalog: 'auto-discovered',
   }),
   huggingface: apiKeyStatusReport({
     configKey: 'huggingface',
-    label: 'Hugging Face',
-    secretKey: 'HF_TOKEN',
-    envVarNames: ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
+    label: PROVIDER_META.huggingface.label,
+    secretKey: PROVIDER_META.huggingface.secretKey,
+    envVarNames: PROVIDER_META.huggingface.envVars,
     catalog: 'auto-discovered',
   }),
   ...(Object.fromEntries(

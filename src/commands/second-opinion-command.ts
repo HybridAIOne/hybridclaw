@@ -19,14 +19,12 @@ import {
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
+  inferProviderFromModelPrefix,
   isLocalBackendType,
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
-import {
-  detectRuntimeProviderPrefix,
-  normalizeAuxiliaryProviderModel,
-} from '../providers/task-routing.js';
+import { normalizeAuxiliaryProviderModel } from '../providers/task-routing.js';
 import { scanForLeaks } from '../security/confidential-redact.js';
 import {
   createConfidentialRuntimeContext,
@@ -292,7 +290,7 @@ function findLastAssistantDraft(messages: StoredMessage[]): {
 }
 
 function providerForModel(model: string): RuntimeProviderId | undefined {
-  return detectRuntimeProviderPrefix(model) || undefined;
+  return inferProviderFromModelPrefix(model) || undefined;
 }
 
 function isLocalSecondOpinionProvider(
@@ -789,7 +787,7 @@ export async function runSecondOpinionCommand(
 
   const target = await resolveSecondOpinionTarget(parsed);
   const auditProvider =
-    target.provider ?? detectRuntimeProviderPrefix(target.model) ?? 'unknown';
+    target.provider ?? inferProviderFromModelPrefix(target.model) ?? 'unknown';
   const resolved = resolveAgentForRequest({ session });
   const contextMessages = recentStoredMessages
     .map(toContextChatMessage)

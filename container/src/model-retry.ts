@@ -1,4 +1,4 @@
-import type { RuntimeProvider } from './providers/shared.js';
+import type { RuntimeProviderId } from './providers/shared.js';
 import { ProviderRequestError } from './providers/shared.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =
@@ -185,7 +185,7 @@ export function shouldFallbackFromStreamError(error: unknown): boolean {
 }
 
 export function shouldDowngradeStreamToNonStreaming(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   error: unknown,
 ): boolean {
   if (provider === 'openai-codex') return false;

@@ -456,7 +456,7 @@ describe('output guard admin API helpers', () => {
 
     expect(admin.callAuxiliaryModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        provider: undefined,
+        provider: 'openai',
         model: 'openai/gpt-5-mini',
         fallbackModel: 'hybridai/default-chat',
       }),

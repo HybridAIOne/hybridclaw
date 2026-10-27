@@ -32,6 +32,7 @@ import type { PluginChannelGatewayStatus } from '../channels/plugin-channel/stat
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
+  RuntimeAuxiliaryProviderSelection,
   RuntimeConfig,
   RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
@@ -44,6 +45,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { LocalBackendType } from '../providers/provider-ids.js';
 import type { ScopeErrorCode } from '../scopes/scope-session.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
@@ -710,7 +712,7 @@ export interface GatewayStatus
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx',
+      LocalBackendType,
       {
         reachable: boolean;
         latencyMs: number;
@@ -1515,7 +1517,7 @@ export interface GatewayAdminModelCatalogEntry {
   provider: GatewayModelProviderKey;
   zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
+  backend: LocalBackendType | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {
@@ -1544,30 +1546,7 @@ export interface GatewayAdminModelsResponse {
   defaultModel: string;
   auxiliaryModels?: {
     skillsHub: {
-      provider:
-        | 'auto'
-        | 'disabled'
-        | 'hybridai'
-        | 'openai'
-        | 'openai-codex'
-        | 'anthropic'
-        | 'openrouter'
-        | 'mistral'
-        | 'huggingface'
-        | 'gemini'
-        | 'deepseek'
-        | 'xai'
-        | 'zai'
-        | 'kimi'
-        | 'minimax'
-        | 'dashscope'
-        | 'xiaomi'
-        | 'kilo'
-        | 'ollama'
-        | 'lmstudio'
-        | 'llamacpp'
-        | 'vllm'
-        | 'mlx';
+      provider: RuntimeAuxiliaryProviderSelection;
       model: string | null;
     };
   };

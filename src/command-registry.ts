@@ -3,7 +3,12 @@ import {
   APPROVE_COMMAND_USAGE,
 } from './approval-commands.js';
 import { AUTH_STATUS_TARGETS } from './auth/auth-targets.js';
+import { GATEWAY_MODEL_PROVIDER_KEYS } from './gateway/model-provider-keys.js';
 import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
+import {
+  isLocalBackendType,
+  LOCAL_BACKEND_IDS,
+} from './providers/provider-ids.js';
 
 export interface CanonicalTuiMenuPresentation {
   label?: string;
@@ -169,17 +174,10 @@ const USAGE_WINDOW_CHOICES = [
 ] satisfies Array<{ name: string; value: string }>;
 
 const MODEL_PROVIDER_CHOICES = [
-  { name: 'hybridai', value: 'hybridai' },
-  { name: 'codex', value: 'codex' },
-  { name: 'openrouter', value: 'openrouter' },
-  { name: 'huggingface', value: 'huggingface' },
-  { name: 'local', value: 'local' },
-  { name: 'ollama', value: 'ollama' },
-  { name: 'lmstudio', value: 'lmstudio' },
-  { name: 'llamacpp', value: 'llamacpp' },
-  { name: 'vllm', value: 'vllm' },
-  { name: 'mlx', value: 'mlx' },
-] satisfies Array<{ name: string; value: string }>;
+  ...GATEWAY_MODEL_PROVIDER_KEYS.filter((key) => !isLocalBackendType(key)),
+  'local',
+  ...LOCAL_BACKEND_IDS,
+].map((value) => ({ name: value, value }));
 
 const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   string,

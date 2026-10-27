@@ -9,7 +9,7 @@
  * without a documented cap are never capped.
  */
 import {
-  type RuntimeProvider,
+  type RuntimeProviderId,
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import type { ContainerOutput, ToolDefinition } from './types.js';
@@ -20,14 +20,14 @@ import type { ContainerOutput, ToolDefinition } from './types.js';
 // schema and the upstream model is unknown here, so every HybridAI request is
 // capped. Other providers document no cap; per-model caps for routers such as
 // OpenRouter are deferred.
-const TOOL_COUNT_LIMITS: Partial<Record<RuntimeProvider, number>> = {
+const TOOL_COUNT_LIMITS: Partial<Record<RuntimeProviderId, number>> = {
   hybridai: 128,
   openai: 128,
   'openai-codex': 128,
 };
 
 export function resolveToolCountLimit(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   model: string,
 ): number | undefined {
   return TOOL_COUNT_LIMITS[resolveRuntimeProviderContext(provider, model)];
@@ -61,7 +61,7 @@ export function deferMcpToolsOverLimit(
 export function toolCountLimitFailure(
   tools: ToolDefinition[],
   limit: number | undefined,
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   model: string,
 ): ContainerOutput | null {
   if (limit === undefined || tools.length <= limit) return null;

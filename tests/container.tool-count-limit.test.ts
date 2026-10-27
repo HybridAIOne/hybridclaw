@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { classifyProviderError } from '../container/shared/provider-fallback.js';
 import { isRetryableModelError } from '../container/src/model-retry.js';
-import type { RuntimeProvider } from '../container/src/providers/provider-ids.js';
+import type { RuntimeProviderId } from '../container/src/providers/provider-ids.js';
 import { ProviderRequestError } from '../container/src/providers/shared.js';
 import { ToolCatalog } from '../container/src/tool-catalog.js';
 import {
@@ -35,7 +35,7 @@ function tools(prefix: string, count: number): ToolDefinition[] {
 
 /** The remote request path: cap-driven deferral, catalog, then preflight. */
 function plan(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   builtIns: number,
   mcp: number,
   reviewedRead = false,
