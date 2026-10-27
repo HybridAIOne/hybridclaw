@@ -45,8 +45,13 @@ async function buildRuntime(root: string): Promise<string> {
       fs.cpSync(source, destination, { recursive: true });
     else fs.symlinkSync(source, destination);
   }
-  fs.cpSync(path.join(REPO, 'src'), path.join(builder, 'src'), { recursive: true });
-  fs.copyFileSync(path.join(REPO, 'tsconfig.json'), path.join(builder, 'tsconfig.json'));
+  fs.cpSync(path.join(REPO, 'src'), path.join(builder, 'src'), {
+    recursive: true,
+  });
+  fs.copyFileSync(
+    path.join(REPO, 'tsconfig.json'),
+    path.join(builder, 'tsconfig.json'),
+  );
   fs.cpSync(
     path.join(REPO, 'container/shared'),
     path.join(builder, 'container/shared'),
@@ -212,7 +217,7 @@ export default {
   ).toEqual([]);
   fs.writeFileSync(
     packageJsonPath,
-    JSON.stringify({ ...JSON.parse(packageJson), engines: { node: '18.x' } }),
+    JSON.stringify({ ...JSON.parse(packageJson), engines: { node: '>=99.0.0 <100' } }),
   );
   try {
     await expect(
@@ -223,7 +228,7 @@ export default {
       }),
     ).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining('requires Node.js 18.x'),
+      stderr: expect.stringContaining('requires Node.js >=99.0.0 <100'),
     });
   } finally {
     fs.writeFileSync(packageJsonPath, packageJson);

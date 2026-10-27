@@ -82,8 +82,10 @@ under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline
 `container/shared`; the image does not ship that directory or plain gateway
 `tsc` output. Source builds, npm packages, and desktop packages also run the
-gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. There is no
-separate `bundle/` build or runtime directory.
+gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+keeps earlier content-hashed chunks so a gateway already running from the
+checkout can still load its own lazily; `npm run clean` removes them, and
+`prepack` cleans before packaging.
 `tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
 layout and checks gateway startup, CLI loading, plugin SDK identity, and the
 embedded terminal when node-pty is available, without requiring Docker.

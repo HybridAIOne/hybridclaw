@@ -18,9 +18,8 @@ import {
  * a dummy key lets the gateway start for static-content and endpoint tests.
  */
 
-const { image: IMAGE, enabled: DOCKER_E2E } = dockerE2eGate(
-  'HYBRIDCLAW_E2E_IMAGE',
-);
+const { image: IMAGE, enabled: DOCKER_E2E } =
+  dockerE2eGate('HYBRIDCLAW_E2E_IMAGE');
 const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
 const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
 const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;

@@ -45,10 +45,9 @@ const externalUnlessBundled = {
   },
 };
 
-// Chunk names are content hashes, so a rebuild would otherwise leave every
-// previous build's chunks beside the new ones. `tsc` runs after this.
-fs.rmSync('dist', { recursive: true, force: true });
-
+// dist/ is not cleared: a gateway running from this checkout still loads its
+// build's content-hashed chunks lazily. `npm run clean` (run by prepack and the
+// desktop release scripts) drops chunks left by earlier builds.
 await build({
   entryPoints: {
     cli: 'src/cli-entry.ts',
