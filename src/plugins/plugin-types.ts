@@ -764,8 +764,9 @@ export interface HybridClawPluginApi {
   getCredential(key: string): string | undefined;
   getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
   /**
-   * A request without `provider` whose `model` carries a `provider/` prefix
-   * is pinned to that provider, the same as the admin preview.
+   * A request without `provider` whose `model` has a `provider/` prefix is
+   * pinned to that provider, so a failure throws instead of falling back to
+   * another provider. A bare model id or no model keeps automatic fallback.
    */
   callAuxiliaryModel(
     request: PluginAuxiliaryModelRequest,

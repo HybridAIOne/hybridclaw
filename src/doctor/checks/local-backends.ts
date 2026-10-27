@@ -5,16 +5,9 @@ import {
   isLocalBackendType,
   type LocalBackendType,
 } from '../../providers/provider-ids.js';
+import { PROVIDER_META } from '../../providers/provider-meta.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom } from '../utils.js';
-
-function labelForBackend(backend: LocalBackendType): string {
-  if (backend === 'lmstudio') return 'LM Studio';
-  if (backend === 'llamacpp') return 'llama.cpp';
-  if (backend === 'mlx') return 'MLX';
-  if (backend === 'vllm') return 'vLLM';
-  return 'Ollama';
-}
 
 export async function checkLocalBackendsCategory(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
@@ -42,20 +35,20 @@ export async function checkLocalBackendsCategory(): Promise<DiagResult[]> {
   for (const backend of enabledBackends) {
     const status = health.get(backend);
     if (!status) {
-      segments.push(`${labelForBackend(backend)} health unavailable`);
+      segments.push(`${PROVIDER_META[backend].label} health unavailable`);
       severities.push(defaultProvider === backend ? 'error' : 'warn');
       continue;
     }
 
     if (status.reachable) {
       segments.push(
-        `${labelForBackend(backend)} ✓${typeof status.modelCount === 'number' ? ` (${status.modelCount} models, ${status.latencyMs}ms)` : ` (${status.latencyMs}ms)`}`,
+        `${PROVIDER_META[backend].label} ✓${typeof status.modelCount === 'number' ? ` (${status.modelCount} models, ${status.latencyMs}ms)` : ` (${status.latencyMs}ms)`}`,
       );
       continue;
     }
 
     segments.push(
-      `${labelForBackend(backend)} ${status.error || 'unreachable'}`,
+      `${PROVIDER_META[backend].label} ${status.error || 'unreachable'}`,
     );
     severities.push(defaultProvider === backend ? 'error' : 'warn');
   }

@@ -57,6 +57,7 @@ import {
 } from '../channels/channel-plugin-catalog.js';
 import { requireChannelTransport } from '../channels/channel-transport.js';
 import {
+  DEFAULT_RUNTIME_CONFIG,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
@@ -646,7 +647,7 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'openrouter',
-    providerLabel: 'OpenRouter',
+    providerLabel: PROVIDER_META.openrouter.label,
     parseArgs: parseOpenRouterLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().openrouter,
     defaultModel: 'openrouter/anthropic/claude-sonnet-4',
@@ -670,7 +671,7 @@ async function configureMistral(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'mistral',
-    providerLabel: 'Mistral',
+    providerLabel: PROVIDER_META.mistral.label,
     parseArgs: parseOpenRouterLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().mistral,
     defaultModel: 'mistral/mistral-large-latest',
@@ -694,7 +695,7 @@ async function configureHuggingFace(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'huggingface',
-    providerLabel: 'Hugging Face',
+    providerLabel: PROVIDER_META.huggingface.label,
     parseArgs: parseHuggingFaceLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().huggingface,
     defaultModel: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
@@ -1928,13 +1929,7 @@ function normalizeLocalBaseUrl(
   rawBaseUrl: string,
 ): string {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) {
-    if (backend === 'ollama') return 'http://127.0.0.1:11434';
-    if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
-    if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
-    if (backend === 'mlx') return 'http://127.0.0.1:8321/v1';
-    return 'http://127.0.0.1:8000/v1';
-  }
+  if (!trimmed) return DEFAULT_RUNTIME_CONFIG.local.backends[backend].baseUrl;
   if (backend === 'ollama') {
     return trimmed.replace(/\/v1$/i, '');
   }

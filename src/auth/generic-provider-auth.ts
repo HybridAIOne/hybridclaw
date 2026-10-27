@@ -9,7 +9,11 @@
  * provider runtime (`openai-compat-remote.ts`), and NOT the target-name table
  * (`auth-targets.ts`).
  */
+import type { OpenAICompatRemoteProviderId } from '../providers/provider-ids.js';
 import { PROVIDER_META } from '../providers/provider-meta.js';
+
+// OpenRouter, Mistral, and Hugging Face keep their own login flows.
+type DedicatedLoginProviderId = 'openrouter' | 'mistral' | 'huggingface';
 
 const BASE_URL_SUFFIX_BY_ID = {
   openai: '/v1',
@@ -22,7 +26,10 @@ const BASE_URL_SUFFIX_BY_ID = {
   dashscope: '/v1',
   xiaomi: '/v1',
   kilo: '/api/gateway',
-} as const;
+} as const satisfies Record<
+  'openai' | Exclude<OpenAICompatRemoteProviderId, DedicatedLoginProviderId>,
+  string
+>;
 
 export type GenericProviderId = keyof typeof BASE_URL_SUFFIX_BY_ID;
 

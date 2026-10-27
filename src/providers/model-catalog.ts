@@ -74,7 +74,6 @@ import {
   getDiscoveredOpenAICompatRemoteModelNames,
   getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken,
 } from './openai-compat-discovery.js';
-import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
@@ -88,6 +87,7 @@ import { PROVIDER_ALIASES } from './provider-aliases.js';
 import {
   isRuntimeProviderId,
   LOCAL_BACKEND_IDS,
+  OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
   providerModelPrefix,
   type RuntimeProviderId,
 } from './provider-ids.js';
@@ -335,12 +335,10 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (config as unknown as Record<string, unknown>)[filter] as
-        | { enabled: boolean; models: string[] }
-        | undefined;
+      const section = config[filter];
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
-        ...(section?.enabled ? section.models : []),
+        ...(section.enabled ? section.models : []),
       ];
     }
   }
@@ -362,12 +360,9 @@ export function getAvailableModelList(provider?: string): string[] {
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
         ...getDiscoveredOpenAICompatRemoteModelNames(),
-        ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
-          const section = (config as unknown as Record<string, unknown>)[
-            def.id
-          ] as { enabled: boolean; models: string[] } | undefined;
-          return section?.enabled ? section.models : [];
-        }),
+        ...OPENAI_COMPAT_REMOTE_PROVIDER_IDS.flatMap((id) =>
+          config[id].enabled ? config[id].models : [],
+        ),
       ];
 
   const models = dedupeModelList(rawModels);
@@ -486,8 +481,8 @@ export async function refreshModelCatalogMetadata(
     await discoverHuggingFaceModels();
     return;
   }
-  for (const { prefix } of OPENAI_COMPAT_REMOTE_PROVIDERS) {
-    if (hasModelPrefix(normalized, prefix)) {
+  for (const id of OPENAI_COMPAT_REMOTE_PROVIDER_IDS) {
+    if (hasModelPrefix(normalized, providerModelPrefix(id))) {
       await discoverOpenAICompatRemoteModels();
       return;
     }

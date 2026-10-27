@@ -5,9 +5,10 @@
  * provider is named and defaulted the same way on every surface.
  *
  * NOT the id list (`container/shared/provider-ids.js`) and NOT the per-flow
- * auth details (`src/auth/generic-provider-auth.ts`). Dependency-free so the
- * console can import it.
+ * auth details (`src/auth/generic-provider-auth.ts`). Imports only from
+ * `container/shared` so the console can import it.
  */
+import { ANTHROPIC_DEFAULT_BASE_URL } from '../../container/shared/anthropic-utils.js';
 import type { RuntimeProviderId } from './provider-ids.js';
 
 export interface ProviderMeta {
@@ -45,7 +46,7 @@ export const PROVIDER_META = {
     label: 'Anthropic',
     secretKey: 'ANTHROPIC_API_KEY',
     envVars: ['ANTHROPIC_API_KEY'],
-    defaultBaseUrl: 'https://api.anthropic.com/v1',
+    defaultBaseUrl: ANTHROPIC_DEFAULT_BASE_URL,
     defaultModels: ['anthropic/claude-sonnet-4-6'],
   },
   openrouter: {

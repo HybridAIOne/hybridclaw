@@ -45,6 +45,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { LocalBackendType } from '../providers/provider-ids.js';
 import type { ScopeErrorCode } from '../scopes/scope-session.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
@@ -711,7 +712,7 @@ export interface GatewayStatus
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx',
+      LocalBackendType,
       {
         reachable: boolean;
         latencyMs: number;
@@ -1516,7 +1517,7 @@ export interface GatewayAdminModelCatalogEntry {
   provider: GatewayModelProviderKey;
   zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
+  backend: LocalBackendType | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {

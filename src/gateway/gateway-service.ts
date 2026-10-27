@@ -348,7 +348,9 @@ import {
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
 import {
+  isLocalBackendType,
   isRuntimeProviderId,
+  LOCAL_BACKEND_IDS,
   NON_HYBRID_PROVIDER_IDS,
   providerModelPrefix,
 } from '../providers/provider-ids.js';
@@ -2796,14 +2798,7 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     .trim()
     .toLowerCase();
   if (!normalized) return false;
-  const provider = normalized.split('/', 1)[0] || '';
-  return (
-    provider === 'ollama' ||
-    provider === 'lmstudio' ||
-    provider === 'llamacpp' ||
-    provider === 'vllm' ||
-    provider === 'mlx'
-  );
+  return isLocalBackendType(normalized.split('/', 1)[0] || '');
 }
 
 function formatArchiveReference(archivePath: string): string {
@@ -6341,13 +6336,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of [
-    'ollama',
-    'lmstudio',
-    'llamacpp',
-    'vllm',
-    'mlx',
-  ] as const) {
+  for (const provider of LOCAL_BACKEND_IDS) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);

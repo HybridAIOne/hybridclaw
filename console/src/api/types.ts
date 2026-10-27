@@ -1,4 +1,5 @@
 import type { McpServerConfig } from '../../../container/shared/mcp-server-config.js';
+import type { LocalBackendType } from '../../../container/shared/provider-ids.js';
 import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
@@ -1003,7 +1004,7 @@ export interface ChatModel {
   zone?: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   /** Latest local discovery result; absent when discovery status is unknown. */
   discovered?: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
+  backend: LocalBackendType | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
