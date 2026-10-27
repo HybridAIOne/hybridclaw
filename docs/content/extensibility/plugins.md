@@ -611,6 +611,34 @@ bodies, `parseValueFlag` for `--flag value` / `--flag=value` CLI parsing,
 (`loadConfidentialRules`, `dehydrateConfidential`, `scanForLeaks`), and the
 agent registry and workspace helpers. The `distill` plugin uses all of these.
 
+Plugins that wrap an external CLI call `runBoundedCli({ command, args, cwd,
+env, timeoutMs, maxChars | maxBytes, label })`. The child gets only an
+allowlisted host environment (`PATH`, `HOME`, `TMPDIR`, XDG and locale
+variables, plus the Windows equivalents) and the `env` extras you pass. Each
+output stream is capped at `maxBytes`, or two bytes per `maxChars`, and never
+less than 32 KiB. On timeout the child gets `SIGTERM` and then `SIGKILL`. The
+call always resolves to `{ ok, stdout, stderr, stdoutTruncated,
+stderrTruncated }` and adds `error` when `ok` is false. `buildCliProcessEnv`
+gives a synchronous spawn the same environment. `resolvePluginPath(value, cwd)`
+resolves a configured path, treating `~` as the OS home directory. The qmd,
+gbrain, MemPalace, and ByteRover memory plugins use these helpers.
+
+For untrusted values and prompt text, import these instead of writing local
+copies:
+
+| Helper | Returns |
+|--------|---------|
+| `isRecord(value)` | `true` for a non-null, non-array object |
+| `readString(value)` | the trimmed string, or `''` for any non-string |
+| `toTrimmedString(value)` | `String(value).trim()`, so numeric ids survive; `''` for falsy values |
+| `readFiniteNumber(value)` | a finite number from a number or numeric string, else `null` |
+| `normalizeText(value, { collapseSpaces })` | text without `\r` or trailing line whitespace, with at most one blank line in a row |
+| `truncateText(value, maxChars)` | trimmed text cut to `maxChars` with a trailing `…` |
+| `appendTruncationNotice(text, subject)` | `text` followed by a `[<subject> truncated]` paragraph |
+| `latestMessageByRole(messages, role)` | the newest message by `created_at`, then numeric `id`, then position |
+
+Do not assume `recentMessages` is in chronological order.
+
 To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat

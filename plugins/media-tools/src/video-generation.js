@@ -1,5 +1,5 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 import {
-  isRecord,
   normalizeBaseUrl,
   ProviderRequestError,
   readCredentialValue,
