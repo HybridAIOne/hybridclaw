@@ -5,7 +5,7 @@ kind: memory
 description: Local Transformers.js (ONNX) embeddings for built-in semantic memory. Select with memory.embedding.provider = transformers.
 entrypoint: src/index.js
 requires:
-  node: '>=22'
+  node: '>=22.23.4 <23'
 configSchema:
   type: object
   additionalProperties: false

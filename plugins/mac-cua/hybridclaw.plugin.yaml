@@ -5,7 +5,7 @@ kind: tool
 description: Drives the operator's own macOS browser through the Cua Driver accessibility tree. macOS only. Select with browser.provider = mac-cua.
 entrypoint: src/index.js
 requires:
-  node: '>=22'
+  node: '>=22.23.4 <23'
 commands:
   - mac-cua
 configSchema:

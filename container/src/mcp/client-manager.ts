@@ -66,11 +66,11 @@ const MCP_TOOLS_MAX_AGE_MS = 60_000;
 // The listing runs before the turn, so a slow server must not hold it long.
 const MCP_RELIST_TIMEOUT_MS = 5_000;
 // 32,000 chars of serialized schema per server, ≈8K tokens (agent call,
-// 2026-10-02, pending owner review). A server past it goes behind
-// tool_catalog: Zoho-sized (32 tools, 56K) is deferred, HybridAI's connectors
-// (42 tools, 25K) stay loaded because a catalog step costs a model round trip.
-// Deferred: a budget for the whole tool payload, and compacting nested
-// property descriptions instead of deferring whole servers.
+// 2026-10-02, pending owner review). A server's tools load in listing order
+// until the budget is spent; the rest go behind tool_catalog, since a catalog
+// step costs a model round trip. Per tool, not per server (2026-10-26): one
+// more connector on HybridAI's gateway put all its tools, mail and calendar
+// included, behind the catalog. Deferred: a budget for the whole tool payload.
 const MAX_LOADED_SERVER_SCHEMA_CHARS = 32_000;
 const MCP_CLIENT_INFO = {
   name: 'hybridclaw-agent',
@@ -328,25 +328,25 @@ export class McpClientManager {
 
   /**
    * Tools of `requestTools` to load only when needed: those their server
-   * marks, and every tool of a server whose unmarked schemas in this request
-   * together exceed MAX_LOADED_SERVER_SCHEMA_CHARS. Sized from the definitions
-   * the model receives, so a request defers the same set on every worker.
+   * marks, and each unmarked tool from the one that takes its server's
+   * schemas in this request past MAX_LOADED_SERVER_SCHEMA_CHARS. Sized from
+   * the definitions the model receives, in the server's listing order, so a
+   * request defers the same set on every worker.
    */
   getDeferLoadingToolNames(requestTools: ToolDefinition[]): string[] {
     const offered = new Map(
       requestTools.map((tool) => [tool.function.name, tool]),
     );
     return Array.from(this.clients.values()).flatMap((handle) => {
-      const tools = handle.tools.filter((tool) => offered.has(tool.name));
-      const loadedChars = tools
-        .filter((tool) => !tool.deferLoading)
-        .reduce(
-          (sum, tool) => sum + JSON.stringify(offered.get(tool.name)).length,
-          0,
-        );
-      const oversized = loadedChars > MAX_LOADED_SERVER_SCHEMA_CHARS;
-      return tools
-        .filter((tool) => oversized || tool.deferLoading)
+      let budget = MAX_LOADED_SERVER_SCHEMA_CHARS;
+      return handle.tools
+        .filter((tool) => {
+          const definition = offered.get(tool.name);
+          if (!definition) return false;
+          if (tool.deferLoading) return true;
+          budget -= JSON.stringify(definition).length;
+          return budget < 0;
+        })
         .map((tool) => tool.name);
     });
   }

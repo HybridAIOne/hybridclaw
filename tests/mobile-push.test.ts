@@ -8,6 +8,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/auth/hybridai-auth.js', () => ({ readHybridAIApiKey: mocks.apiKey }));
 vi.mock('../src/security/public-https-fetch.js', () => ({ fetchPublicHttpsBuffer: mocks.webPush }));
+// Message storage is mocked here; execute the matching transaction boundary inline.
+vi.mock('../src/memory/database.js', () => ({
+  withMemoryDatabase: (run: (db: { transaction: (body: () => unknown) => () => unknown }) => unknown) =>
+    run({ transaction: (body) => body }),
+}));
+// These notification fixtures store plain replies without linked draft reviews.
+vi.mock('../src/memory/db.js', () => ({ getSessionById: mocks.getSession }));
+vi.mock('../src/memory/messages.js', () => ({ getSessionAssistantMessage: () => null }));
 vi.mock('../src/memory/memory-service.js', () => ({ memoryService: { getSessionById: mocks.getSession, storeMessage: mocks.storeMessage } }));
 vi.mock('../src/agents/agent-registry.js', () => ({ getAgentById: mocks.agent }));
 vi.mock('../src/logger.js', () => ({ logger: { warn: mocks.warn } }));

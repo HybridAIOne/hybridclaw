@@ -43,23 +43,14 @@ and look for `Twilio voice plugin ready` in the gateway log.
 
 ### Upgrading From v0.39.4 And Earlier
 
-Before v0.39.5 Twilio voice was built into the gateway. An existing `voice.*`
-config keeps answering calls after the upgrade with no manual step:
+Before installing v0.41 or later, upgrade through v0.40.8 once to migrate
+the old voice configuration, or explicitly enable the bundled plugin with
+`hybridclaw plugin install twilio-voice`. Keep the existing `voice.*` settings.
 
-1. On the first start, a config with `voice.enabled: true` gains an enabled
-   `twilio-voice` entry in `plugins.list`, so the gateway loads the copy that
-   ships with HybridClaw (npm package and Docker image alike). This happens
-   once; if you later disable or remove the entry, it stays that way.
-2. `https://<public-host>/voice/webhook` keeps answering incoming calls
-   through v0.41, and the gateway logs a warning the first time Twilio uses
-   it. Before upgrading past v0.41, change the number's voice webhook in the
-   Twilio console to
-   `https://<public-host>/api/plugin-webhooks/twilio-voice/webhook`. The relay,
-   stream, and action URLs follow automatically from the TwiML the plugin
-   returns.
-3. `voice.webhookPath` no longer exists; the gateway drops it from the config
-   on startup. If you had changed it from `/voice`, the old URL stops
-   answering, so update the Twilio console right away.
+Set the number's voice webhook in the Twilio console to
+`https://<public-host>/api/plugin-webhooks/twilio-voice/webhook`. The retired
+`/voice/webhook` alias is unavailable. Relay, stream, and action URLs follow
+automatically from the TwiML the plugin returns.
 
 ## What You Need
 

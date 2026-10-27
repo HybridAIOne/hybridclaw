@@ -85,7 +85,6 @@ import {
   getSignalLinkState,
   startSignalLink,
 } from '../channels/signal/pairing.js';
-import { isLegacyTwilioVoiceWebhookPath } from '../channels/voice/twilio-voice-compat.js';
 import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
@@ -1635,6 +1634,20 @@ async function handleApiBrowserTool(
       count: requests.length,
       source: 'performance',
     });
+    return;
+  }
+
+  if (toolName === 'browser_evaluate') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isNativeGatewaySession(active)) unsupportedGatewayBrowserTool(toolName);
+    if (args.frame != null) {
+      throw new GatewayRequestError(
+        400,
+        'browser_evaluate takes no frame when the browser runs in the gateway.',
+      );
+    }
+    const result = await active.session.evaluate(String(args.expression || ''));
+    sendJson(res, 200, { success: true, result: result ?? null });
     return;
   }
 
@@ -3448,7 +3461,7 @@ async function handleApiChat(
   if (approval === null) {
     sendJson(res, 400, {
       error:
-        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, or no.',
+        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, no, or draft.',
     });
     return;
   }
@@ -10357,12 +10370,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           peerTrustLevel: trust.trustLevel,
           peerId: trust.peerId,
         }),
-      );
-      return;
-    }
-    if (isLegacyTwilioVoiceWebhookPath(pathname)) {
-      dispatchWebhookRoute(res, () =>
-        handleGatewayPluginWebhook(req, res, url),
       );
       return;
     }

@@ -23,7 +23,7 @@
  * NOT the scheduler (`scheduler.ts`, which fires tasks) and NOT the admin
  * scheduler API, which edits every task on an operator's behalf.
  */
-import { createHash } from 'node:crypto';
+
 import { CronExpressionParser } from 'cron-parser';
 import {
   getSupportedReasoningEfforts,
@@ -60,6 +60,7 @@ import {
   dbTaskLabel,
   rearmScheduler,
 } from '../scheduler/scheduler.js';
+import { taskRevision } from '../scheduler/task-revision.js';
 import {
   listTaskRuns,
   MAX_TASK_RUNS,
@@ -70,6 +71,7 @@ import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   badCommand,
+  chatSafeJson,
   infoCommand,
   plainCommand,
 } from './gateway-command-results.js';
@@ -79,6 +81,10 @@ import type {
   GatewayCommandResult,
 } from './gateway-types.js';
 import { resolvePublicGatewayBaseUrl } from './gateway-url-utils.js';
+import {
+  handleRoutineCommand,
+  routineCapabilities,
+} from './routine-command.js';
 import {
   canManageScheduledTask,
   canReadScheduledTaskResults,
@@ -92,55 +98,14 @@ const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
 const MAX_RESULTS = 200;
-const STREAM_UNSAFE: Record<string, string> = {
-  '\\\\': '\\u005c',
-  '\\n': '\\u000a',
-  '\\r': '\\u000d',
-};
-
-/**
- * One line of JSON that survives a chat relay: relays escape line breaks as
- * the two characters backslash-n and their clients turn every such pair back
- * into a line break, which would corrupt a string holding an escaped one.
- */
-export function chatSafeJson(value: unknown): string {
-  return JSON.stringify(value).replace(
-    /\\[\\nr]/g,
-    (pair) => STREAM_UNSAFE[pair] ?? pair,
-  );
-}
-
 function isoTime(raw: string | null | undefined): string | null {
   return parseTimestamp(raw)?.toISOString() ?? null;
 }
 
-function taskRevision(task: ScheduledTask): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify([
-        task.prompt,
-        task.cron_expr,
-        task.tz,
-        task.run_at,
-        task.every_ms,
-        task.enabled,
-        task.title ?? null,
-        task.model ?? null,
-        task.effort ?? null,
-        task.fresh_session ?? false,
-        task.session_id,
-        task.channel_id,
-        task.reply_only ?? false,
-        task.alert ?? null,
-        task.trigger ?? null,
-      ]),
-    )
-    .digest('hex');
-}
-
-function taskJson(task: ScheduledTask) {
+export function taskJson(task: ScheduledTask) {
   return {
     revision: taskRevision(task),
+    managed_key: task.managed_key ?? null,
     title: task.title ?? null,
     model: task.model ?? null,
     effort: task.effort ?? null,
@@ -312,10 +277,11 @@ function addTrigger(
 function findManageable(
   taskId: number | null,
   session: Session,
+  userId?: string | null,
 ): ScheduledTask | null {
   if (!taskId) return null;
   const task = getJob(taskId, { kind: 'scheduled_task' });
-  return task && canManageScheduledTask(task, session) ? task : null;
+  return task && canManageScheduledTask(task, session, userId) ? task : null;
 }
 
 function add(
@@ -559,12 +525,21 @@ function taskEditor(session: Session) {
   };
 }
 
-function update(args: string[], session: Session): GatewayCommandResult {
+function update(
+  args: string[],
+  session: Session,
+  userId?: string | null,
+): GatewayCommandResult {
   const values = args.filter((value) => value !== '--json');
   const id = parseIntegerArg(values, 0);
-  const task = findManageable(id, session);
+  const task = findManageable(id, session, userId);
   if (!task)
     return badCommand('Not Found', 'Task was not found for this chat.');
+  if (task.managed_key)
+    return badCommand(
+      'Managed Routine',
+      'Use its routine settings to edit this task.',
+    );
   let data: unknown;
   try {
     if (values.length !== 2 || !/^[A-Za-z0-9_-]{1,180000}$/.test(values[1]))
@@ -702,7 +677,10 @@ export function handleScheduleCommand(
   session: Session,
 ): GatewayCommandResult {
   const sub = parseLowerArg(req.args, 1);
-  if (sub === 'update') return update(req.args.slice(2).map(String), session);
+  if (sub === 'routine')
+    return handleRoutineCommand(req, session, taskJson, chatSafeJson);
+  if (sub === 'update')
+    return update(req.args.slice(2).map(String), session, req.userId);
   const options = readOptions(req.args.slice(2).map(String), sub === 'add');
   if (options.error) return badCommand('Usage', options.error);
   const notFound = (taskId: number | null) =>
@@ -721,13 +699,17 @@ export function handleScheduleCommand(
   }
 
   if (sub === 'list') {
-    const { tasks, hiddenCount } = listManageableScheduledTasks(session);
+    const { tasks, hiddenCount } = listManageableScheduledTasks(
+      session,
+      req.userId,
+    );
     if (options.json) {
       return plainCommand(
         chatSafeJson({
           version: 1,
           tasks: tasks.map(taskJson),
           editor: taskEditor(session),
+          routines: routineCapabilities(),
           hidden: hiddenCount,
         }),
       );
@@ -756,13 +738,13 @@ export function handleScheduleCommand(
 
   if (sub === 'results' || sub === 'runs') {
     const task = taskId ? getJob(taskId, { kind: 'scheduled_task' }) : null;
-    if (!task || !canReadScheduledTaskResults(task, session))
+    if (!task || !canReadScheduledTaskResults(task, session, req.userId))
       return notFound(taskId);
     return sub === 'runs' ? runs(task, options) : results(task, options);
   }
 
   if (sub === 'remove') {
-    const task = findManageable(taskId, session);
+    const task = findManageable(taskId, session, req.userId);
     if (!task) return notFound(taskId);
     deleteJob(task.id);
     if (task.trigger) forgetTrigger(task.id);
@@ -772,17 +754,16 @@ export function handleScheduleCommand(
       : plainCommand(`Task #${task.id} removed.`);
   }
 
-  if (sub === 'toggle') {
-    const task = findManageable(taskId, session);
+  if (sub === 'toggle' || sub === 'pause') {
+    const task = findManageable(taskId, session, req.userId);
     if (!task) return notFound(taskId);
-    setJobEnabled(task.id, !task.enabled);
+    const enabled = sub === 'toggle' && !task.enabled;
+    setJobEnabled(task.id, enabled);
     rearmScheduler();
     const toggled = getJob(task.id, { kind: 'scheduled_task' });
     return options.json && toggled
       ? plainCommand(chatSafeJson({ version: 1, task: taskJson(toggled) }))
-      : plainCommand(
-          `Task #${task.id} ${task.enabled ? 'disabled' : 'enabled'}.`,
-        );
+      : plainCommand(`Task #${task.id} ${enabled ? 'enabled' : 'disabled'}.`);
   }
 
   return badCommand('Usage', USAGE);

@@ -1,14 +1,14 @@
 {
   "lockfiles": {
-    "package-lock.json": "16872650d47c7df56554d5161212da6e27e023bb4161bc81da5ba2043a29e3e8",
-    "npm-shrinkwrap.json": "16872650d47c7df56554d5161212da6e27e023bb4161bc81da5ba2043a29e3e8",
-    "container/package-lock.json": "b8ce12e99e6528333bdb13b8e912a88c308c2147e96f1006c2a826de03add35b",
-    "container/npm-shrinkwrap.json": "b8ce12e99e6528333bdb13b8e912a88c308c2147e96f1006c2a826de03add35b",
-    "plugins/brevo-email/package-lock.json": "11293bb72d817999d3bbd5ef4625a0ab78468bd6857ae31b44dd7c7cec4ec6a6",
-    "plugins/line/package-lock.json": "b27265ce9a87433471f1f628433db9971f04771ea733727b44f79452bbc93cbf",
-    "container/tools/package-lock.json": "3e83b32631665041bce0032e637805cae7184817dc40ed916357a4cd330b4d06",
-    "plugins/transformers-embeddings/package-lock.json": "4893f74df0202670eb34766f75d201c26af7f42f2745b02cb9b38fc8e9dfc089",
-    "plugins/camofox/package-lock.json": "fe7793bf612911f76938147f0c3718f0bdc9aad15bae04ac5f8b7d6f603df8c9"
+    "package-lock.json": "d6c50c696d4101fff1c64f74be5cfd7d9fde1c606e568b04e87224061dc9583a",
+    "npm-shrinkwrap.json": "d6c50c696d4101fff1c64f74be5cfd7d9fde1c606e568b04e87224061dc9583a",
+    "container/package-lock.json": "a20050c39749e1ee080511c9663f4121cd625321d07dd9895906cdbb123a81a3",
+    "container/npm-shrinkwrap.json": "a20050c39749e1ee080511c9663f4121cd625321d07dd9895906cdbb123a81a3",
+    "plugins/brevo-email/package-lock.json": "af4a4e9674a21282ec59d044c11123509a9bb104ff45924430d1010b3ee4ea86",
+    "plugins/line/package-lock.json": "e628d76d46f034c643792afc19d5f337768413a7c1996ad55bbc98b139c0aba6",
+    "container/tools/package-lock.json": "fab00a7b71f6bc7b589bddfabc1269ed7afef450c8d08badf18d07685e3db70c",
+    "plugins/transformers-embeddings/package-lock.json": "6628a682365b7708c491f7e6bd5c441adcf11e4afc0797af58de72d8fe00eeb5",
+    "plugins/camofox/package-lock.json": "5b217fbc53c171042aa261b97e63994e1245ecdfa6795dead85e16ab48199384"
   },
   "licenses": {}
 }

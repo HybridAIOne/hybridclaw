@@ -495,9 +495,9 @@ describe('McpClientManager deferred loading', () => {
   test.each([
     ['at the budget stays loaded', BUDGET, []],
     [
-      'one character over it is deferred entirely',
+      'one character over it defers the tool that crosses it',
       BUDGET + 1,
-      ['invoice__tool_00', 'invoice__tool_01', 'invoice__tool_02'],
+      ['invoice__tool_02'],
     ],
   ])('a server %s', (_label, chars, deferred) => {
     const manager = managerWithServers([
@@ -515,7 +515,7 @@ describe('McpClientManager deferred loading', () => {
       { name: 'invoice', count: 4, chars: 40_000 },
     ]);
     const all = manager.getAllToolDefinitions();
-    expect(manager.getDeferLoadingToolNames(all)).toHaveLength(4);
+    expect(manager.getDeferLoadingToolNames(all)).toEqual(['invoice__tool_03']);
     // An agent allowed three of the four tools sends ~30K: they stay loaded.
     expect(manager.getDeferLoadingToolNames(all.slice(1))).toEqual([]);
   });

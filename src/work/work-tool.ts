@@ -23,6 +23,10 @@ export function beginWork(session: string, id: string): () => void {
     if (!runs.size) active.delete(session);
   };
 }
+/** Only a live gateway execution can say a run is active. */
+export function isWorkActive(id: string): boolean {
+  return [...active.values()].some((runs) => runs.has(id));
+}
 /** The scheduled run working in `session` right now, when exactly one is. */
 export function currentWork(session: string): WorkRecord | null {
   const runs = active.get(session);

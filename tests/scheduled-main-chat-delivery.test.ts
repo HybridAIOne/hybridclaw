@@ -55,13 +55,14 @@ async function load() {
       prompt: 'Check my mail for parcels.',
     });
   // What `dispatchDbTask` hands the gateway when the task fires.
-  const fire = (taskId: number) => {
+  const fire = (taskId: number, owner?: string) => {
     const task = jobs.getJob(taskId, {
       kind: 'scheduled_task',
     }) as ScheduledTask;
     return runScheduledTask(
       {
         source: 'scheduled-task',
+        ...(owner ? { taskOwner: { userId: owner, sessionId: task.session_id } } : {}),
         taskId,
         sessionId: task.session_id,
         channelId: 'web',
@@ -197,4 +198,18 @@ test("tasks of the apps' hidden data chats keep replying there", async () => {
     chat(id);
     expect(mainChatForWebTask(id)).toBeNull();
   }
+});
+
+
+test('an owned main-chat test stays with its owner when another main chat is newer', async () => {
+  const { chat, addTask, fire, messages, setLastActive } = await load();
+  const other = `main-${'ef'.repeat(16)}-main`;
+  chat(MAIN_CHAT);
+  chat(other);
+  setLastActive(MAIN_CHAT, '2026-10-01 09:00:00');
+  setLastActive(other, '2026-10-08 09:00:00');
+  const task = addTask(MAIN_CHAT);
+  await fire(task, 'user-a');
+  expect(messages(MAIN_CHAT)).toEqual([{ content: REPLY, source: `schedule:${task}` }]);
+  expect(messages(other)).toEqual([]);
 });

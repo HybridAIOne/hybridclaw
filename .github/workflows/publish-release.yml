@@ -292,9 +292,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          # The package declares Node 22.x and npm 11.x because .npmrc uses
-          # npm 11 supply-chain hardening such as min-release-age.
-          node-version: 22
+          # Use the generated Node security floor; npm 11.10+ provides
+          # supply-chain hardening such as min-release-age.
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: |
             npm-shrinkwrap.json

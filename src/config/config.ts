@@ -690,7 +690,6 @@ export let OBSERVABILITY_BASE_URL = 'https://hybridai.one';
 export let OBSERVABILITY_INGEST_PATH =
   '/api/v1/agent-observability/events:batch';
 export let OBSERVABILITY_STATUS_PATH = '/api/v1/agent-observability/status';
-export let OBSERVABILITY_BOT_ID = '';
 export let OBSERVABILITY_LABEL = '';
 export let OBSERVABILITY_ENVIRONMENT = 'prod';
 export let OBSERVABILITY_FLUSH_INTERVAL_MS = 10_000;
@@ -1118,7 +1117,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OBSERVABILITY_BASE_URL = config.observability.baseUrl;
   OBSERVABILITY_INGEST_PATH = config.observability.ingestPath;
   OBSERVABILITY_STATUS_PATH = config.observability.statusPath;
-  OBSERVABILITY_BOT_ID = config.observability.botId;
   OBSERVABILITY_LABEL = config.observability.label;
   OBSERVABILITY_ENVIRONMENT = config.observability.environment;
   OBSERVABILITY_FLUSH_INTERVAL_MS = Math.max(

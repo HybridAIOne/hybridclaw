@@ -32,7 +32,11 @@ import { buildSessionContext } from '../session/session-context.js';
 import { scheduledRunSessionKey } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
-import { trackedTaskPrompt } from '../tracking/track-store.js';
+import { todoOwnerOf } from '../todos/todo-store.js';
+import {
+  trackedOwningTask,
+  trackedTaskPrompt,
+} from '../tracking/track-store.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { taskCostFromUsage } from '../usage/task-cost.js';
@@ -127,8 +131,15 @@ export async function runIsolatedScheduledTask(params: {
   // The work tool only answers a verified owner, so only their runs are told to use it.
   const taskPrompt = trackedTaskPrompt(taskId, storedPrompt);
   const prompt = owner ? workPrompt(taskPrompt) : taskPrompt;
+  const trackedItem = trackedOwningTask(taskId);
   startWork({
     id: runId,
+    ...(trackedItem &&
+    owner &&
+    trackedItem.followThrough?.owner === owner &&
+    taskSession
+      ? { trackedItem: { scope: todoOwnerOf(taskSession), id: trackedItem.id } }
+      : {}),
     agentId,
     owner: owner ?? null,
     sessionId: params.originSessionId ?? sessionId ?? activeSessionId,
@@ -177,6 +188,7 @@ export async function runIsolatedScheduledTask(params: {
     runId,
     event: {
       type: 'session.start',
+      executingAgentId: agentId,
       userId: 'scheduler',
       channel: channelId,
       cwd: workspacePath,

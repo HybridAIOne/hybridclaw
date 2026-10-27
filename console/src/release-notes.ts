@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.8',
+  version: '0.41.1',
   highlights: [
-    'Reliable memory compaction and cleanup',
-    'Better prompt-cache reuse',
-    'HybridAI without a chatbot',
-    'Discord delegate approval buttons',
+    'Shared HybridAI knowledge and wikis',
+    'Optional nightly wiki maintenance',
+    'Cleaner reminders and working event triggers',
+    'Requires Node 22.23.4 or later in Node 22',
   ],
 } as const;
 

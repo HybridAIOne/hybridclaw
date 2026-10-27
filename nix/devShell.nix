@@ -3,11 +3,14 @@
 {
   perSystem =
     { pkgs, ... }:
+    let
+      nodejs = import ./nodejs.nix { inherit pkgs; };
+    in
     {
       devShells.default = pkgs.mkShell {
         packages = with pkgs; [
-          nodejs_22
-          nodejs_22.pkgs.npm
+          nodejs
+          nodejs.pkgs.npm
           python3
           pkg-config
           biome

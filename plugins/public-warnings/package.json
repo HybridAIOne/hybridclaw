@@ -6,6 +6,6 @@
   "type": "module",
   "description": "Official German public warnings (NINA) for watched places",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

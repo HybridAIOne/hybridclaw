@@ -10,9 +10,11 @@
  * NOT the admin scheduler or admin audit, which deliberately operate across
  * all sessions for the local operator.
  */
+
 import { getSessionById } from '../memory/db.js';
 import { getAllJobs } from '../memory/jobs.js';
 import { resolveSessionIdCompat } from '../memory/sessions.js';
+import { currentTurnUser } from '../session/turn-user.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 import { mainChatForWebTask } from './web-scheduled-delivery.js';
@@ -50,7 +52,9 @@ function isCreatingChat(task: ScheduledTask, requester: Session): boolean {
 export function canReadScheduledTaskResults(
   task: ScheduledTask,
   requester: Session,
+  userId: string | null | undefined = currentTurnUser(requester.id)?.userId,
 ): boolean {
+  if (task.managed_key && task.owner_user_id !== userId) return false;
   if (isCreatingChat(task, requester)) return true;
   const mainChat = mainChatForWebTask(task.session_id);
   return mainChat !== null && mainChat.session_key === requester.session_key;
@@ -59,7 +63,9 @@ export function canReadScheduledTaskResults(
 export function canManageScheduledTask(
   task: ScheduledTask,
   requester: Session,
+  userId: string | null | undefined = currentTurnUser(requester.id)?.userId,
 ): boolean {
+  if (task.managed_key && task.owner_user_id !== userId) return false;
   return canSeeSession(task.session_id, requester);
 }
 
@@ -69,13 +75,20 @@ export function canManageScheduledTask(
  * model does not create a duplicate. Messaging sessions and scoped chats
  * always get 0: they must not learn what other chats have scheduled.
  */
-export function listManageableScheduledTasks(requester: Session): {
+export function listManageableScheduledTasks(
+  requester: Session,
+  userId?: string | null,
+): {
   tasks: ScheduledTask[];
   hiddenCount: number;
 } {
   // A trigger's queued runs belong to the trigger, which is listed.
   const all = getAllJobs({ kind: 'scheduled_task' }).filter(
-    (task) => !task.trigger_event,
+    (task) =>
+      !task.trigger_event &&
+      (!task.managed_key ||
+        task.owner_user_id ===
+          (userId ?? currentTurnUser(requester.id)?.userId)),
   );
   if (requester.channel_id !== 'web') {
     return {
@@ -86,7 +99,13 @@ export function listManageableScheduledTasks(requester: Session): {
   const tasks: ScheduledTask[] = [];
   let hiddenCount = 0;
   for (const task of all) {
-    if (canManageScheduledTask(task, requester)) {
+    if (
+      canManageScheduledTask(
+        task,
+        requester,
+        userId ?? currentTurnUser(requester.id)?.userId,
+      )
+    ) {
       tasks.push(task);
     } else if (
       requester.agent_id &&

@@ -5,7 +5,6 @@ import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const config = vi.hoisted(() => ({ DATA_DIR: '' }));
 vi.mock('../src/config/config.js', () => config);
-vi.mock('../src/gateway/schedule-command.js', () => ({ chatSafeJson: JSON.stringify }));
 import { handlePreferencesCommand } from '../src/preferences/preferences-command.js';
 import { mergePreferences, readPreferences, renderPreferences, runPreferenceTool } from '../src/preferences/preferences.js';
 import { beginTurnUser, currentTurnUser } from '../src/session/turn-user.js';

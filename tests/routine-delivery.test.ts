@@ -1,0 +1,32 @@
+import { expect, test, vi } from 'vitest';
+import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+const mocks = vi.hoisted(() => ({ run: vi.fn(), deliver: vi.fn() }));
+vi.mock('../src/gateway/gateway-scheduled-task-service.js', () => ({ runGatewayScheduledTask: mocks.run }));
+vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ mainChatForWebTask: () => ({ id: 'another-owners-main' }), deliverWebScheduledMessage: mocks.deliver }));
+const { setupHome } = setupGatewayTest({ tempHomePrefix: 'hy-routine-delivery-' });
+
+test('delivery failure and restart reuse the stored result without rerunning the model', async () => {
+  setupHome();
+  const db = await import('../src/memory/db.js'); db.initDatabase({ quiet: true });
+  const jobs = await import('../src/memory/jobs.js');
+  const editions = await import('../src/scheduler/routine-editions.js');
+  const { runScheduledTask } = await import('../src/gateway/gateway-scheduled-dispatch.js');
+  const session = db.getOrCreateSession('main-example', null, 'web', 'hy');
+  const id = jobs.createJob({ kind: 'scheduled_task', sessionId: session.id, channelId: 'web', cronExpr: '0 8 * * *', tz: 'UTC', prompt: 'Use the bundled skill', ownerUserId: 'user-a', managedKey: 'daily-brief', managedScope: 'scope-a' });
+  const task = jobs.getJob(id, { kind: 'scheduled_task' })!;
+  const runId = editions.claimRoutineEdition(task, Date.now())!;
+  mocks.run.mockImplementation(async (_s, _c, _p, _t, result) => result({ text: 'A partial brief: calendar unavailable.', storedMessage: { sessionId: session.id, id: 42 } }));
+  mocks.deliver.mockImplementationOnce(() => { throw new Error('Delivery failed'); }).mockReturnValue({ status: 'delivered' });
+  const request = { source: 'scheduled-task' as const, taskId: id, taskRunId: runId, sessionId: session.id, channelId: 'web', prompt: task.prompt, actionKind: 'agent_turn' as const, delivery: { kind: 'channel' as const, channelId: 'web' }, routine: { key: 'daily-brief', scope: 'scope-a' } };
+  const dependencies = { deliverProactiveMessage: vi.fn(), deliverWebhookMessage: vi.fn(), resolveLastUsedDeliverableChannelId: () => null };
+  await expect(runScheduledTask(request, dependencies)).rejects.toThrow('Delivery failed');
+  expect(editions.savedEdition(runId)?.text).toContain('calendar unavailable');
+  db.closeDatabase(); db.initDatabase({ quiet: true });
+  await runScheduledTask(request, dependencies);
+  expect(mocks.run).toHaveBeenCalledTimes(1);
+  expect(mocks.deliver).toHaveBeenCalledTimes(2);
+  expect(mocks.deliver.mock.calls.every((call) => call[0] === session.id)).toBe(true);
+  jobs.setJobEnabled(id, false);
+  await expect(runScheduledTask(request, dependencies)).rejects.toThrow('stopped');
+  expect(mocks.deliver).toHaveBeenCalledTimes(2);
+});

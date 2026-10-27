@@ -19,7 +19,7 @@ DMG explicitly before uploading it to GitHub Releases.
 ## Prerequisites
 
 - macOS build host for DMG creation and Apple notarization.
-- Node.js 22 and npm 11.10+.
+- Node.js `>=22.23.4 <23` and npm 11.10+.
 - Xcode Command Line Tools: `xcode-select --install`.
 - A clean release checkout at the tag or release commit.
 - Installed root and container dependencies.

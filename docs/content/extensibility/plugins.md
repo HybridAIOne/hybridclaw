@@ -134,7 +134,13 @@ in a hand-edited config are dropped when the plugin loads.
 - `media-tools` provides `image_generate`, `video_generate`, and
   `audio_transcribe`. Provider calls run in the gateway with keys from the
   secret store (or the session model's credentials), so no provider key enters
-  the sandbox. Reference media and outputs go through `api.media`
+  the sandbox. Reference media and outputs go through `api.media`.
+  Its per-turn prompt hook reports each tool as `configured`, `unavailable`
+  (no configured provider), or `unknown` (session credentials could not be
+  checked). The snapshot uses the same provider selection as execution,
+  contains no credentials, and does not change tool schemas or permissions.
+  Configuration does not prove service health or model access. `action="list"`
+  rechecks readiness after configuration changes and provides setup details.
 - `public-warnings` provides `public_warnings` for official German warnings
   (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) by
   town or district. Places the agent watches are checked every 10 minutes,
@@ -316,9 +322,13 @@ retrieval or prompt context in parallel.
 `configSchema` is validated with Ajv, so standard JSON Schema keywords such as
 `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum` are enforced.
 
-For `requires.node`, use `>=22` for a minimum supported runtime. A bare numeric
+For `requires.node`, use `>=22.23.4 <23` to match HybridClaw's supported runtime.
+Minimum-only requirements such as `>=22` are also recognized. A bare numeric
 version pins the components you provide: `22` means Node 22.x, `22.3` means
-Node 22.3.x, and `22.3.1` means exactly 22.3.1.
+Node 22.3.x, and `22.3.1` means exactly 22.3.1. Bounded stable-release
+ranges such as `>=22.23.4 <23` enforce both the minimum patch and the next-major
+ceiling. Bundled plugins use HybridClaw's range from the root `package.json`;
+`npm run version:sync` keeps their manifests aligned.
 Use `requires.bins` for required host executables. Entries can be bare strings
 such as `qmd` or objects with `name` plus an optional `configKey` when the
 binary path is configurable from plugin config.
@@ -514,7 +524,7 @@ The released WhatsApp plugin (0.1.x) still registers only `{ kind, create }`
 and expects auth, pairing, and phone helpers on its host. Core adapts that one
 registration through `src/channels/whatsapp/legacy-registration.ts`, and the
 SDK keeps exporting its `WhatsAppTransportHost` type, until the plugin ships
-the full contract. A registration that names any contract hook must supply all
+the full contract (removal deferred to v0.42). A registration that names any contract hook must supply all
 required ones; any other create-only registration is refused with a
 `hybridclaw plugin reinstall` hint.
 

@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw plugin that publishes admin-defined tools on an MCP endpoint",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

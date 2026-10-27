@@ -147,8 +147,6 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
-import { migrateLegacyBrowserPluginConfig } from './legacy-browser-plugin-migration.js';
-import { withLegacyTwilioVoicePlugin } from './legacy-twilio-voice.js';
 import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
@@ -1278,7 +1276,6 @@ export interface RuntimeConfig {
     baseUrl: string;
     ingestPath: string;
     statusPath: string;
-    botId: string;
     label: string;
     environment: string;
     flushIntervalMs: number;
@@ -2089,7 +2086,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     baseUrl: 'https://hybridai.one',
     ingestPath: '/api/v1/agent-observability/events:batch',
     statusPath: '/api/v1/agent-observability/status',
-    botId: '',
     label: '',
     environment: 'prod',
     flushIntervalMs: 10_000,
@@ -7074,16 +7070,10 @@ function normalizeRuntimeConfig(
       rawChannelInstructions,
       DEFAULT_RUNTIME_CONFIG.channelInstructions,
     ),
-    plugins: withLegacyTwilioVoicePlugin(
-      normalizeRuntimePluginsConfig(
-        migrateLegacyBrowserPluginConfig(rawBrowser, rawPlugins),
-        DEFAULT_RUNTIME_CONFIG.plugins,
-        modelRouting.enabled,
-      ),
-      {
-        version: sourceVersion,
-        voiceEnabled: normalizeBoolean(rawVoice.enabled, false),
-      },
+    plugins: normalizeRuntimePluginsConfig(
+      rawPlugins,
+      DEFAULT_RUNTIME_CONFIG.plugins,
+      modelRouting.enabled,
     ),
     adaptiveSkills: {
       enabled: normalizeBoolean(
@@ -7968,9 +7958,6 @@ function normalizeRuntimeConfig(
         rawObservability.statusPath,
         DEFAULT_RUNTIME_CONFIG.observability.statusPath,
       ),
-      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, {
-        allowEmpty: true,
-      }),
       label: normalizeString(
         rawObservability.label,
         DEFAULT_RUNTIME_CONFIG.observability.label,

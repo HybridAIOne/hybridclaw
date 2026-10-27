@@ -20,8 +20,8 @@ without preparing a local Node.js, npm, or Docker setup first.
 ## Install With the One-Line Script
 
 The quickest path on Linux and macOS is the bootstrap installer. It ensures a
-compatible Node.js 22 and npm, installs the `hybridclaw` CLI from npm, checks
-for Docker, and offers to run onboarding:
+compatible Node.js (`>=22.23.4 <23`) and npm, installs the `hybridclaw` CLI
+from npm, checks for Docker, and offers to run onboarding:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
@@ -47,8 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts
   | bash -s -- --no-prompt --verify
 ```
 
-The script never uses `sudo`: when no Node.js 22 is present it installs a
-user-local copy under `~/.hybridclaw/node` (verified against nodejs.org's
+The script never uses `sudo`: when no compatible Node.js (`>=22.23.4 <23`) is
+present it installs a user-local copy under `~/.hybridclaw/node` (verified against nodejs.org's
 published SHA-256 checksum), and if the global npm prefix is not writable it
 automatically switches npm to a user-writable prefix
 (`~/.hybridclaw/npm-global`) rather than escalating. That fallback persists
@@ -56,10 +56,9 @@ automatically switches npm to a user-writable prefix
 `hybridclaw update` keep working; undo it with `npm config delete prefix`
 (nvm refuses to run while a prefix is set there).
 Windows users should run it inside WSL2. On
-Alpine or other musl-based distros, install Node 22 with your package manager
-(`apk add nodejs npm`, which needs Alpine 3.21+ — older releases ship Node 20)
-and pass `--skip-node`, since nodejs.org ships glibc
-builds only. Review `scripts/install.sh` before piping it to a shell if you
+Alpine or other musl-based distros, install Node.js `>=22.23.4 <23` with your
+package manager (`apk add nodejs npm`) and check `node --version` against the
+required range. Pass `--skip-node`, since nodejs.org ships glibc builds only. Review `scripts/install.sh` before piping it to a shell if you
 prefer; the steps below cover each install method manually.
 
 ## Install From npm
@@ -71,7 +70,7 @@ hybridclaw onboarding
 
 Prerequisites:
 
-- Node.js 22
+- Node.js `>=22.23.4 <23`
 - npm
 - Docker when you want the default container sandbox
 
@@ -85,10 +84,35 @@ by default) miss that step; complete it afterwards with:
 node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"
 ```
 
+### Node.js security requirement
+
+HybridClaw requires Node.js `>=22.23.4 <23` for the gateway and agent workers.
+Node.js 22.23.4 includes the fix for the Brotli decoder vulnerability
+[CVE-2026-111497](https://nodejs.org/en/blog/release/v22.23.4/). Outbound HTTP
+responses can reach this decoder, including responses fetched by agent tools.
+
+When upgrading an existing installation, update the host Node runtime and
+rebuild or pull updated gateway and agent images, then restart the affected
+processes. Updating npm packages alone does not update Node's bundled decoder.
+The installer replaces an older Node 22 with a managed supported runtime unless
+`--skip-node` is set; explicit `HYBRIDCLAW_NODE_VERSION` pins below the floor are
+rejected. Node 23 and newer are outside the supported range.
+
+For contributors, `package.json` owns the Node range. Run `npm run version:sync`
+after changing it to update component manifests, lockfile engine metadata,
+`.nvmrc`, `.node-version`, and the standalone installer's minimum/fallback.
+The root `Dockerfile` owns the immutable Node image pin; update its tag and
+digest together when raising the floor. Synchronization propagates that pin to
+the agent and managed-browser Dockerfiles.
+`npm run version:check` detects drift. Review lockfile changes and refresh the
+dependency-policy baseline hashes as described in `AGENTS.md`.
+
 ## Install From Nix (Flake)
 
 HybridClaw ships a multi-arch Nix flake (`x86_64-linux`, `aarch64-linux`,
-`aarch64-darwin`, `x86_64-darwin`). With flakes enabled:
+`aarch64-darwin`, `x86_64-darwin`). Both the package and development shell
+require a nixpkgs Node build within `>=22.23.4 <23`; update your nixpkgs input
+if evaluation reports an older runtime. With flakes enabled:
 
 ```bash
 # Run without installing

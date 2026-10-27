@@ -17,12 +17,15 @@ import { updateSessionModel } from '../memory/sessions.js';
 import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import { refreshAvailableModelCatalogs } from '../providers/model-catalog.js';
 import type { Session } from '../types/session.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 export const FLAVOUR_MODELS = {
   openai: 'hybridai/gpt-6-luna',

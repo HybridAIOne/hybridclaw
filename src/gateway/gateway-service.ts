@@ -8022,6 +8022,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       runId,
       event: {
         type: 'session.start',
+        executingAgentId: resolved.agentId,
         userId: normalizedUserId,
         channel: channelId,
         cwd: workspacePath,
@@ -8552,6 +8553,7 @@ export function getGatewayHistory(
     .filter((message) => {
       if (message.role === 'user') {
         return (
+          message.user_id !== 'scheduler' &&
           !isHiddenUserSource(message.source) &&
           !isDelegationResultsMessage(message.content)
         );

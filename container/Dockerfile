@@ -2,7 +2,7 @@
 # Runs on the build host's own architecture: the esbuild bundle is
 # platform-independent and runtime-lite installs its own deps, so arm64 need
 # not compile under QEMU.
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS builder
+FROM --platform=$BUILDPLATFORM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS builder
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm \
@@ -21,7 +21,7 @@ COPY src/ src/
 RUN node scripts/bundle.mjs
 
 # --- Runtime base (no LibreOffice) ---
-FROM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS runtime-lite
+FROM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS runtime-lite
 
 LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
 LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"

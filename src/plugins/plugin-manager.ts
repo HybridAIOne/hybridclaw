@@ -11,6 +11,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as wsModule from 'ws';
 import { parse as parseYaml } from 'yaml';
+import { checkNodeVersion } from '../../container/shared/node-version.js';
 import {
   type AgentTurnContext,
   applyClassifierMiddleware,
@@ -621,6 +622,9 @@ function matchesNumericTuplePrefix(
 function satisfiesNodeRequirement(requirement?: string): boolean {
   const normalized = String(requirement || '').trim();
   if (!normalized) return true;
+  if (/^>=\d+\.\d+\.\d+ <\d+$/.test(normalized)) {
+    return checkNodeVersion(process.versions.node, normalized).ok;
+  }
   const current = process.versions.node
     .split('.')
     .map((part) => Number.parseInt(part, 10))

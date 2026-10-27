@@ -38,7 +38,7 @@ they are required to land a concrete fix.
 
 ## Prerequisites
 
-- Node.js 22
+- Node.js `>=22.23.4 <23`
 - npm 11.10+ — run `corepack enable` to pick up the repo's `packageManager`
   pin (`npm@11.10.0`), which keeps npm's `min-release-age` supply-chain gate
   active during dependency updates

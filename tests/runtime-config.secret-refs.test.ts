@@ -371,63 +371,6 @@ describe('runtime config secret refs', () => {
     });
   });
 
-  // compat: remove after v0.41 together with migrateLegacyBrowserPluginConfig.
-  test.each([
-    {
-      provider: 'managed-cloud',
-      section: {
-        endpointUrl: 'https://pool.example',
-        poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
-        defaultTenantId: '',
-      },
-      pluginConfig: { endpointUrl: 'https://pool.example' },
-      secretWarning: false,
-    },
-    {
-      provider: 'browser-use-cloud',
-      section: {
-        apiKeyRef: { source: 'store', id: 'TEAM_BROWSER_USE_KEY' },
-        baseUrl: '',
-        browser: { timeoutMinutes: 5 },
-      },
-      pluginConfig: { browser: { timeoutMinutes: 5 } },
-      secretWarning: true,
-    },
-  ])('moves a selected legacy $provider section and its secret ref into the bundled plugin', async ({
-    provider,
-    section,
-    pluginConfig,
-    secretWarning,
-  }) => {
-    const homeDir = makeTempHome();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const legacyKey =
-      provider === 'managed-cloud' ? 'managedCloud' : 'browserUseCloud';
-    writeRawRuntimeConfig(homeDir, (config) => {
-      config.browser = {
-        provider,
-        [legacyKey]: section,
-        macCua: { browser: 'safari' },
-      };
-    });
-
-    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
-    const loaded = runtimeConfig.getRuntimeConfig();
-
-    expect(loaded.browser).toEqual({
-      provider,
-      allowPrivateNetwork: false,
-      local: { profileRoot: '', headed: false },
-    });
-    expect(loaded.plugins.list).toEqual([
-      { id: provider, enabled: true, config: pluginConfig },
-    ]);
-    const secretWarned = warn.mock.calls.some(([message]) =>
-      String(message).includes('hybridclaw secret set'),
-    );
-    expect(secretWarned).toBe(secretWarning);
-  });
-
   test.each([
     {
       label: 'the local browser was selected',

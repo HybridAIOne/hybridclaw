@@ -1225,6 +1225,7 @@ async function runContainerInner(
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    toolCallLimits: params.toolCallLimits,
     requestId,
     agentId,
     messages,

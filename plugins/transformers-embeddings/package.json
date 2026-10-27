@@ -5,7 +5,7 @@
   "type": "module",
   "description": "HybridClaw memory embedding provider backed by local Transformers.js models",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1"

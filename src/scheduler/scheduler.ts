@@ -5,7 +5,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { CronExpressionParser } from 'cron-parser';
 import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
@@ -18,55 +17,38 @@ import {
 import { runResourceHygieneMaintenance } from '../doctor/resource-hygiene.js';
 import { logger } from '../logger.js';
 import {
-  deleteJob,
   describeJobError,
   disableJobWithError,
   getAllJobs,
   getJob,
-  markJobFailure,
-  markJobRunStarted,
-  markJobSuccess,
   updateJob,
 } from '../memory/jobs.js';
-import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { isRecord } from '../utils/type-guards.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
-import { isConnectorEventCurrent } from './connector-events.js';
-import { isTriggerRunCurrent, triggerRunPrompt } from './event-triggers.js';
+import { fireDbTask } from './db-task-runner.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
-import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
+import { pendingEdition } from './routine-editions.js';
+import { routineDue } from './routine-time.js';
 import {
-  finishTaskRun,
-  interruptTaskRuns,
-  noteTaskRun,
-  startTaskRun,
-} from './task-runs.js';
+  DEFAULT_SCHEDULER_TIME_ZONE,
+  nextFireMsForDbTask,
+  parseCronExpression,
+  parseSchedulerTimestampMs,
+  resolveSchedulerTimeZone,
+  toIsoTimestamp,
+} from './schedule-time.js';
+import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
+import { interruptTaskRuns } from './task-runs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;
 const CONFIG_ONESHOT_RETRY_MS = 60_000;
 const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
-const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
-const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
-
-type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
-
-export function parseSchedulerTimestampMs(
-  raw: string | null | undefined,
-): number | null {
-  const value = (raw || '').trim();
-  if (!value) return null;
-  const normalized = SQLITE_SECOND_PRECISION_TS_RE.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value;
-  const ms = new Date(normalized).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
 export interface SchedulerDispatchRequest {
   source: 'scheduled-task' | 'scheduler-job';
+  routine?: { key: string; scope: string };
   taskId?: number;
   /** Ownership captured before async dispatch; never supplied by a model. */
   taskOwner?: { userId: string; sessionId: string };
@@ -126,11 +108,6 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let taskRunner: TaskRunner | null = null;
 let ticking = false;
 const schedulerState: SchedulerStateFile = loadSchedulerState();
-
-function resolveSchedulerTimeZone(timeZone: string | undefined): string {
-  const trimmed = timeZone?.trim();
-  return trimmed || DEFAULT_SCHEDULER_TIME_ZONE;
-}
 
 function formatFireTime(timeZone = DEFAULT_SCHEDULER_TIME_ZONE): string {
   return new Date().toLocaleString('en-US', {
@@ -384,136 +361,6 @@ function moveConfigJobToReview(jobId: string): RuntimeSchedulerJob | null {
   return setConfigJobBoardStatus(jobId, 'review');
 }
 
-function parseMondayZeroBasedWeekdayValue(value: string): number | null {
-  if (!/^\d+$/.test(value)) return null;
-  const parsed = Number.parseInt(value, 10);
-  return parsed >= 0 && parsed <= 6 ? parsed : null;
-}
-
-function expandMondayZeroBasedWeekdayBase(
-  value: string,
-  hasStep: boolean,
-): number[] | null {
-  if (value === '*') return [0, 1, 2, 3, 4, 5, 6];
-  const single = parseMondayZeroBasedWeekdayValue(value);
-  if (single != null) {
-    if (!hasStep) return [single];
-    return Array.from(
-      { length: 7 - single },
-      (_unused, index) => single + index,
-    );
-  }
-
-  const match = value.match(/^(\d+)-(\d+)$/);
-  if (!match) return null;
-  const start = parseMondayZeroBasedWeekdayValue(match[1]);
-  const end = parseMondayZeroBasedWeekdayValue(match[2]);
-  if (start == null || end == null) return null;
-
-  const days: number[] = [];
-  let current = start;
-  while (true) {
-    days.push(current);
-    if (current === end) return days;
-    current = (current + 1) % 7;
-    if (days.length > 7) return null;
-  }
-}
-
-function normalizeMondayZeroBasedCronWeekdaySegment(segment: string): string {
-  const trimmed = segment.trim();
-  if (!trimmed || trimmed === '?') return trimmed;
-
-  const parts = trimmed.split('/');
-  if (parts.length > 2) return trimmed;
-  const [rawBase, rawStep] = parts;
-  const step =
-    rawStep == null
-      ? 1
-      : /^\d+$/.test(rawStep)
-        ? Number.parseInt(rawStep, 10)
-        : null;
-  if (step == null || step <= 0) return trimmed;
-  if (rawBase === '*' && step === 1) return trimmed;
-
-  const baseValues = expandMondayZeroBasedWeekdayBase(rawBase, rawStep != null);
-  if (!baseValues) return trimmed;
-
-  const normalizedValues = baseValues
-    .filter((_value, index) => index % step === 0)
-    .map((value) => String((value + 1) % 7));
-  return normalizedValues.join(',');
-}
-
-function normalizeMondayZeroBasedCronWeekdayField(field: string): string {
-  return field
-    .split(',')
-    .map((segment) => normalizeMondayZeroBasedCronWeekdaySegment(segment))
-    .join(',');
-}
-
-export function normalizeMondayZeroBasedCronExpressionWeekdays(
-  expr: string,
-): string {
-  const fields = expr.trim().split(/\s+/);
-  if (fields.length !== 5 && fields.length !== 6 && fields.length !== 7) {
-    return expr.trim();
-  }
-  const dayOfWeekIndex = fields.length === 5 ? 4 : 5;
-  fields[dayOfWeekIndex] = normalizeMondayZeroBasedCronWeekdayField(
-    fields[dayOfWeekIndex] || '',
-  );
-  return fields.join(' ');
-}
-
-function parseCronExpression(
-  expr: string,
-  options: {
-    currentDateMs?: number;
-    tz?: string;
-    weekdayNumbering?: CronWeekdayNumbering;
-  } = {},
-): ReturnType<typeof CronExpressionParser.parse> {
-  const normalizedExpr =
-    options.weekdayNumbering === 'monday-zero-based'
-      ? normalizeMondayZeroBasedCronExpressionWeekdays(expr)
-      : expr.trim();
-  return CronExpressionParser.parse(normalizedExpr, {
-    currentDate: new Date(options.currentDateMs ?? Date.now()),
-    tz: resolveSchedulerTimeZone(options.tz),
-  });
-}
-
-function nextFireMsForDbTask(
-  task: ScheduledTask,
-  nowMs: number,
-): number | null {
-  if (task.run_at) {
-    if (task.last_run) return null;
-    return parseSchedulerTimestampMs(task.run_at);
-  }
-
-  if (task.every_ms) {
-    const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
-    return lastRunMs > 0 ? lastRunMs + task.every_ms : nowMs;
-  }
-
-  if (!task.cron_expr) return null;
-
-  try {
-    const ms = parseCronExpression(task.cron_expr, {
-      currentDateMs: nowMs,
-      tz: task.tz || undefined,
-    })
-      .next()
-      .toDate()
-      .getTime();
-    return Number.isFinite(ms) ? ms : null;
-  } catch {
-    return null;
-  }
-}
-
 function disableTaskWithUnparsableCron(task: ScheduledTask): boolean {
   if (!task.cron_expr || task.run_at || task.every_ms) return false;
   const nowMs = Date.now();
@@ -536,19 +383,6 @@ function disableTaskWithUnparsableCron(task: ScheduledTask): boolean {
     );
     return true;
   }
-}
-
-function toIsoTimestamp(ms: number | null): string | null {
-  if (ms == null || !Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString();
-}
-
-export function getScheduledTaskNextRunAt(
-  task: ScheduledTask,
-  nowMs = Date.now(),
-): string | null {
-  if (!task.enabled) return null;
-  return toIsoTimestamp(nextFireMsForDbTask(task, nowMs));
 }
 
 function syncConfigJobNextRunAt(
@@ -721,109 +555,6 @@ function arm(): void {
   }, clamped);
 }
 
-async function dispatchDbTask(
-  task: ScheduledTask,
-  taskRunId?: number,
-): Promise<void> {
-  if (!taskRunner) return;
-  // A reminder of a todo that is already done has nothing to say.
-  if (
-    isTodoReminderSettled(task.id) ||
-    !isConnectorEventCurrent(task) ||
-    !isTriggerRunCurrent(task)
-  ) {
-    noteTaskRun(taskRunId, { skipped: true });
-    return;
-  }
-  // A trigger shows when it last ran, whichever event ran it.
-  if (task.trigger_event && task.event_parent_id)
-    markJobRunStarted(task.event_parent_id);
-  const prompt = wrapCronPrompt(
-    dbTaskLabel(task.id),
-    task.trigger || task.trigger_event ? triggerRunPrompt(task) : task.prompt,
-    task.tz || undefined,
-    task.channel_id,
-  );
-  await taskRunner({
-    source: 'scheduled-task',
-    taskId: task.id,
-    ...(task.event_parent_id
-      ? { resultSourceTaskId: task.event_parent_id }
-      : {}),
-    ...(task.owner_user_id
-      ? {
-          taskOwner: { userId: task.owner_user_id, sessionId: task.session_id },
-        }
-      : {}),
-    sessionId: task.session_id,
-    channelId: task.channel_id,
-    prompt,
-    actionKind: 'agent_turn',
-    delivery: {
-      kind: 'channel',
-      channelId: task.channel_id,
-    },
-    ...(task.reply_only ? { replyOnly: true } : {}),
-    ...(taskRunId ? { taskRunId } : {}),
-  });
-}
-
-const DB_TASK_FAILED = {
-  'One-shot': 'One-shot task failed (task preserved)',
-  Interval: 'Interval task failed',
-  Cron: 'Cron task failed',
-} as const;
-
-/** Run history must never stop or fail a run. */
-function recordRun<T>(task: ScheduledTask, write: () => T): T | undefined {
-  try {
-    return write();
-  } catch (err) {
-    logger.warn({ taskId: task.id, err }, 'Task run history not recorded');
-    return undefined;
-  }
-}
-
-/** Fires a stored task for the time it was due; a one-shot goes once it ran. */
-function fireDbTask(
-  task: ScheduledTask,
-  dueMs: number,
-  kind: keyof typeof DB_TASK_FAILED,
-  details: Record<string, unknown>,
-): void {
-  logger.info(
-    { taskId: task.id, ...details, prompt: task.prompt },
-    `${kind} task firing`,
-  );
-  markJobRunStarted(task.id);
-  const run = recordRun(task, () => startTaskRun(task, dueMs));
-  dispatchDbTask(task, run)
-    .then(() => {
-      markJobSuccess(task.id);
-      if (run) recordRun(task, () => finishTaskRun(task, run));
-      if (task.run_at) deleteJob(task.id);
-    })
-    .catch((err) => {
-      const failure = markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES, err);
-      if (run)
-        recordRun(task, () =>
-          finishTaskRun(task, run, {
-            error: err,
-            ...(failure.disabled
-              ? { pausedAfter: failure.consecutiveErrors }
-              : {}),
-          }),
-        );
-      logger.error({ taskId: task.id, err }, DB_TASK_FAILED[kind]);
-      if (failure.disabled) {
-        logger.warn(
-          { taskId: task.id, consecutiveErrors: failure.consecutiveErrors },
-          'Scheduled task auto-disabled after repeated failures',
-        );
-      }
-    });
-}
-
 async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
   if (
     job.action.kind === 'system_event' &&
@@ -962,11 +693,22 @@ async function tick(): Promise<void> {
     const nowMs = now.getTime();
 
     for (const task of dbTasks) {
+      if (!taskRunner) break;
       try {
+        if (pendingEdition(task)) {
+          fireDbTask(task, nowMs, 'Cron', {}, taskRunner);
+          continue;
+        }
         if (task.run_at) {
           const runAtMs = parseSchedulerTimestampMs(task.run_at);
           if (runAtMs != null && runAtMs <= nowMs && !task.last_run)
-            fireDbTask(task, runAtMs, 'One-shot', { runAt: task.run_at });
+            fireDbTask(
+              task,
+              runAtMs,
+              'One-shot',
+              { runAt: task.run_at },
+              taskRunner,
+            );
           continue;
         }
 
@@ -974,9 +716,15 @@ async function tick(): Promise<void> {
           const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
           const dueAt = lastRunMs > 0 ? lastRunMs + task.every_ms : 0;
           if (dueAt <= nowMs)
-            fireDbTask(task, dueAt || nowMs, 'Interval', {
-              everyMs: task.every_ms,
-            });
+            fireDbTask(
+              task,
+              dueAt || nowMs,
+              'Interval',
+              {
+                everyMs: task.every_ms,
+              },
+              taskRunner,
+            );
           continue;
         }
 
@@ -988,13 +736,21 @@ async function tick(): Promise<void> {
           currentDateMs: nowMs + 1,
           tz: task.tz || undefined,
         });
-        const prevMs = cron.prev().toDate().getTime();
+        const prevMs = task.managed_key
+          ? routineDue(task, nowMs, 'previous')
+          : cron.prev().toDate().getTime();
         const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
         if (prevMs > lastRunMs)
-          fireDbTask(task, prevMs, 'Cron', {
-            cron: task.cron_expr,
-            tz: task.tz,
-          });
+          fireDbTask(
+            task,
+            prevMs,
+            'Cron',
+            {
+              cron: task.cron_expr,
+              tz: task.tz,
+            },
+            taskRunner,
+          );
       } catch (err) {
         logger.error(
           { taskId: task.id, cron: task.cron_expr, err },

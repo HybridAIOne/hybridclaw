@@ -84,6 +84,54 @@ test('grounds ideas in the agent persona and only the requesting user chats', as
   expect(prompt).not.toContain('bootstrap-marker');
 });
 
+test("grounds ideas in the agent's own skills and only the requesting user's tool use", async () => {
+  setupHome();
+  const fixture = await loadFixture(JSON.stringify({ ideas: [IDEA] }));
+  const { recordAuditEventStrict } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { resolveManagedCommunitySkillsDir } = await import(
+    '../src/skills/skills.ts'
+  );
+  // Where a skill the agent wrote is kept once promoted from its workspace.
+  const skillDir = path.join(resolveManagedCommunitySkillsDir(), 'house-style');
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    '---\nname: house-style\ndescription: house-style-marker\n---\nWrite in our voice.\n',
+  );
+  for (const [sessionId, userId, toolName] of [
+    ['session-a', 'user_a', 'crm_search'],
+    ['session-b', 'user_b', 'payroll_export'],
+  ] as const) {
+    const session = fixture.memoryService.getOrCreateSession(
+      sessionId,
+      null,
+      'web',
+      'main',
+    );
+    fixture.memoryService.storeMessage({
+      sessionId: session.id,
+      userId,
+      username: userId,
+      role: 'user',
+      content: 'hello',
+    });
+    await recordAuditEventStrict({
+      sessionId: session.id,
+      runId: `run-${sessionId}`,
+      event: { type: 'tool.call', toolCallId: 'call-1', toolName, arguments: {} },
+    });
+  }
+
+  await fixture.generateChatIdeas({ userId: 'user_a' });
+
+  const prompt = lastPrompt(fixture.callAuxiliaryModelMock);
+  expect(prompt).toContain('- house-style: house-style-marker');
+  expect(prompt).toContain('- crm_search (1×)');
+  expect(prompt).not.toContain('payroll_export');
+});
+
 test('rejects an unknown agent before calling the model', async () => {
   setupHome();
   const fixture = await loadFixture('{}');

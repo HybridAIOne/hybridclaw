@@ -1785,12 +1785,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 500,
     },
     {
-      path: 'observability.botId',
-      section: 'observability',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
       path: 'observability.enabled',
       section: 'observability',
       kind: 'boolean',

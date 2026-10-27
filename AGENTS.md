@@ -18,10 +18,10 @@ in HybridClaw. Read it before any code change.
 ## 1) Project Snapshot
 
 HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
-Enterprise-grade Node.js 22 application with gateway service, TUI client, and
+Enterprise-grade Node.js >=22.23.4 <23 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.40.8 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.41.1 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -219,7 +219,7 @@ should verify no broken references.
 
 ### Prerequisites
 
-- Node.js 22 (matches CI and the `engines` field)
+- Node.js `>=22.23.4 <23` (matches CI and the `engines` field)
 - npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
   pin (`npm@11.10.0`). Contributors need this version because npm's
   `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on

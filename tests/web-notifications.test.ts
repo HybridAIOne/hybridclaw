@@ -11,6 +11,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/security/public-https-fetch.js', () => ({ fetchPublicHttpsBuffer: mocks.fetch }));
 vi.mock('../src/security/runtime-secrets.js', () => ({ readStoredRuntimeSecrets: mocks.readSecrets, saveNamedRuntimeSecrets: mocks.saveSecrets }));
+// Message storage is mocked here; execute the matching transaction boundary inline.
+vi.mock('../src/memory/database.js', () => ({
+  withMemoryDatabase: (run: (db: { transaction: (body: () => unknown) => () => unknown }) => unknown) =>
+    run({ transaction: (body) => body }),
+}));
+// These notification fixtures store plain replies without linked draft reviews.
+vi.mock('../src/memory/db.js', () => ({ getSessionById: mocks.getSession }));
+vi.mock('../src/memory/messages.js', () => ({ getSessionAssistantMessage: () => null }));
 vi.mock('../src/memory/memory-service.js', () => ({ memoryService: { storeMessage: mocks.storeMessage, getSessionById: mocks.getSession } }));
 vi.mock('../src/logger.js', () => ({ logger: { warn: mocks.warn } }));
 vi.mock('node:dns/promises', () => ({ lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]) }));

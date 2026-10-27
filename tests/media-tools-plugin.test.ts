@@ -59,6 +59,26 @@ test('media-tools plugin registers its tools and answers a list action', async (
       .sort(),
   ).toEqual(['audio_transcribe', 'image_generate', 'video_generate']);
 
+  const context = await manager.collectPromptContext({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'test-agent',
+    channelId: 'web',
+    workspacePath: cwd,
+    recentMessages: [],
+  });
+  const readiness = JSON.parse(context[0].split('\n').at(-1) ?? '');
+  expect(readiness).toHaveLength(3);
+  expect(readiness).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        tool: 'audio_transcribe',
+        status: 'unavailable',
+        providers: [],
+      }),
+    ]),
+  );
+
   const output = await manager.executeTool({
     toolName: 'image_generate',
     args: { action: 'list' },

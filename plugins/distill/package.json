@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw human distillation: the coworker CLI and the admin console API",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

@@ -16,6 +16,7 @@ import { resolveInstallRoot } from '../../src/infra/install-root.js';
 import { logger } from '../../src/logger.js';
 import { normalizeMemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
 import { normalizeMemoryRecallBackend } from '../../src/memory/semantic-recall.js';
+import { REQUIRED_NODE_RANGE } from '../../src/node-version.js';
 import { normalizeTrimmedString } from '../../src/utils/normalized-strings.js';
 import {
   parseNonNegativeInteger,
@@ -379,7 +380,7 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
       'Native HybridClaw LoCoMo QA benchmark over the official long-conversation dataset.',
     aliases: ['lo-co-mo', 'locomo-memory'],
     prereqs: [
-      'Node.js 22',
+      `Node.js ${REQUIRED_NODE_RANGE}`,
       'network access during `setup` to download `locomo10.json`',
     ],
     starter: [
@@ -433,7 +434,10 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     summary:
       'Native eval-the-judge suite over labeled trace, criteria, and expected-verdict examples.',
     aliases: ['judge', 'judge-eval', 'tracejudge'],
-    prereqs: ['Node.js 22', 'configured judge model when running `--live`'],
+    prereqs: [
+      `Node.js ${REQUIRED_NODE_RANGE}`,
+      'configured judge model when running `--live`',
+    ],
     starter: [
       'npm run eval -- trace-judge run',
       'npm run eval -- trace-judge run --live --model <judge-model>',

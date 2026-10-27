@@ -22,6 +22,7 @@ import {
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import type { UsageTotals } from '../types/usage.js';
+import { stableStringify } from '../utils/stable-json.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   type AuditTurnTraceSelector,
@@ -612,18 +613,6 @@ function resolveTraceProjectContext(
       left.localeCompare(right),
     ),
   };
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(value, (_key, entry) =>
-    entry && typeof entry === 'object' && !Array.isArray(entry)
-      ? Object.fromEntries(
-          Object.keys(entry as Record<string, unknown>)
-            .sort((left, right) => left.localeCompare(right))
-            .map((key) => [key, (entry as Record<string, unknown>)[key]]),
-        )
-      : entry,
-  );
 }
 
 function deterministicUuid(seed: string): string {

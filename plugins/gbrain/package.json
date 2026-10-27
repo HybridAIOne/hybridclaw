@@ -5,6 +5,6 @@
   "type": "module",
   "description": "HybridClaw plugin for GBrain retrieval and tool dispatch",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

@@ -62,6 +62,9 @@ export type ScheduledTaskToolActionResult =
  * so the goal set a second check-in and the first outlived the goal.
  */
 function ownerNote(taskId: number): string | null {
+  const routine = getJob(taskId, { kind: 'scheduled_task' })?.managed_key;
+  if (routine)
+    return `a managed routine; change it with /schedule routine ${routine}`;
   const item = trackedOwningTask(taskId);
   if (item) {
     return `the check-in of ${item.kind} #${item.id} "${item.title}"; change or stop it with the \`track\` tool ("every", "at", "tz")`;

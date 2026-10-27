@@ -1,5 +1,7 @@
 /** A checked draft: every one has From, To and Subject. */
 export interface EmailDraft {
+  /** Existing tracked item receiving this draft for shared review. */
+  track_id?: number;
   from: string;
   to: string[];
   cc?: string[];

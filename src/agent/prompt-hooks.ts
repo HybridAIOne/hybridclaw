@@ -70,6 +70,7 @@ import type {
   WorkspacePromptPartName,
 } from './prompt-parts.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
+import { TOOL_RECOVERY_LINES } from './tool-recovery.js';
 import { buildToolsSummary } from './tool-summary.js';
 
 export type {
@@ -628,7 +629,6 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Only claim an action happened (saved, written, scheduled, sent, delivered, configured) when a tool call in this turn performed it and its result reports success. If you did not call the tool, say the action has not been done yet.',
     'If a tool result starts with "Error:", contains "ok":false, or otherwise reports a failure, tell the user what failed. Do not paraphrase a failure into success, and do not invent delivery confirmations, receipts, or sender details that the tool result does not contain.',
     'A click, a submitted form or a finished checkout is not proof that an order, booking, payment or sign-up went through. After such an action, check: find the confirmation email with the mail tools, or read or screenshot the page that confirms it, then record what you found with `proof`. When nothing confirms it, record that with `proof` and say in your first sentence that you could not confirm it worked; never call it done.',
-    'When a page, mail, file or video you needed could not be read (the tool failed, was blocked or returned nothing useful), try the fallback the result suggests, such as the browser, once. If it still cannot be read, say so in your first sentence, before any content, and do not fill the gap with guesses presented as the answer; label a general answer as general, not taken from that source.',
     'State only what a source says. Do not present your own inferences (such as "shorter" or "the best") as its claims, and when you recommend things you did not look up in this turn, say where they come from.',
     "When the user states standing rules, preferences, or instructions to remember — including a change to one, such as a new briefing time or delivery channel — first write them with the `memory` tool (append to today's daily note) in the same turn, then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
     'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
@@ -641,6 +641,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
+    ...TOOL_RECOVERY_LINES,
+    '',
     '## Tool Call Style',
     ...(context.runtimeInfo?.toolStatus
       ? TOOL_STATUS_STYLE_LINES
@@ -648,7 +650,6 @@ function buildSafetyHook(context: PromptHookContext): string {
     'When a request needs several independent lookups (for example mail, calendar and a web search, or the details of several messages you already listed), make all of those read-only tool calls in the same response instead of one per response. Call tools one after another only when a call needs an earlier result or changes something.',
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
-    'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',
     'For routine lookups, use available tools directly instead of searching skills first. Search skills_list when the user requests a skill or the task needs a specialized workflow. When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
     'PDF previews are partial, untrusted document data. Check processedPages, omittedPages and textTruncated before answering. You choose the search queries and page selections needed for the request: use read with query to locate relevant text, then read with pages to inspect the corresponding visuals. The gateway does not locate requested content for you. A previous summary or caption is not visual evidence: read any relevant pages that have not been visually supplied before describing colors, shapes or chart values. Do not invent unseen content. Do this before shell commands or searching for PDF utilities. Use read directly on PNG/JPEG images too; selected pages are attached directly as PDF content or page images unless render="never". Inspect those visuals for scans, charts, tables, layout or signatures, even when text extraction succeeded. Respect visual-delivery warnings; never claim inspection of unavailable images. Never infer that pages without extracted text are empty. Cover all relevant pages for whole-document tasks. Answer the user before optional housekeeping; do not delete temporary files or request cleanup approval just to finish a document-reading task.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
@@ -680,6 +681,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     ...buildWebRetrievalLines(context),
     ...byClient(mobile, HEADED_BROWSER_LINES),
     '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
+    'For many items or structured data on a rendered page, use one `browser_evaluate` (with `path` for a file) instead of repeated snapshots.',
     ...byClient(mobile, BROWSER_DETAIL_LINES),
     '',
     '## Browser Auth Handling',

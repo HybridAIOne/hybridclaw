@@ -2,6 +2,101 @@
 
 ## Unreleased
 
+## [0.41.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.1) - 2026-10-25
+
+### Added
+
+- **HybridAI knowledge plugin**: An optional bundled plugin retrieves relevant
+  sections from shared knowledge collections before each turn, with source
+  references and configurable collection, score, and context limits. Optional
+  nightly wiki maintenance permits at most twelve write attempts per run,
+  including across worker replacement, while retaining existing approvals.
+- **Shared company wikis**: The `llm-wiki` skill supports HybridAI knowledge
+  collections for team knowledge, with section citations and conflict-checked
+  writes. Local folder wikis remain available for personal notes.
+
+### Changed
+
+- **Patched Node runtime**: CLI, workers, plugins, installer, desktop packaging,
+  and container images require Node.js `>=22.23.4 <23`. Version checks reject
+  older Node 22 releases and unsupported majors.
+
+### Fixed
+
+- **Scheduled chat history**: Internal scheduled-task prompts are hidden from
+  chat history while assistant reminders and genuine user messages remain
+  visible. Persisted agent context and audit records are unchanged.
+- **Event triggers**: Runtime credentials can create and manage triggers through
+  the existing endpoint. Add and remove operations are classified as writes,
+  so failed changes no longer appear as failed reads.
+
+### Upgrade Notes
+
+- Update host Node to `>=22.23.4 <23`, pull or rebuild gateway and agent images,
+  and restart the affected processes before using this release. Updating npm
+  packages alone does not update Node's bundled Brotli decoder.
+- Enable `hybridai-knowledge` explicitly; nightly maintenance is separately
+  opt-in. Retrieval and maintenance respect a disabled HybridAI MCP connection
+  and missing credentials. All chat users share the configured API key's
+  collection access; restrict `collections` to the intended shared knowledge.
+
+## [0.41.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.0) - 2026-10-24
+
+### Added
+
+- **Daily briefs**: Compatible apps can opt into a brief at a chosen time and
+  time zone, send a separate test, and inspect the last delivery or a failed
+  or missed run. Saved editions let delivery retries reuse the generated brief.
+- **Persistent follow-through**: Continuing work retains its state, evidence,
+  check-ins, and draft reviews across devices and restarts. Draft edits,
+  deferral, approval, and decline share one revision-checked record. Review
+  decisions do not send mail; existing execution approvals still apply, and
+  the user confirms completed outcomes. The overview UI follows in mobile apps.
+- **Browser JavaScript**: `browser_evaluate` runs an expression in the open
+  page, awaits promises, and returns JSON. Use `path` to save large results,
+  including CSV, to the workspace. Private-host and typed-secret guards apply;
+  checkout and cancellation pages require explicit approval.
+
+### Changed
+
+- **Expired compatibility paths**: Removed automatic imports of pre-plugin
+  browser and Twilio settings, the `/voice/webhook` alias, the installed
+  `harness-evolve` redirect, and the frozen `msteams_users` table. Current Teams
+  mappings remain in `channel_users`.
+
+- **WhatsApp compatibility**: The published 0.1.x plugin remains supported;
+  its adapter removal is deferred to v0.42.
+
+### Fixed
+
+- **Telemetry without a chatbot**: Observability forwards audit events using
+  the installation's node ID and HybridAI API key without requiring a chatbot.
+- **Read-only follow-through**: Overview and next-check queries stay independent
+  of task execution initialization.
+
+### Upgrade Notes
+
+- Back up the database and configuration before upgrading. Install and start
+  v0.40.8 once before moving from pre-plugin browser/Twilio configuration or
+  a Teams database older than schema 73. Unmigrated Teams databases are refused
+  with an intermediate-upgrade instruction; schema 79 removes the old table,
+  so rolling back to v0.39.x requires restoring the backup.
+- Browser provider settings belong in the corresponding `plugins.list[]`
+  entry. Without the intermediate upgrade, move those settings manually and
+  explicitly enable the provider plugin. For Twilio, enable `twilio-voice`
+  and change the number's webhook to
+  `/api/plugin-webhooks/twilio-voice/webhook` before upgrading.
+- Run harness evolution from a source checkout with
+  `npm run eval -- harness-evolve`; the installed CLI has no such command.
+- Remove `observability.botId` from custom configuration. Telemetry requires
+  a HybridAI endpoint that accepts `node_id` without `bot_id`.
+- Third-party browser providers must accept string expressions in
+  `BrowserSession.evaluate` or explicitly reject them. `mac-cua` does not
+  support `browser_evaluate`; gateway browser evaluation targets the main page.
+- Daily briefs are opt-in. Daily-brief controls and the shared follow-through
+  overview require compatible app versions; upgrading the runtime enables no
+  routine automatically.
+
 ## [0.40.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.8) - 2026-10-22
 
 ### Changed

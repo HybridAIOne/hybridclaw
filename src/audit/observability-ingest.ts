@@ -2,7 +2,7 @@
  * Observability push — forwards local audit rows to the platform ingest API.
  *
  * The stream is keyed by this install's node id, not by bot or agent; each
- * batch carries the one agent its sessions belong to. NOT the audit trail
+ * batch carries the executing agent recorded at run start. NOT the audit trail
  * itself (`audit-trail.ts` owns the hash chain this module only relays).
  */
 import { randomUUID } from 'node:crypto';
@@ -11,10 +11,8 @@ import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,
-  HYBRIDAI_CHATBOT_ID,
   OBSERVABILITY_BASE_URL,
   OBSERVABILITY_BATCH_MAX_EVENTS,
-  OBSERVABILITY_BOT_ID,
   OBSERVABILITY_ENABLED,
   OBSERVABILITY_ENVIRONMENT,
   OBSERVABILITY_FLUSH_INTERVAL_MS,
@@ -24,7 +22,10 @@ import {
 import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
-import { getStructuredAuditAfterId } from '../memory/audit.js';
+import {
+  getAuditRunAgentId,
+  getStructuredAuditAfterId,
+} from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
   getLatestObservabilityOffsetWithPrefix,
@@ -33,7 +34,6 @@ import {
   setObservabilityIngestToken,
   setObservabilityOffset,
 } from '../memory/observability-store.js';
-import { getAnyChatbotId } from '../memory/sessions.js';
 import { parseSessionKey } from '../session/session-key.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import { SlidingWindowRateLimiter } from '../utils/rate-limiter.js';
@@ -55,7 +55,6 @@ interface ResolvedIngestConfig {
   ingestUrl: string;
   tokenAdminUrl: string;
   apiKey: string;
-  botId: string;
   nodeId: string;
   defaultAgentId: string;
   label: string;
@@ -167,11 +166,6 @@ function normalizeIngestUrl(baseUrl: string, ingestPath: string): string {
 }
 
 function resolveConfig(): ResolvedIngestConfig {
-  const botId =
-    OBSERVABILITY_BOT_ID.trim() ||
-    HYBRIDAI_CHATBOT_ID.trim() ||
-    getAnyChatbotId() ||
-    '';
   const label = OBSERVABILITY_LABEL.trim() || os.hostname();
   const environment = OBSERVABILITY_ENVIRONMENT.trim() || 'prod';
   const batchMaxEvents = clampInteger(
@@ -193,7 +187,6 @@ function resolveConfig(): ResolvedIngestConfig {
     ),
     tokenAdminUrl: normalizeIngestUrl(OBSERVABILITY_BASE_URL, TOKEN_ADMIN_PATH),
     apiKey: HYBRIDAI_API_KEY.trim(),
-    botId,
     nodeId: resolveLocalInstanceId(),
     defaultAgentId: resolveDefaultAgentId(),
     label,
@@ -209,11 +202,6 @@ function validateConfig(config: ResolvedIngestConfig): {
   reason: string | null;
 } {
   if (!config.enabled) return { ok: false, reason: 'disabled' };
-  if (!config.botId)
-    return {
-      ok: false,
-      reason: 'missing observability.botId (or hybridai.defaultChatbotId)',
-    };
   if (!config.apiKey) {
     return {
       ok: false,
@@ -236,7 +224,11 @@ function agentIdForRow(
   config: ResolvedIngestConfig,
   row: StructuredAuditEntry,
 ): string {
-  return parseSessionKey(row.session_id)?.agentId || config.defaultAgentId;
+  return (
+    getAuditRunAgentId(row.session_id, row.run_id) ||
+    parseSessionKey(row.session_id)?.agentId ||
+    config.defaultAgentId
+  );
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -256,7 +248,6 @@ function buildBatchPayloadText(
   batchId: string,
 ): string {
   return JSON.stringify({
-    bot_id: config.botId,
     agent_id: agentId,
     batch_id: batchId,
     sent_at: new Date().toISOString(),
@@ -365,7 +356,6 @@ async function requestIngestToken(
       },
       body: JSON.stringify({
         node_id: config.nodeId,
-        bot_id: config.botId,
         ...(rotate ? { rotate: true } : {}),
       }),
     });
@@ -883,7 +873,6 @@ export function startObservabilityIngest(): void {
   logger.info(
     {
       ingestUrl: config.ingestUrl,
-      botId: config.botId || '(pending)',
       nodeId: config.nodeId,
       flushIntervalMs: config.flushIntervalMs,
       batchMaxEvents: config.batchMaxEvents,
@@ -891,7 +880,7 @@ export function startObservabilityIngest(): void {
     },
     validation.ok
       ? 'Observability ingest started'
-      : 'Observability ingest timer started (waiting for botId)',
+      : 'Observability ingest timer started (waiting for config)',
   );
 }
 
