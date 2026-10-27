@@ -1,14 +1,13 @@
 import os from 'node:os';
 import path from 'node:path';
-import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_MAX_INJECTED_CHARS = 4000;
 const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
 const DEFAULT_CURATE_TIMEOUT_MS = 120_000;
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function normalizeInteger(value, fallback, key, bounds = {}) {
   const raw =
@@ -40,7 +39,7 @@ function normalizeInteger(value, fallback, key, bounds = {}) {
 }
 
 function resolveDefaultWorkingDirectory(runtime) {
-  const runtimeHome = normalizeString(runtime?.homeDir);
+  const runtimeHome = readString(runtime?.homeDir);
   if (runtimeHome) {
     return path.resolve(runtimeHome, 'byterover');
   }
@@ -49,7 +48,7 @@ function resolveDefaultWorkingDirectory(runtime) {
 
 export function resolveByteRoverPluginConfig(pluginConfig, runtime) {
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'brv',
+    command: readString(pluginConfig?.command) || 'brv',
     workingDirectory:
       resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
       resolveDefaultWorkingDirectory(runtime),

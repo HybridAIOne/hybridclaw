@@ -1,3 +1,5 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
+
 /**
  * Validates the plugin's `launchOptions` against the camoufox-js options
  * HybridClaw passes through. The profile directory, headless mode, and launch
@@ -39,10 +41,6 @@ const ALLOWED_KEYS = new Set([
   'virtual_display',
   'webgl_config',
 ]);
-
-function isRecord(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function assertOption(condition, path, expected) {
   if (!condition) throw new Error(`${path} must be ${expected}.`);

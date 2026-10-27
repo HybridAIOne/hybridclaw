@@ -19,6 +19,11 @@ export function readString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** Like `readString`, but stringifies numbers and other truthy non-strings. */
+export function toTrimmedString(value) {
+  return String(value || '').trim();
+}
+
 export function readFiniteNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim()) {

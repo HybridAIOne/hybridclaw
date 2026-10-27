@@ -1,10 +1,9 @@
-import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_SEARCH_MODE = 'query';
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -14,13 +13,13 @@ function normalizeValidatedInteger(value, key) {
 }
 
 export function resolveGbrainPluginConfig(pluginConfig, runtime) {
-  const searchMode = normalizeString(pluginConfig?.searchMode).toLowerCase();
+  const searchMode = readString(pluginConfig?.searchMode).toLowerCase();
   const workingDirectory =
     resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
     runtime.cwd;
 
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'gbrain',
+    command: readString(pluginConfig?.command) || 'gbrain',
     workingDirectory,
     searchMode: searchMode === 'search' ? 'search' : DEFAULT_SEARCH_MODE,
     maxResults: normalizeValidatedInteger(

@@ -1,14 +1,9 @@
 import fs from 'node:fs';
 import {
-  normalizeCliText,
+  normalizeText,
   runBoundedCli,
+  truncateText,
 } from '@hybridaione/hybridclaw/plugin-sdk';
-
-export function truncateByteRoverText(value, maxChars) {
-  const normalized = normalizeCliText(value);
-  if (!maxChars || normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
 
 export async function runByteRover(subcommandArgs, config, options = {}) {
   fs.mkdirSync(config.workingDirectory, { recursive: true });
@@ -38,5 +33,5 @@ export async function runByteRoverCommandText(
   if (!result.ok) {
     throw result.error;
   }
-  return truncateByteRoverText(result.stdout, options.maxChars);
+  return truncateText(normalizeText(result.stdout), options.maxChars);
 }

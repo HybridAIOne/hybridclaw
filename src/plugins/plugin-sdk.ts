@@ -6,6 +6,12 @@
  * caller in `plugins/`; plugin-facing behaviour lives on `HybridClawPluginApi`.
  */
 export {
+  isRecord,
+  readFiniteNumber,
+  readString,
+  toTrimmedString,
+} from '../../container/shared/primitive-values.js';
+export {
   getAgentById,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
@@ -85,7 +91,6 @@ export {
   type BoundedCliOptions,
   type BoundedCliResult,
   buildCliProcessEnv,
-  normalizeCliText,
   resolvePluginPath,
   runBoundedCli,
 } from './plugin-cli.js';
@@ -93,6 +98,12 @@ export type {
   PluginMediaHost,
   PluginSessionModelCredentials,
 } from './plugin-media-host.js';
+export {
+  appendTruncationNotice,
+  latestMessageByRole,
+  normalizeText,
+  truncateText,
+} from './plugin-text.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,

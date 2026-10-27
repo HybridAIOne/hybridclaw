@@ -1,35 +1,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isRecord, readString } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'];
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'];
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'];
 
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return [];
   const out = [];
   for (const entry of value) {
-    const normalized = normalizeString(entry);
+    const normalized = readString(entry);
     if (normalized) out.push(normalized);
   }
   return out;
 }
 
-function isRecord(value) {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function ensureEnum(value, allowed, fallback) {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = readString(value).toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
 }
 
 function ensureModelSource(value, label) {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = readString(value).toLowerCase();
   if (!normalized) return 'default';
   if (SUPPORTED_MODEL_SOURCES.includes(normalized)) return normalized;
   throw new Error(
@@ -88,7 +81,7 @@ function resolvePolicyFile(policyFile, runtime, logger, profileId) {
 
 function resolveModelSourceConfig(rawConfig, label) {
   const provider = ensureModelSource(rawConfig?.provider, label);
-  const model = normalizeString(rawConfig?.model);
+  const model = readString(rawConfig?.model);
   if (provider === 'model' && !model) {
     throw new Error(
       `output-guard: ${label} model source is "${provider}" but \`${label}.model\` is empty.`,
@@ -99,11 +92,11 @@ function resolveModelSourceConfig(rawConfig, label) {
 
 function resolveOutputGuardProfile(rawConfig, runtime, logger, errors, id) {
   const raw = isRecord(rawConfig) ? rawConfig : {};
-  const policy = normalizeString(raw.policy);
+  const policy = readString(raw.policy);
   const doList = normalizeStringArray(raw.doList);
   const dontList = normalizeStringArray(raw.dontList);
   const policyFileText = resolvePolicyFile(
-    normalizeString(raw.policyFile),
+    readString(raw.policyFile),
     runtime,
     logger,
     id,
@@ -146,7 +139,7 @@ function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
   for (const [rawProfileId, rawProfileConfig] of Object.entries(
     rawConfig.profiles,
   )) {
-    const profileId = normalizeString(rawProfileId);
+    const profileId = readString(rawProfileId);
     if (!profileId) continue;
     profiles[profileId] = resolveOutputGuardProfile(
       rawProfileConfig,
@@ -167,8 +160,8 @@ function resolveChannelProfiles(rawConfig, logger) {
   for (const [rawChannelId, rawProfileId] of Object.entries(
     rawConfig.channelProfiles,
   )) {
-    const channelId = normalizeString(rawChannelId);
-    const profileId = normalizeString(rawProfileId);
+    const channelId = readString(rawChannelId);
+    const profileId = readString(rawProfileId);
     if (!channelId || !profileId) {
       logger.warn(
         { channelId: rawChannelId, profileId: rawProfileId },
@@ -182,7 +175,7 @@ function resolveChannelProfiles(rawConfig, logger) {
 }
 
 export function resolveOutputGuardProfileSelection(config, channelId) {
-  const normalizedChannelId = normalizeString(channelId);
+  const normalizedChannelId = readString(channelId);
   const requestedProfileId = normalizedChannelId
     ? config.channelProfiles[normalizedChannelId]
     : '';
@@ -230,8 +223,7 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   const profiles = resolveNamedProfiles(rawConfig, runtime, logger, errors);
   const channelProfiles = resolveChannelProfiles(rawConfig, logger);
   const blockMessage =
-    normalizeString(rawConfig?.blockMessage) ||
-    'Output blocked by output guard.';
+    readString(rawConfig?.blockMessage) || 'Output blocked by output guard.';
   const minLength = ensureNumber(rawConfig?.minLength, 0, { min: 0 });
 
   const classifier = resolveModelSourceConfig(

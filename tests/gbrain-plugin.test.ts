@@ -1,16 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
-import { usePluginSdkSource } from './helpers/plugin-sdk-source.ts';
 
-vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
-  import('../src/plugins/plugin-sdk.ts'),
-);
-usePluginSdkSource();
 
 const makeTempDir = useTempDir();
 

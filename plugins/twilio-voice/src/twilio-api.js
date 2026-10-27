@@ -1,3 +1,5 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
+
 /**
  * Twilio REST client for placing outbound calls. The created call fetches
  * TwiML from this plugin's incoming-call webhook, so an outbound call runs
@@ -5,7 +7,6 @@
  *
  * NOT webhook handling (`runtime.js`); NOT URL resolution (`urls.js`).
  */
-import { isRecord } from './utils.js';
 
 const E164_DIGITS_RE = /^[1-9]\d{6,14}$/;
 const TWILIO_API_BASE_URL = 'https://api.twilio.com';

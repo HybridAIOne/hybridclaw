@@ -1,17 +1,19 @@
+import {
+  latestMessageByRole,
+  readString,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+
 const MAX_QUERY_CHARS = 2000;
 
 /** The text to retrieve for: the latest user message, trimmed to a query. */
 export function latestUserQuery(recentMessages, maxChars = MAX_QUERY_CHARS) {
-  const messages = Array.isArray(recentMessages) ? recentMessages : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'user') continue;
-    const content =
-      typeof message.content === 'string' ? message.content.trim() : '';
-    if (!content) continue;
-    return content.length > maxChars ? content.slice(0, maxChars) : content;
-  }
-  return '';
+  const withText = (Array.isArray(recentMessages) ? recentMessages : []).filter(
+    (message) => readString(message?.content),
+  );
+  return readString(latestMessageByRole(withText, 'user')?.content).slice(
+    0,
+    maxChars,
+  );
 }
 
 function normalizeHit(hit, fallbackCollection) {

@@ -1,13 +1,8 @@
 import {
-  normalizeCliText,
+  normalizeText,
   runBoundedCli,
+  truncateText,
 } from '@hybridaione/hybridclaw/plugin-sdk';
-
-function truncateText(value, maxChars) {
-  const normalized = normalizeCliText(value);
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
 
 function buildInvocationArgs(subcommandArgs, config) {
   const args = [];
@@ -38,16 +33,16 @@ export async function runMempalaceCommandText(subcommandArgs, config, options) {
   if (!result.ok) {
     throw result.error;
   }
-  return normalizeCliText(result.stdout);
+  return normalizeText(result.stdout);
 }
 
 export function cleanWakeUpText(value, maxChars) {
-  const normalized = normalizeCliText(value)
+  const normalized = normalizeText(value)
     .replace(/^Wake-up text\s*\(~\d+\s+tokens\):\n=+\n?/i, '')
     .trim();
   return truncateText(normalized, maxChars);
 }
 
 export function cleanSearchText(value, maxChars) {
-  return truncateText(value, maxChars);
+  return truncateText(normalizeText(value), maxChars);
 }

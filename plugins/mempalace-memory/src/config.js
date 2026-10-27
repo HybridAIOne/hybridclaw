@@ -1,9 +1,8 @@
 import path from 'node:path';
-import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -17,20 +16,20 @@ export function resolveMempalacePluginConfig(pluginConfig, runtime) {
     resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
     runtime.cwd;
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'mempalace',
+    command: readString(pluginConfig?.command) || 'mempalace',
     workingDirectory,
     palacePath: resolvePluginPath(pluginConfig?.palacePath, runtime.cwd) || '',
-    mcpServerName: normalizeString(pluginConfig?.mcpServerName) || 'mempalace',
+    mcpServerName: readString(pluginConfig?.mcpServerName) || 'mempalace',
     sessionExportDir:
       resolvePluginPath(pluginConfig?.sessionExportDir, runtime.cwd) ||
       path.resolve(runtime.cwd, '.hybridclaw', 'mempalace-turns'),
     wakeUpEnabled: pluginConfig?.wakeUpEnabled !== false,
-    wakeUpWing: normalizeString(pluginConfig?.wakeUpWing),
+    wakeUpWing: readString(pluginConfig?.wakeUpWing),
     searchEnabled: pluginConfig?.searchEnabled !== false,
-    searchWing: normalizeString(pluginConfig?.searchWing),
-    searchRoom: normalizeString(pluginConfig?.searchRoom),
-    updateWing: normalizeString(pluginConfig?.updateWing),
-    updateAgent: normalizeString(pluginConfig?.updateAgent) || 'hybridclaw',
+    searchWing: readString(pluginConfig?.searchWing),
+    searchRoom: readString(pluginConfig?.searchRoom),
+    updateWing: readString(pluginConfig?.updateWing),
+    updateAgent: readString(pluginConfig?.updateAgent) || 'hybridclaw',
     saveEveryMessages: normalizeValidatedInteger(
       pluginConfig?.saveEveryMessages,
       'saveEveryMessages',

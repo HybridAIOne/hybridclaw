@@ -1,11 +1,10 @@
 import path from 'node:path';
-import { resolvePluginPath } from '@hybridaione/hybridclaw/plugin-sdk';
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_SEARCH_MODE = 'query';
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -15,12 +14,12 @@ function normalizeValidatedInteger(value, key) {
 }
 
 export function resolveQmdPluginConfig(pluginConfig, runtime) {
-  const searchMode = normalizeString(pluginConfig?.searchMode).toLowerCase();
+  const searchMode = readString(pluginConfig?.searchMode).toLowerCase();
   const workingDirectory =
     resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
     runtime.cwd;
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'qmd',
+    command: readString(pluginConfig?.command) || 'qmd',
     workingDirectory,
     searchMode:
       searchMode === 'vsearch' || searchMode === 'query'

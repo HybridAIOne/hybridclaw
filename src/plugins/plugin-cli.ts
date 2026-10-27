@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { expandHomePath } from '../utils/path.js';
+import { appendTruncationNotice, normalizeText } from './plugin-text.js';
 
 const CLI_ENV_ALLOWLIST = [
   'PATH',
@@ -85,16 +86,6 @@ export function resolvePluginPath(value: unknown, cwd: string): string {
   return expanded ? path.resolve(cwd, expanded) : '';
 }
 
-export function normalizeCliText(value: unknown): string {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 function createCollector(maxBytes: number) {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -122,12 +113,12 @@ function exitError(
   output: BoundedCliOutput,
 ): Error {
   const message =
-    normalizeCliText(output.stderr) ||
-    normalizeCliText(output.stdout) ||
+    normalizeText(output.stderr) ||
+    normalizeText(output.stdout) ||
     `${label} exited with code ${String(code)}.`;
   return new Error(
     output.stderrTruncated
-      ? `${message}\n\n[${label} stderr truncated]`
+      ? appendTruncationNotice(message, `${label} stderr`)
       : message,
   );
 }

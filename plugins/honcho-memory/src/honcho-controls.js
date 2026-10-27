@@ -1,16 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { toTrimmedString } from '@hybridaione/hybridclaw/plugin-sdk';
 import { dynamicReasoningLevel } from './config.js';
 import { sanitizeHonchoSessionId } from './honcho-client.js';
-
-function normalizeString(value) {
-  return String(value || '').trim();
-}
 
 function formatPeerCard(card) {
   if (!Array.isArray(card) || card.length === 0) return '';
   return card
-    .map((entry) => normalizeString(entry))
+    .map((entry) => toTrimmedString(entry))
     .filter(Boolean)
     .map((entry) => `- ${entry}`)
     .join('\n');
@@ -18,7 +15,7 @@ function formatPeerCard(card) {
 
 function formatProfileText(params) {
   const sections = ['Honcho profile'];
-  const representation = normalizeString(params.representation);
+  const representation = toTrimmedString(params.representation);
   const peerCard = formatPeerCard(params.peerCard);
   if (representation) {
     sections.push('', 'Representation:', representation);
@@ -39,10 +36,10 @@ function formatSearchResult(results) {
   return results
     .map((message, index) =>
       [
-        `[${index + 1}] ${normalizeString(message.peer_id) || 'peer'} @ ${
-          normalizeString(message.created_at) || 'unknown'
+        `[${index + 1}] ${toTrimmedString(message.peer_id) || 'peer'} @ ${
+          toTrimmedString(message.created_at) || 'unknown'
         }`,
-        normalizeString(message.content),
+        toTrimmedString(message.content),
       ].join('\n'),
     )
     .join('\n\n');
@@ -76,7 +73,7 @@ function parseFlagValue(args, flag) {
 }
 
 function parsePeerSelection(value, fallback = 'user') {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = toTrimmedString(value).toLowerCase();
   if (
     normalized === 'ai' ||
     normalized === 'assistant' ||
@@ -180,9 +177,9 @@ export class HonchoControls {
 
   async handleCommand(args, context) {
     const normalizedArgs = (args || [])
-      .map((arg) => normalizeString(arg))
+      .map((arg) => toTrimmedString(arg))
       .filter(Boolean);
-    const subcommand = normalizeString(
+    const subcommand = toTrimmedString(
       normalizedArgs[0] || 'status',
     ).toLowerCase();
     try {
@@ -277,7 +274,7 @@ export class HonchoControls {
     }
     if (
       args.includes('--clear') ||
-      normalizeString(args[0]).toLowerCase() === 'clear'
+      toTrimmedString(args[0]).toLowerCase() === 'clear'
     ) {
       const sessions = { ...(this.runtime.config.sessions || {}) };
       delete sessions[sessionRoot];
@@ -307,7 +304,7 @@ export class HonchoControls {
         'Alias: `/honcho recall <hybrid|context|tools>`.',
       ].join('\n');
     }
-    const nextMode = normalizeString(args[0]).toLowerCase();
+    const nextMode = toTrimmedString(args[0]).toLowerCase();
     if (!['hybrid', 'context', 'tools'].includes(nextMode)) {
       return `Usage: /honcho ${commandName} <hybrid|context|tools>`;
     }
@@ -442,7 +439,7 @@ export class HonchoControls {
         }),
         '',
         'AI peer',
-        normalizeString(ai?.peer_representation) ||
+        toTrimmedString(ai?.peer_representation) ||
           'No AI representation is available yet.',
         formatPeerCard(ai?.peer_card),
       ]
@@ -463,7 +460,7 @@ export class HonchoControls {
     if (!filePath.ok) {
       return filePath.error;
     }
-    const content = normalizeString(
+    const content = toTrimmedString(
       fs.readFileSync(filePath.realResolvedPath, 'utf-8'),
     );
     if (!content) {
@@ -513,7 +510,7 @@ export class HonchoControls {
   }
 
   async handleToolSearch(args, context) {
-    const query = normalizeString(args.query);
+    const query = toTrimmedString(args.query);
     if (!query) {
       throw new Error('Missing required parameter: query');
     }
@@ -549,7 +546,7 @@ export class HonchoControls {
   }
 
   async handleToolContext(args, context) {
-    const query = normalizeString(args.query);
+    const query = toTrimmedString(args.query);
     if (!query) {
       throw new Error('Missing required parameter: query');
     }
@@ -574,7 +571,7 @@ export class HonchoControls {
   }
 
   async handleToolConclude(args, context) {
-    const conclusion = normalizeString(args.conclusion);
+    const conclusion = toTrimmedString(args.conclusion);
     if (!conclusion) {
       throw new Error('Missing required parameter: conclusion');
     }

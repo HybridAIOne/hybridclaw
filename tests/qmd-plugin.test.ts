@@ -5,12 +5,7 @@ import { parse as parseYaml } from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
-import { usePluginSdkSource } from './helpers/plugin-sdk-source.ts';
 
-vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
-  import('../src/plugins/plugin-sdk.ts'),
-);
-usePluginSdkSource();
 
 const makeTempDir = useTempDir();
 
@@ -900,7 +895,10 @@ test('runQmdCommandText uses a larger but finite timeout for passthrough command
     stdoutTruncated: false,
     stderrTruncated: false,
   }));
-  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () => ({ runBoundedCli }));
+  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    runBoundedCli,
+  }));
 
   try {
     const { runQmdCommandText } = await import(
@@ -918,9 +916,7 @@ test('runQmdCommandText uses a larger but finite timeout for passthrough command
       expect.objectContaining({ timeoutMs: 900_000, label: 'QMD' }),
     );
   } finally {
-    vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
-      import('../src/plugins/plugin-sdk.ts'),
-    );
+    vi.doUnmock('@hybridaione/hybridclaw/plugin-sdk');
   }
 });
 
