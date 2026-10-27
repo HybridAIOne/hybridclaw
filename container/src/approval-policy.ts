@@ -52,7 +52,7 @@ import {
 } from './approval-directive.js';
 import {
   messageToolEmailTarget,
-  messageToolTarget,
+  messageToolOutsideTarget,
   ownMailboxRefusal,
 } from './approval-review.js';
 import {
@@ -319,6 +319,7 @@ export interface ToolCallContextHelpers {
   classifyAction(
     toolName: string,
     args: Record<string, unknown>,
+    channelId?: string,
   ): ClassifiedAction;
   isPinnedRed(input: {
     toolName: string;
@@ -1559,6 +1560,7 @@ function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
     return context.helpers.classifyAction(
       context.params.toolName,
       context.args,
+      context.params.channelId,
     );
   } catch {
     return null;
@@ -1601,7 +1603,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   classify_action(context) {
     context.classified = guardApprovalStateChange(
       context.params.toolName,
-      context.helpers.classifyAction(context.params.toolName, context.args),
+      context.helpers.classifyAction(
+        context.params.toolName,
+        context.args,
+        context.params.channelId,
+      ),
     );
     context.decision = 'auto';
     return nextRule();
@@ -2182,7 +2188,8 @@ export class TrustedAgentApprovalRuntime {
         return this.reloadPolicyIfNeeded();
       },
       cleanupExpiredPending: () => this.cleanupExpiredPending(),
-      classifyAction: (toolName, args) => this.classifyAction(toolName, args),
+      classifyAction: (toolName, args, channelId) =>
+        this.classifyAction(toolName, args, channelId),
       isPinnedRed: (input) => this.isPinnedRed(input),
       resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
       runStakesMiddleware: (context) => this.runStakesMiddleware(context),
@@ -2905,6 +2912,7 @@ export class TrustedAgentApprovalRuntime {
   private classifyAction(
     toolName: string,
     args: Record<string, unknown>,
+    channelId?: string,
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
     const inboxCleanup = classifyInboxCleanup(lowerTool, args);
@@ -3009,7 +3017,7 @@ export class TrustedAgentApprovalRuntime {
         action === 'read' ||
         action === 'member-info' ||
         action === 'channel-info';
-      const target = messageToolTarget(args);
+      const target = messageToolOutsideTarget(args, channelId);
       const emailTarget = messageToolEmailTarget(args);
       // Mail to other people goes from the user's own account, never the
       // agent's mailbox (owner call, 2026-10-08).
@@ -3024,12 +3032,19 @@ export class TrustedAgentApprovalRuntime {
       // person) asks first in the default mode too, like a connector send;
       // full access still runs it. Owner call, 2026-10-08: nothing goes out
       // without a yes on the email itself. Talking in the current
-      // conversation, the one Hy is already answering in, stays yellow. The
-      // key names the recipient, so trusting one does not trust the next.
+      // conversation, the one Hy is already answering in, stays yellow, also
+      // when the call names that channel. The key names the recipient, so
+      // trusting one does not trust the next.
       if (
         !readonlyAction &&
         (target ||
-          !['send', 'react', 'quote-reply', 'thread-reply'].includes(action))
+          ![
+            'send',
+            'react',
+            'quote-reply',
+            'thread-reply',
+            'thread-create',
+          ].includes(action))
       ) {
         return {
           tier: 'red',
