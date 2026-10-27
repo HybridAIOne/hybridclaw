@@ -77,7 +77,9 @@ import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   isLocalBackendType,
   LOCAL_BACKEND_IDS,
+  type OpenAICompatRemoteProviderId,
 } from '../providers/provider-ids.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   readStoredRuntimeSecret,
@@ -429,7 +431,7 @@ function normalizeOpenRouterModelId(rawModelId: string): string {
 
 function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://openrouter.ai/api/v1',
+    PROVIDER_META.openrouter.defaultBaseUrl,
     /\/api\/v1$/i,
     '/api/v1',
     rawBaseUrl,
@@ -442,7 +444,7 @@ function normalizeMistralModelId(rawModelId: string): string {
 
 function normalizeMistralBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://api.mistral.ai/v1',
+    PROVIDER_META.mistral.defaultBaseUrl,
     /\/v1$/i,
     '/v1',
     rawBaseUrl,
@@ -455,7 +457,7 @@ function normalizeHuggingFaceModelId(rawModelId: string): string {
 
 function normalizeHuggingFaceBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://router.huggingface.co/v1',
+    PROVIDER_META.huggingface.defaultBaseUrl,
     /\/v1$/i,
     '/v1',
     rawBaseUrl,
@@ -555,7 +557,7 @@ async function resolveAnthropicApiKey(
 
 async function resolveGenericProviderApiKey(
   providerLabel: string,
-  envVarNames: string[],
+  envVarNames: readonly string[],
   explicitApiKey: string | undefined,
 ): Promise<string> {
   const configuredApiKey =
@@ -577,20 +579,7 @@ async function resolveGenericProviderApiKey(
 
 interface RouterProviderConfigFlowOptions {
   args: string[];
-  providerId:
-    | 'openai'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo';
+  providerId: 'openai' | OpenAICompatRemoteProviderId;
   providerLabel: string;
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
   getCurrentProviderConfig: () => { baseUrl: string };
@@ -1701,7 +1690,7 @@ async function configureMicrosoft365Auth(args: string[]): Promise<void> {
 function clearGenericProviderCredentials(
   providerLabel: string,
   secretKey: string,
-  envVarNames: string[],
+  envVarNames: readonly string[],
 ): void {
   const filePath = saveRuntimeSecrets({ [secretKey]: null });
   console.log(`Cleared ${providerLabel} credentials in ${filePath}.`);

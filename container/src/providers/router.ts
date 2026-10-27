@@ -34,12 +34,12 @@ import {
   callOpenAIResponsesProvider,
   callOpenAIResponsesProviderStream,
 } from './openai-codex.js';
-import { isOpenAICompatRuntimeProvider } from './provider-ids.js';
+import { isOpenAICompatProviderId } from './provider-ids.js';
 import {
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
-  type RuntimeProvider,
+  type RuntimeProviderId,
 } from './shared.js';
 
 const DEFAULT_VISION_INSTRUCTIONS =
@@ -47,7 +47,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
 
 export interface RoutedModelContext {
   sessionId?: string;
-  provider: RuntimeProvider | undefined;
+  provider: RuntimeProviderId | undefined;
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;
@@ -138,7 +138,7 @@ export async function callProviderModel(
   if (args.provider === 'ollama') {
     return callOllamaProvider(args);
   }
-  if (isOpenAICompatRuntimeProvider(args.provider)) {
+  if (isOpenAICompatProviderId(args.provider)) {
     return callLocalOpenAICompatProvider(args);
   }
   return callHybridAIProvider(args);
@@ -159,7 +159,7 @@ export async function callProviderModelStream(
   if (args.provider === 'ollama') {
     return callOllamaProviderStream(args);
   }
-  if (isOpenAICompatRuntimeProvider(args.provider)) {
+  if (isOpenAICompatProviderId(args.provider)) {
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
@@ -168,7 +168,7 @@ export async function callProviderModelStream(
 export function estimateRoutedPromptOverheadTokens(
   params: RoutedPromptOverheadParams,
 ): number {
-  if (!isOpenAICompatRuntimeProvider(params.provider)) return 0;
+  if (!isOpenAICompatProviderId(params.provider)) return 0;
   return estimateLocalOpenAICompatPromptOverheadTokens({
     provider: params.provider,
     model: params.model,
@@ -225,21 +225,21 @@ export async function callRoutedModelStream(
 }
 
 function normalizeVisionBaseUrl(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   baseUrl: string,
 ): string {
   const normalized = baseUrl.trim().replace(/\/+$/g, '');
   if (provider === 'ollama') {
     return normalized.replace(/\/v1$/i, '');
   }
-  if (isOpenAICompatRuntimeProvider(provider)) {
+  if (isOpenAICompatProviderId(provider)) {
     return /\/v1$/i.test(normalized) ? normalized : `${normalized}/v1`;
   }
   return normalized;
 }
 
 function shouldStreamVisionRequest(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
 ): boolean {
   return (
     provider === undefined ||

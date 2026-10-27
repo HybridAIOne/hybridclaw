@@ -85,7 +85,12 @@ import {
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 import { PROVIDER_ALIASES } from './provider-aliases.js';
-import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
+import {
+  isRuntimeProviderId,
+  LOCAL_BACKEND_IDS,
+  providerModelPrefix,
+  type RuntimeProviderId,
+} from './provider-ids.js';
 
 export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
@@ -136,46 +141,6 @@ export interface ModelCatalogRefreshResult {
   discoveredModelCount: number;
   failures: ModelCatalogRefreshFailure[];
 }
-
-const OLLAMA_MODEL_PREFIX = 'ollama/';
-const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
-const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
-const VLLM_MODEL_PREFIX = 'vllm/';
-const GEMINI_MODEL_PREFIX = 'gemini/';
-const DEEPSEEK_MODEL_PREFIX = 'deepseek/';
-const XAI_MODEL_PREFIX = 'xai/';
-const ZAI_MODEL_PREFIX = 'zai/';
-const KIMI_MODEL_PREFIX = 'kimi/';
-const MINIMAX_MODEL_PREFIX = 'minimax/';
-const DASHSCOPE_MODEL_PREFIX = 'dashscope/';
-const XIAOMI_MODEL_PREFIX = 'xiaomi/';
-const KILO_MODEL_PREFIX = 'kilo/';
-
-const PREFIX_BY_PROVIDER: Record<
-  Exclude<ModelCatalogProviderFilter, 'hybridai' | 'local'>,
-  string
-> = {
-  openai: OPENAI_MODEL_PREFIX,
-  'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
-  anthropic: ANTHROPIC_MODEL_PREFIX,
-  openrouter: OPENROUTER_MODEL_PREFIX,
-  mistral: MISTRAL_MODEL_PREFIX,
-  huggingface: HUGGINGFACE_MODEL_PREFIX,
-  gemini: GEMINI_MODEL_PREFIX,
-  deepseek: DEEPSEEK_MODEL_PREFIX,
-  xai: XAI_MODEL_PREFIX,
-  zai: ZAI_MODEL_PREFIX,
-  kimi: KIMI_MODEL_PREFIX,
-  minimax: MINIMAX_MODEL_PREFIX,
-  dashscope: DASHSCOPE_MODEL_PREFIX,
-  xiaomi: XIAOMI_MODEL_PREFIX,
-  kilo: KILO_MODEL_PREFIX,
-  ollama: OLLAMA_MODEL_PREFIX,
-  lmstudio: LMSTUDIO_MODEL_PREFIX,
-  llamacpp: LLAMACPP_MODEL_PREFIX,
-  vllm: VLLM_MODEL_PREFIX,
-  mlx: 'mlx/',
-};
 
 function compareModelNames(
   left: string,
@@ -238,12 +203,9 @@ function hasModelPrefix(model: string, prefix: string): boolean {
 
 function isLocalPrefixedModel(model: string): boolean {
   return (
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.ollama) ||
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm) ||
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.mlx) ||
-    Boolean(resolveLocalBackendFromEndpointModel(model))
+    LOCAL_BACKEND_IDS.some((id) =>
+      hasModelPrefix(model, providerModelPrefix(id)),
+    ) || Boolean(resolveLocalBackendFromEndpointModel(model))
   );
 }
 
@@ -284,17 +246,14 @@ function matchesProviderFilter(
   const endpointBackend = resolveLocalBackendFromEndpointModel(normalized);
   if (endpointBackend) return providerFilter === endpointBackend;
 
-  const prefix =
-    providerFilter === 'hybridai' ? null : PREFIX_BY_PROVIDER[providerFilter];
-  if (prefix) {
-    return hasModelPrefix(normalized, prefix);
+  if (providerFilter !== 'hybridai') {
+    return hasModelPrefix(normalized, providerModelPrefix(providerFilter));
   }
 
-  const provider = resolveModelProvider(normalized);
-  if (providerFilter === 'hybridai') {
-    return provider === 'hybridai' && !isLocalPrefixedModel(normalized);
-  }
-  return provider === providerFilter;
+  return (
+    resolveModelProvider(normalized) === 'hybridai' &&
+    !isLocalPrefixedModel(normalized)
+  );
 }
 
 export function dedupeExplicitModelNames(

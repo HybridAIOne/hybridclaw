@@ -13,7 +13,10 @@ import type {
 import { readOpenAIAPIKey } from '../providers/openai.js';
 import { getOpenAICompatProviderLastError } from '../providers/openai-compat-discovery.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
+import { isOpenAICompatRemoteProviderId } from '../providers/provider-ids.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import type { GatewayStatus } from './gateway-types.js';
+import { toGatewayModelProviderKey } from './model-provider-keys.js';
 
 export type ProviderDiagnosticKind =
   | 'disabled'
@@ -25,38 +28,6 @@ export interface ProviderDiagnostic {
   message: string;
 }
 
-interface ProviderMeta {
-  label: string;
-  loginName: string | null;
-}
-
-const PROVIDER_META: Record<
-  Exclude<ModelCatalogProviderFilter, 'local'>,
-  ProviderMeta
-> = {
-  hybridai: { label: 'HybridAI', loginName: 'hybridai' },
-  openai: { label: 'OpenAI API', loginName: 'openai' },
-  'openai-codex': { label: 'Codex', loginName: 'codex' },
-  anthropic: { label: 'Anthropic', loginName: 'anthropic' },
-  openrouter: { label: 'OpenRouter', loginName: 'openrouter' },
-  mistral: { label: 'Mistral', loginName: 'mistral' },
-  huggingface: { label: 'Hugging Face', loginName: 'huggingface' },
-  gemini: { label: 'Google Gemini', loginName: 'gemini' },
-  deepseek: { label: 'DeepSeek', loginName: 'deepseek' },
-  xai: { label: 'xAI', loginName: 'xai' },
-  zai: { label: 'Z.AI / GLM', loginName: 'zai' },
-  kimi: { label: 'Kimi / Moonshot', loginName: 'kimi' },
-  minimax: { label: 'MiniMax', loginName: 'minimax' },
-  dashscope: { label: 'DashScope / Qwen', loginName: 'dashscope' },
-  xiaomi: { label: 'Xiaomi MiMo', loginName: 'xiaomi' },
-  kilo: { label: 'Kilo Code', loginName: 'kilo' },
-  ollama: { label: 'Ollama', loginName: null },
-  lmstudio: { label: 'LM Studio', loginName: null },
-  llamacpp: { label: 'llama.cpp', loginName: null },
-  vllm: { label: 'vLLM', loginName: null },
-  mlx: { label: 'MLX', loginName: null },
-};
-
 const AUTH_ERROR_RE =
   /invalid.*api key|api key.*invalid|revoked|unauthorized|authentication|http\s*(401|403)|\b(401|403)\b/i;
 
@@ -66,20 +37,13 @@ export function buildProviderEnableCommand(
   return `config set ${provider}.enabled true`;
 }
 
-function rerunFilter(
-  filter: Exclude<ModelCatalogProviderFilter, 'local'>,
-): string {
-  return filter === 'openai-codex' ? 'codex' : filter;
-}
-
 function authorizationInstructionLines(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
 ): string[] {
-  const { loginName } = PROVIDER_META[filter];
   return [
     'Authorize it first from a terminal:',
-    `  hybridclaw auth login ${loginName ?? filter}`,
-    `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+    `  hybridclaw auth login ${toGatewayModelProviderKey(filter)}`,
+    `Then rerun \`model list ${toGatewayModelProviderKey(filter)}\`.`,
   ];
 }
 
@@ -94,7 +58,7 @@ function disabled(
       `${label} is disabled.`,
       'Enable it:',
       `  ${enableCommand}`,
-      `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+      `Then rerun \`model list ${toGatewayModelProviderKey(filter)}\`.`,
     ].join('\n'),
   };
 }
@@ -144,7 +108,7 @@ function unreachable(
         : `${label} is not reachable.`,
       ...(detail ? [`Last discovery error: ${detail}`] : []),
       'Check your network or the provider status, then rerun',
-      `  \`model list ${rerunFilter(filter)}\`.`,
+      `  \`model list ${toGatewayModelProviderKey(filter)}\`.`,
     ].join('\n'),
   };
 }
@@ -157,6 +121,29 @@ export function diagnoseProviderForModels(
   if (filter === 'local') return null;
 
   const config = getRuntimeConfig();
+
+  if (isOpenAICompatRemoteProviderId(filter)) {
+    const section = config[filter];
+    if (!section.enabled) {
+      return disabled(filter, buildProviderEnableCommand(filter));
+    }
+    if (!readApiKeyForOpenAICompatProvider(filter, { required: false })) {
+      return unauthorized(filter);
+    }
+    const lastError = getOpenAICompatProviderLastError(filter);
+    if (lastError) {
+      const status = lastError.httpStatus;
+      if (
+        status !== 404 &&
+        status !== 405 &&
+        status !== 401 &&
+        status !== 403
+      ) {
+        return unreachable(filter, section.baseUrl, lastError.message);
+      }
+    }
+    return null;
+  }
 
   switch (filter) {
     case 'hybridai': {
@@ -214,45 +201,6 @@ export function diagnoseProviderForModels(
       }
       if (providerHealth?.anthropic?.reachable !== true) {
         return unreachable(filter, config.anthropic.baseUrl);
-      }
-      return null;
-    }
-    case 'openrouter':
-    case 'mistral':
-    case 'huggingface':
-    case 'gemini':
-    case 'deepseek':
-    case 'xai':
-    case 'zai':
-    case 'kimi':
-    case 'minimax':
-    case 'dashscope':
-    case 'xiaomi':
-    case 'kilo': {
-      const section = (config as unknown as Record<string, unknown>)[filter] as
-        | { enabled: boolean; baseUrl?: string }
-        | undefined;
-      if (!section?.enabled) {
-        return disabled(filter, buildProviderEnableCommand(filter));
-      }
-      if (!readApiKeyForOpenAICompatProvider(filter, { required: false })) {
-        return unauthorized(filter);
-      }
-      const lastError = getOpenAICompatProviderLastError(filter);
-      if (lastError) {
-        const status = lastError.httpStatus;
-        if (
-          status !== 404 &&
-          status !== 405 &&
-          status !== 401 &&
-          status !== 403
-        ) {
-          return unreachable(
-            filter,
-            section.baseUrl ?? null,
-            lastError.message,
-          );
-        }
       }
       return null;
     }

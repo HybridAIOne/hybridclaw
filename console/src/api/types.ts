@@ -3,6 +3,7 @@ import type { ReasoningEffort } from '../../../container/shared/reasoning-effort
 import type {
   GatewayAdminAgentMarkdownFileResponse,
   GatewayAdminStatisticsChannelRow,
+  GatewayAdminModelsResponse as RuntimeAdminModelsResponse,
   GatewayStatus as RuntimeGatewayStatus,
 } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
@@ -1034,34 +1035,7 @@ export interface AdminModelCatalogEntry extends ChatModel {
 
 export interface AdminModelsResponse {
   defaultModel: string;
-  auxiliaryModels?: {
-    skillsHub: {
-      provider:
-        | 'auto'
-        | 'disabled'
-        | 'hybridai'
-        | 'openai-codex'
-        | 'anthropic'
-        | 'openrouter'
-        | 'mistral'
-        | 'huggingface'
-        | 'gemini'
-        | 'deepseek'
-        | 'xai'
-        | 'zai'
-        | 'kimi'
-        | 'minimax'
-        | 'dashscope'
-        | 'xiaomi'
-        | 'kilo'
-        | 'ollama'
-        | 'lmstudio'
-        | 'llamacpp'
-        | 'vllm'
-        | 'mlx';
-      model: string | null;
-    };
-  };
+  auxiliaryModels?: RuntimeAdminModelsResponse['auxiliaryModels'];
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }

@@ -32,6 +32,7 @@ import type { PluginChannelGatewayStatus } from '../channels/plugin-channel/stat
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
+  RuntimeAuxiliaryProviderSelection,
   RuntimeConfig,
   RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
@@ -1544,30 +1545,7 @@ export interface GatewayAdminModelsResponse {
   defaultModel: string;
   auxiliaryModels?: {
     skillsHub: {
-      provider:
-        | 'auto'
-        | 'disabled'
-        | 'hybridai'
-        | 'openai'
-        | 'openai-codex'
-        | 'anthropic'
-        | 'openrouter'
-        | 'mistral'
-        | 'huggingface'
-        | 'gemini'
-        | 'deepseek'
-        | 'xai'
-        | 'zai'
-        | 'kimi'
-        | 'minimax'
-        | 'dashscope'
-        | 'xiaomi'
-        | 'kilo'
-        | 'ollama'
-        | 'lmstudio'
-        | 'llamacpp'
-        | 'vllm'
-        | 'mlx';
+      provider: RuntimeAuxiliaryProviderSelection;
       model: string | null;
     };
   };

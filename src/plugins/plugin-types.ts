@@ -763,6 +763,10 @@ export interface HybridClawPluginApi {
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
   getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
+  /**
+   * A request without `provider` whose `model` carries a `provider/` prefix
+   * is pinned to that provider, the same as the admin preview.
+   */
   callAuxiliaryModel(
     request: PluginAuxiliaryModelRequest,
   ): Promise<PluginAuxiliaryModelResult>;

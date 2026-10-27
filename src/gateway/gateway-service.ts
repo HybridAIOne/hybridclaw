@@ -343,12 +343,15 @@ import {
   formatModelCountSuffix,
   formatModelForDisplay,
   HYBRIDAI_MODEL_PREFIX,
-  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
-import { isRuntimeProviderId } from '../providers/provider-ids.js';
+import {
+  isRuntimeProviderId,
+  NON_HYBRID_PROVIDER_IDS,
+  providerModelPrefix,
+} from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import {
   normalizeAuxiliaryProviderModel,
@@ -660,6 +663,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
+import { toGatewayModelProviderKey } from './model-provider-keys.js';
 import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -6242,22 +6246,12 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
-function resolveKnownNonHybridProviderKey(
-  prefix: string,
-): GatewayModelProviderKey {
-  const normalized = prefix.replace(/\/+$/g, '');
-  if (normalized === 'openai-codex') return 'codex';
-  return normalized as GatewayModelProviderKey;
-}
-
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
   [HYBRIDAI_MODEL_PREFIX, 'hybridai'],
-  ...NON_HYBRID_PROVIDER_PREFIXES.map(
-    (prefix): [string, GatewayModelProviderKey] => [
-      prefix,
-      resolveKnownNonHybridProviderKey(prefix),
-    ],
-  ),
+  ...NON_HYBRID_PROVIDER_IDS.map((id): [string, GatewayModelProviderKey] => [
+    providerModelPrefix(id),
+    toGatewayModelProviderKey(id),
+  ]),
 ];
 
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
