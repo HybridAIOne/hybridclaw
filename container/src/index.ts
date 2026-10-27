@@ -2429,6 +2429,7 @@ async function main(): Promise<void> {
   approvalRuntime.setApprovalMode({
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
+    approvalUserIsBot: firstInput.approvalUserIsBot,
   });
 
   let firstOutput: ContainerOutput;
@@ -2597,6 +2598,7 @@ async function main(): Promise<void> {
     approvalRuntime.setApprovalMode({
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
+      approvalUserIsBot: input.approvalUserIsBot,
     });
     const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;
