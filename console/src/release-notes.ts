@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.1',
+  version: '0.41.2',
   highlights: [
-    'Shared HybridAI knowledge and wikis',
-    'Optional nightly wiki maintenance',
-    'Cleaner reminders and working event triggers',
-    'Requires Node 22.23.4 or later in Node 22',
+    'Keep email proposals as mailbox drafts',
+    'Chat ideas shaped by your skills and tools',
+    'Phone data available from the first message',
+    'Better tool availability and failure recovery',
   ],
 } as const;
 

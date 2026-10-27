@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## [0.41.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.2) - 2026-10-27
+
+### Added
+
+- **Draft approval answers**: Compatible email approval cards can keep a
+  proposed email as a mailbox draft, including the user's edits, in the same
+  turn. Choosing draft cancels the pending send; sending still requires its
+  own approval, and unavailable draft support is reported.
+- **Agent tool patterns**: Tool allowlists accept `*` patterns such as
+  `hybridai__github_api__*` to allow one connector's tools. Caller restrictions
+  and globally disabled tools continue to apply.
+
+### Changed
+
+- **Relevant chat ideas**: Suggestions draw on the agent's own skills, enabled
+  MCP servers, and tools used in the requesting user's recent chats. Seeded
+  persona files and onboarding state stay out of the profile.
+- **Bundled gateway**: Source, npm, and desktop builds use the bundled gateway
+  at `dist/cli.js`. Public plugin SDK imports remain unchanged. Rebuilds retain
+  earlier chunks for running processes; release packaging cleans them first.
+- **Plugin SDK helpers**: Plugin authors can reuse bounded CLI execution,
+  environment filtering, path resolution, and text and transcript helpers.
+
+### Fixed
+
+- **Phone data on first contact**: App turns can access shared calendar,
+  reminders, health, and contacts from the first message after connecting,
+  without waiting for a second turn. User and scope restrictions still apply.
+- **Large MCP servers**: Tools load in server listing order up to the schema
+  budget; only the remaining tools are deferred to the catalog.
+- **Media readiness and recovery**: Agents receive media-provider configuration
+  readiness and guidance to try useful alternatives after tool failures,
+  without bypassing approval decisions or access restrictions.
+- **Bot-started approvals**: Discord bot and webhook turns deny steps that
+  require human approval when no escalation target exists, instead of posting
+  an unanswerable card. Configured escalation targets remain available.
+- **Provider consistency**: Model filters include every provider, TUI and
+  console labels identify the selected provider correctly, and the console
+  supports MLX configuration.
+- **Activity attribution**: Audit forwarding identifies the executing agent
+  for app conversations instead of falling back to the default agent.
+- **Memory plugin paths and retrieval**: qmd and gbrain expand `~` to the OS
+  home directory. HybridAI knowledge retrieval selects the newest user
+  message even when conversation history arrives out of order.
+
+### Upgrade Notes
+
+- If qmd or gbrain paths relied on `~` resolving under the HybridClaw data
+  directory, replace them with explicit paths to that directory before
+  upgrading. `~` resolves to the OS home directory.
+- Custom scripts importing internal nested `dist/` modules must use supported
+  public entrypoints or source modules from a development checkout. The CLI
+  remains at `dist/cli.js`; plugin SDK imports are unchanged.
+
 ## [0.41.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.1) - 2026-10-25
 
 ### Added
