@@ -62,6 +62,12 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(output.toolExecutions).toEqual([expect.objectContaining({ name: 'tool_catalog', blocked: true, isError: true })]);
     expect(requests[1].messages.at(-1)?.content).toContain('not available in this request');
   });
+  test('an allowlist pattern offers one connector service and no other', async () => {
+    const tool = (name: string) => ({ name, description: 'synthetic connector', parameters: { type: 'object' as const, properties: {}, required: [] } });
+    const pluginTools = ['hybridai__github_api__list_issues', 'hybridai__google_workspace__gmail_search', 'sentry__search_errors'].map(tool);
+    const { requests } = await harness([{ role: 'assistant', content: 'Done.' }], { localToolMode: 'full', pluginTools, allowedTools: ['read', 'hybridai__github_api__*', 'sentry__*'] });
+    expect(requests[0].tools.map((t) => t.function.name)).toEqual(['hybridai__github_api__list_issues', 'read', 'sentry__search_errors']);
+  });
   test('denies a catalog call in full mode, where no catalog is exposed', async () => {
     const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { localToolMode: 'full', blockedTools: ['read'] });
     expect(output.status).toBe('error'); expect(output.error).toContain('not available');

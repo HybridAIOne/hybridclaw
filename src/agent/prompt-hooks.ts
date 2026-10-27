@@ -4,6 +4,7 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
+import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -415,8 +416,9 @@ function buildRetrievalHook(context: PromptHookContext): string {
 
 function isToolOffered(context: PromptHookContext, toolName: string): boolean {
   return (
-    !context.blockedTools?.includes(toolName) &&
-    (!context.allowedTools || context.allowedTools.includes(toolName))
+    !compileToolPatterns(context.blockedTools)(toolName) &&
+    (!context.allowedTools ||
+      compileToolPatterns(context.allowedTools)(toolName))
   );
 }
 
