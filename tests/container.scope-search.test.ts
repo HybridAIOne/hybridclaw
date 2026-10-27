@@ -118,10 +118,10 @@ test('a scoped chat searches only its own scope', async () => {
 });
 
 test('blocked tool patterns keep every connector service but the allowed ones out', async () => {
-  const { compileBlockedTools } = await import(
-    '../container/src/blocked-tools.js'
+  const { compileToolPatterns } = await import(
+    '../container/shared/tool-patterns.js'
   );
-  const isBlocked = compileBlockedTools([
+  const isBlocked = compileToolPatterns([
     'device_data',
     'hybridai__*__*',
     '!hybridai__dm__*',
@@ -138,5 +138,5 @@ test('blocked tool patterns keep every connector service but the allowed ones ou
   expect(isBlocked('github__create_issue')).toBe(false);
   expect(isBlocked('read')).toBe(false);
   // An exemption never lifts an exact block.
-  expect(compileBlockedTools(['read', '!read'])('read')).toBe(true);
+  expect(compileToolPatterns(['read', '!read'])('read')).toBe(true);
 });
