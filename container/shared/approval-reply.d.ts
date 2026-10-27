@@ -2,6 +2,8 @@
 export interface ApprovalReplyContext {
   approvalUserText?: string | null;
   approvalUserId?: string;
+  /** The turn came from another bot or a webhook, so nobody can answer. */
+  approvalUserIsBot?: boolean;
   /** Host-validated connector decision; never accepted from a client payload. */
   approvalReplyDecision?: ApprovalReplyDecision;
 }
