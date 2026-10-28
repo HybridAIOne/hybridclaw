@@ -63,7 +63,12 @@ References are structured objects:
 ```
 
 The runtime checks user, agent and session access both when linking and when
-reading. A deleted or inaccessible source remains an unavailable reference; its
+reading. Web session access uses the notification operator from authenticated
+HTTP dispatch; the account user ID remains the tracked-item and work owner.
+Request bodies cannot choose an operator. Scheduled work retains the operator
+of its verified originating task session.
+
+A deleted or inaccessible source remains an unavailable reference; its
 content and draft are withheld. Message references must identify stored assistant
 messages. Receipt lookup is by exact identity, independent of the recent-receipts
 window. A receipt retains its original success, failure and proof fields; linking

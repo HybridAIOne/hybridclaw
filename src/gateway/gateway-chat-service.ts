@@ -2074,6 +2074,8 @@ async function handleGatewayMessageInner(
   const endDeviceDataTurn = beginDeviceDataTurn(
     req.executionSessionId || req.sessionId,
     req.userId,
+    undefined,
+    req.operatorId,
   );
   try {
     const scheduledTaskCount =
