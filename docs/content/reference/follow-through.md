@@ -119,3 +119,46 @@ The contract is tested at the runtime command and container-tool boundaries,
 including scheduled delivery, restart, two-client revision conflicts and receipt
 retention. Hosted relay and real connected-mail acceptance still need verification
 with the consuming apps; no live mail is sent by these tests.
+
+
+## Acceptance checks and repair
+
+The same item may have a `job` projection containing its owner, objective,
+criteria, observed checks, verification attempts, remaining attempts,
+dependencies, next open step and next gate. It joins the existing reviews,
+results, work runs and receipt links; it is not a second task store.
+
+`contract` accepts `checks` and optional `dependencies` (tracked item ids).
+It uses the same revision and request id as other mutations. Define the
+contract before preparation. Each check has a unique `id` and readable `title`:
+
+```json
+{"id":"brief","title":"Brief includes sources","kind":"artifact","path":"goals/brief.md","format":"text","required":["Summary","Sources"]}
+```
+
+Artifact formats are `file` (nonempty), `text` (literal required fragments),
+and `json` (required non-null top-level keys). At most twenty checks inspect
+browsable workspace documents up to 1 MiB, excluding hidden and credential files. Paths, including scoped
+workspaces, must not escape through traversal or symlinks. No check executes
+commands, follows remote URLs or returns file contents.
+
+A receipt check uses `kind: receipt` and an existing receipt `reference` in
+place of artifact fields. The usual user, agent and session authorization runs
+again on every observation. Only an accessible successful action with confirmed
+proof passes. Model-written `passed` or `ready` fields are ignored.
+
+`verify` observes these conditions and persists a timestamped attempt. One
+initial attempt permits two repairs; unchanged evidence cannot create another
+attempt. File hashes invalidate a pass after an edit, and changing the
+objective requires reviewing its contract. After verification begins the tool
+cannot weaken its own checks. Dependencies must be accessible and acyclic,
+and completion requires them to be complete.
+
+The gate is prepare, repair, dependencies, review or needs_attention; completed
+is derived from the user's outcome confirmation. Verification never grants
+permission or confirms the external outcome. The user can authorize two further
+attempts with `retry_checks`; this action is unavailable to the tool. Renewals
+retain failure history, with at most ten rounds (21 attempts) per job.
+A completion request re-observes evidence so a stale phone cannot complete
+changed output. These bounded checks establish their stated conditions, not
+semantic correctness; the user still reviews the deliverable.

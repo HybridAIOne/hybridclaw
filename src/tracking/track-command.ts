@@ -267,6 +267,8 @@ const TOOL_ACTIONS: Record<
     return 'The tracked item can receive this draft.';
   },
   get: runFollowThroughTool,
+  contract: runFollowThroughTool,
+  verify: runFollowThroughTool,
   state: runFollowThroughTool,
   link: runFollowThroughTool,
   list: (session) => {

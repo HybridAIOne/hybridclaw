@@ -50,6 +50,14 @@ import {
   trackedView,
 } from './track-store.js';
 
+import {
+  assertDependencies,
+  jobContract,
+  jobView,
+  MAX_VERIFICATION_ATTEMPTS,
+  verifyJob,
+} from './tracked-verification.js';
+
 // Engineering bounds (2026-10-24): retain a personal item’s evidence and retry
 // identities; fail at the limit rather than evicting a past send decision.
 export const followThroughCapabilities = { version: 1, reviews: true };
@@ -247,6 +255,9 @@ export function followThroughDetail(session: Session, item: Tracked) {
       origin && canReadTrackSession(origin, session, owner) ? origin : null,
     evidence,
     reviews,
+    job: jobView(session, item, (reference) =>
+      trackEvidence(session, reference),
+    ),
     runs: listTrackedWork(
       session.agent_id,
       owner,
@@ -295,10 +306,11 @@ function link(
       );
     }
     const checked = normalizeEmailDraft(evidence.message.emailDraft);
-    if (checked.error) throw new TrackError(checked.error);
+    if (checked.error || !checked.draft)
+      throw new TrackError(checked.error ?? 'Invalid email draft.');
     state.reviews.push({
       source: reference,
-      draft: checked.draft!,
+      draft: checked.draft,
       revision: 1,
       state: 'pending',
       deferred_until: null,
@@ -330,8 +342,9 @@ function reviewChange(
       if (review.state === 'declined')
         throw new TrackError('Reopen the review before editing.');
       const checked = normalizeEmailDraft(body.draft);
-      if (checked.error) throw new TrackError(checked.error);
-      const { track_id: _trackId, ...edited } = checked.draft!;
+      if (checked.error || !checked.draft)
+        throw new TrackError(checked.error ?? 'Invalid email draft.');
+      const { track_id: _trackId, ...edited } = checked.draft;
       review.draft = {
         ...edited,
         ...(review.draft.track_id ? { track_id: review.draft.track_id } : {}),
@@ -425,12 +438,64 @@ export function mutateFollowThrough(
       case 'link':
         link(session, item, state, body.reference);
         break;
+      case 'contract': {
+        if (item.done) throw new TrackError('Reopen the completed item first.');
+        if (state.job?.attempts.length && actor !== 'user')
+          throw new TrackError(
+            'Only the user may change checks after verification begins.',
+          );
+        const contract = jobContract(body.checks, body.dependencies);
+        assertDependencies(session, item, contract);
+        contract.objective = item.outcome ?? item.title;
+        contract.attemptLimit =
+          state.job?.attemptLimit ?? MAX_VERIFICATION_ATTEMPTS;
+        contract.attempts = state.job?.attempts ?? [];
+        state.job = contract;
+        break;
+      }
+      case 'retry_checks':
+        if (
+          actor !== 'user' ||
+          item.done ||
+          !state.job ||
+          state.job.attempts.length < state.job.attemptLimit
+        )
+          throw new TrackError(
+            'Only the user may authorize more checks after the repair limit.',
+          );
+        // User renewals retain every failed check; at most ten rounds per job.
+        if (state.job.attemptLimit >= 21)
+          throw new TrackError('Review this job before starting further work.');
+        state.job.attemptLimit += MAX_VERIFICATION_ATTEMPTS - 1;
+        state.phase = 'in_progress';
+        break;
+      case 'verify':
+        if (item.done || !state.job)
+          throw new TrackError('Define checks on an open item first.');
+        if (state.job.objective !== (item.outcome ?? item.title))
+          throw new TrackError(
+            'The outcome changed. Review the acceptance checks first.',
+          );
+        verifyJob(
+          session,
+          state.job,
+          (reference) => trackEvidence(session, reference),
+          now,
+        );
+        state.phase = state.job.attempts
+          .at(-1)
+          ?.checks.every((check) => check.passed)
+          ? 'needs_you'
+          : state.job.attempts.length >= state.job.attemptLimit
+            ? 'blocked'
+            : 'in_progress';
+        break;
       case 'complete':
         if (actor !== 'user' || typeof body.done !== 'boolean')
           throw new TrackError(
             'Only the user can confirm or reopen an outcome.',
           );
-        setTrackedCompletion(item, body.done, actor, now);
+        setTrackedCompletion(session, item, body.done, actor, now);
         break;
       case 'review':
         if (actor !== 'user')
@@ -439,7 +504,9 @@ export function mutateFollowThrough(
         reviewChange(session, state, body, now);
         break;
       default:
-        throw new TrackError('Expected state, link, review or complete.');
+        throw new TrackError(
+          'Expected state, link, contract, verify, review or complete.',
+        );
     }
     state.requests.push({ id: requestId, fingerprint });
     item.followThrough = state;
