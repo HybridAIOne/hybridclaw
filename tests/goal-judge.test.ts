@@ -28,7 +28,7 @@ test('parses strict goal judge JSON verdicts', () => {
   ).toThrow();
 });
 
-test('goal judge fails open on malformed model output', async () => {
+test('goal judge keeps the goal open on malformed model output', async () => {
   const verdict = await judgeGoalCompletion({
     sessionId: 'session-a',
     agentId: 'agent-a',
@@ -71,82 +71,41 @@ test('goal judge sends conversation context to the model', async () => {
   );
 });
 
-test('goal judge treats explicit completion statements as terminal', async () => {
-  const modelCaller = vi.fn();
-  const verdict = await judgeGoalCompletion({
-    sessionId: 'session-complete',
-    agentId: 'agent-a',
-    goalText:
-      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
-    assistantResponse: '4\n\nGoal complete.',
-    modelCaller,
-  });
-
-  expect(verdict).toEqual({
-    done: true,
-    reason: 'assistant explicitly stated the goal is complete',
-    parseFailure: false,
-  });
-  expect(modelCaller).not.toHaveBeenCalled();
-});
-
-test('goal judge handles intermediate count goals without auxiliary parsing', async () => {
-  const modelCaller = vi.fn();
-  const verdict = await judgeGoalCompletion({
-    sessionId: 'session-count',
-    agentId: 'agent-a',
-    goalText:
-      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
-    assistantResponse: '3',
-    modelCaller,
-  });
-
-  expect(verdict).toEqual({
-    done: false,
-    reason: 'count has reached 3, target is 4',
-    parseFailure: false,
-  });
-  expect(modelCaller).not.toHaveBeenCalled();
-});
-
-test('goal judge does not accept early count completion claims', async () => {
-  const modelCaller = vi.fn();
-  const verdict = await judgeGoalCompletion({
-    sessionId: 'session-count-early',
-    agentId: 'agent-a',
-    goalText:
-      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
-    assistantResponse: '3\n\nGoal complete.',
-    modelCaller,
-  });
-
-  expect(verdict).toEqual({
-    done: false,
-    reason: 'count has reached 3, target is 4',
-    parseFailure: false,
-  });
-  expect(modelCaller).not.toHaveBeenCalled();
-});
-
-test('goal judge ignores future count steps when the current count is incomplete', async () => {
-  const modelCaller = vi.fn();
-  const verdict = await judgeGoalCompletion({
-    sessionId: 'session-count-scheduled',
-    agentId: 'agent-a',
-    goalText:
-      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
-    assistantResponse:
-      '2\n\nNext three steps scheduled:\n- **3** in 30s\n- **4** in 60s\n- **Goal complete** in 90s',
-    modelCaller,
-  });
-
-  expect(verdict).toEqual({
-    done: false,
-    reason: 'count has reached 2, target is 4',
-    parseFailure: false,
-  });
-  expect(modelCaller).not.toHaveBeenCalled();
-});
+test.each([
+  ['Prepare the report and pass its checks.', 'Goal complete.', false],
+  ['Write a three-item checklist.', 'One. Two. Three.', true],
+  [
+    'Prepare a report.',
+    'The goal is complete, but the file is missing.',
+    false,
+  ],
+])(
+  'independent evaluation decides completion for %s',
+  async (goalText, assistantResponse, done) => {
+    const modelCaller = vi.fn<
+      NonNullable<Parameters<typeof judgeGoalCompletion>[0]['modelCaller']>
+    >(async () => ({
+      content: JSON.stringify({
+        done,
+        reason: 'Checked the requested conditions.',
+      }),
+    }));
+    const verdict = await judgeGoalCompletion({
+      sessionId: 'checked',
+      agentId: 'hy',
+      goalText,
+      assistantResponse,
+      executionEvidence: 'A recorded file check failed.',
+      modelCaller,
+    });
+    expect(verdict.done).toBe(done);
+    expect(modelCaller).toHaveBeenCalledOnce();
+    const payload = JSON.parse(
+      modelCaller.mock.calls[0][0].messages[1].content as string,
+    );
+    expect(payload.execution_evidence).toBe('A recorded file check failed.');
+  },
+);
 
 test('goal judge retries without structured response format on empty local output', async () => {
   mocks.callAuxiliaryModel
