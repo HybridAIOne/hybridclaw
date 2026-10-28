@@ -1,10 +1,8 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.2',
+  version: '0.41.3',
   highlights: [
-    'Keep email proposals as mailbox drafts',
-    'Chat ideas shaped by your skills and tools',
-    'Phone data available from the first message',
-    'Better tool availability and failure recovery',
+    'Overview loads reliably on your phone',
+    'Shared reviews stay accessible',
   ],
 } as const;
 

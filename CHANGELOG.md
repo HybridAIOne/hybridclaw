@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.41.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.3) - 2026-10-28
+
+### Fixed
+
+- **Phone overview access**: Overview loads for the owner's phone and refreshes
+  normally. Session and linked evidence access use the authenticated operator,
+  while account IDs retain ownership of tracked items and work (#2069).
+- **Shared review continuity**: Foreground turns and scheduled draft delivery
+  retain the originating operator so linked evidence and reviews remain
+  accessible. Other operators and forged identity fields remain denied (#2069).
+
 ## [0.41.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.2) - 2026-10-27
 
 ### Added
