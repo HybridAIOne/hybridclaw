@@ -224,7 +224,12 @@ export function handleTrackCommand(
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
-  const endUser = beginTurnUser(session.id, req.userId);
+  const endUser = beginTurnUser(
+    session.id,
+    req.userId,
+    undefined,
+    req.operatorId,
+  );
   try {
     return runCommand(req, session);
   } catch (error) {

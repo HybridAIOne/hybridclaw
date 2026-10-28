@@ -55,11 +55,12 @@ import {
 export const followThroughCapabilities = { version: 1, reviews: true };
 
 export function verifiedTrackOwner(session: Session): string {
-  const owner = currentTurnUser(session.id)?.userId;
+  const turn = currentTurnUser(session.id);
+  const owner = turn?.userId;
   if (!owner || !session.agent_id)
     throw new TrackError('Follow-through needs an authenticated user.');
   const bound = webNotificationSessionOperator(session.id);
-  if (bound && bound !== notificationOperatorId(owner))
+  if (bound && bound !== (turn?.operatorId ?? notificationOperatorId(owner)))
     throw new TrackError('This chat belongs to another user.');
   return owner;
 }
@@ -72,7 +73,9 @@ function canReadTrackSession(
   if (!canSeeSession(id, requester)) return false;
   const bound = webNotificationSessionOperator(id);
   return bound
-    ? bound === notificationOperatorId(owner)
+    ? bound ===
+        (currentTurnUser(requester.id)?.operatorId ??
+          notificationOperatorId(owner))
     : id === requester.id || getSessionById(id)?.channel_id !== 'web';
 }
 
@@ -464,7 +467,16 @@ export function recordTrackedDraft(
       work.agentId !== session.agent_id)
   )
     throw new TrackError('Draft does not belong to this work.');
-  const end = work ? beginTurnUser(session.id, work.owner) : () => {};
+  const end = work
+    ? beginTurnUser(
+        session.id,
+        work.owner,
+        undefined,
+        webNotificationSessionOperator(
+          work.originSessionId ?? work.sessionId,
+        ) ?? undefined,
+      )
+    : () => {};
   try {
     verifiedTrackOwner(session);
     const origin = work

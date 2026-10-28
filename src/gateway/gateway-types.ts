@@ -300,6 +300,8 @@ export interface GatewayChatRequestBody {
 export interface GatewayChatRequest
   extends ApprovalReplyContext,
     ToolCallLimits {
+  /** Notification operator from authenticated dispatch, never request-body input. */
+  operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
   msteamsTenantId?: string;
   appBuild?: boolean;
@@ -376,6 +378,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Notification operator from authenticated dispatch, never request-body input. */
+  operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never HTTP input. */
   msteamsTenantId?: string;
   sessionId: string;

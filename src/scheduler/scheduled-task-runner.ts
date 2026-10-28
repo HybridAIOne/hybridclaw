@@ -18,6 +18,7 @@ import {
 } from '../gateway/device-data.js';
 import { replyWithEmailDraft, turnEmailDraft } from '../gateway/email-draft.js';
 import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
+import { webNotificationSessionOperator } from '../gateway/web-notification-store.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { getSessionById, setMessageEmailDraft } from '../memory/db.js';
 import { getJob } from '../memory/jobs.js';
@@ -213,6 +214,9 @@ export async function runIsolatedScheduledTask(params: {
     activeSessionId,
     owner,
     MAX_DEVICE_AGE_MS,
+    taskSession
+      ? (webNotificationSessionOperator(taskSession.id) ?? undefined)
+      : undefined,
   );
   const endWork = beginWork(activeSessionId, runId);
   try {

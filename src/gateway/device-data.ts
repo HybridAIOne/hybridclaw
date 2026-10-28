@@ -194,8 +194,14 @@ export function beginDeviceDataTurn(
   sessionId: string,
   userId: string | null | undefined,
   maxDeviceAgeMs?: number,
+  operatorId?: string,
 ): () => void {
-  return beginTurnUser(sessionId, validUserId(userId), maxDeviceAgeMs);
+  return beginTurnUser(
+    sessionId,
+    validUserId(userId),
+    maxDeviceAgeMs,
+    operatorId,
+  );
 }
 
 // Case and accents do not count: "muller" finds "Müller".

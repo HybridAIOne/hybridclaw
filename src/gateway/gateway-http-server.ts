@@ -2055,6 +2055,7 @@ async function resolveApiChatSlashCommandResult(
     });
     if (guarded) return guarded;
     const result = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId: chatRequest.sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -2124,6 +2125,7 @@ async function resolveApiChatSlashCommandResult(
     }
 
     const gatewayCommandResult = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -3494,6 +3496,7 @@ async function handleApiChat(
   }
   const channelId = body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -4143,6 +4146,7 @@ async function handleApiCommand(
   req: IncomingMessage,
   res: ServerResponse,
   authContext: ResolvedAuthContext,
+  operatorId: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -4165,6 +4169,7 @@ async function handleApiCommand(
   }
 
   const commandRequest: GatewayCommandRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -11516,7 +11521,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
-            await handleApiCommand(req, res, authContext);
+            await handleApiCommand(req, res, authContext, operatorId);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {

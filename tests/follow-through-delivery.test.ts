@@ -17,8 +17,8 @@ test('a scheduled preparation attaches one review and run through delivery retry
   const { beginTurnUser } = await import('../src/session/turn-user.js');
   db.initDatabase({ quiet: true });
   const session = db.getOrCreateSession('main-phone', null, 'web', 'hy');
-  notifications.bindWebNotificationSession(session.id, notifications.notificationOperatorId('user-a'));
-  const end = beginTurnUser(session.id, 'user-a');
+  notifications.bindWebNotificationSession(session.id, notifications.notificationOperatorId('local-operator'));
+  const end = beginTurnUser(session.id, 'user-a', undefined, notifications.notificationOperatorId('local-operator'));
   try {
     const item = track.addTracked(session, { title: 'Arrange an appointment', every: [1], at: '09:00', tz: 'UTC' }, 'user');
     const task = jobs.getJob(item.checkTaskId!, { kind: 'scheduled_task' })!;

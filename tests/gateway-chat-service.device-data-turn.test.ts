@@ -58,8 +58,10 @@ test('the tool reads the user’s data when the turn moves to another instance',
     database.close();
   }
   let read = '';
+  const { currentTurnUser } = await import('../src/session/turn-user.js');
   runAgentMock.mockImplementation(async ({ sessionId }) => {
     read = device.renderDeviceDataForSession(sessionId, null);
+    expect(currentTurnUser(sessionId)?.operatorId).toBe('verified-operator');
     return SUCCESS;
   });
 
@@ -68,6 +70,7 @@ test('the tool reads the user’s data when the turn moves to another instance',
     guildId: null,
     channelId: 'web',
     userId: 'user_a',
+    operatorId: 'verified-operator',
     username: 'web',
     model: 'openai-codex/gpt-5-codex',
     chatbotId: '',
