@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.41.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.4) - 2026-10-28
+
+### Added
+
+- **Tracked-work checks and repairs**: Prepared work can be checked against
+  explicit file, text, JSON-field and confirmed-action conditions. Checks,
+  dependencies and timestamped repair history stay with the tracked item.
+  One initial check permits two repair attempts; further attempts need the
+  user's decision. Passing checks requests review, and the user still
+  confirms the outcome (#2068).
+
+### Fixed
+
+- **Stale verification results**: Changed files or objectives invalidate a
+  previous pass, and incomplete dependencies block completion. Agents cannot
+  weaken checks after verification starts or reset the repair limit (#2068).
+- **Evidence-based goal completion**: Standing-goal evaluation uses recorded
+  tool and artifact evidence instead of treating completion phrases or
+  counting shortcuts as proof of success (#2068).
+
 ## [0.41.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.3) - 2026-10-28
 
 ### Fixed

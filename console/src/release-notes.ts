@@ -1,8 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.3',
+  version: '0.41.4',
   highlights: [
-    'Overview loads reliably on your phone',
-    'Shared reviews stay accessible',
+    'Check prepared work before review',
+    'Keep repair history and retry limits',
+    'Require evidence before goals finish',
   ],
 } as const;
 
