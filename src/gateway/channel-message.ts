@@ -202,6 +202,15 @@ export function simplifyImageAttachmentNarration(
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
 }
 
+const NUMERIC_APPROVAL_ACTIONS = new Map([
+  ['0', 'view'],
+  ['1', '1'],
+  ['2', '2'],
+  ['3', '3'],
+  ['4', '4'],
+  ['5', '5'],
+]);
+
 export function resolveImplicitNumericApprovalArgs(params: {
   sessionId: string;
   userId: string;
@@ -212,14 +221,8 @@ export function resolveImplicitNumericApprovalArgs(params: {
   );
   if (!pending || pending.userId !== params.userId) return null;
 
-  const normalized = params.content.trim();
-  if (normalized === '0') return ['approve', 'view'];
-  if (normalized === '1') return ['approve', '1'];
-  if (normalized === '2') return ['approve', '2'];
-  if (normalized === '3') return ['approve', '3'];
-  if (normalized === '4') return ['approve', '4'];
-  if (normalized === '5') return ['approve', '5'];
-  return null;
+  const action = NUMERIC_APPROVAL_ACTIONS.get(params.content.trim());
+  return action ? ['approve', action] : null;
 }
 
 export async function handleTextChannelCommand(params: {

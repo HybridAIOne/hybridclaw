@@ -17,6 +17,18 @@ const PAUSE_EXPLANATIONS: Record<ApprovalPauseCause, string> = {
   workspace_policy: 'Your workspace rules require permission for this action.',
 };
 
+function plainApprovalText(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/[\\`*_{}[\]()#+!|>~-]/g, '\\$&')
+    .replace(/^(\d+)\./, '$1\\.')
+    .replace(/\bwww\./gi, 'www&#46;')
+    .replace(/@/g, '&#64;')
+    .replace(/:/g, '&#58;');
+}
+
 export function formatMSTeamsApprovalPrompt(
   approval: PendingApproval,
   now = Date.now(),
@@ -25,7 +37,10 @@ export function formatMSTeamsApprovalPrompt(
   if (approval.boost) return approval.prompt;
 
   const rule = parseApprovalRule(approval.rule);
-  const action = approval.intent.trim() || rule?.label;
+  const intent = approval.intent.trim();
+  const includesCommand =
+    approval.commandPreview && intent.includes(approval.commandPreview);
+  const action = includesCommand ? rule?.label : intent || rule?.label;
   if (!action && !approval.commandPreview?.trim()) return approval.prompt;
   const explanation = rule
     ? PAUSE_EXPLANATIONS[rule.pausedBy]
@@ -44,8 +59,8 @@ export function formatMSTeamsApprovalPrompt(
 
   const lines = [
     '**Permission needed**',
-    action,
-    explanation,
+    action ? plainApprovalText(action) : '',
+    plainApprovalText(explanation),
     `**Reply with a number:**\n${replies.join('\n')}`,
   ].filter(Boolean);
   if (

@@ -20,6 +20,7 @@ import {
   setApprovalEmailSender,
   setUserMailContext,
 } from './approval-review.js';
+import { prepareApprovalToolCalls } from './approval-tool-call.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
 import { boostApprovalOutput, dropPendingBoost } from './boost-offers.js';
@@ -1673,6 +1674,8 @@ async function processRequestInner(
         invalidToolCallError = `Tool is not available in this request: ${unavailable.function.name}`;
       }
     }
+    const approvalCalls = prepareApprovalToolCalls(toolCalls);
+    toolCalls = approvalCalls.calls;
     const correction =
       catalogCorrection ??
       (malformedToolCallError &&
@@ -2112,6 +2115,7 @@ async function processRequestInner(
           prompt,
           toolName,
           call.function.arguments,
+          approvalCalls.descriptions.get(call),
         );
         emitApprovalProgress(pendingApproval);
         toolExecutions.push(

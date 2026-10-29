@@ -74,9 +74,15 @@ change to the meaning of `openWorldHint` for other tools.
 The `bash` tool accepts a `description` for the assistant to explain the concrete
 action in the user's language. The pending approval uses this display text as
 its intent; the command and classifier diagnostics remain in the full review.
-The resolver removes the description before classification, fingerprinting,
-and pending-call storage. Approval replays therefore use the saved executable
-arguments, and changing the description cannot grant trust or change risk.
+The tool-call preparation step separates the description once, before
+classification, hooks, pending-call storage, execution, and tool audit records.
+It leaves the provider's original message in model history untouched. Approval
+replays use only the saved executable arguments. The worker's `fingerprint`
+rule hashes the tool name, action key, normalized command preview, and executable
+arguments; the gateway does not calculate another approval fingerprint.
+Changing the description therefore cannot grant trust or change risk. Without
+a description the pending approval retains the original policy intent and its
+concrete target; Teams keeps any embedded command behind the details view.
 
 Container isolation and approvals protect different boundaries. The working
 folder is mounted read/write and its changes survive the container, so a
@@ -88,6 +94,11 @@ rules, writes outside the workspace, and `ask` mode can still require approval.
 Teams initially shows the action description and available choices. Reply `0`
 or send `/approve view` to inspect the full stored review; viewing it does not
 approve, execute, or withdraw the pending action.
+Descriptions are untrusted model-authored explanations and can be inaccurate.
+Teams renders them as plain text, with Markdown and links neutralized. Hiding
+technical commands until requested improves readability but does not verify the
+explanation; protected actions retain the policy warning and one-time-only
+approval. Use the details view to review a sensitive action before deciding.
 
 ## What Approvals Actually Cover
 

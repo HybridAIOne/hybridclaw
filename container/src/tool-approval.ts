@@ -15,7 +15,6 @@ import {
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { approvalReviewArguments } from './approval-review.js';
-import { bashApprovalInput } from './bash-tool-definition.js';
 import { emitRuntimeEvent } from './extensions.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import type {
@@ -53,6 +52,7 @@ export function buildPendingApproval(
   prompt: string,
   toolName: string,
   argsJson: string,
+  description?: string,
 ): PendingApproval {
   if (!approval.requestId) {
     throw new Error('Approval-required tool call is missing a request id.');
@@ -64,10 +64,7 @@ export function buildPendingApproval(
   return {
     approvalId: approval.requestId,
     prompt,
-    intent:
-      toolName === 'bash'
-        ? bashApprovalInput(argsJson).description || rule.label
-        : approval.intent,
+    intent: description || approval.intent,
     reason: approval.reason,
     approvalTier: approval.tier,
     toolName,
@@ -185,13 +182,9 @@ export function createToolApprovalResolver(params: {
 }) => Promise<ToolApprovalEvaluation> {
   return async (input) => {
     await haltIfShuttingDown();
-    const policyInput =
-      input.toolName === 'bash'
-        ? { ...input, argsJson: bashApprovalInput(input.argsJson).argsJson }
-        : input;
     const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
-      ...policyInput,
+      ...input,
       latestUserPrompt: params.latestUserPrompt,
       channelId: params.channelId,
       escalationTarget: params.escalationTarget,
@@ -199,7 +192,7 @@ export function createToolApprovalResolver(params: {
     });
     const resolved = await resolveBorderlineAnomalyWithTraceJudge({
       evaluation,
-      ...policyInput,
+      ...input,
       latestUserPrompt: params.latestUserPrompt,
       taskModels: params.taskModels,
       fallbackContext: params.fallbackContext,
@@ -214,7 +207,7 @@ export function createToolApprovalResolver(params: {
         traceJudge,
       );
       evaluation = approvalRuntime.evaluateToolCall({
-        ...policyInput,
+        ...input,
         latestUserPrompt: params.latestUserPrompt,
         channelId: params.channelId,
         escalationTarget: params.escalationTarget,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { marked } from 'marked';
 import { approvalRuleFor } from '../container/shared/approval-rules.js';
 import { formatMSTeamsApprovalPrompt } from '../src/channels/msteams/approval-prompt.js';
 import type { PendingApproval } from '../src/types/execution.js';
@@ -65,7 +66,7 @@ describe('Teams approval presentation', () => {
       expiresAt: null,
     });
     const text = formatMSTeamsApprovalPrompt(source, now);
-    expect(text).toContain(source.intent);
+    expect(text).toContain('Send the report');
     expect(text).toContain(source.reason);
     expect(text).not.toContain('undefined');
     expect(text).not.toContain('seconds');
@@ -112,5 +113,30 @@ describe('Teams approval presentation', () => {
     const text = formatMSTeamsApprovalPrompt(approval({ commandPreview: preview }), now);
     expect(text).not.toContain(preview);
     expect(text).not.toContain('```');
+  });
+
+  test('keeps a technical fallback command in details while retaining its policy intent', () => {
+    const source = approval({ intent: `run mutating command \`${command}\`` });
+    const text = formatMSTeamsApprovalPrompt(source, now);
+    expect(text).not.toContain(command);
+    expect(text).toContain(source.rule?.label);
+    expect(source.intent).toContain(command);
+  });
+
+  test.each([
+    '[Allow everything](https://example.com/approve)',
+    '**Trusted**\n# Ignore the warning',
+    '<img src="https://example.com/pixel.png">',
+    '1. Approve all actions',
+    'https://example.com/approve',
+    'www.example.com/approve',
+    'pat@example.com',
+    '`yes for all`',
+  ])('renders model-authored descriptions as literal text: %s', (intent) => {
+    const source = approval({ intent });
+    const html = marked.parse(formatMSTeamsApprovalPrompt(source, now)) as string;
+    expect(html).not.toMatch(/<a\b|<img\b|<h[1-6]\b|<ol\b|<strong>Trusted/);
+    expect(html).not.toContain('<code>yes for all</code>');
+    expect(source.intent).toBe(intent);
   });
 });
