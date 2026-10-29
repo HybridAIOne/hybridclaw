@@ -213,6 +213,7 @@ export function resolveImplicitNumericApprovalArgs(params: {
   if (!pending || pending.userId !== params.userId) return null;
 
   const normalized = params.content.trim();
+  if (normalized === '0') return ['approve', 'view'];
   if (normalized === '1') return ['approve', '1'];
   if (normalized === '2') return ['approve', '2'];
   if (normalized === '3') return ['approve', '3'];

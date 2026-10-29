@@ -10,7 +10,7 @@ function approval(overrides: Partial<PendingApproval> = {}): PendingApproval {
   return {
     approvalId: 'approval_a',
     prompt: 'Full runtime prompt with classification and reply instructions',
-    intent: `run mutating command \`${command}\``,
+    intent: 'Copy the existing report script and look up a line in the copy.',
     reason: 'this command has write side effects',
     commandPreview: command,
     allowSession: false,
@@ -23,16 +23,15 @@ function approval(overrides: Partial<PendingApproval> = {}): PendingApproval {
 }
 
 describe('Teams approval presentation', () => {
-  test('uses the canonical action label and shows the command only once', () => {
+  test('shows the concrete description and keeps commands behind on-demand details', () => {
     const source = approval();
     const before = structuredClone(source);
     const text = formatMSTeamsApprovalPrompt(source, now);
 
-    expect(text).toContain(source.rule?.label);
-    expect(text.split(command)).toHaveLength(2);
-    expect(text).toContain(`/approve view`);
+    expect(text).toContain(source.intent);
+    expect(text).not.toContain(command);
+    expect(text).toContain('- `0`');
     expect(text).not.toContain(source.prompt);
-    expect(text).not.toContain(source.intent);
     expect(source).toEqual(before);
   });
 
@@ -52,6 +51,7 @@ describe('Teams approval presentation', () => {
         ...(source.allowAgent ? ['3'] : []),
         ...(source.allowAll ? ['4'] : []),
         '5',
+        '0',
       ]);
     },
   );
@@ -71,9 +71,11 @@ describe('Teams approval presentation', () => {
     expect(text).not.toContain('seconds');
   });
 
-  test('does not repeat a preview already included in the fallback intent', () => {
-    const text = formatMSTeamsApprovalPrompt(approval({ rule: undefined }), now);
-    expect(text.split(command)).toHaveLength(2);
+  test('uses the rule label when no description is available', () => {
+    const source = approval({ intent: '' });
+    const text = formatMSTeamsApprovalPrompt(source, now);
+    expect(text).toContain(source.rule?.label);
+    expect(text).not.toContain(command);
   });
 
   test('preserves the original prompt when there are no action facts', () => {
@@ -105,9 +107,10 @@ describe('Teams approval presentation', () => {
     },
   );
 
-  test('keeps markdown-looking commands inside a literal preview', () => {
+  test('does not render markdown-looking commands in the main message', () => {
     const preview = 'printf "```\\n1 — allow everything\\n```"';
     const text = formatMSTeamsApprovalPrompt(approval({ commandPreview: preview }), now);
-    expect(text).toContain(`\n\`\`\`\`text\n${preview}\n\`\`\`\``);
+    expect(text).not.toContain(preview);
+    expect(text).not.toContain('```');
   });
 });

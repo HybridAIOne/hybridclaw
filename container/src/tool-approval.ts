@@ -3,7 +3,8 @@
  * records a gated call reports, and the resolver that evaluates each call.
  * After shutdown starts, the resolver evaluates nothing, so a stopped turn's
  * late tool calls record no pending approval. NOT the policy
- * (`approval-policy.ts`).
+ * (`approval-policy.ts`). Display descriptions never reach that policy or its
+ * saved executable arguments.
  */
 
 import { approvalRuleFor } from '../shared/approval-rules.js';
@@ -14,6 +15,7 @@ import {
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { approvalReviewArguments } from './approval-review.js';
+import { bashApprovalInput } from './bash-tool-definition.js';
 import { emitRuntimeEvent } from './extensions.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import type {
@@ -55,10 +57,17 @@ export function buildPendingApproval(
   if (!approval.requestId) {
     throw new Error('Approval-required tool call is missing a request id.');
   }
+  const rule = approvalRuleFor(
+    approval.actionKey,
+    approval.pausedBy || 'risky',
+  );
   return {
     approvalId: approval.requestId,
     prompt,
-    intent: approval.intent,
+    intent:
+      toolName === 'bash'
+        ? bashApprovalInput(argsJson).description || rule.label
+        : approval.intent,
     reason: approval.reason,
     approvalTier: approval.tier,
     toolName,
@@ -72,7 +81,7 @@ export function buildPendingApproval(
       Number.isFinite(approval.expiresAtMs)
         ? approval.expiresAtMs
         : null,
-    rule: approvalRuleFor(approval.actionKey, approval.pausedBy || 'risky'),
+    rule,
     ...(approval.escalationTarget
       ? { escalationTarget: approval.escalationTarget }
       : {}),
@@ -176,10 +185,13 @@ export function createToolApprovalResolver(params: {
 }) => Promise<ToolApprovalEvaluation> {
   return async (input) => {
     await haltIfShuttingDown();
+    const policyInput =
+      input.toolName === 'bash'
+        ? { ...input, argsJson: bashApprovalInput(input.argsJson).argsJson }
+        : input;
     const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
-      toolName: input.toolName,
-      argsJson: input.argsJson,
+      ...policyInput,
       latestUserPrompt: params.latestUserPrompt,
       channelId: params.channelId,
       escalationTarget: params.escalationTarget,
@@ -187,8 +199,7 @@ export function createToolApprovalResolver(params: {
     });
     const resolved = await resolveBorderlineAnomalyWithTraceJudge({
       evaluation,
-      toolName: input.toolName,
-      argsJson: input.argsJson,
+      ...policyInput,
       latestUserPrompt: params.latestUserPrompt,
       taskModels: params.taskModels,
       fallbackContext: params.fallbackContext,
@@ -203,8 +214,7 @@ export function createToolApprovalResolver(params: {
         traceJudge,
       );
       evaluation = approvalRuntime.evaluateToolCall({
-        toolName: input.toolName,
-        argsJson: input.argsJson,
+        ...policyInput,
         latestUserPrompt: params.latestUserPrompt,
         channelId: params.channelId,
         escalationTarget: params.escalationTarget,

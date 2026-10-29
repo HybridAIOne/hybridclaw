@@ -39,6 +39,7 @@ import {
   runBash,
   setPersistentBashStateEnabled as setBashSessionStateEnabled,
 } from './bash-session.js';
+import { bashToolDefinition } from './bash-tool-definition.js';
 import {
   currentBrowserPage,
   pauseBrowserFramesUntilNavigation,
@@ -4375,30 +4376,7 @@ export async function executeTool(
   return result.output;
 }
 
-const BASH_TOOL_DEFINITION: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'bash',
-    description: buildBashToolDescription(),
-    parameters: {
-      type: 'object',
-      properties: {
-        command: { type: 'string', description: 'Shell command to execute' },
-        timeoutMs: {
-          type: 'number',
-          description:
-            'Optional command timeout in milliseconds (default 240000, max 900000)',
-        },
-        timeoutSeconds: {
-          type: 'number',
-          description:
-            'Optional command timeout in seconds (used when timeoutMs is omitted)',
-        },
-      },
-      required: ['command'],
-    },
-  },
-};
+const BASH_TOOL_DEFINITION = bashToolDefinition(buildBashToolDescription());
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,

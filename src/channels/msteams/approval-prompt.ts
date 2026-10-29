@@ -25,7 +25,7 @@ export function formatMSTeamsApprovalPrompt(
   if (approval.boost) return approval.prompt;
 
   const rule = parseApprovalRule(approval.rule);
-  const action = rule?.label || approval.intent.trim();
+  const action = approval.intent.trim() || rule?.label;
   if (!action && !approval.commandPreview?.trim()) return approval.prompt;
   const explanation = rule
     ? PAUSE_EXPLANATIONS[rule.pausedBy]
@@ -40,7 +40,7 @@ export function formatMSTeamsApprovalPrompt(
   if (approval.allowAll === true) {
     replies.push('- `4` — Always allow this kind of action for all assistants');
   }
-  replies.push('- `5` — Deny this action');
+  replies.push('- `5` — Deny this action', '- `0` — Show details');
 
   const lines = [
     '**Permission needed**',
@@ -48,17 +48,6 @@ export function formatMSTeamsApprovalPrompt(
     explanation,
     `**Reply with a number:**\n${replies.join('\n')}`,
   ].filter(Boolean);
-  const preview = approval.commandPreview?.trim();
-  if (preview && !action.includes(preview)) {
-    const fence = '`'.repeat(
-      Math.max(
-        3,
-        ...Array.from(preview.matchAll(/`+/g), ([run]) => run.length + 1),
-      ),
-    );
-    lines.push(`**Action preview:**\n${fence}text\n${preview}\n${fence}`);
-  }
-  lines.push('For technical details, send `/approve view`.');
   if (
     typeof approval.expiresAt === 'number' &&
     Number.isFinite(approval.expiresAt)

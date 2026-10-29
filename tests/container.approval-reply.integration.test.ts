@@ -21,7 +21,7 @@ test('a natural reply crosses authenticated IPC and replays the exact pending ca
     }
     if (first) {
       first = false;
-      return { role: 'assistant', content: null, tool_calls: [{ id: 'run-script', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'bash ./task.sh' }) } }] };
+      return { role: 'assistant', content: null, tool_calls: [{ id: 'run-script', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'bash ./task.sh', description: 'Run the prepared task and save its result in the working folder.' }) } }] };
     }
     return { role: 'assistant', content: 'Completed.' };
   }, {
@@ -29,6 +29,7 @@ test('a natural reply crosses authenticated IPC and replays the exact pending ca
     messages: [{ role: 'user', content: 'Run the prepared script.' }],
   }, { 'task.sh': 'echo executed >> executions.txt\n' });
   expect(worker.output.pendingApproval?.approvalId).toBeTruthy();
+  expect(worker.output.pendingApproval?.intent).toBe('Run the prepared task and save its result in the working folder.');
   expect(fs.existsSync(path.join(worker.dir, 'executions.txt'))).toBe(false);
   const approved = await worker.followup({
     approvalUserText: 'Ja, führe das Skript aus.',

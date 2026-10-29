@@ -22,9 +22,11 @@ or `5` to deny it. Choices `2`, `3`, and `4` appear only when the action permits
 trust for the chat session, this assistant, or all assistants respectively.
 Protected actions offer only a one-time approval or denial.
 
-The action preview appears once. Send `/approve view` to review the full
-technical explanation. Reply before the displayed deadline; without approval,
-the action does not run.
+The message describes the concrete action in ordinary words. Shell commands
+include a short description supplied by the assistant in your language; that
+description does not influence the permission checks. Commands and technical
+diagnostics are hidden until you reply `0` for details (or send `/approve view`).
+Reply before the displayed deadline; without approval, the action does not run.
 
 ## Step 1: Create the Entra app registration
 

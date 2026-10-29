@@ -69,6 +69,26 @@ notification settings and destructive metadata keep their normal approval
 requirements. `ask` mode still asks. This is a narrow tool-contract rule, not a
 change to the meaning of `openWorldHint` for other tools.
 
+## Action descriptions and sandboxing
+
+The `bash` tool accepts a `description` for the assistant to explain the concrete
+action in the user's language. The pending approval uses this display text as
+its intent; the command and classifier diagnostics remain in the full review.
+The resolver removes the description before classification, fingerprinting,
+and pending-call storage. Approval replays therefore use the saved executable
+arguments, and changing the description cannot grant trust or change risk.
+
+Container isolation and approvals protect different boundaries. The working
+folder is mounted read/write and its changes survive the container, so a
+sandboxed action can still delete work or change files used by later tasks.
+Ordinary file copies inside the workspace are yellow and do not require an
+explicit approval in default `auto` mode. Protected files, configured pinned
+rules, writes outside the workspace, and `ask` mode can still require approval.
+
+Teams initially shows the action description and available choices. Reply `0`
+or send `/approve view` to inspect the full stored review; viewing it does not
+approve, execute, or withdraw the pending action.
+
 ## What Approvals Actually Cover
 
 Two different mechanisms are involved:
