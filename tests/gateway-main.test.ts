@@ -2612,10 +2612,10 @@ describe('gateway bootstrap', () => {
       },
     });
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('Reply `1` to allow once'),
+      expect.stringContaining('- `1` — Allow this action once'),
     );
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('`/approve [1|2|3|4|5]`'),
+      expect.not.stringContaining('- `4`'),
     );
     await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });
