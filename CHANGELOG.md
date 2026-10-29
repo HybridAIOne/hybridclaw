@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## [0.41.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.5) - 2026-10-29
+
+### Fixed
+
+- **Readable Teams approvals**: Permission requests explain the planned step
+  in ordinary language, with shell-action descriptions requested in the user's
+  language. Requests show only available approval choices and the actual
+  deadline; commands and technical diagnostics are available with `0` or
+  `/approve view` (#2070).
+- **Approval description isolation**: Model-authored descriptions stay separate
+  from policy checks, trust fingerprints, saved executable calls and tool audit
+  records. Viewing details preserves the pending request and its existing
+  user/session access checks. Protected actions retain one-time approval (#2070).
+
 ## [0.41.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.4) - 2026-10-28
 
 ### Added

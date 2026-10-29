@@ -1,9 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.4',
+  version: '0.41.5',
   highlights: [
-    'Check prepared work before review',
-    'Keep repair history and retry limits',
-    'Require evidence before goals finish',
+    'Clearer Teams approval requests',
+    'Show only available approval choices',
+    'View commands and details with 0',
   ],
 } as const;
 
