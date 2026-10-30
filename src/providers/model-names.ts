@@ -2,7 +2,6 @@ import {
   formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
   hasKnownNonHybridProviderPrefix,
-  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -13,7 +12,6 @@ import { findLocalEndpointByName } from './local-endpoints.js';
 export {
   formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
-  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,

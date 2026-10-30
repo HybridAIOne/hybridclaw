@@ -81,7 +81,11 @@ The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline
 `container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds and npm packages retain their existing build layout.
+`tsc` output. Source builds, npm packages, and desktop packages also run the
+gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+keeps earlier content-hashed chunks so a gateway already running from the
+checkout can still load its own lazily; `npm run clean` removes them, and
+`prepack` cleans before packaging.
 `tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
 layout and checks gateway startup, CLI loading, plugin SDK identity, and the
 embedded terminal when node-pty is available, without requiring Docker.
@@ -116,6 +120,14 @@ another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
+
+Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
+maximum execution attempts. The worker reserves each attempt synchronously
+before execution and persists counts under its protected session state directory
+in `tool-call-limits-<run-key>.json`. Replacement workers with the same run ID
+inherit those counts; a new run receives its own budget. Missing or corrupt
+state during execution fails closed. Limits do not grant tool access or approval,
+and failed attempts still consume budget.
 
 Session approval grants are written through to
 `.hybridclaw-runtime/sessions/<session-key>/approval-session-trust.json`.
@@ -381,6 +393,34 @@ The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
+The gateway (`dist/cli.js`) and the agent runtime (`container/dist/index.js`)
+are esbuild bundles, so stack traces name bundle chunks by default. The npm
+package and the Docker image ship source maps beside them (desktop packages
+strip them), but they are off because they slow startup; run with
+`NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
+
+## Tool Recovery
+
+The system prompt distinguishes a failed method from a blocked task. It uses
+current capability readiness, directs the model to investigate inconclusive
+results and try materially different permitted methods, and bounds recovery by
+useful progress and the remaining execution budget. Missing configuration does
+not grant permission to obtain credentials or broaden access. Runtime blocks
+and denied approvals must never be bypassed. Unread source content must not be
+replaced with invented findings.
+
+`tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
+`tests/media-tools-readiness.test.ts` checks configuration snapshots and their
+agreement with provider selection. The opt-in scripted model checks in
+`tests/safety-guardrails.live.test.ts` cover recovery, completion after a
+successful fallback, and preservation of denial boundaries; enable them with
+`HYBRIDCLAW_RUN_LIVE_SAFETY=1`. By default they use the configured runtime
+model and its provider transport and credentials, with retrieval disabled and
+only synthetic scenarios. Proposed tools are inspected, never executed. To use
+an explicit OpenAI-compatible endpoint instead, set both
+`HYBRIDCLAW_LIVE_SAFETY_BASE_URL` and `HYBRIDCLAW_LIVE_SAFETY_MODEL` (plus
+`HYBRIDCLAW_LIVE_SAFETY_API_KEY` when required).
+
 ## Prompt Context Assembly
 
 HybridClaw separates the static system prompt from per-turn dynamic context.
@@ -488,6 +528,9 @@ Session behavior matches the routing rules above:
   in the app, sets `appNotice: true`. The agent reads `content` as usual, but
   the stored message is tagged `app-notice` and `/api/history` leaves it out,
   as it does for approval answers, so clients never hide turns by their wording
+- `/api/history` also omits user turns stored by the scheduler. Scheduled
+  prompts remain in persisted agent context and audit records; only their
+  visible assistant replies appear in chat, including for existing runs.
 - Hy clients choose emoji reactions separately from the main chat model, using
   the phone model first and `auxiliary/quick_decision` second. No suitable emoji is
   a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
@@ -779,8 +822,11 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - source table: local `audit_events`, ordered by `id`
 - stream identity: the install's node id (`identity/instance-id.json` in the
   data dir), sent as `node_id` when the ingest token is requested
-- agent: each batch carries one `agent_id`, taken from its events' session
-  keys; events outside an agent session go to the default agent
+- agent: each batch carries one `agent_id`, taken from the run's durable
+  `session.start.executingAgentId`. All events in that session/run use this
+  identity, including app-generated session IDs and delayed uploads after an
+  agent switch. Records without a captured execution identity retain the
+  session-key/default-agent fallback; already exported history is not rewritten.
 - persisted cursor: `observability_offsets`
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`

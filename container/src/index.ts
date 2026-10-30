@@ -6,20 +6,23 @@
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 
+import './node-version-guard.js';
+
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '#shared/boost-offer.js';
 import type { ConnectorApproval } from '#shared/connector-approval.js';
 import { normalizeLocalContextMode } from '#shared/local-tool-config.js';
 import { isRetrySafeRun } from '#shared/retry-safety.js';
+import { compileToolPatterns } from '#shared/tool-patterns.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
 import {
   setApprovalEmailSender,
   setUserMailContext,
 } from './approval-review.js';
+import { prepareApprovalToolCalls } from './approval-tool-call.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
-import { compileBlockedTools } from './blocked-tools.js';
 import { boostApprovalOutput, dropPendingBoost } from './boost-offers.js';
 import {
   BROWSER_CACHE_DIRS,
@@ -132,6 +135,7 @@ import {
   type ToolApprovalEvaluation,
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
+import { setToolCallLimits } from './tool-call-limits.js';
 import {
   invalidToolCallCorrection,
   validateStructuredToolCalls,
@@ -1670,6 +1674,8 @@ async function processRequestInner(
         invalidToolCallError = `Tool is not available in this request: ${unavailable.function.name}`;
       }
     }
+    const approvalCalls = prepareApprovalToolCalls(toolCalls);
+    toolCalls = approvalCalls.calls;
     const correction =
       catalogCorrection ??
       (malformedToolCallError &&
@@ -2109,6 +2115,7 @@ async function processRequestInner(
           prompt,
           toolName,
           call.function.arguments,
+          approvalCalls.descriptions.get(call),
         );
         emitApprovalProgress(pendingApproval);
         toolExecutions.push(
@@ -2259,11 +2266,11 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   const dynamicPluginTools = getPluginToolDefinitions();
   let tools = [...TOOL_DEFINITIONS, ...dynamicPluginTools, ...mcpTools];
   if (input.allowedTools) {
-    const allowed = new Set(input.allowedTools);
-    tools = tools.filter((tool) => allowed.has(tool.function.name));
+    const isAllowed = compileToolPatterns(input.allowedTools);
+    tools = tools.filter((tool) => isAllowed(tool.function.name));
   }
   if (Array.isArray(input.blockedTools) && input.blockedTools.length > 0) {
-    const isBlocked = compileBlockedTools(input.blockedTools);
+    const isBlocked = compileToolPatterns(input.blockedTools);
     tools = tools.filter((tool) => !isBlocked(tool.function.name));
   }
   tools = adjustInboxCleanupTools(tools);
@@ -2367,6 +2374,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  setToolCallLimits(firstInput);
   approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
@@ -2425,6 +2433,7 @@ async function main(): Promise<void> {
   approvalRuntime.setApprovalMode({
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
+    approvalUserIsBot: firstInput.approvalUserIsBot,
   });
 
   let firstOutput: ContainerOutput;
@@ -2538,6 +2547,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    setToolCallLimits(input);
     approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);
     setPersistentBashStateEnabled(input.persistBashState !== false);
@@ -2592,6 +2602,7 @@ async function main(): Promise<void> {
     approvalRuntime.setApprovalMode({
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
+      approvalUserIsBot: input.approvalUserIsBot,
     });
     const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;

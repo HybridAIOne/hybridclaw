@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.40.8",
+  "version": "0.41.5",
   "type": "module",
   "imports": {
     "#shared/*": "./container/shared/dist/*"
@@ -22,7 +22,7 @@
     "container"
   ],
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   },
   "publishConfig": {
     "access": "public"
@@ -48,6 +48,7 @@
     "plugins/concierge-router/",
     "plugins/connector-events/",
     "plugins/distill/",
+    "plugins/hybridai-knowledge/",
     "plugins/media-tools/",
     "plugins/public-warnings/",
     "plugins/line/",
@@ -89,7 +90,7 @@
     "generate:settings-registry": "tsx scripts/generate-settings-registry.ts",
     "generate:config-example": "tsx scripts/generate-config-example.ts",
     "build:desktop": "npm run build && npm --workspace desktop run build",
-    "build": "npm --prefix container run build && tsc -b && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "build": "npm --prefix container run build && node scripts/bundle-gateway.mjs && tsc -b",
     "version:sync": "node ./scripts/sync-package-versions.mjs",
     "version:check": "node ./scripts/sync-package-versions.mjs --check",
     "typecheck": "tsc -b container/shared && tsc --noEmit && tsc --noEmit -p eval-harness && npm --workspace console run typecheck && npm --workspace desktop run typecheck",
@@ -116,8 +117,8 @@
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 tsx -e \"import('./eval-harness/src/trace-judge-native.ts').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "eval:trace-judge:gate:live": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-live-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 tsx -e \"import('./eval-harness/src/trace-judge-native.ts').then((m)=>m.runTraceJudgeNativeGate({live:true})).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
-    "desktop:mac": "npm run build && npm --workspace desktop run dist:mac",
-    "desktop:linux": "npm run build && npm --workspace desktop run dist:linux",
+    "desktop:mac": "npm run clean && npm run build && npm --workspace desktop run dist:mac",
+    "desktop:linux": "npm run clean && npm run build && npm --workspace desktop run dist:linux",
     "test:live": "vitest run --configLoader runner --project live --passWithNoTests",
     "setup": "npm --prefix container install && npm --prefix container/tools ci --ignore-scripts --omit=dev --no-audit --fund=false",
     "dev": "tsx src/cli.ts gateway",

@@ -1,12 +1,5 @@
+import { isLocalBackendType } from '../../../src/providers/provider-ids';
 import styles from './provider-health.module.css';
-
-const LOCAL_PROVIDER_NAMES = new Set([
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-]);
 
 type HealthStatus = 'healthy' | 'warning' | 'catalog' | 'inactive' | 'down';
 
@@ -25,14 +18,14 @@ function resolveStatus(name: string, provider: ProviderEntry): HealthStatus {
   if (provider.catalogOnly) return 'catalog';
   if (provider.loginRequired) return 'warning';
   if (!provider.reachable) {
-    const isLocal = provider.kind === 'local' || LOCAL_PROVIDER_NAMES.has(name);
+    const isLocal = provider.kind === 'local' || isLocalBackendType(name);
     return isLocal ? 'inactive' : 'down';
   }
   return 'healthy';
 }
 
 function isLocalProvider(name: string, provider: ProviderEntry): boolean {
-  return provider.kind === 'local' || LOCAL_PROVIDER_NAMES.has(name);
+  return provider.kind === 'local' || isLocalBackendType(name);
 }
 
 const DOT_CLASS: Record<HealthStatus, string> = {

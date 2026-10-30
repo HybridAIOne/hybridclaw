@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { checkNodeVersion } from '../../container/shared/src/node-version.ts';
 
 const RUNTIME_CACHE_VERSION = 3;
 const currentFile = fileURLToPath(import.meta.url);
@@ -371,6 +372,12 @@ async function writeRuntimeCacheManifest(cacheKey) {
 }
 
 async function main() {
+  const pkg = JSON.parse(
+    await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'),
+  );
+  const check = checkNodeVersion(process.versions.node, pkg.engines.node);
+  if (!check.ok) throw new Error(check.message);
+
   const cacheKey = await buildRuntimeCacheKey();
   if (!runtimeCacheDisabled && (await runtimeStageIsCurrent(cacheKey))) {
     console.log(

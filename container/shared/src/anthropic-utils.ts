@@ -1,4 +1,6 @@
-export const ANTHROPIC_MODEL_PREFIX = 'anthropic/';
+import { providerModelPrefix } from './provider-ids.js';
+
+export const ANTHROPIC_MODEL_PREFIX = providerModelPrefix('anthropic');
 export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
 
 export function normalizeAnthropicModelName(modelId: string): string {

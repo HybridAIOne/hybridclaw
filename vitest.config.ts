@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { containerSharedAlias } from './scripts/container-shared-alias.ts';
 
@@ -7,6 +8,13 @@ import { containerSharedAlias } from './scripts/container-shared-alias.ts';
  */
 const sharedTestConfig = {
   testTimeout: 15_000,
+  // Plugin source imported by a test resolves the SDK the gateway links for
+  // installed plugins (`src/plugins/plugin-sdk-link.ts`).
+  alias: {
+    '@hybridaione/hybridclaw/plugin-sdk': fileURLToPath(
+      new URL('./src/plugins/plugin-sdk.ts', import.meta.url),
+    ),
+  },
   env: {
     HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
     // Skill tests run bundled Python helpers in place. Bytecode caches they

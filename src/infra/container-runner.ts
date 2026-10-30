@@ -1129,6 +1129,7 @@ async function runContainerInner(
     approvalMode,
     approvalUserText = null,
     approvalUserId,
+    approvalUserIsBot,
     approvalReplyDecision,
     fullAutoNeverApproveTools,
     scheduleSideEffectsEnabled,
@@ -1225,6 +1226,7 @@ async function runContainerInner(
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    toolCallLimits: params.toolCallLimits,
     requestId,
     agentId,
     messages,
@@ -1250,6 +1252,7 @@ async function runContainerInner(
     approvalMode,
     approvalUserText,
     approvalUserId,
+    approvalUserIsBot,
     approvalReplyDecision,
     fullAutoNeverApproveTools,
     scheduleSideEffectsEnabled,

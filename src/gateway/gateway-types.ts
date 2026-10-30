@@ -3,6 +3,7 @@ import type { BaseMessageOptions } from 'discord.js';
 import type { ApprovalReplyContext } from '#shared/approval-reply.js';
 import type { MessageEmailDraft } from '#shared/email-draft.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
@@ -31,6 +32,7 @@ import type { PluginChannelGatewayStatus } from '../channels/plugin-channel/stat
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
+  RuntimeAuxiliaryProviderSelection,
   RuntimeConfig,
   RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
@@ -43,6 +45,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { LocalBackendType } from '../providers/provider-ids.js';
 import type { ScopeErrorCode } from '../scopes/scope-session.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
@@ -294,7 +297,11 @@ export interface GatewayChatRequestBody {
   appNotice?: boolean;
 }
 
-export interface GatewayChatRequest extends ApprovalReplyContext {
+export interface GatewayChatRequest
+  extends ApprovalReplyContext,
+    ToolCallLimits {
+  /** Notification operator from authenticated dispatch, never request-body input. */
+  operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
   msteamsTenantId?: string;
   appBuild?: boolean;
@@ -371,6 +378,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Notification operator from authenticated dispatch, never request-body input. */
+  operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never HTTP input. */
   msteamsTenantId?: string;
   sessionId: string;
@@ -707,7 +716,7 @@ export interface GatewayStatus
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx',
+      LocalBackendType,
       {
         reachable: boolean;
         latencyMs: number;
@@ -1512,7 +1521,7 @@ export interface GatewayAdminModelCatalogEntry {
   provider: GatewayModelProviderKey;
   zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
+  backend: LocalBackendType | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {
@@ -1541,30 +1550,7 @@ export interface GatewayAdminModelsResponse {
   defaultModel: string;
   auxiliaryModels?: {
     skillsHub: {
-      provider:
-        | 'auto'
-        | 'disabled'
-        | 'hybridai'
-        | 'openai'
-        | 'openai-codex'
-        | 'anthropic'
-        | 'openrouter'
-        | 'mistral'
-        | 'huggingface'
-        | 'gemini'
-        | 'deepseek'
-        | 'xai'
-        | 'zai'
-        | 'kimi'
-        | 'minimax'
-        | 'dashscope'
-        | 'xiaomi'
-        | 'kilo'
-        | 'ollama'
-        | 'lmstudio'
-        | 'llamacpp'
-        | 'vllm'
-        | 'mlx';
+      provider: RuntimeAuxiliaryProviderSelection;
       model: string | null;
     };
   };

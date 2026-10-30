@@ -203,7 +203,7 @@ function createGatewayMainTestState(options?: {
         decayRate: 0.25,
         consolidationLanguage: 'en',
       },
-      observability: { enabled: false, botId: '' },
+      observability: { enabled: false },
       ops: { healthPort: 9090 },
     },
     currentSession: {
@@ -1055,34 +1055,19 @@ describe('gateway bootstrap', () => {
   });
 
   test.each([
-    { loadedPluginIds: [], warns: true },
-    { loadedPluginIds: ['twilio-voice'], warns: false },
+    { loadedPluginIds: [], active: false },
+    { loadedPluginIds: ['twilio-voice'], active: true },
   ])(
     'voice.enabled reports the twilio-voice plugin state at startup: %j',
-    async ({ loadedPluginIds, warns }) => {
+    async ({ loadedPluginIds, active }) => {
       const state = await importFreshGatewayMain({
         voiceEnabled: true,
         loadedPluginIds,
       });
-
-      const installHint = expect.objectContaining({
-        installCommand: 'hybridclaw plugin install twilio-voice',
-      });
-      if (warns) {
-        expect(state.loggerWarn).toHaveBeenCalledWith(
-          installHint,
-          expect.stringContaining('twilio-voice'),
-        );
-      } else {
-        expect(state.loggerWarn).not.toHaveBeenCalledWith(
-          installHint,
-          expect.anything(),
-        );
-      }
       expectInfoLog(
         state,
         'Gateway channels',
-        expect.objectContaining({ voice: !warns }),
+        expect.objectContaining({ voice: active }),
       );
     },
   );
@@ -2627,10 +2612,10 @@ describe('gateway bootstrap', () => {
       },
     });
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('Reply `1` to allow once'),
+      expect.stringContaining('- `1` — Allow this action once'),
     );
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('`/approve [1|2|3|4|5]`'),
+      expect.not.stringContaining('- `4`'),
     );
     await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });
@@ -3082,7 +3067,7 @@ describe('gateway bootstrap', () => {
         decayRate: 0.5,
         consolidationLanguage: 'en',
       },
-      observability: { enabled: true, botId: 'bot-obs' },
+      observability: { enabled: true },
     };
 
     state.currentConfig = nextConfig;

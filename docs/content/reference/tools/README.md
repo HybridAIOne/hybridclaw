@@ -17,9 +17,21 @@ These pages document individual built-in tools and their configuration.
 `browser_navigate` and `browser_click` return the resulting page snapshot,
 including actionable element references, so the agent can read the page and
 choose its next action without a separate `browser_snapshot` call. Snapshots
-are capped at 12,000 characters. After typing, pressing a key, or scrolling,
+are capped at 48,000 characters. After typing, pressing a key, or scrolling,
 use `browser_snapshot` to inspect the changed page; its interactive mode helps
 when a long page was truncated.
+
+`browser_evaluate` runs a JavaScript expression in the page and returns its
+value as JSON; promises are awaited, so the expression can `fetch()` the
+page's own API with its cookies. Results over 48,000 characters are
+truncated; with `path`, the whole result is saved to a workspace file instead
+(a string as is, so the expression can build CSV; other values as JSON). On a
+checkout or cancellation page the call needs approval like an unnamed click.
+It is refused on private hosts unless `browser.allowPrivateNetwork` is set,
+while a secret typed with `browser_secret_type` or `browser_sign_in` is still
+on the page, and with `mac-cua`, which drives a browser without a DOM. Browser
+providers that run in the gateway evaluate in the main document only (no
+`frame`).
 
 Download clicks and pages waiting for two-factor authentication omit the
 snapshot. If the action succeeds but the snapshot fails, the result reports

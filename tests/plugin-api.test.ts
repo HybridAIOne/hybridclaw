@@ -9,6 +9,15 @@ import * as db from '../src/memory/db.js';
 import { createPluginApi } from '../src/plugins/plugin-api.js';
 import type { PluginManager } from '../src/plugins/plugin-manager.js';
 
+const callAuxiliaryModelMock = vi.hoisted(() =>
+  vi.fn(async () => ({ provider: 'hybridai', model: 'm', content: 'ok' })),
+);
+
+vi.mock('../src/providers/auxiliary.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/providers/auxiliary.js')>()),
+  callAuxiliaryModel: callAuxiliaryModelMock,
+}));
+
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
     fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
@@ -440,5 +449,35 @@ test.each([
 
     expect(streamed.join('')).toBe(spoken);
     expect(dispatched.result).toBe(spoken);
+  },
+);
+
+test.each([
+  ['vllm/Qwen/Qwen3.6-27B-FP8', undefined, 'vllm'],
+  ['openai/gpt-5-mini', undefined, 'openai'],
+  ['gpt-4.1-mini', undefined, undefined],
+  [undefined, undefined, undefined],
+  ['vllm/Qwen/Qwen3.6-27B-FP8', 'auto', 'auto'],
+] as const)(
+  'callAuxiliaryModel with model %j and provider %j asks for provider %j',
+  async (model, provider, expected) => {
+    callAuxiliaryModelMock.mockClear();
+    const api = createPluginApi({
+      manager: makePluginManagerStub(),
+      pluginId: 'demo-plugin',
+      pluginDir: '/tmp/demo-plugin',
+      registrationMode: 'full',
+      config: loadRuntimeConfig(),
+      pluginConfig: {},
+      declaredEnv: [],
+      homeDir: '/tmp/home',
+      cwd: '/tmp/project',
+    });
+
+    await api.callAuxiliaryModel({ messages: [], model, provider });
+
+    expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: expected, task: 'skills_hub' }),
+    );
   },
 );

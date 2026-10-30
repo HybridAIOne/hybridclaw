@@ -5,7 +5,7 @@ kind: tool
 description: Stealth Firefox (camoufox-js) browser provider on the gateway host. Select with browser.provider = camofox.
 entrypoint: src/index.js
 requires:
-  node: '>=22'
+  node: '>=22.23.4 <23'
 configSchema:
   type: object
   additionalProperties: false

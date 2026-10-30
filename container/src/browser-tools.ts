@@ -17,10 +17,12 @@ import {
 } from '#shared/two-factor-detection.js';
 import {
   currentBrowserPage,
+  pauseBrowserFramesUntilNavigation,
   recordBrowserPage,
   recordBrowserSnapshotRefs,
   resetBrowserPage,
 } from './browser-checkout.js';
+import { BROWSER_EVALUATE_TOOL_DEFINITION } from './browser-evaluate.js';
 import {
   runBrowserTakeOver,
   TAKE_OVER_TOOL_NAME,
@@ -1835,6 +1837,27 @@ async function runBrowserEval(
   return { success: true, result: data ? data.result : undefined };
 }
 
+/** One expression in this chat's page, in whichever browser the provider drives. */
+async function evaluateInPage(
+  sessionKey: string,
+  expression: string,
+  frame: unknown,
+): Promise<unknown> {
+  if (usesGatewayManagedBrowser()) {
+    const payload = await callGatewayManagedBrowser('browser_evaluate', {
+      expression,
+      ...(frame == null ? {} : { frame }),
+    });
+    return payload.result;
+  }
+  await applyFrameTarget(sessionKey, parseOptionalFrame(frame));
+  const evaluated = await runBrowserEval(sessionKey, expression, 60_000);
+  if (!evaluated.success) {
+    throw new Error(evaluated.error || 'evaluation failed');
+  }
+  return evaluated.result;
+}
+
 async function collectClickDownloadResult(
   downloadPromise: Promise<{
     success: boolean;
@@ -2483,6 +2506,7 @@ const BROWSER_FRAME_TOOLS = new Set([
   'browser_back',
   'browser_upload',
   'browser_resume_interaction',
+  'browser_evaluate',
   TAKE_OVER_TOOL_NAME,
 ]);
 const BROWSER_FRAME_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'frames');
@@ -2693,6 +2717,9 @@ export async function executeBrowserTool(
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<string> {
+  // A gateway browser types the secret itself; no live frame or page script
+  // until the page changes.
+  if (name === 'browser_secret_type') pauseBrowserFramesUntilNavigation();
   let output = await runBrowserTool(name, args, sessionId);
   const result = asRecord(safeJsonParse(output));
   const sessionKey = normalizeSessionKey(sessionId || 'default');
@@ -2748,6 +2775,24 @@ async function runBrowserTool(
           now: Date.now,
         }),
       );
+    }
+    if (name === 'browser_evaluate') {
+      // A script runs as the page, so a private host stays as closed to it
+      // as browser_navigate keeps it.
+      const url = await evaluateInPage(
+        effectiveSessionId,
+        'location.href',
+        args.frame,
+      );
+      await assertBrowserNavigationUrl(url, {
+        allowPrivateNetwork: browserAllowPrivateNetwork,
+      });
+      const result = await evaluateInPage(
+        effectiveSessionId,
+        String(args.expression || ''),
+        args.frame,
+      );
+      return success({ url, result });
     }
     if (shouldUseGatewayManagedBrowser(name)) {
       return await executeGatewayManagedBrowserTool(
@@ -4226,6 +4271,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  BROWSER_EVALUATE_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

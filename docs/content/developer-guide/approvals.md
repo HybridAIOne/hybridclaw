@@ -69,6 +69,37 @@ notification settings and destructive metadata keep their normal approval
 requirements. `ask` mode still asks. This is a narrow tool-contract rule, not a
 change to the meaning of `openWorldHint` for other tools.
 
+## Action descriptions and sandboxing
+
+The `bash` tool accepts a `description` for the assistant to explain the concrete
+action in the user's language. The pending approval uses this display text as
+its intent; the command and classifier diagnostics remain in the full review.
+The tool-call preparation step separates the description once, before
+classification, hooks, pending-call storage, execution, and tool audit records.
+It leaves the provider's original message in model history untouched. Approval
+replays use only the saved executable arguments. The worker's `fingerprint`
+rule hashes the tool name, action key, normalized command preview, and executable
+arguments; the gateway does not calculate another approval fingerprint.
+Changing the description therefore cannot grant trust or change risk. Without
+a description the pending approval retains the original policy intent and its
+concrete target; Teams keeps any embedded command behind the details view.
+
+Container isolation and approvals protect different boundaries. The working
+folder is mounted read/write and its changes survive the container, so a
+sandboxed action can still delete work or change files used by later tasks.
+Ordinary file copies inside the workspace are yellow and do not require an
+explicit approval in default `auto` mode. Protected files, configured pinned
+rules, writes outside the workspace, and `ask` mode can still require approval.
+
+Teams initially shows the action description and available choices. Reply `0`
+or send `/approve view` to inspect the full stored review; viewing it does not
+approve, execute, or withdraw the pending action.
+Descriptions are untrusted model-authored explanations and can be inaccurate.
+Teams renders them as plain text, with Markdown and links neutralized. Hiding
+technical commands until requested improves readability but does not verify the
+explanation; protected actions retain the policy warning and one-time-only
+approval. Use the details view to review a sensitive action before deciding.
+
 ## What Approvals Actually Cover
 
 Two different mechanisms are involved:
@@ -206,7 +237,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Video generation | Yellow | `video_generate` | External provider call plus generated media written to workspace |
 | Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE`, `cc -o FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
-| Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
+| Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload`, `browser_evaluate` | External runtime state interaction |
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
@@ -220,7 +251,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./install.sh`, `scripts/build.sh`, `/tmp/x.sh`, `bash -x install.sh`, `sh < x.sh`, `xargs ./x.sh`, `rg --pre CMD` | A shell given a file, or a path the agent could have written (relative, behind a variable, or in the workspace or scratch space) run as the program, including in pipeline stages, `$(...)`, and what `find -exec`, `xargs`, or `sh -c` runs. A path that is only an operand keeps the command's tier, so `cat ./install.sh` is green. Other interpreters (`python3 x.py`, `source x`), installed tools called by absolute path (`/usr/bin/env`), and launchers the check does not follow (`watch`, `make`) are not script execution. Ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, also when the command's own output is discarded (`rm -f /opt/data/x 2>/dev/null`), but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, also when the command's own output is discarded (`rm -f /opt/data/x 2>/dev/null`), but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` and `browser_evaluate` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which

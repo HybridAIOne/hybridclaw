@@ -71,7 +71,6 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
-  setMessageEmailDraft,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -186,7 +185,11 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
-import { replyWithEmailDraft, turnEmailDraft } from './email-draft.js';
+import {
+  replyWithEmailDraft,
+  storeEmailDraft,
+  turnEmailDraft,
+} from './email-draft.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -1631,6 +1634,7 @@ async function handleGatewayMessageInner(
     runId,
     event: {
       type: 'session.start',
+      executingAgentId: agentId,
       userId: req.userId,
       channel: req.channelId,
       cwd: workspacePath,
@@ -1829,7 +1833,11 @@ async function handleGatewayMessageInner(
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
   const blockedTools = blockAppOnlyToolsUnlessApp(
-    blockDeviceDataToolUnlessShared(scopeRun?.blockedTools, req.userId),
+    blockDeviceDataToolUnlessShared(
+      scopeRun?.blockedTools,
+      req.userId,
+      req.client === 'mobile',
+    ),
     req.client,
   );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
@@ -2066,6 +2074,8 @@ async function handleGatewayMessageInner(
   const endDeviceDataTurn = beginDeviceDataTurn(
     req.executionSessionId || req.sessionId,
     req.userId,
+    undefined,
+    req.operatorId,
   );
   try {
     const scheduledTaskCount =
@@ -2194,6 +2204,7 @@ async function handleGatewayMessageInner(
         background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
+        toolCallLimits: req.toolCallLimits,
         blockedTools,
         onTextDelta: params.onTextDelta,
         onThinkingDelta: params.onThinkingDelta,
@@ -2318,6 +2329,7 @@ async function handleGatewayMessageInner(
         background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
+        toolCallLimits: req.toolCallLimits,
         blockedTools,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
@@ -2944,7 +2956,11 @@ async function handleGatewayMessageInner(
     });
     turnPersisted = true;
     if (shown.emailDraft) {
-      setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
+      storeEmailDraft(
+        req.sessionId,
+        storedTurn.assistantMessageId,
+        shown.emailDraft,
+      );
     }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {

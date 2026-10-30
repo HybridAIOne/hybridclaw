@@ -50,6 +50,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   { name: 'browser_get_images', group: 'Browser' },
   { name: 'browser_console', group: 'Browser' },
   { name: 'browser_network', group: 'Browser' },
+  { name: 'browser_evaluate', group: 'Browser' },
   { name: 'browser_downloads', group: 'Browser' },
   { name: 'browser_close', group: 'Browser' },
   { name: 'message', group: 'Communication' },

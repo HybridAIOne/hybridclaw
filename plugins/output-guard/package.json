@@ -5,6 +5,6 @@
   "type": "module",
   "description": "HybridClaw plugin: output policy classifier and rewriter",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

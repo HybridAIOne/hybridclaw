@@ -611,13 +611,6 @@ describe('response ratings', () => {
         hybridAIChatbotId: 'bot-unrelated',
         chatbotId,
       });
-      const { updateRuntimeConfig } = await import(
-        '../src/config/runtime-config.js'
-      );
-      updateRuntimeConfig((draft) => {
-        draft.observability.botId = 'bot-observability';
-      });
-
       service.submitResponseRating({
         sessionId: service.sessionId,
         messageId: service.assistantMessageId,

@@ -9,6 +9,10 @@ const requiredExactPaths = [
   'LICENSE',
   'THIRD_PARTY_NOTICES.md',
   'dist/cli.js',
+  'plugin-sdk.js',
+  'plugin-sdk.d.ts',
+  'dist/plugin-sdk.js',
+  'dist/plugin-sdk.d.ts',
   'console/dist/index.html',
   'scripts/postinstall-container.mjs',
   // Without this manifest the container bootstrap silently no-ops
@@ -40,8 +44,7 @@ const requiredExactPaths = [
   'plugins/line/src/connection.js',
   'plugins/line/src/delivery.js',
   'plugins/line/src/inbound.js',
-  // Upgraded configs that selected a vendor browser enable these bundled
-  // plugins in place (runtime-config migrateLegacyBrowserPluginConfig).
+  // Vendor browser providers are bundled install-on-demand plugins.
   'plugins/browser-use-cloud/hybridclaw.plugin.yaml',
   'plugins/browser-use-cloud/src/index.js',
   'plugins/camofox/hybridclaw.plugin.yaml',
@@ -51,7 +54,7 @@ const requiredExactPaths = [
   'plugins/mac-cua/src/index.js',
   'plugins/managed-cloud/hybridclaw.plugin.yaml',
   'plugins/managed-cloud/src/index.js',
-  // Twilio voice moved out of core; upgraded installs enable it from here.
+  // Twilio voice ships as an explicitly enabled plugin.
   'plugins/twilio-voice/hybridclaw.plugin.yaml',
   'plugins/twilio-voice/package.json',
   'plugins/twilio-voice/src/index.js',
@@ -79,7 +82,8 @@ const forbiddenPathPatterns = [
   /^vitest\..*\.ts$/,
   /^biome\.json$/,
   /^tsconfig\.json$/,
-  /^dist\/.*\.test\./,
+  // The bundle writes JS only to the top of dist/; tsc emits declarations only.
+  /^dist\/.+\/.*\.js$/,
   // Packaged installs pull the agent image; the host sandbox runs container/dist.
   /^container\/src\//,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,

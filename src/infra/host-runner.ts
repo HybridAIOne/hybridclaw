@@ -919,6 +919,7 @@ async function runHostProcessInner(
     approvalMode,
     approvalUserText = null,
     approvalUserId,
+    approvalUserIsBot,
     approvalReplyDecision,
     fullAutoNeverApproveTools,
     scheduleSideEffectsEnabled,
@@ -1008,6 +1009,7 @@ async function runHostProcessInner(
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    toolCallLimits: params.toolCallLimits,
     requestId,
     agentId,
     messages,
@@ -1033,6 +1035,7 @@ async function runHostProcessInner(
     approvalMode,
     approvalUserText,
     approvalUserId,
+    approvalUserIsBot,
     approvalReplyDecision,
     fullAutoNeverApproveTools,
     scheduleSideEffectsEnabled,

@@ -37,12 +37,15 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { readUserTimezone } from '../workspace.js';
 import { SHOW_DASHBOARD_TOOL } from './app-widgets.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 const USAGE =
   'Usage: `/dashboard list` lists your dashboards, `/dashboard show <id>` shows one, `/dashboard refresh <id>` fetches its figures again, `/dashboard schedule <id> daily|weekly|off` keeps it current by itself. Add `--json` for a machine-readable answer.';

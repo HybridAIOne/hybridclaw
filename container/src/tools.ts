@@ -1,8 +1,9 @@
 /**
  * Tool implementations execute only after the agent loop's permission checks.
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
- * local guards still apply, and this dispatcher does not grant action approval.
+ * Run limits reserve attempts before dispatch; this never grants action approval.
  */
+
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -38,10 +39,15 @@ import {
   runBash,
   setPersistentBashStateEnabled as setBashSessionStateEnabled,
 } from './bash-session.js';
+import { bashToolDefinition } from './bash-tool-definition.js';
 import {
   currentBrowserPage,
   pauseBrowserFramesUntilNavigation,
 } from './browser-checkout.js';
+import {
+  BROWSER_EVALUATE_TOOL,
+  runBrowserEvaluate,
+} from './browser-evaluate.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   emitBrowserSignInRequest,
@@ -91,6 +97,7 @@ import {
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import { reserveToolCall } from './tool-call-limits.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -102,7 +109,7 @@ import {
 } from './tools/dashboard.js';
 import {
   DRAFT_EMAIL_TOOL_DEFINITION,
-  runDraftEmailTool,
+  runTrackedDraftEmailTool,
 } from './tools/draft-email.js';
 import {
   ESTIMATE_COST_TOOL_DEFINITION,
@@ -3693,7 +3700,11 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
     case 'draft_email': {
-      const { ok, text } = runDraftEmailTool(args);
+      const { ok, text } = await runTrackedDraftEmailTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
       return ok ? text : failTool(text);
     }
     case INBOX_CLEANUP_TOOL: {
@@ -4080,6 +4091,24 @@ async function executeToolInternal(
       return output;
     }
 
+    case BROWSER_EVALUATE_TOOL: {
+      try {
+        return await runBrowserEvaluate(args, {
+          evaluate: (evaluateArgs) =>
+            executeBrowserTool(
+              BROWSER_EVALUATE_TOOL,
+              evaluateArgs,
+              currentSessionId || 'default',
+            ),
+          writeFile: writeWorkspaceFile,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'cron': {
       const action = args.action;
 
@@ -4317,6 +4346,7 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
+    reserveToolCall(name);
     const result = await executeToolInternal(name, argsJson, sentFiles, boost);
     const metadata =
       typeof result === 'string' ? { output: result, isError: false } : result;
@@ -4346,30 +4376,7 @@ export async function executeTool(
   return result.output;
 }
 
-const BASH_TOOL_DEFINITION: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'bash',
-    description: buildBashToolDescription(),
-    parameters: {
-      type: 'object',
-      properties: {
-        command: { type: 'string', description: 'Shell command to execute' },
-        timeoutMs: {
-          type: 'number',
-          description:
-            'Optional command timeout in milliseconds (default 240000, max 900000)',
-        },
-        timeoutSeconds: {
-          type: 'number',
-          description:
-            'Optional command timeout in seconds (used when timeoutMs is omitted)',
-        },
-      },
-      required: ['command'],
-    },
-  },
-};
+const BASH_TOOL_DEFINITION = bashToolDefinition(buildBashToolDescription());
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,

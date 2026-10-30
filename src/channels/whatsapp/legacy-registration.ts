@@ -1,8 +1,10 @@
 /**
- * compat: remove after v0.41 — adapts the released hybridclaw-whatsapp 0.1.x
+ * compat: remove after v0.42 — adapts the released hybridclaw-whatsapp 0.1.x
  * plugin, which registers only `{ kind, create }` and expects auth, pairing,
  * and phone helpers on its host, to the generic channel transport contract.
  *
+ * Deferred to v0.42 (owner call, 2026-10-24): the published 0.1.1 plugin
+ * still needs this adapter; migration of the external plugin is separate.
  * Owns the legacy WhatsApp host extras and the registration hooks that plugin
  * cannot supply yet; delete this directory once the plugin ships them itself.
  * NOT a second transport registry: `channel-transport.ts` calls this once per

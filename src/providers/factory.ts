@@ -19,79 +19,61 @@ import {
 } from './local-openai-compat.js';
 import { mistralProvider } from './mistral.js';
 import { openAIAPIProvider, openAIProvider } from './openai.js';
-import {
-  dashscopeProvider,
-  deepseekProvider,
-  geminiProvider,
-  kiloProvider,
-  kimiProvider,
-  minimaxProvider,
-  xaiProvider,
-  xiaomiProvider,
-  zaiProvider,
-} from './openai-compat-remote.js';
+import { getOpenAICompatRemoteProvider } from './openai-compat-remote.js';
 import { openrouterProvider } from './openrouter.js';
+import {
+  isLocalBackendType,
+  isOpenAICompatRemoteProviderId,
+} from './provider-ids.js';
 import type {
   AIProvider,
-  AIProviderId,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
+  RuntimeProviderId,
 } from './types.js';
 
-const KNOWN_PROVIDERS: AIProvider[] = [
-  openAIAPIProvider,
-  openAIProvider,
-  anthropicProvider,
-  openrouterProvider,
-  mistralProvider,
-  huggingfaceProvider,
-  geminiProvider,
-  deepseekProvider,
-  xaiProvider,
-  zaiProvider,
-  kimiProvider,
-  minimaxProvider,
-  dashscopeProvider,
-  xiaomiProvider,
-  kiloProvider,
-  ollamaProvider,
-  lmstudioProvider,
-  llamacppProvider,
-  vllmProvider,
-  mlxProvider,
-  hybridAIProvider,
-];
+const KNOWN_PROVIDER_BY_ID: ReadonlyMap<RuntimeProviderId, AIProvider> =
+  new Map(
+    Object.entries({
+      hybridai: hybridAIProvider,
+      openai: openAIAPIProvider,
+      'openai-codex': openAIProvider,
+      anthropic: anthropicProvider,
+      openrouter: openrouterProvider,
+      mistral: mistralProvider,
+      huggingface: huggingfaceProvider,
+      gemini: getOpenAICompatRemoteProvider('gemini'),
+      deepseek: getOpenAICompatRemoteProvider('deepseek'),
+      xai: getOpenAICompatRemoteProvider('xai'),
+      zai: getOpenAICompatRemoteProvider('zai'),
+      kimi: getOpenAICompatRemoteProvider('kimi'),
+      minimax: getOpenAICompatRemoteProvider('minimax'),
+      dashscope: getOpenAICompatRemoteProvider('dashscope'),
+      xiaomi: getOpenAICompatRemoteProvider('xiaomi'),
+      kilo: getOpenAICompatRemoteProvider('kilo'),
+      ollama: ollamaProvider,
+      lmstudio: lmstudioProvider,
+      llamacpp: llamacppProvider,
+      vllm: vllmProvider,
+      mlx: mlxProvider,
+    } satisfies Record<RuntimeProviderId, AIProvider>) as Array<
+      [RuntimeProviderId, AIProvider]
+    >,
+  );
 
-const KNOWN_PROVIDER_BY_ID = new Map<AIProviderId, AIProvider>(
-  KNOWN_PROVIDERS.map((provider) => [provider.id, provider]),
-);
-
-const runtimeConfig = getRuntimeConfig();
-const ACTIVE_PROVIDERS: AIProvider[] = [
-  ...(runtimeConfig.openai.enabled ? [openAIAPIProvider] : []),
-  openAIProvider,
-  anthropicProvider,
-  ...(runtimeConfig.openrouter.enabled ? [openrouterProvider] : []),
-  ...(runtimeConfig.mistral.enabled ? [mistralProvider] : []),
-  ...(runtimeConfig.huggingface.enabled ? [huggingfaceProvider] : []),
-  ...(runtimeConfig.gemini.enabled ? [geminiProvider] : []),
-  ...(runtimeConfig.deepseek.enabled ? [deepseekProvider] : []),
-  ...(runtimeConfig.xai.enabled ? [xaiProvider] : []),
-  ...(runtimeConfig.zai.enabled ? [zaiProvider] : []),
-  ...(runtimeConfig.kimi.enabled ? [kimiProvider] : []),
-  ...(runtimeConfig.minimax.enabled ? [minimaxProvider] : []),
-  ...(runtimeConfig.dashscope.enabled ? [dashscopeProvider] : []),
-  ...(runtimeConfig.xiaomi.enabled ? [xiaomiProvider] : []),
-  ...(runtimeConfig.kilo.enabled ? [kiloProvider] : []),
-  ...(runtimeConfig.local.backends.ollama.enabled ? [ollamaProvider] : []),
-  ...(runtimeConfig.local.backends.lmstudio.enabled ? [lmstudioProvider] : []),
-  ...(runtimeConfig.local.backends.llamacpp.enabled ? [llamacppProvider] : []),
-  ...(runtimeConfig.local.backends.vllm.enabled ? [vllmProvider] : []),
-  hybridAIProvider,
-];
+function isProviderEnabledAtStartup(id: RuntimeProviderId): boolean {
+  const config = getRuntimeConfig();
+  if (id === 'openai' || isOpenAICompatRemoteProviderId(id)) {
+    return config[id].enabled;
+  }
+  if (isLocalBackendType(id) && id !== 'mlx') {
+    return config.local.backends[id].enabled;
+  }
+  return true;
+}
 
 const PROVIDER_BY_MODEL_PREFIX = new Map<string, AIProvider>(
-  ACTIVE_PROVIDERS.map((provider) => [provider.id, provider]),
+  [...KNOWN_PROVIDER_BY_ID].filter(([id]) => isProviderEnabledAtStartup(id)),
 );
 
 function normalizeModel(model: string): string {
@@ -109,7 +91,6 @@ export class UnknownModelProviderError extends Error {
 }
 
 function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
-  if (prefix === 'mlx') return mlxProvider;
   const provider = PROVIDER_BY_MODEL_PREFIX.get(prefix);
   if (provider) return provider;
 
@@ -119,7 +100,8 @@ function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
     if (endpointProvider) return endpointProvider;
   }
 
-  if (KNOWN_PROVIDER_BY_ID.has(prefix as AIProviderId)) return hybridAIProvider;
+  if (KNOWN_PROVIDER_BY_ID.has(prefix as RuntimeProviderId))
+    return hybridAIProvider;
 
   throw new UnknownModelProviderError(
     `Unknown provider prefix \`${prefix}\` in model \`${model}\`.`,
@@ -150,13 +132,13 @@ export function resolveProviderForModel(model: string): AIProvider {
   return resolveBareModelProvider(normalizedModel);
 }
 
-export function resolveModelProvider(model: string): AIProviderId {
+export function resolveModelProvider(model: string): RuntimeProviderId {
   return resolveProviderForModel(model).id;
 }
 
 export function isProviderModel(
   model: string,
-  providerId: AIProviderId,
+  providerId: RuntimeProviderId,
 ): boolean {
   return resolveModelProvider(model) === providerId;
 }

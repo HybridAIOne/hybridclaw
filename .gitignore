@@ -59,5 +59,6 @@ eval-harness/jevbench/results/
 __pycache__/
 *.py[cod]
 *$py.class
+# compat: remove after v0.42 — stale bundle/ from builds before dist/ held the bundle
 bundle/
 *.tsbuildinfo

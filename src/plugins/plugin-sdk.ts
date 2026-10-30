@@ -6,6 +6,12 @@
  * caller in `plugins/`; plugin-facing behaviour lives on `HybridClawPluginApi`.
  */
 export {
+  isRecord,
+  readFiniteNumber,
+  readString,
+  toTrimmedString,
+} from '#shared/primitive-values.js';
+export {
   getAgentById,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
@@ -39,7 +45,7 @@ export {
   sendWebhookJson,
   WebhookHttpError,
 } from '../channels/webhook-http.js';
-// compat: remove after v0.41 — hybridclaw-whatsapp 0.1.x types its transport
+// compat: remove after v0.42 — hybridclaw-whatsapp 0.1.x types its transport
 // against this host, so its source must keep typechecking until it migrates.
 export type { WhatsAppTransportHost } from '../channels/whatsapp/legacy-registration.js';
 export { parseValueFlag } from '../cli/common.js';
@@ -81,10 +87,23 @@ export {
 export { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 export type { StoredMessage } from '../types/session.js';
 export { ensureBootstrapFiles } from '../workspace.js';
+export {
+  type BoundedCliOptions,
+  type BoundedCliResult,
+  buildCliProcessEnv,
+  resolvePluginPath,
+  runBoundedCli,
+} from './plugin-cli.js';
 export type {
   PluginMediaHost,
   PluginSessionModelCredentials,
 } from './plugin-media-host.js';
+export {
+  appendTruncationNotice,
+  latestMessageByRole,
+  normalizeText,
+  truncateText,
+} from './plugin-text.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,

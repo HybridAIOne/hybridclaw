@@ -11,10 +11,7 @@ import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
 } from '../../config/config.js';
-import {
-  createApprovalPresentation,
-  getApprovalVisibleText,
-} from '../../gateway/approval-presentation.js';
+import { createApprovalPresentation } from '../../gateway/approval-presentation.js';
 import {
   handlePendingApprovalRouting,
   handleTextChannelCommand,
@@ -43,6 +40,7 @@ import {
   msteamsRuntimeLoader,
 } from '../channel-runtime-loaders.js';
 import type { ReplyFn } from '../discord/runtime.js';
+import { formatMSTeamsApprovalPrompt } from './approval-prompt.js';
 import {
   buildResponseText as buildMSTeamsResponseText,
   buildMSTeamsSessionSwitcherCard,
@@ -242,14 +240,8 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
               channelId,
               buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
               sendText: (text) => context.stream.finalize(text),
-              formatTextPrompt: ({ approval, responseText }) => {
-                const visiblePrompt = getApprovalVisibleText(
-                  approval,
-                  TEAMS_APPROVAL_PRESENTATION,
-                  responseText,
-                );
-                return `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`;
-              },
+              formatTextPrompt: ({ approval }) =>
+                formatMSTeamsApprovalPrompt(approval),
             });
             return;
           }

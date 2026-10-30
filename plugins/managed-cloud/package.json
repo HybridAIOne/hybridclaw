@@ -6,6 +6,6 @@
   "type": "module",
   "description": "HybridClaw browser provider backed by an operator-run managed browser pool",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

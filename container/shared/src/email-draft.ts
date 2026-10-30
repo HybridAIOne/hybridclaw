@@ -7,6 +7,8 @@
 
 /** A checked draft: every one has From, To and Subject. */
 export interface EmailDraft {
+  /** Existing tracked item receiving this draft for shared review. */
+  track_id?: number;
   from: string;
   to: string[];
   cc?: string[];
@@ -81,6 +83,15 @@ export function normalizeEmailDraft(
   if (!body) return { error: '"body" is required.' };
   if (body.length > BODY_MAX) return { error: '"body" is too long.' };
   const draft: Partial<EmailDraft> = {};
+  if (args.track_id !== undefined) {
+    if (
+      typeof args.track_id !== 'number' ||
+      !Number.isSafeInteger(args.track_id) ||
+      args.track_id < 1
+    )
+      return { error: '"track_id" must be an existing positive item id.' };
+    draft.track_id = args.track_id;
+  }
   for (const [field, max] of [
     ['from', ADDRESS_MAX],
     ['subject', SUBJECT_MAX],

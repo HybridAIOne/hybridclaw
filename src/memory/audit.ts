@@ -597,6 +597,23 @@ export function listStructuredAuditEntries(params?: {
   });
 }
 
+// Resolve from the durable run start, never the session's mutable current agent.
+export function getAuditRunAgentId(
+  sessionId: string,
+  runId: string,
+): string | null {
+  const row = queryOne<{ payload: string }, [string, string]>(
+    getAuditDatabase(),
+    `SELECT payload FROM audit_events
+     WHERE session_id = ? AND run_id = ? AND event_type = 'session.start'
+     ORDER BY seq ASC LIMIT 1`,
+    sessionId,
+    runId,
+  );
+  const agentId = row && readPayloadObject(row.payload).executingAgentId;
+  return typeof agentId === 'string' ? agentId.trim() || null : null;
+}
+
 export function getStructuredAuditAfterId(
   afterId: number,
   limit = 200,
@@ -661,6 +678,7 @@ const ACTED_DECISIONS = [
 export function listActionAuditEntries(
   sessionIds: readonly string[],
   limit = 30,
+  toolCallId?: string,
 ): StructuredAuditEntry[] {
   const ids = Array.from(
     new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean)),
@@ -672,13 +690,14 @@ export function listActionAuditEntries(
   const columns = STRUCTURED_AUDIT_SELECT_COLUMNS.split(', ')
     .map((column) => `e.${column}`)
     .join(', ');
-  return queryHydratedAuditEntries<Array<string | number>>(
+  return queryHydratedAuditEntries<Array<string | number | null>>(
     getAuditDatabase(),
     `WITH actions AS (
        SELECT session_id, run_id, json_extract(payload, '$.toolCallId') AS call_id
        FROM audit_events
        WHERE session_id IN (${placeholders})
          AND event_type = 'autonomy.decision'
+         AND (? IS NULL OR json_extract(payload, '$.toolCallId') = ?)
          AND COALESCE(json_extract(payload, '$.approvalDecision'), 'auto')
            NOT IN ('required', 'denied')
          AND (
@@ -699,6 +718,8 @@ export function listActionAuditEntries(
        ('tool.call', 'autonomy.decision', 'escalation.decision', 'tool.result')
      ORDER BY e.id DESC`,
     ...ids,
+    toolCallId ?? null,
+    toolCallId ?? null,
     ...ACTED_DECISIONS,
     bounded,
   );

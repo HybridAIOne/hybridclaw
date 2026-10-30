@@ -5,7 +5,7 @@
   "type": "module",
   "description": "HybridClaw memory plugin for Mem0 cloud recall and sync",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   },
   "dependencies": {
     "mem0ai": "2.4.6"

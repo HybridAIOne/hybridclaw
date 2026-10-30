@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.40.8',
+  version: '0.41.5',
   highlights: [
-    'Reliable memory compaction and cleanup',
-    'Better prompt-cache reuse',
-    'HybridAI without a chatbot',
-    'Discord delegate approval buttons',
+    'Clearer Teams approval requests',
+    'Show only available approval choices',
+    'View commands and details with 0',
   ],
 } as const;
 

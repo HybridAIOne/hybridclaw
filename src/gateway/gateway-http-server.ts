@@ -85,7 +85,6 @@ import {
   getSignalLinkState,
   startSignalLink,
 } from '../channels/signal/pairing.js';
-import { isLegacyTwilioVoiceWebhookPath } from '../channels/voice/twilio-voice-compat.js';
 import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
@@ -1638,6 +1637,20 @@ async function handleApiBrowserTool(
     return;
   }
 
+  if (toolName === 'browser_evaluate') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isNativeGatewaySession(active)) unsupportedGatewayBrowserTool(toolName);
+    if (args.frame != null) {
+      throw new GatewayRequestError(
+        400,
+        'browser_evaluate takes no frame when the browser runs in the gateway.',
+      );
+    }
+    const result = await active.session.evaluate(String(args.expression || ''));
+    sendJson(res, 200, { success: true, result: result ?? null });
+    return;
+  }
+
   if (toolName === 'browser_upload') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (!active.session.upload) unsupportedGatewayBrowserTool(toolName);
@@ -2042,6 +2055,7 @@ async function resolveApiChatSlashCommandResult(
     });
     if (guarded) return guarded;
     const result = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId: chatRequest.sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -2111,6 +2125,7 @@ async function resolveApiChatSlashCommandResult(
     }
 
     const gatewayCommandResult = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -3448,7 +3463,7 @@ async function handleApiChat(
   if (approval === null) {
     sendJson(res, 400, {
       error:
-        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, or no.',
+        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, no, or draft.',
     });
     return;
   }
@@ -3481,6 +3496,7 @@ async function handleApiChat(
   }
   const channelId = body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -4130,6 +4146,7 @@ async function handleApiCommand(
   req: IncomingMessage,
   res: ServerResponse,
   authContext: ResolvedAuthContext,
+  operatorId: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -4152,6 +4169,7 @@ async function handleApiCommand(
   }
 
   const commandRequest: GatewayCommandRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -10360,12 +10378,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       );
       return;
     }
-    if (isLegacyTwilioVoiceWebhookPath(pathname)) {
-      dispatchWebhookRoute(res, () =>
-        handleGatewayPluginWebhook(req, res, url),
-      );
-      return;
-    }
     if (pathname === '/a2a/pairing/requests') {
       dispatchWebhookRoute(res, () =>
         handleA2APairingRequestInbound(req, res, url),
@@ -11509,7 +11521,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
-            await handleApiCommand(req, res, authContext);
+            await handleApiCommand(req, res, authContext, operatorId);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {

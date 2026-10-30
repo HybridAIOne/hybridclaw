@@ -174,14 +174,18 @@ export function clearDeviceSources(userId: string | null | undefined): void {
 }
 
 /**
- * The tool is offered only to a user whose phone shares something, so an agent
- * without a companion app never sees it.
+ * The tool is offered to a user whose phone shares something, so an agent
+ * without a companion app never sees it, and on every turn from the app: the
+ * app may still be sending a calendar the user connected a moment ago, and the
+ * tool must not appear mid-conversation.
  */
 export function blockDeviceDataToolUnlessShared(
   blockedTools: string[] | undefined,
   userId: string | null | undefined,
+  fromApp = false,
 ): string[] | undefined {
-  if (Object.keys(readDeviceSources(userId)).length > 0) return blockedTools;
+  if (fromApp || Object.keys(readDeviceSources(userId)).length > 0)
+    return blockedTools;
   return [...(blockedTools ?? []), DEVICE_DATA_TOOL];
 }
 
@@ -190,8 +194,14 @@ export function beginDeviceDataTurn(
   sessionId: string,
   userId: string | null | undefined,
   maxDeviceAgeMs?: number,
+  operatorId?: string,
 ): () => void {
-  return beginTurnUser(sessionId, validUserId(userId), maxDeviceAgeMs);
+  return beginTurnUser(
+    sessionId,
+    validUserId(userId),
+    maxDeviceAgeMs,
+    operatorId,
+  );
 }
 
 // Case and accents do not count: "muller" finds "Müller".

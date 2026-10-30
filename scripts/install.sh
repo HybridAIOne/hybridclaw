@@ -10,11 +10,11 @@
 #
 # What it does:
 #   1. Detects your OS/arch (Linux + macOS; Windows users are pointed at WSL2).
-#   2. Ensures Node.js 22 (with its bundled npm) is available, installing a
-#      user-local Node 22 into ~/.hybridclaw/node when no compatible one exists.
+#   2. Ensures a supported Node.js (with its bundled npm) is available; see
+#      REQUIRED_NODE_MINIMUM. Installs into ~/.hybridclaw/node when needed.
 #      Downloaded Node tarballs are verified against nodejs.org's published
-#      SHA-256 checksum. Alpine/musl needs a system Node 22 (apk add nodejs npm,
-#      Alpine 3.21+) plus --skip-node, since nodejs.org ships glibc builds only.
+#      SHA-256 checksum. Alpine/musl needs a supported system Node 22
+#      (apk add nodejs npm) plus --skip-node; nodejs.org ships glibc builds only.
 #   3. Installs the `hybridclaw` CLI globally from npm.
 #   4. Checks for Docker (recommended for the default container sandbox).
 #   5. Runs `hybridclaw onboarding` when attached to a terminal.
@@ -53,10 +53,13 @@ HYBRIDCLAW_HOME="${HYBRIDCLAW_HOME:-$HOME/.hybridclaw}"
 NPM_USER_PREFIX="$HYBRIDCLAW_HOME/npm-global"
 PKG_NAME="@hybridaione/hybridclaw"
 INSTALL_VERSION="${HYBRIDCLAW_INSTALL_VERSION:-latest}"
-REQUIRED_NODE_MAJOR=22
+# Generated from package.json engines.node by npm run version:sync.
+REQUIRED_NODE_MINIMUM="22.23.4"
+REQUIRED_NODE_MAJOR="${REQUIRED_NODE_MINIMUM%%.*}"
+REQUIRED_NODE_RANGE=">=${REQUIRED_NODE_MINIMUM} <$((REQUIRED_NODE_MAJOR + 1))"
 # Used when nodejs.org is unreachable for latest-version discovery and no
 # explicit HYBRIDCLAW_NODE_VERSION pin is set.
-NODE_VERSION_FALLBACK="22.22.3"
+NODE_VERSION_FALLBACK="$REQUIRED_NODE_MINIMUM"
 # Set by ensure_writable_npm_prefix so later steps skip re-asking npm.
 NPM_PREFIX=""
 
@@ -119,7 +122,7 @@ Environment:
   HYBRIDCLAW_HOME             Install root for managed Node (default: ~/.hybridclaw)
   HYBRIDCLAW_INSTALL_VERSION  Version to install (default: latest)
   HYBRIDCLAW_NODE_VERSION     Exact Node version to install when Node must be
-                              downloaded (default: newest 22.x)
+                              downloaded (default: newest supported 22.x)
   HYBRIDCLAW_NO_PROMPT=1      Same as --no-prompt (also honors NO_PROMPT / CI)
   HYBRIDCLAW_DRY_RUN=1        Same as --dry-run
   HYBRIDCLAW_VERIFY_INSTALL=1 Same as --verify
@@ -187,19 +190,28 @@ detect_platform() {
 # in one place. Callers append --max-time/--retry/-o and the URL.
 fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
 
+# Standalone Bash equivalent of shared/node-version.js; no Node is needed yet.
+is_supported_node() {
+  local version="${1#v}" major minor patch min_major min_minor min_patch
+  [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
+  IFS=. read -r major minor patch <<< "$version"
+  IFS=. read -r min_major min_minor min_patch <<< "$REQUIRED_NODE_MINIMUM"
+  [ "$major" -eq "$min_major" ] && {
+    [ "$minor" -gt "$min_minor" ] || {
+      [ "$minor" -eq "$min_minor" ] && [ "$patch" -ge "$min_patch" ]
+    }
+  }
+}
+
 # Sets NODE_VERSION (and caches the release's SHASUMS256.txt body in
 # NODE_SHASUMS when the latest-version lookup succeeded, so the checksum step
 # needs no second fetch). An explicit HYBRIDCLAW_NODE_VERSION pin always wins.
 resolve_node_version() {
   NODE_SHASUMS=""
   if [ -n "${HYBRIDCLAW_NODE_VERSION:-}" ]; then
-    # Accept the natural `node --version` form (v22.x.y) and refuse majors the
-    # CLI's engines guard would reject right after a green install.
+    # Explicit pins must meet the same security floor as an existing runtime.
     NODE_VERSION="${HYBRIDCLAW_NODE_VERSION#v}"
-    case "$NODE_VERSION" in
-      "${REQUIRED_NODE_MAJOR}".*) ;;
-      *) die "HYBRIDCLAW_NODE_VERSION='${HYBRIDCLAW_NODE_VERSION}' is not a ${REQUIRED_NODE_MAJOR}.x version; HybridClaw requires Node ${REQUIRED_NODE_MAJOR}." ;;
-    esac
+    is_supported_node "$NODE_VERSION" || die "HYBRIDCLAW_NODE_VERSION='${HYBRIDCLAW_NODE_VERSION}' is unsupported; HybridClaw requires Node ${REQUIRED_NODE_RANGE}."
     return 0
   fi
   # One small fetch yields both the newest 22.x version (from the filenames)
@@ -211,7 +223,7 @@ resolve_node_version() {
   NODE_VERSION="$(printf '%s\n' "$NODE_SHASUMS" \
     | sed -n "s/.*node-v\(${REQUIRED_NODE_MAJOR}[0-9.]*\)-${PLATFORM_OS}-${PLATFORM_ARCH}\.tar\.gz\$/\1/p" \
     | head -1)" || NODE_VERSION=""
-  if [ -z "$NODE_VERSION" ]; then
+  if ! is_supported_node "$NODE_VERSION"; then
     NODE_SHASUMS=""
     NODE_VERSION="$NODE_VERSION_FALLBACK"
     warn "Could not discover the newest Node ${REQUIRED_NODE_MAJOR}.x for ${PLATFORM_OS}-${PLATFORM_ARCH} from nodejs.org; using v${NODE_VERSION_FALLBACK}."
@@ -261,8 +273,8 @@ install_managed_node() {
   local version dir filename url tarball
   if [ "${PLATFORM_LIBC:-glibc}" = "musl" ]; then
     die "Detected musl libc (e.g. Alpine). nodejs.org publishes glibc builds only.
-Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --skip-node:
-    apk add --no-cache nodejs npm   # needs Alpine 3.21+ (older releases ship Node 20)
+Install Node ${REQUIRED_NODE_RANGE} with your package manager and re-run with --skip-node:
+    apk add --no-cache nodejs npm   # verify node --version meets the required range
     curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --skip-node"
   fi
 
@@ -308,25 +320,25 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
   local node_v
   node_v="$("$NODE_BIN_DIR/node" --version 2>/dev/null)" \
     || die "the downloaded Node.js binary does not run on this system (Node ${REQUIRED_NODE_MAJOR} needs glibc 2.28+; check 'ldd --version')."
+  is_supported_node "$node_v" || die "Downloaded Node.js ${node_v} does not satisfy ${REQUIRED_NODE_RANGE}."
   add_to_path "$NODE_BIN_DIR"
   ok "Node.js ${node_v} ready"
 }
 
 ensure_node() {
-  local node_version major
+  local node_version
   if have node; then
     # `|| node_version=""`: a broken node that fails `--version` must not abort
     # the installer under `set -e` — fall through to the managed-Node install.
     node_version="$(node --version 2>/dev/null)" || node_version=""
-    major="${node_version#v}"; major="${major%%.*}"
-    if [ "$major" = "$REQUIRED_NODE_MAJOR" ]; then
+    if is_supported_node "$node_version"; then
       ok "Node.js $node_version detected"
       return
     fi
     if [ "$MANAGE_NODE" -eq 0 ]; then
-      die "Node.js ${REQUIRED_NODE_MAJOR}.x is required, found $node_version. Switch versions (nvm/fnm) and retry."
+      die "Node.js ${REQUIRED_NODE_RANGE} is required, found $node_version. Switch versions (nvm/fnm) and retry."
     fi
-    warn "Node.js $node_version found, but HybridClaw needs ${REQUIRED_NODE_MAJOR}.x"
+    warn "Node.js $node_version found, but HybridClaw needs ${REQUIRED_NODE_RANGE}"
   elif [ "$MANAGE_NODE" -eq 0 ]; then
     die "Node.js not found on PATH and --skip-node was set."
   fi

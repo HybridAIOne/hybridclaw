@@ -1,0 +1,66 @@
+id: hybridai-knowledge
+name: HybridAI Knowledge
+version: 0.1.0
+kind: memory
+description: Grounds every turn in the HybridAI knowledge collections the API key owner may read, and runs the nightly maintenance turn on the company wiki.
+entrypoint: src/index.js
+credentials:
+  - HYBRIDAI_API_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    collections:
+      type: array
+      default: []
+      maxItems: 32
+      description: Collection ids to retrieve from before each turn; empty means every collection the API key owner may read, shared across all chat users on this gateway.
+      items:
+        type: string
+        minLength: 1
+        maxLength: 255
+    limit:
+      type: number
+      default: 5
+      minimum: 1
+      maximum: 10
+      description: Sections requested per search call.
+    minScore:
+      type: number
+      default: 0.2
+      minimum: 0
+      maximum: 1
+      description: Hits below this score are not injected.
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 20000
+    timeoutMs:
+      type: number
+      default: 3000
+      minimum: 1000
+      maximum: 60000
+      description: The turn goes on without knowledge when the gateway is slower than this.
+    maintenance:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Run the wiki maintenance turn (the llm-wiki lint workflow) once a day.
+        hourUtc:
+          type: number
+          default: 3
+          minimum: 0
+          maximum: 23
+        agentId:
+          type: string
+          default: ''
+          description: Agent that runs the maintenance turn; the default agent when empty.
+        collection:
+          type: string
+          default: ''
+          description: Collection to maintain; the first company collection when empty.

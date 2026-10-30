@@ -1,35 +1,9 @@
+import { inferProviderFromModelPrefix } from './provider-ids.js';
+
 export const HYBRIDAI_MODEL_PREFIX = 'hybridai/';
 
-export const NON_HYBRID_PROVIDER_PREFIXES: readonly string[] = [
-  'openai/',
-  'openai-codex/',
-  'openrouter/',
-  'mistral/',
-  'huggingface/',
-  'anthropic/',
-  'gemini/',
-  'deepseek/',
-  'xai/',
-  'zai/',
-  'kimi/',
-  'minimax/',
-  'dashscope/',
-  'xiaomi/',
-  'kilo/',
-  'ollama/',
-  'lmstudio/',
-  'llamacpp/',
-  'vllm/',
-  'mlx/',
-];
-
 export function hasKnownNonHybridProviderPrefix(model: string): boolean {
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase();
-  return NON_HYBRID_PROVIDER_PREFIXES.some((prefix) =>
-    normalized.startsWith(prefix),
-  );
+  return inferProviderFromModelPrefix(model) !== undefined;
 }
 
 export function hasDisplayOnlyHybridAIPrefix(model: string): boolean {

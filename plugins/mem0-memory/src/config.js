@@ -1,8 +1,6 @@
-const MEM0_API_VERSIONS = new Set(['v1', 'v2']);
+import { readString } from '@hybridaione/hybridclaw/plugin-sdk';
 
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+const MEM0_API_VERSIONS = new Set(['v1', 'v2']);
 
 function normalizeInteger(value, key, fallback, bounds = {}) {
   if (value == null) return fallback;
@@ -30,7 +28,7 @@ function normalizeInteger(value, key, fallback, bounds = {}) {
 }
 
 function normalizeApiVersion(value) {
-  const normalized = normalizeString(value) || 'v2';
+  const normalized = readString(value) || 'v2';
   if (!MEM0_API_VERSIONS.has(normalized)) {
     throw new Error(
       `mem0-memory plugin config.apiVersion must be one of: ${[...MEM0_API_VERSIONS].join(', ')}.`,
@@ -40,7 +38,7 @@ function normalizeApiVersion(value) {
 }
 
 function normalizeAbsoluteUrl(value, key, fallback) {
-  const normalized = normalizeString(value) || fallback;
+  const normalized = readString(value) || fallback;
   try {
     const url = new URL(normalized);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -57,16 +55,16 @@ function normalizeAbsoluteUrl(value, key, fallback) {
 export function resolveMem0PluginConfig(params) {
   const pluginConfig = params?.pluginConfig || {};
   return Object.freeze({
-    apiKey: normalizeString(params?.credentialApiKey),
+    apiKey: readString(params?.credentialApiKey),
     host: normalizeAbsoluteUrl(
       pluginConfig.host,
       'host',
       'https://api.mem0.ai',
     ),
-    organizationId: normalizeString(pluginConfig.organizationId),
-    projectId: normalizeString(pluginConfig.projectId),
-    userId: normalizeString(pluginConfig.userId),
-    agentId: normalizeString(pluginConfig.agentId),
+    organizationId: readString(pluginConfig.organizationId),
+    projectId: readString(pluginConfig.projectId),
+    userId: readString(pluginConfig.userId),
+    agentId: readString(pluginConfig.agentId),
     apiVersion: normalizeApiVersion(pluginConfig.apiVersion),
     searchLimit: normalizeInteger(pluginConfig.searchLimit, 'searchLimit', 5, {
       minimum: 1,

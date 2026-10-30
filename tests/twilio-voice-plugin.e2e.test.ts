@@ -22,12 +22,7 @@ import {
 } from './helpers/fake-twilio-api.js';
 import { cleanupTrackedTempDirs } from './test-utils.js';
 
-// Upgrade-path e2e for the Twilio voice plugin: a 0.39.1-shaped config on the
-// compiled gateway (dist/cli.js, host sandbox) with NO install step, and calls
-// driven over Twilio's real wire protocols (signed form webhooks,
-// ConversationRelay and Media Streams websockets, the REST Calls API). Twilio
-// and the HybridAI platform are local fakes; the gateway, config migration,
-// plugin loader, agent turn, and realtime bridge are real.
+// Plugin e2e with explicit configuration and signed Twilio wire protocols.
 // Gated behind HYBRIDCLAW_RUN_TWILIO_E2E=1; needs `npm run build`. With
 // HYBRIDCLAW_TWILIO_E2E_AGENT_IMAGE=<tag>, agent turns run in that container
 // image (the default sandbox), where text deltas arrive over stderr and can
@@ -286,12 +281,11 @@ describe.skipIf(!RUN)('twilio-voice plugin on a real gateway', () => {
       path.join(root, 'twilio-fetch.mjs'),
       twilioApi.fetchRedirectModule,
     );
-    // The voice block is what a v0.39.1 install wrote, including the
-    // now-retired `webhookPath`; no plugin is installed.
     fs.writeFileSync(
       configFile(),
       JSON.stringify({
-        version: 40,
+        version: 41,
+        plugins: { list: [{ id: 'twilio-voice', enabled: true, config: {} }] },
         ops: {
           healthPort: port,
           gatewayBaseUrl: gatewayUrl,
@@ -344,7 +338,7 @@ describe.skipIf(!RUN)('twilio-voice plugin on a real gateway', () => {
     cleanupTrackedTempDirs(tempDirs);
   }, 30_000);
 
-  test('a v0.39.1 voice config loads the bundled plugin with no install step', async () => {
+  test('explicit configuration loads the bundled voice plugin', async () => {
     await waitFor(() => currentRunLog().includes(READY_LOG), 'the plugin');
     const config = readConfig();
     expect(config.version).toBeGreaterThanOrEqual(41);
@@ -362,33 +356,12 @@ describe.skipIf(!RUN)('twilio-voice plugin on a real gateway', () => {
     expect(await voiceStatus()).toMatchObject({ pluginLoaded: true });
   });
 
-  test('the number still pointed at /voice/webhook is answered, signed as Twilio called it', async () => {
-    const callSid = `CAlegacy${Date.now()}`;
-    expect(
-      (
-        await twilioPost('/voice/webhook', call(callSid), {
-          signedUrl: `${gatewayUrl}${BASE}/webhook`,
-        })
-      ).status,
-    ).toBe(403);
-    const answer = await twilioPost('/voice/webhook', call(callSid));
-    expect(answer.status).toBe(200);
-    const relayUrl = socketUrlFromTwiml(answer.body, 'ConversationRelay');
-    expect(relayUrl).toBe(`${gatewayUrl.replace(/^http/, 'ws')}${BASE}/relay`);
-    expect(currentRunLog()).toContain('pre-v0.40 /voice/webhook URL');
-    for (const pathname of ['/voice/action', '/voice/relay']) {
-      expect((await twilioPost(pathname, call(callSid))).status).toBe(404);
-    }
-
-    const ws = await twilioSocket(relayUrl);
-    expect(await relayTurn(ws, callSid, 'What is the weather today?')).toEqual(
-      AGENT_REPLY,
-    );
-    ws.close();
-    expect(
-      await twilioPost(`${BASE}/action`, { ...call(callSid), SessionStatus: 'ended' }),
-    ).toEqual({ status: 200, body: EMPTY_TWIML });
-  }, 120_000);
+  test.each(['/voice/webhook', '/voice/action', '/voice/relay'])(
+    'the retired route %s does not dispatch a call',
+    async (pathname) => {
+      expect((await twilioPost(pathname, call('CAremoved'))).status).toBe(404);
+    },
+  );
 
   test('a relay call streams the agent reply and rejects forged or replayed webhooks', async () => {
     const callSid = `CA${Date.now()}`;
@@ -731,7 +704,7 @@ describe.skipIf(!RUN)('twilio-voice plugin on a real gateway', () => {
     expect(answer.body).toContain('<Stream');
   }, 120_000);
 
-  test('a twilio-voice plugin that fails to load is named at startup', async () => {
+  test('a twilio-voice plugin that fails to load stays inactive', async () => {
     await stopGateway();
     const broken = path.join(root, 'broken-twilio-voice');
     fs.mkdirSync(broken, { recursive: true });
@@ -750,12 +723,6 @@ describe.skipIf(!RUN)('twilio-voice plugin on a real gateway', () => {
     });
     await startGateway();
 
-    await waitFor(
-      () =>
-        currentRunLog().includes('the twilio-voice plugin failed to load') &&
-        currentRunLog().includes(INSTALL_HINT),
-      'the failed-load warning',
-    );
     await waitFor(() => startupVoiceChannel() !== undefined, 'the channel log');
     expect(startupVoiceChannel()).toBe(false);
     expect(await voiceStatus()).toMatchObject({ pluginLoaded: false });

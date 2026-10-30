@@ -12,6 +12,8 @@ import {
   type MessageEmailDraft,
   normalizeEmailDraft,
 } from '#shared/email-draft.js';
+import { setMessageEmailDraft } from '../memory/db.js';
+import { recordTrackedDraft } from '../tracking/follow-through.js';
 import type { ToolExecution } from '../types/execution.js';
 
 /** The last draft the turn showed; one per reply. */
@@ -51,4 +53,14 @@ export function replyWithEmailDraft(
       ...(options.proactive ? { proactive: true as const } : {}),
     },
   };
+}
+
+/** Persist the card, then attach the exact stored message to its tracked item. */
+export function storeEmailDraft(
+  sessionId: string,
+  messageId: number,
+  draft: MessageEmailDraft,
+): void {
+  setMessageEmailDraft(messageId, draft);
+  recordTrackedDraft(sessionId, messageId);
 }

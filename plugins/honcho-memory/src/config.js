@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { toTrimmedString } from '@hybridaione/hybridclaw/plugin-sdk';
 import {
   HONCHO_CONFIG_BOOLEAN_DEFAULTS,
   HONCHO_CONFIG_NUMBER_FIELDS,
@@ -12,7 +13,6 @@ import {
   HONCHO_WRITE_FREQUENCY_DEFAULT,
   HONCHO_WRITE_FREQUENCY_MODES,
 } from './config-schema.js';
-import { normalizeString } from './utils.js';
 
 const RECALL_MODES = new Set(HONCHO_RECALL_MODES);
 const SESSION_STRATEGIES = new Set(HONCHO_SESSION_STRATEGIES);
@@ -55,7 +55,7 @@ function normalizeBoolean(value, fallback) {
 }
 
 function normalizeEnum(value, allowed, fallback, key) {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = toTrimmedString(value).toLowerCase();
   if (!normalized) return fallback;
   if (!allowed.has(normalized)) {
     throw new Error(
@@ -66,7 +66,7 @@ function normalizeEnum(value, allowed, fallback, key) {
 }
 
 function normalizeReasoningLevel(value, fallback, key) {
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = toTrimmedString(value).toLowerCase();
   if (!normalized) return fallback;
   if (!REASONING_LEVELS.includes(normalized)) {
     throw new Error(
@@ -86,7 +86,7 @@ function normalizeWriteFrequency(value) {
     }
     return nextValue;
   }
-  const normalized = normalizeString(value).toLowerCase();
+  const normalized = toTrimmedString(value).toLowerCase();
   if (!normalized) return HONCHO_WRITE_FREQUENCY_DEFAULT;
   if (HONCHO_WRITE_FREQUENCY_MODES.includes(normalized)) {
     return normalized;
@@ -98,7 +98,7 @@ function normalizeWriteFrequency(value) {
 
 function normalizeBaseUrl(value) {
   const normalized =
-    normalizeString(value) || HONCHO_CONFIG_STRING_DEFAULTS.baseUrl;
+    toTrimmedString(value) || HONCHO_CONFIG_STRING_DEFAULTS.baseUrl;
   try {
     new URL(normalized);
   } catch {
@@ -124,8 +124,8 @@ function normalizeSessionsMap(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const result = {};
   for (const [rawKey, rawValue] of Object.entries(value)) {
-    const key = normalizeString(rawKey);
-    const mapped = normalizeString(rawValue);
+    const key = toTrimmedString(rawKey);
+    const mapped = toTrimmedString(rawValue);
     if (!key || !mapped) continue;
     result[key] = mapped;
   }
@@ -196,7 +196,7 @@ function normalizeObservationConfig(pluginConfig) {
 export function resolveHonchoPluginConfig(params) {
   const pluginConfig = params?.pluginConfig || {};
   const runtime = params?.runtime || {};
-  const credentialApiKey = normalizeString(params?.credentialApiKey);
+  const credentialApiKey = toTrimmedString(params?.credentialApiKey);
   const {
     observationMode,
     userObserveMe,
@@ -213,13 +213,13 @@ export function resolveHonchoPluginConfig(params) {
     baseUrl: normalizeBaseUrl(pluginConfig?.baseUrl),
     apiKey: credentialApiKey,
     workspaceId:
-      normalizeString(pluginConfig?.workspaceId) ||
+      toTrimmedString(pluginConfig?.workspaceId) ||
       defaultWorkspaceId(runtime.cwd),
     peerName:
-      normalizeString(pluginConfig?.peerName) ||
+      toTrimmedString(pluginConfig?.peerName) ||
       HONCHO_CONFIG_STRING_DEFAULTS.peerName,
     aiPeer:
-      normalizeString(pluginConfig?.aiPeer) ||
+      toTrimmedString(pluginConfig?.aiPeer) ||
       HONCHO_CONFIG_STRING_DEFAULTS.aiPeer,
     contextTokens: normalizeInteger(
       pluginConfig?.contextTokens,
@@ -352,7 +352,7 @@ export function resolveHonchoPluginConfig(params) {
 
 export function resolveHonchoSessionKey(params) {
   const config = params.config;
-  const runtimeCwd = normalizeString(params.cwd);
+  const runtimeCwd = toTrimmedString(params.cwd);
   const currentPath = runtimeCwd || process.cwd();
   const manualSession = config.sessions[currentPath];
   if (manualSession) {
@@ -364,7 +364,7 @@ export function resolveHonchoSessionKey(params) {
   }
 
   if (config.sessionStrategy === 'per-session') {
-    const platformSessionId = normalizeString(params.platformSessionId);
+    const platformSessionId = toTrimmedString(params.platformSessionId);
     if (platformSessionId) {
       return applySessionPeerPrefix(config, platformSessionId);
     }
@@ -384,16 +384,16 @@ export function resolveHonchoSessionKey(params) {
     );
   }
 
-  const platformSessionId = normalizeString(params.platformSessionId);
+  const platformSessionId = toTrimmedString(params.platformSessionId);
   return applySessionPeerPrefix(config, platformSessionId || 'session');
 }
 
 function applySessionPeerPrefix(config, sessionKey) {
-  const normalized = normalizeString(sessionKey);
+  const normalized = toTrimmedString(sessionKey);
   if (!normalized) return 'session';
   if (!config.sessionPeerPrefix) return normalized;
   const prefix =
-    normalizeString(config.peerName) || normalizeString(config.aiPeer) || '';
+    toTrimmedString(config.peerName) || toTrimmedString(config.aiPeer) || '';
   if (!prefix) return normalized;
   return `${prefix}-${normalized}`;
 }
@@ -448,7 +448,7 @@ export function dynamicReasoningLevel(config, query, floorOverride) {
 }
 
 function capReasoningLevel(level, cap) {
-  const normalizedCap = normalizeString(cap).toLowerCase();
+  const normalizedCap = toTrimmedString(cap).toLowerCase();
   if (!normalizedCap) return level;
   const levelIndex = REASONING_LEVELS.indexOf(level);
   const capIndex = REASONING_LEVELS.indexOf(normalizedCap);

@@ -8,6 +8,7 @@
  */
 import { normalizeEmailDraft } from '#shared/email-draft.js';
 import type { ToolDefinition } from '../types.js';
+import { type GatewayToolTarget, postGatewayTool } from './gateway-tool.js';
 
 export const DRAFT_EMAIL_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -18,6 +19,11 @@ export const DRAFT_EMAIL_TOOL_DEFINITION: ToolDefinition = {
     parameters: {
       type: 'object',
       properties: {
+        track_id: {
+          type: 'number',
+          description:
+            'Existing tracked item id for this continuing work; attaches the stored draft to its shared review.',
+        },
         from: {
           type: 'string',
           description:
@@ -61,4 +67,20 @@ export function runDraftEmailTool(args: Record<string, unknown>): {
     ok: true,
     text: 'The user sees the draft as an email card with Send and Discard. Nothing was sent. Say in one short sentence what you drafted; do not repeat it.',
   };
+}
+
+/** Validate the association with the authenticated gateway before showing a card. */
+export async function runTrackedDraftEmailTool(
+  args: Record<string, unknown>,
+  gateway: GatewayToolTarget,
+): Promise<{ ok: boolean; text: string }> {
+  const answer = runDraftEmailTool(args);
+  if (!answer.ok || args.track_id === undefined) return answer;
+  const linked = await postGatewayTool(
+    '/api/track',
+    'goals',
+    { action: 'validate_draft', id: args.track_id },
+    gateway,
+  );
+  return linked.ok ? answer : linked;
 }

@@ -10,12 +10,15 @@ import {
   readUserNames,
   writeUserPreferredName,
 } from '../workspace.js';
-import { badCommand, plainCommand } from './gateway-command-results.js';
+import {
+  badCommand,
+  chatSafeJson,
+  plainCommand,
+} from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 const USAGE =
   'Usage: `/name` shows what the agent calls you, `/name set <name>` changes it, `/name clear` removes it. Add `--json` for a machine-readable answer.';

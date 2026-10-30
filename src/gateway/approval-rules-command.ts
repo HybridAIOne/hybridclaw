@@ -25,11 +25,11 @@ import { writeFileAtomic } from '#shared/atomic-write.js';
 import { APPROVALS_RULES_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type { Session } from '../types/session.js';
+import { chatSafeJson } from './gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
-import { chatSafeJson } from './schedule-command.js';
 
 export interface ApprovalRuleEntry {
   actionKey: string;

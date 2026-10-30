@@ -51,6 +51,19 @@ test.each(['Bitte sende den Entwurf.', 'Sí, envíalo.', '送信してくださ�
   expect(proposed().decision).toBe('required');
 });
 
+test('a draft answer drops the send and replays a save-as-draft prompt in one turn', async () => {
+  const pending = proposed();
+  const result = await reply(`draft ${pending.requestId}\n{"subject":"Re: Friday"}`);
+  expect(model).not.toHaveBeenCalled();
+  expect(result?.approvedToolCall).toBeUndefined();
+  expect(result?.immediateMessage).toBeUndefined();
+  expect(result?.replayPrompt).toContain('Do not send this email');
+  expect(result?.replayPrompt).toContain(argsJson);
+  expect(result?.replayPrompt).toContain('"subject":"Re: Friday"');
+  expect(runtime.getPendingApprovals()).toEqual([]);
+  expect(proposed().decision).toBe('required');
+});
+
 test('session consent survives worker replacement and stays in its session', async () => {
   const pending = proposed();
   answer(pending.requestId!, 'approve', 'session');

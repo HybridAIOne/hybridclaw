@@ -11,6 +11,7 @@
  * allowed call needs a human); this module only decides whether the tool is
  * offered to the model at all.
  */
+import { compileToolPatterns } from '#shared/tool-patterns.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import {
   getRuntimeConfig,
@@ -33,7 +34,8 @@ export function mergeBlockedToolNames(params?: {
 
 /**
  * Intersect the caller's allowlist with the agent's configured tool
- * allowlist. Returns undefined when neither restricts the toolset.
+ * allowlist. Returns undefined when neither restricts the toolset. Agent
+ * entries may be patterns (`sentry__*`); callers name tools exactly.
  */
 export function mergeAllowedToolNames(params: {
   agentId?: string | null;
@@ -46,6 +48,5 @@ export function mergeAllowedToolNames(params: {
   if (!Array.isArray(configured)) return explicit ?? undefined;
   const agentAllowed = [...normalizeTrimmedStringSet(configured)];
   if (!explicit) return agentAllowed;
-  const explicitSet = new Set(explicit);
-  return agentAllowed.filter((name) => explicitSet.has(name));
+  return explicit.filter(compileToolPatterns(agentAllowed));
 }

@@ -5,6 +5,6 @@
   "type": "module",
   "description": "HybridClaw memory plugin for ByteRover CLI recall and curation",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   }
 }

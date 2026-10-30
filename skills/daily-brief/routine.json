@@ -1,0 +1,4 @@
+{
+  "title": "Daily brief",
+  "prompt": "Read skills/daily-brief/SKILL.md and produce the requested daily brief using its rules."
+}

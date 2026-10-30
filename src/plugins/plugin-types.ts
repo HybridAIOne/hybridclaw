@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import type { ApprovalReplyContext } from '#shared/approval-reply.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,
@@ -519,7 +520,8 @@ export interface PluginInboundProactiveMessage {
 }
 
 export interface PluginDispatchInboundMessageRequest
-  extends ApprovalReplyContext {
+  extends ApprovalReplyContext,
+    ToolCallLimits {
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
@@ -761,6 +763,11 @@ export interface HybridClawPluginApi {
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
   getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
+  /**
+   * A request without `provider` whose `model` has a `provider/` prefix is
+   * pinned to that provider, so a failure throws instead of falling back to
+   * another provider. A bare model id or no model keeps automatic fallback.
+   */
   callAuxiliaryModel(
     request: PluginAuxiliaryModelRequest,
   ): Promise<PluginAuxiliaryModelResult>;

@@ -4,6 +4,7 @@
   perSystem =
     { pkgs, ... }:
     let
+      nodejs = import ./nodejs.nix { inherit pkgs; };
       packageJson = builtins.fromJSON (builtins.readFile ../package.json);
 
       # Keep the source tree lean — strip the heavy stuff so every edit
@@ -35,7 +36,7 @@
       # Docker is looked up dynamically at runtime (not baked in) because
       # the sandbox mode is configurable and some deployments run without it.
       runtimeDeps = with pkgs; [
-        nodejs_22
+        nodejs
         git
         ripgrep
         openssh
@@ -43,7 +44,7 @@
 
       runtimePath = pkgs.lib.makeBinPath runtimeDeps;
 
-      hybridclaw = pkgs.buildNpmPackage {
+      hybridclaw = (pkgs.buildNpmPackage.override { inherit nodejs; }) {
         pname = "hybridclaw";
         version = packageJson.version;
 
@@ -86,7 +87,7 @@
         #     already installed. Running it would try to hit the network.
         #   - prepare runs husky, which needs .git and isn't useful here.
         postPatch = ''
-          ${pkgs.nodejs_22}/bin/node -e '
+          ${nodejs}/bin/node -e '
             const fs = require("node:fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf-8"));
             delete pkg.scripts.postinstall;
@@ -97,7 +98,7 @@
 
         # buildNpmPackage defaults to `npm run build`, which runs:
         #   prebuild:   npm run build:console  (vite build)
-        #   build:      npm --prefix container run build && tsc && chmod +x dist/cli.js
+        #   build:      npm --prefix container run build && node scripts/bundle-gateway.mjs && tsc
         # That is what we want.
 
         # Prune devDeps and testing-only stuff before the install phase copies
@@ -151,7 +152,7 @@
           # that injects Node + runtime tools.
           chmod +x "$INSTALL_DIR/dist/cli.js"
 
-          makeWrapper ${pkgs.nodejs_22}/bin/node "$out/bin/hybridclaw" \
+          makeWrapper ${nodejs}/bin/node "$out/bin/hybridclaw" \
             --add-flags "$INSTALL_DIR/dist/cli.js" \
             --suffix PATH : "${runtimePath}"
 

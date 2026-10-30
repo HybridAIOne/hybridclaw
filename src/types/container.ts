@@ -6,6 +6,7 @@ import type {
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import type { WebSearchConfig } from '#shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
@@ -52,7 +53,8 @@ export interface AddressEnvelope {
 
 export interface ContainerInput
   extends SessionAttachmentAccess,
-    ApprovalReplyContext {
+    ApprovalReplyContext,
+    ToolCallLimits {
   healthCheck?: {
     nonce: string;
   };

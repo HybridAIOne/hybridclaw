@@ -1,10 +1,9 @@
-import path from 'node:path';
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const DEFAULT_SEARCH_MODE = 'query';
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -13,24 +12,14 @@ function normalizeValidatedInteger(value, key) {
   return Math.trunc(value);
 }
 
-function resolveRuntimePath(value, runtime) {
-  const normalized = normalizeString(value);
-  if (!normalized) return '';
-  if (normalized === '~') return runtime.homeDir;
-  if (normalized.startsWith('~/')) {
-    return path.join(runtime.homeDir, normalized.slice(2));
-  }
-  if (path.isAbsolute(normalized)) return normalized;
-  return path.resolve(runtime.cwd, normalized);
-}
-
 export function resolveGbrainPluginConfig(pluginConfig, runtime) {
-  const searchMode = normalizeString(pluginConfig?.searchMode).toLowerCase();
+  const searchMode = readString(pluginConfig?.searchMode).toLowerCase();
   const workingDirectory =
-    resolveRuntimePath(pluginConfig?.workingDirectory, runtime) || runtime.cwd;
+    resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
+    runtime.cwd;
 
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'gbrain',
+    command: readString(pluginConfig?.command) || 'gbrain',
     workingDirectory,
     searchMode: searchMode === 'search' ? 'search' : DEFAULT_SEARCH_MODE,
     maxResults: normalizeValidatedInteger(

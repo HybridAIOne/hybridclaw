@@ -17,6 +17,11 @@ export const TRACK_TOOL_DEFINITION: ToolDefinition = {
     description:
       'Keep the user’s goals ("sleep through the night", "run a half marathon") and what you track for them ("airline refund", "ticket prices for the Boston trip"). Each item has a one-line status that the user sees on their Goals page. Actions:\n' +
       '- "list": every item with its status, saved results, steps and check-ins\n' +
+      '- "get": read item "id" with its revision, reviews, linked evidence and runs\n' +
+      '- "contract": define acceptance checks and dependency item ids before preparation; after verification starts only the user can change checks\n' +
+      '- "verify": gateway checks actual artifacts and confirmed receipts; failed checks allow two repair attempts with changed evidence\n' +
+      '- "state": set phase (in_progress, needs_you, waiting or blocked) and a factual reason, using the current revision and a unique request_id\n' +
+      '- "link": attach a reference to an existing message, work record or action receipt, using revision and request_id; a stored email draft creates one shared review\n' +
       '- "add": needs "title"; optional "kind", "outcome", "status", "every", "at", "tz"\n' +
       '- "status": set "status" of item "id" to where it stands now\n' +
       '- "result": attach prepared work to item "id" with "title", "summary" and a workspace-relative "path"; saves a dated copy that later edits cannot change\n' +
@@ -24,14 +29,50 @@ export const TRACK_TOOL_DEFINITION: ToolDefinition = {
       '- "add_step" ("step"), "step_done" / "step_undo" / "remove_step" ("step_id"): the plan\n' +
       '- "done" / "undo": the outcome is reached, or not after all\n' +
       '- "remove": delete item "id"\n' +
-      'Add an item when the user says what they want to reach or asks you to keep an eye on something. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own, or the user asks you to check in; leave it out when the user drives it. After preparing useful work toward a goal, save it with "result" and link to the returned saved path in your reply. Never attach missing files or claim that a draft was sent. A goal’s check-in writes to the user every time, a tracked item’s only when there is news; it is the only check-in the item needs, so add no cron task for it.',
+      'Add an item for substantial delegated work, a stated goal, or an explicit tracking request; not for a factual question. Tracking alone schedules nothing. Promise another check only when the item has an actual enabled check-in. For delegated deliverables, define acceptance checks before preparation and call verify afterward. Read job.next_gate and attempts_remaining; stop repair when exhausted, blocked by dependencies or ready for review. Never weaken checks to make a failed job pass. Use get before changing structured state; a stale revision requires a fresh read. Reuse a request_id only when retrying exactly the same change. An approved draft is a recorded decision, not a sent message or standing permission to send; only a fresh user instruction goes through the usual action approval. Never automatically resend after an uncertain result. Link recorded receipts from later foreground turns to the original item. The user confirms completion; a saved file, finished run or confirmed send alone does not establish an external outcome. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own, or the user asks you to check in; leave it out when the user drives it. When preparing an email for a tracked item, give draft_email its track_id so the exact stored reply gets one shared review. After preparing useful work toward a goal, save it with "result" and link to the returned saved path in your reply. Never attach missing files or claim that a draft was sent. A goal’s check-in writes to the user every time, a tracked item’s only when there is news; it is the only check-in the item needs, so add no cron task for it.',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
           description:
-            '"list", "add", "status", "result", "edit", "add_step", "step_done", "step_undo", "remove_step", "done", "undo" or "remove"',
+            '"list", "get", "state", "link", "add", "status", "result", "edit", "add_step", "step_done", "step_undo", "remove_step", "done", "undo" or "remove"',
+        },
+        checks: {
+          type: 'array',
+          items: { type: 'object' },
+          description:
+            'Acceptance checks with unique id and title. Artifact: {kind:"artifact",path:workspaceRelativePath,format:"file"|"text"|"json",required:[]}; text checks require literal fragments, JSON checks require non-null top-level fields, files must be nonempty and at most 1 MiB. Receipt: {kind:"receipt",reference:{kind:"receipt",session_id,receipt_id}}; only a confirmed action passes. Checks verify their stated conditions, not general correctness.',
+        },
+        dependencies: {
+          type: 'array',
+          items: { type: 'number' },
+          description:
+            'Accessible tracked item ids that must be complete before this outcome can be confirmed.',
+        },
+        revision: {
+          type: 'number',
+          description:
+            'Current item revision from get, required for state, link, contract and verify',
+        },
+        request_id: {
+          type: 'string',
+          description: 'Unique retry identity for this exact change',
+        },
+        phase: {
+          type: 'string',
+          description:
+            'in_progress, needs_you, waiting or blocked; never implies a running worker',
+        },
+        reason: {
+          type: 'string',
+          description:
+            'Factual update, at most 200 characters; for waiting, say what evidence or response is expected',
+        },
+        reference: {
+          type: 'object',
+          description:
+            'Existing evidence: {kind: "message", session_id, message_id}, {kind: "work", work_id}, or {kind: "receipt", session_id, receipt_id}. IDs are references, not permissions.',
         },
         id: { type: 'number', description: 'Item id, from "list"' },
         title: {

@@ -85,6 +85,7 @@ export function approvalReplyContext(
     isGoalContinuationSource(req.source);
   return {
     approvalUserId: req.userId,
+    ...(req.approvalUserIsBot ? { approvalUserIsBot: true } : {}),
     approvalUserText: autonomous
       ? null
       : req.approvalUserText === undefined

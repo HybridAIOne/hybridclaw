@@ -1,8 +1,10 @@
 import type { McpServerConfig } from '#shared/mcp-server-config.js';
+import type { LocalBackendType } from '#shared/provider-ids.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
   GatewayAdminStatisticsChannelRow,
+  GatewayAdminModelsResponse as RuntimeAdminModelsResponse,
   GatewayStatus as RuntimeGatewayStatus,
 } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
@@ -1002,7 +1004,7 @@ export interface ChatModel {
   zone?: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   /** Latest local discovery result; absent when discovery status is unknown. */
   discovered?: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
+  backend: LocalBackendType | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
@@ -1034,34 +1036,7 @@ export interface AdminModelCatalogEntry extends ChatModel {
 
 export interface AdminModelsResponse {
   defaultModel: string;
-  auxiliaryModels?: {
-    skillsHub: {
-      provider:
-        | 'auto'
-        | 'disabled'
-        | 'hybridai'
-        | 'openai-codex'
-        | 'anthropic'
-        | 'openrouter'
-        | 'mistral'
-        | 'huggingface'
-        | 'gemini'
-        | 'deepseek'
-        | 'xai'
-        | 'zai'
-        | 'kimi'
-        | 'minimax'
-        | 'dashscope'
-        | 'xiaomi'
-        | 'kilo'
-        | 'ollama'
-        | 'lmstudio'
-        | 'llamacpp'
-        | 'vllm'
-        | 'mlx';
-      model: string | null;
-    };
-  };
+  auxiliaryModels?: RuntimeAdminModelsResponse['auxiliaryModels'];
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }

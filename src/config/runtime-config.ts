@@ -107,6 +107,7 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import {
   DEFAULT_ROUTING_EVALUATOR,
   normalizeRoutingEvaluator,
@@ -147,8 +148,6 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
-import { migrateLegacyBrowserPluginConfig } from './legacy-browser-plugin-migration.js';
-import { withLegacyTwilioVoicePlugin } from './legacy-twilio-voice.js';
 import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
@@ -1278,7 +1277,6 @@ export interface RuntimeConfig {
     baseUrl: string;
     ingestPath: string;
     statusPath: string;
-    botId: string;
     label: string;
     environment: string;
     flushIntervalMs: number;
@@ -1408,35 +1406,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5.2',
   'openai-codex/gpt-5.1-codex-mini',
 ] as const;
-const DEFAULT_OPENAI_MODEL_LIST = [
-  'openai/gpt-5.6-sol',
-  'openai/gpt-5.6-terra',
-  'openai/gpt-5.6-luna',
-] as const;
-const DEFAULT_ANTHROPIC_MODEL_LIST = ['anthropic/claude-sonnet-4-6'] as const;
 const DEFAULT_ANTHROPIC_METHOD: AnthropicMethod = 'api-key';
-const DEFAULT_OPENROUTER_MODEL_LIST = [
-  'openrouter/anthropic/claude-sonnet-4',
-] as const;
-const DEFAULT_MISTRAL_MODEL_LIST = ['mistral/mistral-large-latest'] as const;
-const DEFAULT_HUGGINGFACE_MODEL_LIST = [
-  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-] as const;
-const DEFAULT_GEMINI_MODEL_LIST = [
-  'gemini/gemini-2.5-pro',
-  'gemini/gemini-2.5-flash',
-] as const;
-const DEFAULT_DEEPSEEK_MODEL_LIST = [
-  'deepseek/deepseek-chat',
-  'deepseek/deepseek-reasoner',
-] as const;
-const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
-const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5.1'] as const;
-const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
-const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
-const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
-const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
-const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
   { href: '/chat', label: 'Chat', icon: 'chat' },
   { href: '/admin/agents', label: 'Agents', icon: 'agents' },
@@ -1800,7 +1770,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     accounts: [],
   },
   hybridai: {
-    baseUrl: 'https://hybridai.one',
+    baseUrl: PROVIDER_META.hybridai.defaultBaseUrl,
     defaultModel: DEFAULT_HYBRIDAI_MODEL,
     onboardingModel: DEFAULT_HYBRIDAI_ONBOARDING_MODEL,
     defaultChatbotId: '',
@@ -1817,74 +1787,74 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   openai: {
     enabled: false,
-    baseUrl: 'https://api.openai.com/v1',
-    models: [...DEFAULT_OPENAI_MODEL_LIST],
+    baseUrl: PROVIDER_META.openai.defaultBaseUrl,
+    models: [...PROVIDER_META.openai.defaultModels],
   },
   anthropic: {
     enabled: false,
-    baseUrl: 'https://api.anthropic.com/v1',
+    baseUrl: PROVIDER_META.anthropic.defaultBaseUrl,
     method: DEFAULT_ANTHROPIC_METHOD,
-    models: [...DEFAULT_ANTHROPIC_MODEL_LIST],
+    models: [...PROVIDER_META.anthropic.defaultModels],
   },
   openrouter: {
     enabled: false,
-    baseUrl: 'https://openrouter.ai/api/v1',
-    models: [...DEFAULT_OPENROUTER_MODEL_LIST],
+    baseUrl: PROVIDER_META.openrouter.defaultBaseUrl,
+    models: [...PROVIDER_META.openrouter.defaultModels],
   },
   mistral: {
     enabled: false,
-    baseUrl: 'https://api.mistral.ai/v1',
-    models: [...DEFAULT_MISTRAL_MODEL_LIST],
+    baseUrl: PROVIDER_META.mistral.defaultBaseUrl,
+    models: [...PROVIDER_META.mistral.defaultModels],
   },
   huggingface: {
     enabled: false,
-    baseUrl: 'https://router.huggingface.co/v1',
-    models: [...DEFAULT_HUGGINGFACE_MODEL_LIST],
+    baseUrl: PROVIDER_META.huggingface.defaultBaseUrl,
+    models: [...PROVIDER_META.huggingface.defaultModels],
   },
   gemini: {
     enabled: false,
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    models: [...DEFAULT_GEMINI_MODEL_LIST],
+    baseUrl: PROVIDER_META.gemini.defaultBaseUrl,
+    models: [...PROVIDER_META.gemini.defaultModels],
   },
   deepseek: {
     enabled: false,
-    baseUrl: 'https://api.deepseek.com/v1',
-    models: [...DEFAULT_DEEPSEEK_MODEL_LIST],
+    baseUrl: PROVIDER_META.deepseek.defaultBaseUrl,
+    models: [...PROVIDER_META.deepseek.defaultModels],
   },
   xai: {
     enabled: false,
-    baseUrl: 'https://api.x.ai/v1',
-    models: [...DEFAULT_XAI_MODEL_LIST],
+    baseUrl: PROVIDER_META.xai.defaultBaseUrl,
+    models: [...PROVIDER_META.xai.defaultModels],
   },
   zai: {
     enabled: false,
-    baseUrl: 'https://api.z.ai/api/paas/v4',
-    models: [...DEFAULT_ZAI_MODEL_LIST],
+    baseUrl: PROVIDER_META.zai.defaultBaseUrl,
+    models: [...PROVIDER_META.zai.defaultModels],
   },
   kimi: {
     enabled: false,
-    baseUrl: 'https://api.moonshot.ai/v1',
-    models: [...DEFAULT_KIMI_MODEL_LIST],
+    baseUrl: PROVIDER_META.kimi.defaultBaseUrl,
+    models: [...PROVIDER_META.kimi.defaultModels],
   },
   minimax: {
     enabled: false,
-    baseUrl: 'https://api.minimax.io/v1',
-    models: [...DEFAULT_MINIMAX_MODEL_LIST],
+    baseUrl: PROVIDER_META.minimax.defaultBaseUrl,
+    models: [...PROVIDER_META.minimax.defaultModels],
   },
   dashscope: {
     enabled: false,
-    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    models: [...DEFAULT_DASHSCOPE_MODEL_LIST],
+    baseUrl: PROVIDER_META.dashscope.defaultBaseUrl,
+    models: [...PROVIDER_META.dashscope.defaultModels],
   },
   xiaomi: {
     enabled: false,
-    baseUrl: 'https://api.xiaomimimo.com/v1',
-    models: [...DEFAULT_XIAOMI_MODEL_LIST],
+    baseUrl: PROVIDER_META.xiaomi.defaultBaseUrl,
+    models: [...PROVIDER_META.xiaomi.defaultModels],
   },
   kilo: {
     enabled: false,
-    baseUrl: 'https://api.kilo.ai/api/gateway',
-    models: [...DEFAULT_KILO_MODEL_LIST],
+    baseUrl: PROVIDER_META.kilo.defaultBaseUrl,
+    models: [...PROVIDER_META.kilo.defaultModels],
   },
   local: {
     backends: {
@@ -2089,7 +2059,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     baseUrl: 'https://hybridai.one',
     ingestPath: '/api/v1/agent-observability/events:batch',
     statusPath: '/api/v1/agent-observability/status',
-    botId: '',
     label: '',
     environment: 'prod',
     flushIntervalMs: 10_000,
@@ -7074,16 +7043,10 @@ function normalizeRuntimeConfig(
       rawChannelInstructions,
       DEFAULT_RUNTIME_CONFIG.channelInstructions,
     ),
-    plugins: withLegacyTwilioVoicePlugin(
-      normalizeRuntimePluginsConfig(
-        migrateLegacyBrowserPluginConfig(rawBrowser, rawPlugins),
-        DEFAULT_RUNTIME_CONFIG.plugins,
-        modelRouting.enabled,
-      ),
-      {
-        version: sourceVersion,
-        voiceEnabled: normalizeBoolean(rawVoice.enabled, false),
-      },
+    plugins: normalizeRuntimePluginsConfig(
+      rawPlugins,
+      DEFAULT_RUNTIME_CONFIG.plugins,
+      modelRouting.enabled,
     ),
     adaptiveSkills: {
       enabled: normalizeBoolean(
@@ -7968,9 +7931,6 @@ function normalizeRuntimeConfig(
         rawObservability.statusPath,
         DEFAULT_RUNTIME_CONFIG.observability.statusPath,
       ),
-      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, {
-        allowEmpty: true,
-      }),
       label: normalizeString(
         rawObservability.label,
         DEFAULT_RUNTIME_CONFIG.observability.label,

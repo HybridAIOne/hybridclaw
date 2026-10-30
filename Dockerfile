@@ -1,9 +1,9 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-# Runs on the build host's own architecture: tsc and vite emit
+# Runs on the build host's own architecture: esbuild and vite emit
 # platform-independent JS, and compiling it under QEMU for arm64 took ~13 of
 # the ~17 minutes of a main build (2026-10-01). Install scripts are skipped
 # because nothing here loads a native addon; those come from `deps` below.
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS builder
+FROM --platform=$BUILDPLATFORM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,6 @@ RUN npm --prefix container ci --ignore-scripts
 
 COPY . .
 RUN npm run build:console
-RUN npx tsc -b && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
 RUN node scripts/bundle-gateway.mjs
 RUN npm --prefix container run build
 
@@ -25,7 +24,7 @@ RUN npm --prefix container run build
 # Runs per target platform, so better-sqlite3 and node-pty get native addons
 # for the image's architecture. Depends only on the lockfiles, so a source
 # change reuses it from cache.
-FROM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS deps
+FROM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS deps
 
 # better-sqlite3 requires native compilation; node-pty may fall back to it
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -61,7 +60,7 @@ RUN npm prune --omit=dev \
        container/node_modules/.package-lock.json
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:22-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS runtime
+FROM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3fe3e96fd04929e70792762b3319d8caadbbe229bc AS runtime
 
 ARG TARGETARCH
 # 0.14.7 (maintainer diagnosis, 2026-08-23): Signal rejects 0.14.2's final
@@ -153,9 +152,8 @@ COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
 # The image uses the gateway bundle for every CLI consumer, including the
-# package bin and embedded terminal, which both resolve dist/cli.js. Do not
-# ship plain tsc output: its relative imports still need container/shared.
-COPY --link --from=builder /app/bundle ./dist
+# package bin and embedded terminal, which both resolve dist/cli.js.
+COPY --link --from=builder /app/dist ./dist
 COPY --link --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode)

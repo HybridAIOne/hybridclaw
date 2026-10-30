@@ -18,10 +18,10 @@ in HybridClaw. Read it before any code change.
 ## 1) Project Snapshot
 
 HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
-Enterprise-grade Node.js 22 application with gateway service, TUI client, and
+Enterprise-grade Node.js >=22.23.4 <23 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.40.8 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.41.5 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -220,7 +220,7 @@ should verify no broken references.
 
 ### Prerequisites
 
-- Node.js 22 (matches CI and the `engines` field)
+- Node.js `>=22.23.4 <23` (matches CI and the `engines` field)
 - npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
   pin (`npm@11.10.0`). Contributors need this version because npm's
   `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
@@ -232,7 +232,7 @@ should verify no broken references.
 ```bash
 npm install                          # install deps + Husky hooks
 npm run setup                        # install container/ and container/tools/ deps
-npm run build                        # compile root + container TypeScript
+npm run build                        # bundle gateway + agent runtime (esbuild), emit .d.ts
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # tsc --noEmit with unused detection
 npm run check                        # biome check src
@@ -440,14 +440,18 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. If the provider speaks the OpenAI-compatible API, add it to the generic
-   tables (`OPENAI_COMPAT_PROVIDER_IDS` in `src/providers/provider-ids.ts`,
-   `OPENAI_COMPAT_REMOTE_PROVIDERS` in `src/providers/openai-compat-remote.ts`)
-   instead of writing a module. Otherwise create `src/providers/<name>.ts`
-   implementing the provider interface and register it in the provider factory.
-2. Add config in `src/config/` only for credentials or endpoints the tables
-   can't express. A provider id is still hand-copied into about ten files; do
-   not add another copy, and fold the ones you touch into the tables (§3.3).
+1. Add the id to `container/shared/src/provider-ids.ts` (the one id list;
+   OpenAI-compatible remote providers go in
+   `OPENAI_COMPAT_REMOTE_PROVIDER_IDS`) and its label, secret key, env vars,
+   and defaults to `PROVIDER_META` in `src/providers/provider-meta.ts`. Unions,
+   prefixes, slash choices, and console pages derive from these two.
+2. Run `npm run typecheck`. Per-provider tables are typed over the id list,
+   so it fails until the provider has an entry in each: the factory map, the
+   compat-remote config readers (backed by `config.ts` exports and a
+   `RuntimeConfig` section with its normalizer), the generic auth login table,
+   the auth targets, the model-catalog switch, and the chat picker logos. A
+   provider that is not OpenAI-compatible also gets `src/providers/<name>.ts`.
+   Do not add a list of provider ids anywhere else (§3.3).
 3. Add tests for factory wiring, error paths, and config parsing.
 4. Update `docs/` if the provider is user-facing.
 

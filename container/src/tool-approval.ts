@@ -3,7 +3,8 @@
  * records a gated call reports, and the resolver that evaluates each call.
  * After shutdown starts, the resolver evaluates nothing, so a stopped turn's
  * late tool calls record no pending approval. NOT the policy
- * (`approval-policy.ts`).
+ * (`approval-policy.ts`). Display descriptions never reach that policy or its
+ * saved executable arguments.
  */
 
 import { approvalRuleFor } from '#shared/approval-rules.js';
@@ -51,14 +52,19 @@ export function buildPendingApproval(
   prompt: string,
   toolName: string,
   argsJson: string,
+  description?: string,
 ): PendingApproval {
   if (!approval.requestId) {
     throw new Error('Approval-required tool call is missing a request id.');
   }
+  const rule = approvalRuleFor(
+    approval.actionKey,
+    approval.pausedBy || 'risky',
+  );
   return {
     approvalId: approval.requestId,
     prompt,
-    intent: approval.intent,
+    intent: description || approval.intent,
     reason: approval.reason,
     approvalTier: approval.tier,
     toolName,
@@ -72,7 +78,7 @@ export function buildPendingApproval(
       Number.isFinite(approval.expiresAtMs)
         ? approval.expiresAtMs
         : null,
-    rule: approvalRuleFor(approval.actionKey, approval.pausedBy || 'risky'),
+    rule,
     ...(approval.escalationTarget
       ? { escalationTarget: approval.escalationTarget }
       : {}),
@@ -178,8 +184,7 @@ export function createToolApprovalResolver(params: {
     await haltIfShuttingDown();
     const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
-      toolName: input.toolName,
-      argsJson: input.argsJson,
+      ...input,
       latestUserPrompt: params.latestUserPrompt,
       channelId: params.channelId,
       escalationTarget: params.escalationTarget,
@@ -187,8 +192,7 @@ export function createToolApprovalResolver(params: {
     });
     const resolved = await resolveBorderlineAnomalyWithTraceJudge({
       evaluation,
-      toolName: input.toolName,
-      argsJson: input.argsJson,
+      ...input,
       latestUserPrompt: params.latestUserPrompt,
       taskModels: params.taskModels,
       fallbackContext: params.fallbackContext,
@@ -203,8 +207,7 @@ export function createToolApprovalResolver(params: {
         traceJudge,
       );
       evaluation = approvalRuntime.evaluateToolCall({
-        toolName: input.toolName,
-        argsJson: input.argsJson,
+        ...input,
         latestUserPrompt: params.latestUserPrompt,
         channelId: params.channelId,
         escalationTarget: params.escalationTarget,

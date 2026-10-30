@@ -8,13 +8,13 @@ import type {
   ContainerInput,
   ToolDefinition,
 } from '../types.js';
-import type { RuntimeProvider } from './provider-ids.js';
+import type { RuntimeProviderId } from './provider-ids.js';
 
-export type { RuntimeProvider } from './provider-ids.js';
+export type { RuntimeProviderId } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
   sessionId?: string;
-  provider: RuntimeProvider | undefined;
+  provider: RuntimeProviderId | undefined;
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;
@@ -158,7 +158,7 @@ export function summarizeHybridAICompletionForDebug(
 }
 
 export function logModelResponseDebug(params: {
-  provider: RuntimeProvider | undefined;
+  provider: RuntimeProviderId | undefined;
   model: string;
   kind:
     | 'raw_non_streaming_response'
@@ -190,7 +190,7 @@ export function emitModelResponseDebugFileText(text: string): void {
 
 export function logLastPrompt(params: {
   sessionId?: string;
-  provider: RuntimeProvider | undefined;
+  provider: RuntimeProviderId | undefined;
   model: string;
   kind: string;
   request: unknown;

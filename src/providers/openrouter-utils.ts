@@ -1,4 +1,6 @@
-export const OPENROUTER_MODEL_PREFIX = 'openrouter/';
+import { providerModelPrefix } from './provider-ids.js';
+
+export const OPENROUTER_MODEL_PREFIX = providerModelPrefix('openrouter');
 export const OPENROUTER_REFERER = 'https://github.com/hybridaione/hybridclaw';
 export const OPENROUTER_TITLE = 'HybridClaw';
 export const OPENROUTER_CATEGORIES = ['cli-agent', 'general-chat'] as const;

@@ -3,9 +3,13 @@
  * durable targets and reuse the runner's stored message; channel transports
  * retain their active-hours policy. This dispatcher does not own scheduling.
  */
+
 import { logger } from '../logger.js';
+import { getJob } from '../memory/jobs.js';
+import { savedEdition, saveEdition } from '../scheduler/routine-editions.js';
 import type { SchedulerDispatchRequest } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
 import { isHeartbeatOkText } from './proactive-delivery.js';
 import {
@@ -105,8 +109,10 @@ export async function runScheduledTask(
   // apart like `--reply-only`, so the side chat's history is not mixed into the
   // main chat and the run's turn does not land in the side chat.
   const mainChat =
-    request.source === 'scheduled-task' && resolvedDeliveryChannelId === 'web'
-      ? mainChatForWebTask(request.sessionId)
+    !request.routine &&
+    request.source === 'scheduled-task' &&
+    resolvedDeliveryChannelId === 'web'
+      ? mainChatForWebTask(request.sessionId, request.taskOwner?.userId)
       : null;
   const deliverySessionId = mainChat?.id ?? request.sessionId;
   const runChannelId =
@@ -121,77 +127,48 @@ export async function runScheduledTask(
 
   let runError: unknown = null;
   let reachedDelivery = false;
-  await runGatewayScheduledTask(
-    request.sessionId,
-    runChannelId,
-    request.prompt,
-    taskId,
-    async (result) => {
-      reachedDelivery = true;
-      if (request.delivery.kind === 'webhook') {
-        await deliverWebhookMessage(
-          request.delivery.webhookUrl,
-          result.text,
-          sourceLabel,
-          result.artifacts,
-        );
-        logger.info(
-          {
-            jobId: request.jobId,
-            taskId: request.taskId,
-            source: request.source,
-            delivery: 'webhook',
-            result: result.text,
-            artifactCount: result.artifacts?.length || 0,
-          },
-          'Scheduled task completed',
-        );
-        return;
-      }
-
-      if (!resolvedDeliveryChannelId) {
-        throw new Error(
-          'No delivery channel available for scheduled delivery.',
-        );
-      }
+  const managed = request.routine;
+  const deliver = async (result: ProactiveMessagePayload) => {
+    if (managed) {
+      const current = getJob(request.taskId!, { kind: 'scheduled_task' });
       if (
-        resolvedDeliveryChannelId === 'tui' &&
-        (result.artifacts?.length || 0) === 0 &&
-        isSchedulerNoopTuiResult(result.text)
-      ) {
-        logger.info(
-          {
-            jobId: request.jobId,
-            taskId: request.taskId,
-            source: request.source,
-            channelId: resolvedDeliveryChannelId,
-            result: result.text,
-          },
-          'Scheduled task completed without TUI delivery',
-        );
-        return;
-      }
-      const outcome =
-        resolvedDeliveryChannelId === 'web'
-          ? deliverWebScheduledMessage(
-              deliverySessionId,
-              result.text,
-              sourceLabel,
-              result.artifacts,
-              result.storedMessage,
-              result.workId,
-            )
-          : await deliverProactiveMessage(
-              resolvedDeliveryChannelId,
-              result.text,
-              sourceLabel,
-              result.artifacts,
-            );
-      if (outcome.status === 'failed') {
-        throw new Error(
-          `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
-        );
-      }
+        !current?.enabled ||
+        current.managed_key !== managed.key ||
+        current.managed_scope !== managed.scope
+      )
+        throw new Error('The routine was stopped before delivery.');
+    }
+    saveEdition(request.taskRunId, result);
+    reachedDelivery = true;
+    if (request.delivery.kind === 'webhook') {
+      await deliverWebhookMessage(
+        request.delivery.webhookUrl,
+        result.text,
+        sourceLabel,
+        result.artifacts,
+      );
+      logger.info(
+        {
+          jobId: request.jobId,
+          taskId: request.taskId,
+          source: request.source,
+          delivery: 'webhook',
+          result: result.text,
+          artifactCount: result.artifacts?.length || 0,
+        },
+        'Scheduled task completed',
+      );
+      return;
+    }
+
+    if (!resolvedDeliveryChannelId) {
+      throw new Error('No delivery channel available for scheduled delivery.');
+    }
+    if (
+      resolvedDeliveryChannelId === 'tui' &&
+      (result.artifacts?.length || 0) === 0 &&
+      isSchedulerNoopTuiResult(result.text)
+    ) {
       logger.info(
         {
           jobId: request.jobId,
@@ -199,11 +176,55 @@ export async function runScheduledTask(
           source: request.source,
           channelId: resolvedDeliveryChannelId,
           result: result.text,
-          artifactCount: result.artifacts?.length || 0,
         },
-        'Scheduled task completed',
+        'Scheduled task completed without TUI delivery',
       );
-    },
+      return;
+    }
+    const outcome =
+      resolvedDeliveryChannelId === 'web'
+        ? deliverWebScheduledMessage(
+            deliverySessionId,
+            result.text,
+            sourceLabel,
+            result.artifacts,
+            result.storedMessage,
+            result.workId,
+          )
+        : await deliverProactiveMessage(
+            resolvedDeliveryChannelId,
+            result.text,
+            sourceLabel,
+            result.artifacts,
+          );
+    if (outcome.status === 'failed') {
+      throw new Error(
+        `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
+      );
+    }
+    logger.info(
+      {
+        jobId: request.jobId,
+        taskId: request.taskId,
+        source: request.source,
+        channelId: resolvedDeliveryChannelId,
+        result: result.text,
+        artifactCount: result.artifacts?.length || 0,
+      },
+      'Scheduled task completed',
+    );
+  };
+  const saved = savedEdition(request.taskRunId);
+  if (saved) {
+    await deliver(saved);
+    return;
+  }
+  await runGatewayScheduledTask(
+    request.sessionId,
+    runChannelId,
+    request.prompt,
+    taskId,
+    deliver,
     (error) => {
       runError = error ?? new Error('Scheduled task failed.');
       logger.error(

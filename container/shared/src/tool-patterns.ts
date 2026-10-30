@@ -1,11 +1,12 @@
 /**
- * The request's `blockedTools` as one predicate. A plain entry blocks that
- * exact tool. An entry with `*` (any run of characters) blocks every tool it
- * matches, except those an entry starting with `!` matches: a scoped chat
- * sends `hybridai__*__*` plus `!hybridai__<service>__*` for each connector
- * service it may use, so a service nobody named stays blocked.
+ * A list of tool names and patterns as one predicate, for allowlists
+ * (`agents.list[].tools`) and block lists alike. A plain entry matches that
+ * exact tool. An entry with `*` (any run of characters) matches every tool it
+ * fits, except those an entry starting with `!` matches: a scoped chat blocks
+ * `hybridai__*__*` plus `!hybridai__<service>__*` for each connector service
+ * it may use, so a service nobody named stays blocked.
  *
- * Exemptions apply to `*` entries only; they never unblock an exact entry.
+ * Exemptions apply to `*` entries only; they never lift an exact entry.
  */
 function globToRegExp(pattern: string): RegExp {
   const source = pattern
@@ -15,7 +16,7 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
-export function compileBlockedTools(
+export function compileToolPatterns(
   entries: readonly unknown[] | undefined,
 ): (toolName: string) => boolean {
   const exact = new Set<string>();
@@ -32,7 +33,7 @@ export function compileBlockedTools(
       exact.add(entry);
     }
   }
-  return (toolName) =>
+  return (toolName: string) =>
     exact.has(toolName) ||
     (globs.some((glob) => glob.test(toolName)) &&
       !exemptions.some((exemption) => exemption.test(toolName)));

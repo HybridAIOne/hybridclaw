@@ -31,13 +31,7 @@ function writeFile(root: string, relativePath: string, mtime: Date): void {
 }
 
 function writeBuildOutputs(root: string): void {
-  for (const buildPath of [
-    'dist/cli.js',
-    'dist/gateway/gateway-service.js',
-    'dist/gateway/gateway-http-proxy.js',
-    'container/dist/index.js',
-    'container/shared/dist/network-policy.js',
-  ]) {
+  for (const buildPath of ['dist/cli.js', 'container/dist/index.js']) {
     writeFile(root, buildPath, BUILD_TIME);
   }
 }

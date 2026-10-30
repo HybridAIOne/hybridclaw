@@ -1,98 +1,13 @@
-export const RUNTIME_PROVIDER_IDS = [
-  'hybridai',
-  'openai',
-  'openai-codex',
-  'anthropic',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-] as const;
+import {
+  inferProviderFromModelPrefix,
+  type RuntimeProviderId,
+} from '#shared/provider-ids.js';
 
-export const OPENAI_COMPAT_RUNTIME_PROVIDER_IDS = [
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-] as const;
-
-export type RuntimeProvider = (typeof RUNTIME_PROVIDER_IDS)[number];
-export type OpenAICompatRuntimeProvider =
-  (typeof OPENAI_COMPAT_RUNTIME_PROVIDER_IDS)[number];
-
-const RUNTIME_PROVIDER_MODEL_PREFIXES: Array<[RuntimeProvider, string]> = [
-  ['openai', 'openai/'],
-  ['openai-codex', 'openai-codex/'],
-  ['anthropic', 'anthropic/'],
-  ['openrouter', 'openrouter/'],
-  ['mistral', 'mistral/'],
-  ['huggingface', 'huggingface/'],
-  ['gemini', 'gemini/'],
-  ['deepseek', 'deepseek/'],
-  ['xai', 'xai/'],
-  ['zai', 'zai/'],
-  ['kimi', 'kimi/'],
-  ['minimax', 'minimax/'],
-  ['dashscope', 'dashscope/'],
-  ['xiaomi', 'xiaomi/'],
-  ['kilo', 'kilo/'],
-  ['ollama', 'ollama/'],
-  ['lmstudio', 'lmstudio/'],
-  ['llamacpp', 'llamacpp/'],
-  ['vllm', 'vllm/'],
-  ['mlx', 'mlx/'],
-];
-
-const OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET = new Set<string>(
-  OPENAI_COMPAT_RUNTIME_PROVIDER_IDS,
-);
-
-export function isOpenAICompatRuntimeProvider(
-  value: unknown,
-): value is OpenAICompatRuntimeProvider {
-  return (
-    typeof value === 'string' &&
-    OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET.has(value)
-  );
-}
-
-export function inferRuntimeProviderFromModel(
-  model: string,
-): RuntimeProvider | undefined {
-  const normalized = String(model || '').trim();
-  return RUNTIME_PROVIDER_MODEL_PREFIXES.find(([, prefix]) =>
-    normalized.startsWith(prefix),
-  )?.[0];
-}
+export * from '#shared/provider-ids.js';
 
 export function resolveRuntimeProviderContext(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   model: string,
-): RuntimeProvider {
-  return provider || inferRuntimeProviderFromModel(model) || 'hybridai';
+): RuntimeProviderId {
+  return provider || inferProviderFromModelPrefix(model) || 'hybridai';
 }

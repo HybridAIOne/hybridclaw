@@ -6,6 +6,7 @@ import type {
 } from '../gateway/gateway-types.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { recordGoalAudit } from './goal-audit.js';
 import { judgeGoalCompletion } from './goal-judge.js';
@@ -73,7 +74,7 @@ export function buildGoalContinuationPrompt(params: {
     lines.push(`Evaluator says the condition is not met yet: ${reason}`, '');
   }
   lines.push(
-    'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
+    'Continue working toward this goal. Take the next concrete step. When every completion condition has evidence, present the result and its verification. A completion claim alone is not evidence. If you are blocked and need input from the user, say so clearly and stop.',
   );
   return lines.join('\n');
 }
@@ -307,6 +308,19 @@ export async function maybeContinueGoalAfterTurn(params: {
     threadId,
     goalText: goal.goalText,
     assistantResponse,
+    executionEvidence: redactCredentialSecrets(
+      JSON.stringify({
+        tools: (params.result.toolExecutions ?? []).slice(-20).map((tool) => ({
+          name: tool.name,
+          failed: tool.isError === true,
+          blocked: tool.blocked === true,
+          result: redactCredentialSecrets(tool.result, true).slice(0, 1000),
+          truncated: tool.result.length > 1000,
+        })),
+        artifacts: params.result.artifacts ?? [],
+      }).slice(0, 8000),
+      true,
+    ),
     conversationContext: buildGoalJudgeConversationContext({
       sessionId: params.session.id,
       assistantResponse,
@@ -324,7 +338,7 @@ export async function maybeContinueGoalAfterTurn(params: {
     reason: verdict.reason,
     parseFailure: verdict.parseFailure,
   });
-  if (!updated || updated.status !== 'active') return;
+  if (updated?.status !== 'active') return;
 
   if (
     verdict.parseFailure &&

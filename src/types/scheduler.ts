@@ -1,4 +1,6 @@
 export interface ScheduledTask {
+  managed_key?: string;
+  managed_scope?: string;
   title?: string | null;
   model?: string | null;
   effort?: import('#shared/reasoning-effort.js').ReasoningEffort | null;

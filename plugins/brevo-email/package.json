@@ -6,7 +6,7 @@
   "type": "module",
   "description": "HybridClaw plugin that provisions per-agent email addresses via Brevo inbound parsing and SMTP relay",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.23.4 <23"
   },
   "dependencies": {
     "html-to-text": "9.0.5",

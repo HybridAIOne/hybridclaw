@@ -2,6 +2,200 @@
 
 ## Unreleased
 
+## [0.41.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.5) - 2026-10-29
+
+### Fixed
+
+- **Readable Teams approvals**: Permission requests explain the planned step
+  in ordinary language, with shell-action descriptions requested in the user's
+  language. Requests show only available approval choices and the actual
+  deadline; commands and technical diagnostics are available with `0` or
+  `/approve view` (#2070).
+- **Approval description isolation**: Model-authored descriptions stay separate
+  from policy checks, trust fingerprints, saved executable calls and tool audit
+  records. Viewing details preserves the pending request and its existing
+  user/session access checks. Protected actions retain one-time approval (#2070).
+
+## [0.41.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.4) - 2026-10-28
+
+### Added
+
+- **Tracked-work checks and repairs**: Prepared work can be checked against
+  explicit file, text, JSON-field and confirmed-action conditions. Checks,
+  dependencies and timestamped repair history stay with the tracked item.
+  One initial check permits two repair attempts; further attempts need the
+  user's decision. Passing checks requests review, and the user still
+  confirms the outcome (#2068).
+
+### Fixed
+
+- **Stale verification results**: Changed files or objectives invalidate a
+  previous pass, and incomplete dependencies block completion. Agents cannot
+  weaken checks after verification starts or reset the repair limit (#2068).
+- **Evidence-based goal completion**: Standing-goal evaluation uses recorded
+  tool and artifact evidence instead of treating completion phrases or
+  counting shortcuts as proof of success (#2068).
+
+## [0.41.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.3) - 2026-10-28
+
+### Fixed
+
+- **Phone overview access**: Overview loads for the owner's phone and refreshes
+  normally. Session and linked evidence access use the authenticated operator,
+  while account IDs retain ownership of tracked items and work (#2069).
+- **Shared review continuity**: Foreground turns and scheduled draft delivery
+  retain the originating operator so linked evidence and reviews remain
+  accessible. Other operators and forged identity fields remain denied (#2069).
+
+## [0.41.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.2) - 2026-10-27
+
+### Added
+
+- **Draft approval answers**: Compatible email approval cards can keep a
+  proposed email as a mailbox draft, including the user's edits, in the same
+  turn. Choosing draft cancels the pending send; sending still requires its
+  own approval, and unavailable draft support is reported.
+- **Agent tool patterns**: Tool allowlists accept `*` patterns such as
+  `hybridai__github_api__*` to allow one connector's tools. Caller restrictions
+  and globally disabled tools continue to apply.
+
+### Changed
+
+- **Relevant chat ideas**: Suggestions draw on the agent's own skills, enabled
+  MCP servers, and tools used in the requesting user's recent chats. Seeded
+  persona files and onboarding state stay out of the profile.
+- **Bundled gateway**: Source, npm, and desktop builds use the bundled gateway
+  at `dist/cli.js`. Public plugin SDK imports remain unchanged. Rebuilds retain
+  earlier chunks for running processes; release packaging cleans them first.
+- **Plugin SDK helpers**: Plugin authors can reuse bounded CLI execution,
+  environment filtering, path resolution, and text and transcript helpers.
+
+### Fixed
+
+- **Phone data on first contact**: App turns can access shared calendar,
+  reminders, health, and contacts from the first message after connecting,
+  without waiting for a second turn. User and scope restrictions still apply.
+- **Large MCP servers**: Tools load in server listing order up to the schema
+  budget; only the remaining tools are deferred to the catalog.
+- **Media readiness and recovery**: Agents receive media-provider configuration
+  readiness and guidance to try useful alternatives after tool failures,
+  without bypassing approval decisions or access restrictions.
+- **Bot-started approvals**: Discord bot and webhook turns deny steps that
+  require human approval when no escalation target exists, instead of posting
+  an unanswerable card. Configured escalation targets remain available.
+- **Provider consistency**: Model filters include every provider, TUI and
+  console labels identify the selected provider correctly, and the console
+  supports MLX configuration.
+- **Activity attribution**: Audit forwarding identifies the executing agent
+  for app conversations instead of falling back to the default agent.
+- **Memory plugin paths and retrieval**: qmd and gbrain expand `~` to the OS
+  home directory. HybridAI knowledge retrieval selects the newest user
+  message even when conversation history arrives out of order.
+
+### Upgrade Notes
+
+- If qmd or gbrain paths relied on `~` resolving under the HybridClaw data
+  directory, replace them with explicit paths to that directory before
+  upgrading. `~` resolves to the OS home directory.
+- Custom scripts importing internal nested `dist/` modules must use supported
+  public entrypoints or source modules from a development checkout. The CLI
+  remains at `dist/cli.js`; plugin SDK imports are unchanged.
+
+## [0.41.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.1) - 2026-10-25
+
+### Added
+
+- **HybridAI knowledge plugin**: An optional bundled plugin retrieves relevant
+  sections from shared knowledge collections before each turn, with source
+  references and configurable collection, score, and context limits. Optional
+  nightly wiki maintenance permits at most twelve write attempts per run,
+  including across worker replacement, while retaining existing approvals.
+- **Shared company wikis**: The `llm-wiki` skill supports HybridAI knowledge
+  collections for team knowledge, with section citations and conflict-checked
+  writes. Local folder wikis remain available for personal notes.
+
+### Changed
+
+- **Patched Node runtime**: CLI, workers, plugins, installer, desktop packaging,
+  and container images require Node.js `>=22.23.4 <23`. Version checks reject
+  older Node 22 releases and unsupported majors.
+
+### Fixed
+
+- **Scheduled chat history**: Internal scheduled-task prompts are hidden from
+  chat history while assistant reminders and genuine user messages remain
+  visible. Persisted agent context and audit records are unchanged.
+- **Event triggers**: Runtime credentials can create and manage triggers through
+  the existing endpoint. Add and remove operations are classified as writes,
+  so failed changes no longer appear as failed reads.
+
+### Upgrade Notes
+
+- Update host Node to `>=22.23.4 <23`, pull or rebuild gateway and agent images,
+  and restart the affected processes before using this release. Updating npm
+  packages alone does not update Node's bundled Brotli decoder.
+- Enable `hybridai-knowledge` explicitly; nightly maintenance is separately
+  opt-in. Retrieval and maintenance respect a disabled HybridAI MCP connection
+  and missing credentials. All chat users share the configured API key's
+  collection access; restrict `collections` to the intended shared knowledge.
+
+## [0.41.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.0) - 2026-10-24
+
+### Added
+
+- **Daily briefs**: Compatible apps can opt into a brief at a chosen time and
+  time zone, send a separate test, and inspect the last delivery or a failed
+  or missed run. Saved editions let delivery retries reuse the generated brief.
+- **Persistent follow-through**: Continuing work retains its state, evidence,
+  check-ins, and draft reviews across devices and restarts. Draft edits,
+  deferral, approval, and decline share one revision-checked record. Review
+  decisions do not send mail; existing execution approvals still apply, and
+  the user confirms completed outcomes. The overview UI follows in mobile apps.
+- **Browser JavaScript**: `browser_evaluate` runs an expression in the open
+  page, awaits promises, and returns JSON. Use `path` to save large results,
+  including CSV, to the workspace. Private-host and typed-secret guards apply;
+  checkout and cancellation pages require explicit approval.
+
+### Changed
+
+- **Expired compatibility paths**: Removed automatic imports of pre-plugin
+  browser and Twilio settings, the `/voice/webhook` alias, the installed
+  `harness-evolve` redirect, and the frozen `msteams_users` table. Current Teams
+  mappings remain in `channel_users`.
+
+- **WhatsApp compatibility**: The published 0.1.x plugin remains supported;
+  its adapter removal is deferred to v0.42.
+
+### Fixed
+
+- **Telemetry without a chatbot**: Observability forwards audit events using
+  the installation's node ID and HybridAI API key without requiring a chatbot.
+- **Read-only follow-through**: Overview and next-check queries stay independent
+  of task execution initialization.
+
+### Upgrade Notes
+
+- Back up the database and configuration before upgrading. Install and start
+  v0.40.8 once before moving from pre-plugin browser/Twilio configuration or
+  a Teams database older than schema 73. Unmigrated Teams databases are refused
+  with an intermediate-upgrade instruction; schema 79 removes the old table,
+  so rolling back to v0.39.x requires restoring the backup.
+- Browser provider settings belong in the corresponding `plugins.list[]`
+  entry. Without the intermediate upgrade, move those settings manually and
+  explicitly enable the provider plugin. For Twilio, enable `twilio-voice`
+  and change the number's webhook to
+  `/api/plugin-webhooks/twilio-voice/webhook` before upgrading.
+- Run harness evolution from a source checkout with
+  `npm run eval -- harness-evolve`; the installed CLI has no such command.
+- Remove `observability.botId` from custom configuration. Telemetry requires
+  a HybridAI endpoint that accepts `node_id` without `bot_id`.
+- Third-party browser providers must accept string expressions in
+  `BrowserSession.evaluate` or explicitly reject them. `mac-cua` does not
+  support `browser_evaluate`; gateway browser evaluation targets the main page.
+- Daily briefs are opt-in. Daily-brief controls and the shared follow-through
+  overview require compatible app versions; upgrading the runtime enables no
+  routine automatically.
+
 ## [0.40.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.40.8) - 2026-10-22
 
 ### Changed

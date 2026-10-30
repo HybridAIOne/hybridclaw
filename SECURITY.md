@@ -71,6 +71,15 @@ of the sandbox.
 
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 
+Teams can show a model-authored explanation before the technical command.
+That explanation is untrusted: it may omit or misdescribe effects, even though
+it cannot change the policy decision, approval scope, or saved executable call.
+Markdown and links in the explanation are rendered as literal text. The user
+can request the stored technical review with `0` or `/approve view`; protected
+actions still show the policy warning and require one-time human approval.
+This presentation trades immediate command visibility for readability, so the
+details view remains necessary when reviewing a sensitive action.
+
 ### 3) Container Isolation
 
 Tool execution runs inside Docker with sandbox constraints:

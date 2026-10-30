@@ -5,7 +5,7 @@ kind: channel
 description: Inbound and outbound phone calls through the Vonage Voice API, turn-based or realtime speech-to-speech.
 entrypoint: src/index.js
 requires:
-  node: 22.x
+  node: '>=22.23.4 <23'
 credentials:
   - VONAGE_PRIVATE_KEY
   - VONAGE_SIGNATURE_SECRET

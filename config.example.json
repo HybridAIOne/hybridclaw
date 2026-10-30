@@ -736,7 +736,6 @@
     "baseUrl": "https://hybridai.one",
     "ingestPath": "/api/v1/agent-observability/events:batch",
     "statusPath": "/api/v1/agent-observability/status",
-    "botId": "",
     "label": "",
     "environment": "prod",
     "flushIntervalMs": 10000,

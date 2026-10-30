@@ -2,9 +2,9 @@ import type {
   ModelBehavior,
   ModelThinkingFormat,
 } from '../types/model-behavior.js';
-import type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
+import type { RuntimeProviderId } from './provider-ids.js';
 
-export type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
+export type { RuntimeProviderId } from './provider-ids.js';
 
 export interface ResolvedModelRuntimeCredentials {
   provider: RuntimeProviderId;
@@ -32,7 +32,7 @@ export interface ResolveProviderRuntimeParams {
 }
 
 export interface AIProvider {
-  readonly id: AIProviderId;
+  readonly id: RuntimeProviderId;
   matchesModel(model: string): boolean;
   resolveRuntimeCredentials(
     params: ResolveProviderRuntimeParams,

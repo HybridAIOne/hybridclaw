@@ -38,7 +38,7 @@ they are required to land a concrete fix.
 
 ## Prerequisites
 
-- Node.js 22
+- Node.js `>=22.23.4 <23`
 - npm 11.10+ — run `corepack enable` to pick up the repo's `packageManager`
   pin (`npm@11.10.0`), which keeps npm's `min-release-age` supply-chain gate
   active during dependency updates
@@ -60,7 +60,8 @@ Notes:
 - `npm run setup` installs the container runtime dependencies under
   `container/` and the skill libraries under `container/tools/` that the
   office skill tests load.
-- `npm run build` compiles both the root package and the container runtime.
+- `npm run build` bundles the gateway (`dist/cli.js`) and the agent runtime
+  (`container/dist/index.js`) with esbuild, and emits the plugin SDK types.
 - Core setup, build, lint, typecheck, and tests do not install or compile the
   opt-in WhatsApp plugin. Contribute to that GPL-licensed package in
   [`HybridAIOne/hybridclaw-whatsapp`](https://github.com/HybridAIOne/hybridclaw-whatsapp).

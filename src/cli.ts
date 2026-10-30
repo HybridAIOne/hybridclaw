@@ -1794,11 +1794,6 @@ export async function main(
     case 'tool':
       await handleToolCommand(subargs);
       break;
-    // compat: remove after v0.41 (points old installs at the eval harness).
-    case 'harness-evolve':
-      throw new Error(
-        '`hybridclaw harness-evolve` moved to the eval harness. From a HybridClaw source checkout, run `npm run eval -- harness-evolve`.',
-      );
     case 'update': {
       if (isHelpRequest(subargs)) {
         const { printUpdateUsage } = await import('./update.js');
@@ -1837,7 +1832,6 @@ export async function main(
         printHelpUsage();
         break;
       }
-      if (topic === 'harness-evolve') return main([topic]); // compat: remove after v0.41
       if (await printHelpTopic(topic)) {
         break;
       }
@@ -1926,7 +1920,7 @@ export function isDirectExecution(
   }
 }
 
-if (isDirectExecution()) {
+export function runCli(): void {
   main().catch((err) => {
     if (isMissingRequiredEnvVarError(err)) {
       printMissingEnvVarError(err.message, err.envVar);
@@ -1949,3 +1943,5 @@ if (isDirectExecution()) {
     process.exit(1);
   });
 }
+
+if (isDirectExecution()) runCli();

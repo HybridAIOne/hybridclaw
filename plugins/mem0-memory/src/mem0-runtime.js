@@ -1,5 +1,10 @@
 import path from 'node:path';
 import {
+  latestMessageByRole,
+  toTrimmedString,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+import {
   extractMemoryText,
   Mem0PluginClient,
   normalizeMem0Results,
@@ -9,19 +14,9 @@ const MAX_COMPACTION_MESSAGE_CHARS = 500;
 const MAX_COMPACTION_MESSAGES = 10;
 const MAX_COMPACTION_SUMMARY_CHARS = 1500;
 
-function normalizeString(value) {
-  return String(value || '').trim();
-}
-
-function truncateText(value, maxChars) {
-  const normalized = normalizeString(value);
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
-}
-
 function buildCompactionConclusion(summary, olderMessages) {
   const sections = ['[Pre-compaction context]'];
-  const normalizedSummary = normalizeString(summary);
+  const normalizedSummary = toTrimmedString(summary);
   if (normalizedSummary) {
     sections.push(
       '',
@@ -31,13 +26,13 @@ function buildCompactionConclusion(summary, olderMessages) {
   }
   const excerpts = (olderMessages || [])
     .filter((message) => {
-      const role = normalizeString(message?.role).toLowerCase();
+      const role = toTrimmedString(message?.role).toLowerCase();
       if (role !== 'user' && role !== 'assistant') return false;
-      return normalizeString(message?.content).length > 0;
+      return toTrimmedString(message?.content).length > 0;
     })
     .slice(-MAX_COMPACTION_MESSAGES)
     .map((message) => {
-      const role = normalizeString(message.role).toLowerCase();
+      const role = toTrimmedString(message.role).toLowerCase();
       return `${role}: ${truncateText(message.content, MAX_COMPACTION_MESSAGE_CHARS)}`;
     });
   if (!normalizedSummary && excerpts.length === 0) return '';
@@ -45,26 +40,6 @@ function buildCompactionConclusion(summary, olderMessages) {
     sections.push('', ...excerpts);
   }
   return sections.join('\n');
-}
-
-function getLatestUserQuery(recentMessages) {
-  let latest = null;
-  for (const message of recentMessages || []) {
-    if (normalizeString(message?.role).toLowerCase() !== 'user') continue;
-    if (!latest) {
-      latest = message;
-      continue;
-    }
-    const currentTime = Date.parse(String(message.created_at || ''));
-    const latestTime = Date.parse(String(latest.created_at || ''));
-    if (
-      (Number.isFinite(currentTime) ? currentTime : Number.NEGATIVE_INFINITY) >=
-      (Number.isFinite(latestTime) ? latestTime : Number.NEGATIVE_INFINITY)
-    ) {
-      latest = message;
-    }
-  }
-  return normalizeString(latest?.content);
 }
 
 function formatMemoryBullet(entry, index, includeScore = false) {
@@ -118,7 +93,7 @@ function buildPromptContext(params) {
 function toMem0Messages(messages, maxChars) {
   const out = [];
   for (const message of messages || []) {
-    const role = normalizeString(message?.role).toLowerCase();
+    const role = toTrimmedString(message?.role).toLowerCase();
     if (role !== 'user' && role !== 'assistant') continue;
     const content = truncateText(message?.content, maxChars);
     if (!content) continue;
@@ -131,11 +106,11 @@ function toMem0Messages(messages, maxChars) {
 }
 
 function buildMemoryWriteText(context) {
-  const memoryFile = path.basename(normalizeString(context.memoryFilePath));
+  const memoryFile = path.basename(toTrimmedString(context.memoryFilePath));
   const content =
-    normalizeString(context.newText) ||
-    normalizeString(context.content) ||
-    normalizeString(context.oldText);
+    toTrimmedString(context.newText) ||
+    toTrimmedString(context.content) ||
+    toTrimmedString(context.oldText);
   if (context.action === 'remove') {
     return `HybridClaw removed saved memory from ${memoryFile}.`;
   }
@@ -157,26 +132,26 @@ export class Mem0Runtime {
   }
 
   hasApiKey() {
-    return normalizeString(this.config.apiKey).length > 0;
+    return toTrimmedString(this.config.apiKey).length > 0;
   }
 
   resolveUserId(inputUserId, sessionId) {
-    const configured = normalizeString(this.config.userId);
+    const configured = toTrimmedString(this.config.userId);
     if (configured) return configured;
-    const direct = normalizeString(inputUserId);
+    const direct = toTrimmedString(inputUserId);
     if (direct) return direct;
-    const sessionUserId = normalizeString(
+    const sessionUserId = toTrimmedString(
       this.api.getSessionInfo(String(sessionId || '').trim()).userId,
     );
     return sessionUserId || 'hybridclaw-user';
   }
 
   resolveAgentId(inputAgentId, sessionId) {
-    const configured = normalizeString(this.config.agentId);
+    const configured = toTrimmedString(this.config.agentId);
     if (configured) return configured;
-    const direct = normalizeString(inputAgentId);
+    const direct = toTrimmedString(inputAgentId);
     if (direct) return direct;
-    return normalizeString(this.api.resolveSessionAgentId(sessionId)) || 'main';
+    return toTrimmedString(this.api.resolveSessionAgentId(sessionId)) || 'main';
   }
 
   start() {
@@ -278,7 +253,9 @@ export class Mem0Runtime {
   async getContextForPrompt(params) {
     if (!this.hasApiKey()) return null;
     const userId = this.resolveUserId(params.userId, params.sessionId);
-    const query = getLatestUserQuery(params.recentMessages);
+    const query = toTrimmedString(
+      latestMessageByRole(params.recentMessages, 'user')?.content,
+    );
     const prefetched = this.profilePrefetch.get(params.sessionId);
     if (prefetched) this.profilePrefetch.delete(params.sessionId);
     try {

@@ -124,6 +124,7 @@ function makeRuleContext(params?: {
     hasWorkspaceTrust: () => false,
     getExplicitApprovalCount: () => 0,
     approvalMode: () => 'auto',
+    approvalUserIsBot: () => false,
     shouldNeverAutoApprove: () => false,
     getPendingCount: () => 0,
     getOrCreatePending: () => ({
@@ -1570,6 +1571,7 @@ approval:
       { ref: '@e3', path: 'report.pdf', files: ['~/.ssh/id_rsa'] },
     ],
     ['browser_upload', { ref: '@e3', file: '.env' }],
+    ['browser_evaluate', { expression: '"KEY=x"', path: '.env' }],
   ])('pinned paths require explicit approval for %s %j', (toolName, args) => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

@@ -253,10 +253,11 @@ saved revision history directly.
   describe, call) with unchanged permissions and approvals, which keeps
   requests under provider tool caps such as OpenAI's 128 definitions.
   In `full` mode, a tool whose server sets `_meta` `"hybridai/deferLoading":
-  true` (HybridAI's catalog tools, such as dm or trivago) still goes behind
-  `tool_catalog`, and so does every tool of a server whose schemas in the
-  request add up to more than 32,000 characters (about 8K tokens); smaller
-  servers stay loaded. Deferred tools are named in the prompt with their
+  true` (HybridAI's catalog tools and rarely needed built-ins) still goes
+  behind `tool_catalog`. The other tools of a server load in the order it
+  lists them until their schemas in the request reach 32,000 characters
+  (about 8K tokens); the tool that crosses it and every one after it go
+  behind `tool_catalog` too. Deferred tools are named in the prompt with their
   parameters, up to 40, so the model can call one without a list or describe
   step; the rest are found with `action=list`.
   Whatever the mode, a request to a provider with a tool cap (128 for
@@ -319,7 +320,9 @@ saved revision history directly.
 - `agents.list[].skills` and `agents.list[].tools` restrict which skills that
   agent may load and which tools it may call. Omit either key to leave the
   agent unrestricted, including for skills and tools installed later; an empty
-  array means none. A configured tool allowlist is intersected with the
+  array means none. A tool entry with `*` matches every tool it fits:
+  `hybridai__github_api__*` offers the GitHub connector and no other. A
+  configured tool allowlist is intersected with the
   caller's allowlist, so it can only narrow a turn's toolset, and globally
   disabled tools (`tools.disabled`) stay off regardless. Edit both from
   `/admin/agents?tab=configure` or `hybridclaw agent config`.
