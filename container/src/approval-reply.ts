@@ -8,7 +8,7 @@ import {
   type ApprovalReplyDecision,
   type ApprovalReplyInterpretation,
   parseApprovalReplyDecision,
-} from '../shared/approval-reply.js';
+} from '#shared/approval-reply.js';
 import { parseApprovalDirective } from './approval-directive.js';
 import type {
   ApprovalPrelude,

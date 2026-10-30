@@ -144,11 +144,12 @@ core, not dead code).
   generate it and add a test that fails when the two diverge.
 - **Logic:** duplicate small local logic when it preserves clarity; extract a
   helper on the third copy. Reusing a helper that already exists is never
-  premature: check `src/utils/`, `container/shared/`, and the owning module
+  premature: check `src/utils/`, `container/shared/src/`, and the owning module
   before writing `isRecord`, `sleep`, `parseJsonObject`, a base-URL
   normalizer, or a private-network check.
 - When extracting, preserve module boundaries. Code both the gateway and the
-  container need lives in `container/shared/`.
+  container need lives in `container/shared/src/`; import it as
+  `#shared/<module>.js`. `container/shared/dist/` is build output.
 
 ### 3.4 Core Is for What Every Install Needs
 
@@ -439,8 +440,8 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. Add the id to `container/shared/provider-ids.js` and its `.d.ts` (the one
-   id list; OpenAI-compatible remote providers go in
+1. Add the id to `container/shared/src/provider-ids.ts` (the one id list;
+   OpenAI-compatible remote providers go in
    `OPENAI_COMPAT_REMOTE_PROVIDER_IDS`) and its label, secret key, env vars,
    and defaults to `PROVIDER_META` in `src/providers/provider-meta.ts`. Unions,
    prefixes, slash choices, and console pages derive from these two.

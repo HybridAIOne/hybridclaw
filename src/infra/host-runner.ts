@@ -10,9 +10,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
-import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
+import { generateIpcAuthSecret } from '#shared/ipc-input-auth.js';
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
+import { buildSanitizedEnv } from '#shared/sensitive-env.js';
 import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,

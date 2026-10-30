@@ -4,7 +4,7 @@
  * names alongside the separately restricted tool catalog. Local requests pick
  * starters; remote requests choose whether MCP server tools are deferred.
  */
-import { DEFAULT_LOCAL_STARTER_TOOLS } from '../../container/shared/local-tool-config.js';
+import { DEFAULT_LOCAL_STARTER_TOOLS } from '#shared/local-tool-config.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 

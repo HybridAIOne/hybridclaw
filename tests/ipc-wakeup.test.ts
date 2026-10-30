@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   createIpcWakeup,
   IPC_RECONCILE_INTERVAL_MS,
-} from '../container/shared/ipc-wakeup.js';
+} from '#shared/ipc-wakeup.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

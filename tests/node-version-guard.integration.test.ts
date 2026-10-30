@@ -18,7 +18,7 @@ beforeEach(() => {
   root = realpathSync(makeTempDir());
   for (const dir of [
     'dist',
-    'container/shared',
+    'container/shared/src',
     'container/dist',
     'scripts',
     'desktop/scripts',
@@ -37,8 +37,8 @@ beforeEach(() => {
     path.join(root, 'container/dist/node-version-guard.ts'),
   );
   copyFileSync(
-    'container/shared/node-version.js',
-    path.join(root, 'container/shared/node-version.js'),
+    'container/shared/src/node-version.ts',
+    path.join(root, 'container/shared/src/node-version.ts'),
   );
   copyFileSync(
     'scripts/check-node-version.mjs',
@@ -53,10 +53,17 @@ beforeEach(() => {
 });
 
 function runProbe(range: string, entry: string) {
-  for (const dir of ['', 'container']) {
+  for (const [dir, shared] of [
+    ['', './container/shared/src/*'],
+    ['container', './shared/src/*'],
+  ]) {
     writeFileSync(
       path.join(root, dir, 'package.json'),
-      JSON.stringify({ type: 'module', engines: { node: range } }),
+      JSON.stringify({
+        type: 'module',
+        engines: { node: range },
+        imports: { '#shared/*': shared },
+      }),
     );
   }
   return spawnSync(

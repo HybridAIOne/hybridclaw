@@ -10,7 +10,7 @@ export {
   readFiniteNumber,
   readString,
   toTrimmedString,
-} from '../../container/shared/primitive-values.js';
+} from '#shared/primitive-values.js';
 export {
   getAgentById,
   upsertRegisteredAgent,

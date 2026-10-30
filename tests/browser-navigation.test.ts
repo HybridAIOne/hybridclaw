@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { assertBrowserNavigationUrl } from '../container/shared/browser-navigation.js';
+import { assertBrowserNavigationUrl } from '#shared/browser-navigation.js';
 
 test('browser navigation guard accepts public web URLs and about:blank', async () => {
   await expect(

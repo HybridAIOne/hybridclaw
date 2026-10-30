@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { claimSetupLock } from '../utils/setup-lock.js';
 import {
   detectMacHardware,

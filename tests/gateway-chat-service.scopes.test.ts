@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { currentDateStampInTimezone } from '../container/shared/workspace-time.js';
+import { currentDateStampInTimezone } from '#shared/workspace-time.js';
 import type { ExecutorRequest } from '../src/agent/executor-types.js';
 import type { ContainerOutput } from '../src/types/container.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';

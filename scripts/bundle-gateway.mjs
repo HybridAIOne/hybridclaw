@@ -33,10 +33,11 @@ const BUNDLED_DEPENDENCIES = new Set([
 // Matched on what first-party code imports, not on package.json: src also
 // imports transitive packages such as botbuilder-core, and inlining those would
 // load a second copy beside the one their external parent package uses.
+// `#shared/*` is first-party: tsconfig `paths` resolve it to the sources.
 const externalUnlessBundled = {
   name: 'external-unless-bundled',
   setup(build) {
-    build.onResolve({ filter: /^[^./]/ }, (args) => {
+    build.onResolve({ filter: /^[^./#]/ }, (args) => {
       if (/[\\/]node_modules[\\/]/.test(args.importer)) return undefined;
       const [scope, name] = args.path.split('/');
       const pkg = scope.startsWith('@') ? `${scope}/${name}` : scope;

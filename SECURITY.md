@@ -95,7 +95,7 @@ Tool execution runs inside Docker with sandbox constraints:
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
 [src/security/mount-security.ts](./src/security/mount-security.ts),
-[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
+[container/shared/src/ipc-input-auth.ts](./container/shared/src/ipc-input-auth.ts)
 
 ### 4) Session Isolation
 

@@ -1,1 +1,1 @@
-export * from '../../container/shared/provider-ids.js';
+export * from '#shared/provider-ids.js';

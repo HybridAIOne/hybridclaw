@@ -5,7 +5,7 @@ import {
   isRecord,
   parseNonNegativeInteger,
   parsePositiveInteger,
-} from '../container/shared/primitive-values.js';
+} from '#shared/primitive-values.js';
 
 describe('integer parsers', () => {
   it.each([

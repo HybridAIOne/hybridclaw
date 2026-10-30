@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { parseNodeRange } from '../container/shared/node-version.js';
+import { parseNodeRange } from '#shared/node-version.js';
 import { enforceNodeVersion } from '../src/node-version-guard.ts';
 import { REQUIRED_NODE_RANGE, checkNodeVersion } from '../src/node-version.ts';
 

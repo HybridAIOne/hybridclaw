@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
-import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import type {
   AgentTurnContext,
   ClassifierMiddlewareSkill,

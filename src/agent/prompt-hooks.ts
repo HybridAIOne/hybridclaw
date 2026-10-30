@@ -4,7 +4,7 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
-import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
+import { compileToolPatterns } from '#shared/tool-patterns.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,

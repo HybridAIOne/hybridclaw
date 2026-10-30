@@ -3,7 +3,7 @@ import {
   fetchHybridAIDestination,
   hybridAIDestinationHeaders,
   parseHybridAIDestination,
-} from '../container/shared/hybridai-destination.js';
+} from '#shared/hybridai-destination.js';
 
 const destination = {
   protocol: 'hybridai-destination-v1',

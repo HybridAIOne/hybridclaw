@@ -8,12 +8,12 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { writeFileAtomic } from '../../shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   fetchMlxWithIdleTimeout,
   MLX_IDLE_TIMEOUT_MS,
   MLX_MAX_RELAY_BYTES,
-} from '../../shared/mlx-http.js';
+} from '#shared/mlx-http.js';
 
 export async function fetchMlx(
   url: string,

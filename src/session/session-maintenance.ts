@@ -6,11 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DAILY_MEMORY_MAX_CHARS } from '../../container/shared/daily-memory.js';
+import { DAILY_MEMORY_MAX_CHARS } from '#shared/daily-memory.js';
 import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { runAgent } from '../agent/agent.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';

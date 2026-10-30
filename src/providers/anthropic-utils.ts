@@ -5,7 +5,7 @@ import {
   normalizeAnthropicBaseUrl,
   normalizeAnthropicModelName,
   stripAnthropicModelPrefix,
-} from '../../container/shared/anthropic-utils.js';
+} from '#shared/anthropic-utils.js';
 
 export const ANTHROPIC_DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6';
 export const ANTHROPIC_VERSION = '2023-06-01';

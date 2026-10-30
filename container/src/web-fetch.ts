@@ -7,7 +7,7 @@
 
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
-import { isPrivateNetworkAddress } from '../shared/private-network.js';
+import { isPrivateNetworkAddress } from '#shared/private-network.js';
 import { decodeEntities, stripTags } from './search-utils.js';
 import {
   type FetchText,

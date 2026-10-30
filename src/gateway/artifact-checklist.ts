@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
-import { writeMemoryFileAtomic } from '../../container/shared/memory-file.js';
+import { writeMemoryFileAtomic } from '#shared/memory-file.js';
 import { DATA_DIR } from '../config/config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { isRecord } from '../utils/type-guards.js';

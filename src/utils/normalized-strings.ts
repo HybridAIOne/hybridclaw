@@ -1,4 +1,4 @@
-import { readString as normalizeTrimmedString } from '../../container/shared/primitive-values.js';
+import { readString as normalizeTrimmedString } from '#shared/primitive-values.js';
 
 export { normalizeTrimmedString };
 

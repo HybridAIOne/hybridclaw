@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import type { ApprovalMode } from '../container/shared/approval-mode.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import {
   approvalReviewArguments,

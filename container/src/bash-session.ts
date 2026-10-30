@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
+import { SHELL_RUNTIME_ENV_NAMES } from '#shared/shell-runtime-env.js';
 import {
   BASH_DOCKER_CWD,
   type BashProcessResult,

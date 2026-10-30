@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { isValidTimezone } from '#shared/workspace-time.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import {

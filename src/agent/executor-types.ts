@@ -1,8 +1,8 @@
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
-import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 import type { ChatMessage } from '../types/api.js';

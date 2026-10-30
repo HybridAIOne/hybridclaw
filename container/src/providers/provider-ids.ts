@@ -1,9 +1,9 @@
 import {
   inferProviderFromModelPrefix,
   type RuntimeProviderId,
-} from '../../shared/provider-ids.js';
+} from '#shared/provider-ids.js';
 
-export * from '../../shared/provider-ids.js';
+export * from '#shared/provider-ids.js';
 
 export function resolveRuntimeProviderContext(
   provider: RuntimeProviderId | undefined,

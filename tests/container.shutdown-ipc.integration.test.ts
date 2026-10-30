@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
 import type {
   ChatMessage,
   ContainerInput,

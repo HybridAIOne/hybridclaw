@@ -3,9 +3,7 @@ export interface ScheduledTask {
   managed_scope?: string;
   title?: string | null;
   model?: string | null;
-  effort?:
-    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-    | null;
+  effort?: import('#shared/reasoning-effort.js').ReasoningEffort | null;
   fresh_session?: boolean;
   id: number;
   session_id: string;

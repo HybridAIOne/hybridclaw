@@ -5,9 +5,9 @@
  * It does not grant tool access or approval.
  */
 import fs from 'node:fs';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import { isRecord } from '../shared/primitive-values.js';
-import type { ToolCallLimits } from '../shared/tool-call-limits.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
+import { isRecord } from '#shared/primitive-values.js';
+import type { ToolCallLimits } from '#shared/tool-call-limits.js';
 import { sessionStateKey, sessionStatePath } from './session-state.js';
 
 let active: { path: string; limits: Map<string, number> } | null = null;

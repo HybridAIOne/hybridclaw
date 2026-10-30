@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { toolResultForTransport, validateToolHistory } from '../container/shared/tool-history.js';
+import { toolResultForTransport, validateToolHistory } from '#shared/tool-history.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import {
   expandStoredMessage,

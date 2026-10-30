@@ -119,7 +119,7 @@ test('a scoped chat searches only its own scope', async () => {
 
 test('blocked tool patterns keep every connector service but the allowed ones out', async () => {
   const { compileToolPatterns } = await import(
-    '../container/shared/tool-patterns.js'
+    '#shared/tool-patterns.js'
   );
   const isBlocked = compileToolPatterns([
     'device_data',

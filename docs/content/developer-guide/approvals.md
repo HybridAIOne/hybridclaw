@@ -785,7 +785,7 @@ used on text surfaces.
 | File | Role |
 | --- | --- |
 | `container/src/approval-policy.ts` | Action classification, trust scopes, network evaluation, and persistence |
-| `container/shared/network-policy.js` | Shared network rule defaults, normalization, and legacy migration |
+| `container/shared/src/network-policy.ts` | Shared network rule defaults, normalization, and legacy migration |
 | `container/src/index.ts` | Applies yellow implicit delay before tool execution |
 | `src/policy/policy-store.ts` | Reads and writes structured network policy in `.hybridclaw/policy.yaml` |
 | `src/commands/policy-command.ts` | Shared CLI and slash-command policy command runner |

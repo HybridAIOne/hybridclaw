@@ -4,8 +4,8 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
-import { steerInboxDirName } from '../container/shared/steer-inbox.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
+import { steerInboxDirName } from '#shared/steer-inbox.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('hybridclaw-runner-interrupt-');

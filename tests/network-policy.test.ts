@@ -9,7 +9,7 @@ import {
   matchesNetworkPathPatterns,
   normalizeNetworkRule,
   readNetworkPolicyState,
-} from '../container/shared/network-policy.js';
+} from '#shared/network-policy.js';
 import {
   loadPolicyFromDisk,
   TrustedAgentApprovalRuntime,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { marked } from 'marked';
-import { approvalRuleFor } from '../container/shared/approval-rules.js';
+import { approvalRuleFor } from '#shared/approval-rules.js';
 import { formatMSTeamsApprovalPrompt } from '../src/channels/msteams/approval-prompt.js';
 import type { PendingApproval } from '../src/types/execution.js';
 

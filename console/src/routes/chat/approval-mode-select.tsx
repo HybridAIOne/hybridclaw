@@ -12,7 +12,7 @@ import {
   APPROVAL_MODES,
   type ApprovalMode,
   isApprovalMode,
-} from '../../../../container/shared/approval-mode.js';
+} from '#shared/approval-mode.js';
 import {
   ChevronDown,
   Hand,

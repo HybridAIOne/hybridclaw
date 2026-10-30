@@ -7,7 +7,7 @@
  * so its inputs (node, agent, session, seq, type, time, run) must stay stable.
  */
 import { createHash } from 'node:crypto';
-import { repairUnicodeForJson } from '../../container/shared/unicode-utils.js';
+import { repairUnicodeForJson } from '#shared/unicode-utils.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 
 function parsePayload(raw: string): Record<string, unknown> {

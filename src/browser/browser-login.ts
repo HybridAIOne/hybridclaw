@@ -11,7 +11,7 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '#shared/browser-profile.js';
 
 export { BROWSER_PROFILE_CHROMIUM_ARGS };
 

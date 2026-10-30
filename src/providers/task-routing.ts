@@ -4,7 +4,7 @@
  * settings cannot enable, disable or redirect that classifier.
  */
 
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,

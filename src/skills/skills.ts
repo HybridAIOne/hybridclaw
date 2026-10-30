@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
+import { parseBooleanWithDefault } from '#shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR, getResolvedSandboxMode } from '../config/config.js';

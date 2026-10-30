@@ -5,7 +5,7 @@ export type ProviderKind = RuntimeProviderId;
 
 export type AnthropicMethod = 'api-key' | 'claude-cli';
 
-export type { McpServerConfig } from '../../container/shared/mcp-server-config.js';
+export type { McpServerConfig } from '#shared/mcp-server-config.js';
 
 export interface TaskModelPolicy {
   provider?: ProviderKind;

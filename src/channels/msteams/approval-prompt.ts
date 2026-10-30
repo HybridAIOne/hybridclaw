@@ -6,7 +6,7 @@
 import {
   type ApprovalPauseCause,
   parseApprovalRule,
-} from '../../../container/shared/approval-rules.js';
+} from '#shared/approval-rules.js';
 import type { PendingApproval } from '../../types/execution.js';
 
 const PAUSE_EXPLANATIONS: Record<ApprovalPauseCause, string> = {

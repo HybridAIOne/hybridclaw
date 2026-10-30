@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { buildMcpServerNamespaces } from '../../../container/shared/mcp-tool-namespaces.js';
+import { buildMcpServerNamespaces } from '#shared/mcp-tool-namespaces.js';
 import { listKnownToolNames } from '../../agent/tool-summary.js';
 import {
   CONFIG_VERSION,

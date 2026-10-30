@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 
 const SESSION_STATE_ROOT = path.join(

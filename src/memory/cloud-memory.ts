@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import * as runtimeConfig from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';

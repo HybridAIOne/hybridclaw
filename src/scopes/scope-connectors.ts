@@ -8,7 +8,7 @@
  *
  * The result is `blockedTools` entries for the agent process: `*` matches any
  * run of characters, and an entry starting with `!` exempts what it matches
- * from the `*` entries (`container/shared/tool-patterns.js`).
+ * from the `*` entries (`container/shared/src/tool-patterns.ts`).
  * NOT account-level limits (one Google account per scope): not built.
  */
 import { fetchHybridAIConnectorDirectory } from '../gateway/gateway-admin-connectors.js';
