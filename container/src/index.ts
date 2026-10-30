@@ -1101,6 +1101,7 @@ async function processRequest(
   const turnToolHistory = new TurnToolHistory(
     params.sessionId,
     WORKSPACE_STATE_ROOT,
+    WORKSPACE_ROOT,
   );
   activeTurnToolHistory = turnToolHistory;
   const output = await processRequestInner(params, turnToolHistory).finally(
@@ -1493,6 +1494,7 @@ async function processRequestInner(
             })
           : null;
       if (!compacted?.changed) {
+        if (turnToolHistory.boundContext(history, guardContextWindow)) continue;
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,

@@ -99,6 +99,7 @@ import {
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
 import {
   CALL_USER_TOOL_DEFINITION,
@@ -3012,6 +3013,8 @@ async function executeToolInternal(
           if (document) return document;
           content = fs.readFileSync(filePath, 'utf-8');
         }
+        const excerpt = readTextExcerpt(content, args);
+        if (excerpt !== undefined) return excerpt;
         const lines = content.split('\n');
         const totalFileLines = lines.length;
 
@@ -4407,6 +4410,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
           ...PDF_READ_PARAMETERS,
+          ...TEXT_READ_PARAMETERS,
           offset: {
             type: 'number',
             description:

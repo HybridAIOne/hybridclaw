@@ -17,11 +17,6 @@ import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 
 export const PDF_READ_PARAMETERS = {
-  query: {
-    type: 'string',
-    description:
-      'Search extracted PDF text using a literal query you choose. Returns page numbers and snippets; then read with pages to inspect them visually. Cannot combine with pages/render.',
-  },
   pages: {
     type: 'string',
     description: `PDF page range, e.g. "5-8" or "1,3"; at most ${PDF_READ_MAX_PAGES} pages per call. Defaults to the first ${PDF_READ_MAX_PAGES} pages.`,
