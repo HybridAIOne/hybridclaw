@@ -244,6 +244,8 @@ export interface ContainerInput
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
   approvalMode?: ApprovalMode;
+  /** Only reads run; every other tool call returns its refusal to the model. */
+  dryRun?: boolean;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   skipContainerSystemPrompt?: boolean;
