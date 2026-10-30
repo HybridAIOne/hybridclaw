@@ -194,3 +194,36 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
   );
   expect(JSON.parse(turnStart?.payload ?? '{}').dryRun).toBe(true);
 });
+
+test('a dry run for an agent without a workspace is refused and creates nothing', async () => {
+  setupHome();
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { withMemoryDatabase } = await import('../src/memory/database.js');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { handleOpenAICompatibleChatCompletions } = await import(
+    '../src/gateway/openai-compatible.js'
+  );
+  initDatabase({ quiet: true });
+  const res = makeResponse();
+  await handleOpenAICompatibleChatCompletions(
+    makeRequest(
+      {
+        model: 'openai-codex/gpt-5-codex',
+        messages: [{ role: 'user', content: 'When does order 42 ship?' }],
+      },
+      { 'x-hybridclaw-eval-profile': 'agent=suport-desk,dry-run' },
+    ) as never,
+    res as never,
+  );
+
+  expect(res.statusCode).toBe(400);
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(fs.existsSync(path.dirname(agentWorkspaceDir('suport-desk')))).toBe(
+    false,
+  );
+  expect(
+    withMemoryDatabase((db) =>
+      db.prepare('SELECT COUNT(*) AS count FROM sessions').get(),
+    ),
+  ).toEqual({ count: 0 });
+});

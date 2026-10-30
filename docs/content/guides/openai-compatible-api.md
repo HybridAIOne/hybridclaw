@@ -154,7 +154,8 @@ what it leaves behind:
 - Usage is recorded as for any turn. The audit trail keeps the turn, with
   `dryRun: true` on its `turn.start` event.
 - A request that sends its own `tools`, uses a decision model, or selects a
-  proxied agent is rejected with `400`.
+  proxied agent is rejected with `400`, and so is an agent id without a
+  workspace: a dry run never creates an agent.
 
 ## 5. Handle delegated answers
 

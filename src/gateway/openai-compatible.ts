@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
@@ -301,6 +302,14 @@ function prepareOpenAICompatibleRequest(
     throw new OpenAICompatibleRequestError(
       400,
       'A dry run needs a turn of the agent itself, without client tools, a decision model or a proxied agent.',
+      { param: 'model', code: 'unsupported_value' },
+    );
+  }
+  // Bootstrapping an unknown agent would create it; a dry run creates nothing.
+  if (profile.dryRun && !fs.existsSync(agentWorkspaceDir(requestAgentId))) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `A dry run needs an existing agent; "${requestAgentId}" has no workspace.`,
       { param: 'model', code: 'unsupported_value' },
     );
   }
