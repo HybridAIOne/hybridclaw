@@ -232,3 +232,10 @@ test('deleting a parent or a symlink alias cannot bypass a recorded conflict', a
     decision: 'required',
   });
 });
+
+
+test('a rejected replacement without expected bytes also fences alternate mutations', async () => {
+  const runtime = await worker();
+  expect(() => runtime.write({path:'report.md',contents:'replacement',overwrite:true})).toThrow(/expected_content/);
+  expect(runtime.call('bash',{command:'printf replacement > report.md'})).toMatchObject({pinned:true,decision:'required'});
+});

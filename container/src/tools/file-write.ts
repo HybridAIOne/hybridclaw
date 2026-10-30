@@ -93,17 +93,17 @@ export function runFileWrite(
     throw new Error('overwrite must be a boolean');
   }
   const overwrite = args.overwrite === true;
-  if (overwrite && typeof args.expected_content !== 'string') {
-    throw new Error(
-      'Replacement requires expected_content matching the entire current file',
-    );
-  }
-  if (!overwrite && args.expected_content !== undefined) {
-    throw new Error('expected_content requires overwrite=true');
-  }
   const target = resolvePath(args.path);
   if (!target) throw new Error(`Path escapes workspace: ${args.path}`);
   try {
+    if (overwrite && typeof args.expected_content !== 'string') {
+      throw new Error(
+        'Replacement requires expected_content matching the entire current file',
+      );
+    }
+    if (!overwrite && args.expected_content !== undefined) {
+      throw new Error('expected_content requires overwrite=true');
+    }
     if (sandbox) {
       const result = sandbox.run({
         args: ['exec', '-i', sandbox.container, 'bash', '-c', SANDBOX_WRITE],
