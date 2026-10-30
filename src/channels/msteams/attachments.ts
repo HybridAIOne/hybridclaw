@@ -46,6 +46,7 @@ const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.mp3': 'audio/mpeg',
   '.mp4': 'video/mp4',
+  '.msg': 'application/vnd.ms-outlook',
   '.ogg': 'audio/ogg',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
