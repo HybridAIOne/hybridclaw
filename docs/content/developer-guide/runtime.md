@@ -127,6 +127,8 @@ and the shell's working directory without moving bootstrap files, approval
 stores, session state, visual snapshots or spilled tool results into task output.
 The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
 Docker workers continue to use their mounted workspace for both purposes.
+Transcript and compaction archive references use absolute paths when their files
+live outside the execution workspace, so the read tool can still resolve them.
 
 For isolated host evaluations, an operator can set
 `HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
