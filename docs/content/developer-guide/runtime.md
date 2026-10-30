@@ -138,6 +138,10 @@ clients cannot select this path. The agent retains its default bootstrap and
 skills, and the execution workspace fence remains enabled. Changing this setting
 requires a new eval session; it is not a way to alter an active worker's roots.
 
+Large tool results live in `.tool-results/` in the owning state workspace.
+Their file paths travel with bounded model excerpts, so a replacement worker
+can read or search the complete text without restoring it into model context.
+
 Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
 maximum execution attempts. The worker reserves each attempt synchronously
 before execution and persists counts under its protected session state directory
@@ -748,10 +752,19 @@ Descriptions shorten before names are omitted, and `skills_list` retains the
 complete directory. Always-on skill bodies keep their separate 10,000-character
 budget. System prompt and tool schemas stay stable throughout a request.
 
-The model receives complete tool results, and stored exchanges replay complete
-results. Large results cross IPC as file references, restored by the gateway;
-this transport threshold does not shorten model input. Whole-context compaction
-and model context-window recovery still apply to the combined conversation.
+Tool results above 16,000 characters are saved in full under
+`.tool-results/<session>/<tool-call>.txt` in the owning state workspace. Model
+input and replay receive an 8,000-character head/tail excerpt plus the saved
+path. Full evidence still crosses IPC by reference and is restored for audit
+and transcript storage. Results remain available until workspace reset; worker
+replacement and compaction do not remove them.
+
+Use `read` with `path`, `char_offset` (zero-based), and `max_chars` to page
+through saved text, including single-line JSON. `read` with a literal `query`
+returns a matching excerpt and its character offset; use `char_offset` to
+continue searching. These reads return at most 2,000 excerpt characters.
+The existing workspace and approval checks apply to every read.
+
 The context guard measures pressure without rewriting tool results. In-loop
 compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
@@ -760,9 +773,13 @@ region in the persistent session state dir and includes that file's path in the
 replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
-summaries that do not shrink the region leave history unchanged; there is no
-heuristic fallback or character-based transcript cutoff. Each rejected attempt
-logs a distinct reason without logging response text or error payloads.
+summaries that do not shrink the region never authorize dropping messages.
+If compaction cannot progress, including when the newest exchange leaves no
+compactable middle, the loop saves oversized tool results and reduces their
+inline excerpts to fit the active context budget. Call/result pairing and full
+on-disk evidence remain intact. A failed result-file write leaves the original
+result in context; the loop reports exhaustion if it still cannot fit. Each
+rejected attempt logs a distinct reason without logging response text or error payloads.
 
 Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
 That limit bounds consecutive provider context-window recovery retries and resets
@@ -774,12 +791,14 @@ its historical tool schemas, and the summary output budget. It falls back to
 the active model when no compression override is configured. For long tasks,
 configure `auxiliaryModels.compression` with sufficient capacity; a larger
 window than the active model helps recover even when that model overflows.
-An input rejected as too large reports `summary_context_overflow` and ends the
-turn without replacing history. Archives contain conversation and tool data
-that the agent can read; private file permissions protect against other host
+An input rejected as too large reports `summary_context_overflow`; the loop
+then attempts the disk-backed result recovery described above before reporting
+context exhaustion. Archives contain conversation and tool data that the agent
+can read; private file permissions protect against other host
 users, and workspace reset removes them.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
-remove it from custom configuration. There is no replacement per-result limit.
+remove it from custom configuration. Inline tool-result bounds are fixed
+runtime limits rather than configuration.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser

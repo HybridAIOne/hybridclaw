@@ -4,8 +4,10 @@ import path from 'node:path';
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { ChatMessage } from '../src/types/api.js';
 import type { ContainerInput } from '../src/types/container.js';
-import { runContainerWorker } from './helpers/container-worker.js';
+import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { useTempDir } from './test-utils.js';
+import { runContainerWorker } from './helpers/container-worker.js';
 
 interface Reply {
   status: number;
@@ -38,11 +40,11 @@ const BIG_FILE = Array.from(
   (_, line) => `line ${line} ${'x'.repeat(90)}`,
 ).join('\n');
 
+const makeTempDir = useTempDir('hc-context-recovery-');
 let workspace: string;
 
-const makeTempDir = useTempDir();
 beforeEach(() => {
-  workspace = makeTempDir('hc-context-recovery-');
+  workspace = makeTempDir();
   fs.writeFileSync(path.join(workspace, 'big.txt'), BIG_FILE);
 });
 
@@ -72,6 +74,7 @@ async function startModelServer(
   replyToLoop: (index: number) => Reply,
   replyToSummary: (messages: ChatMessage[]) => Reply = () =>
     completion('Earlier turns summarized.'),
+  httpResult?: string,
 ): Promise<ModelServer> {
   const loopRequests: ChatMessage[][] = [];
   let summaryRequests = 0;
@@ -79,6 +82,11 @@ async function startModelServer(
   const server = http.createServer(async (req, res) => {
     let text = '';
     for await (const chunk of req) text += String(chunk);
+    if (req.url === '/api/http/request' && httpResult !== undefined) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(httpResult);
+      return;
+    }
     const body = JSON.parse(text) as {
       messages: ChatMessage[];
       tools?: unknown[];
@@ -136,6 +144,7 @@ function conversation(): ChatMessage[] {
 async function runTurn(
   server: ModelServer,
   overrides: Partial<ContainerInput> = {},
+  env: Record<string, string> = {},
 ) {
   return runContainerWorker(
     {
@@ -156,11 +165,180 @@ async function runTurn(
     {
       HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspace,
       HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify([workspace]),
+      ...env,
     },
   );
 }
 
 describe('provider context-length rejections in the tool loop', () => {
+  test.each([false, true])(
+    'keeps a 679 KiB HTTP result searchable in a short conversation (separate state root: %s)',
+    async (separateStateRoot) => {
+      const needle = 'pending-review-marker';
+      const envelope = { ok: true, status: 200, body: '' };
+      const bodyLength = 679 * 1024 - JSON.stringify(envelope).length;
+      const body =
+        'a'.repeat(340_000) +
+        needle +
+        'b'.repeat(bodyLength - 340_000 - needle.length);
+      const payload = JSON.stringify({ ...envelope, body });
+      const fullResult = JSON.stringify({ ...envelope, body }, null, 2);
+      expect(Buffer.byteLength(payload)).toBe(679 * 1024);
+      const stateRoot = separateStateRoot ? makeTempDir() : workspace;
+      const env = {
+        HYBRIDCLAW_AGENT_STATE_ROOT: stateRoot,
+        HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify([workspace, stateRoot]),
+      };
+      const resultPath = toolResultFilePath('context-recovery', 'large-http');
+      const modelPath = separateStateRoot
+        ? path.join(stateRoot, resultPath)
+        : resultPath;
+      const messages: ChatMessage[] = [
+        {
+          role: 'user',
+          content: 'Fetch the report and find its review marker.',
+        },
+      ];
+      const server = await startModelServer(
+        (index) => {
+          if (index === 0)
+            return completion(null, [
+              {
+                id: 'large-http',
+                type: 'function',
+                function: {
+                  name: 'http_request',
+                  arguments: JSON.stringify({
+                    url: 'https://example.com/report',
+                  }),
+                },
+              },
+            ]);
+          if (index === 1)
+            return completion(null, [
+              {
+                id: 'find-marker',
+                type: 'function',
+                function: {
+                  name: 'read',
+                  arguments: JSON.stringify({
+                    path: modelPath,
+                    query: needle,
+                    max_chars: 200,
+                  }),
+                },
+              },
+            ]);
+          return completion('Review marker found.');
+        },
+        undefined,
+        payload,
+      );
+      try {
+        const output = await runTurn(
+          server,
+          {
+            messages,
+            contextWindow: 12_000,
+            allowedTools: ['http_request', 'read'],
+            gatewayBaseUrl: server.baseUrl,
+            approvalMode: 'full',
+            ralphMaxIterations: 0,
+          },
+          env,
+        );
+        expect(output).toMatchObject({
+          status: 'success',
+          result: 'Review marker found.',
+        });
+        expect(server.loopRequests).toHaveLength(3);
+        expect(server.summaryRequests).toBe(0);
+        expect(output.toolsUsed).toEqual(['http_request', 'read']);
+        const excerpt = String(server.loopRequests[1].at(-1)?.content);
+        expect(excerpt).toContain(modelPath);
+        expect(excerpt.length).toBeLessThan(9_000);
+        const search = JSON.parse(
+          String(server.loopRequests[2].at(-1)?.content),
+        );
+        expect(search.text).toContain(needle);
+        expect(search.matchOffset).toBe(fullResult.indexOf(needle));
+        expect(fs.readFileSync(path.join(stateRoot, resultPath), 'utf8')).toBe(
+          fullResult,
+        );
+        const restored = restoreSpilledToolResults(output, {
+          sessionId: 'context-recovery',
+          workspaceRoot: stateRoot,
+        });
+        expect(restored.toolHistory?.[1].content === fullResult).toBe(true);
+        expect(restored.toolExecutions?.[0].result === fullResult).toBe(true);
+        expect(restored.toolHistoryForReplay?.[1].content).toBe(excerpt);
+        const replayed = await runTurn(
+          server,
+          {
+            messages: [...messages, ...restored.toolHistoryForReplay!],
+            contextWindow: 12_000,
+            ralphMaxIterations: 0,
+          },
+          env,
+        );
+        expect(replayed.status).toBe('success');
+        expect(server.summaryRequests).toBe(0);
+      } finally {
+        await server.close();
+      }
+    },
+    30_000,
+  );
+
+  test('recovers a newest oversized historical exchange when there is no compactable middle', async () => {
+    const content = 'evidence '.repeat(80_000);
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Continue inspecting the saved report.' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'old-http',
+            type: 'function',
+            function: {
+              name: 'http_request',
+              arguments: '{"url":"https://example.com/report"}',
+            },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'old-http', content },
+    ];
+    const server = await startModelServer(() => completion('Recovered.'));
+    try {
+      const output = await runTurn(server, {
+        messages,
+        contextWindow: 12_000,
+        ralphMaxIterations: 0,
+      });
+      expect(output).toMatchObject({ status: 'success', result: 'Recovered.' });
+      expect(server.summaryRequests).toBe(0);
+      expect(server.loopRequests).toHaveLength(1);
+      expect(server.loopRequests[0].slice(0, 2)).toEqual(messages.slice(0, 2));
+      expect(String(server.loopRequests[0][2].content).length).toBeLessThan(
+        2_000,
+      );
+      expect(server.loopRequests[0][2].tool_call_id).toBe('old-http');
+      expect(
+        fs.readFileSync(
+          path.join(
+            workspace,
+            toolResultFilePath('context-recovery', 'old-http'),
+          ),
+          'utf8',
+        ),
+      ).toBe(content);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
   test('compacts, retries, and keeps the corrected budget for the rest of the turn', async () => {
     const server = await startModelServer((index) => {
       if (index === 0) return CONTEXT_LENGTH_REJECTION;

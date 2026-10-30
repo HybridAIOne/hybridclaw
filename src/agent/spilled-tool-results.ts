@@ -1,5 +1,6 @@
 /**
- * File-backed IPC restores complete results for audit, storage and replay.
+ * File-backed IPC restores complete results for audit and storage.
+ * Bounded model excerpts stay bounded during replay.
  * Unlike context compaction, this decodes references without changing evidence.
  * Worker-controlled paths must be derived and link-free; restoration retains
  * explicit references on read failure or aggregate transport-budget overflow.
