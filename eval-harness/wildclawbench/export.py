@@ -25,6 +25,7 @@ def export_run(summary, model, categories, expected_tasks, run_date):
     groups = defaultdict(list)
     costs, minutes = [], []
     failed = 0
+    blocked = 0
     provenance = None
     for row in rows:
         usage = row.get("usage", {})
@@ -50,7 +51,10 @@ def export_run(summary, model, categories, expected_tasks, run_date):
             raise ValueError("Invalid task score")
         category = categories[row["task_id"].split("_", 1)[0]]
         groups[category].append(score)
-        failed += bool(row.get("error") or scores.get("error") or scores.get("judge_error") or not numeric)
+        awaiting_approval = usage.get("execution_status") == "awaiting_approval"
+        blocked += awaiting_approval
+        failed += bool(row.get("error") or scores.get("judge_error") or
+                       (not awaiting_approval and (scores.get("error") or not numeric)))
         costs.append(cost)
         minutes.append(elapsed / 60)
     average = sum(sum(v) for v in groups.values()) / 60
@@ -60,6 +64,7 @@ def export_run(summary, model, categories, expected_tasks, run_date):
         "agent": "hybridclaw", "model": MODELS[model], "benchmark": "wildclawbench",
         "score": round(average * 100, 4), "usd_per_task": sum(costs) / 60,
         "minutes_per_task": sum(minutes) / 60, "tasks": 60, "failed_infra": failed,
+        "approval_blocked": blocked,
         "per_category": {k: round(sum(v) / len(v) * 100, 4) for k, v in sorted(groups.items())},
         "wildclawbench_commit": MANIFEST["wildclawbench_commit"],
         **provenance,

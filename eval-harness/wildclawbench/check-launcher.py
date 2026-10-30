@@ -29,10 +29,17 @@ def main():
     assert not state.is_symlink()
     assert (state / "SOUL.md").is_file()
     assert (state / ".hybridclaw").is_dir()
-    assert sorted(p.name for p in task.iterdir()) == ["input.txt", "results"], sorted(p.name for p in task.iterdir())
-    assert (task / "results/fixture.txt").read_text() == "Fixture artifact"
     result = json.loads((root / "completion.json").read_text())
-    assert result["choices"][0]["message"]["content"] == "Fixture response"
+    outcome = launcher.completion_outcome(result)
+    if os.environ.get("HYBRIDCLAW_CHECK_APPROVAL") == "1":
+        assert outcome["status"] == "awaiting_approval", outcome
+        assert outcome["pending_approval"]["toolName"] == "read", outcome
+        assert sorted(p.name for p in task.iterdir()) == ["input.txt"]
+    else:
+        assert outcome["status"] == "completed", outcome
+        assert sorted(p.name for p in task.iterdir()) == ["input.txt", "results"]
+        assert (task / "results/fixture.txt").read_text() == "Fixture artifact"
+        assert result["choices"][0]["message"]["content"] == "Fixture response"
     worker_env = dict(os.environ, HYBRIDCLAW_AGENT_SANDBOX_MODE="host",
                       HYBRIDCLAW_AGENT_WORKSPACE_ROOT="/tmp_workspace")
     preload = "/opt/wildclawbench/workspace-display.mjs"
@@ -43,7 +50,7 @@ def main():
                              env=worker_env, capture_output=True)
     assert refused.returncode != 0, "Mismatched task root must fail closed"
     assert "gen-fixture-check" in (root / "data/gateway/generation-ids.log").read_text()
-    print("PASS: real gateway/worker/tool, isolated agent state, task artifact, fence and generation observer; no network")
+    print("PASS: real gateway/worker, structured " + outcome["status"] + ", isolated state, fence and generation observer; no network")
 
 
 if __name__ == "__main__":

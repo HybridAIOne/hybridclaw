@@ -11,6 +11,26 @@ import time
 import urllib.request
 
 
+def completion_outcome(result):
+    """Use gateway metadata, never assistant prose, to identify approval stops."""
+    if not isinstance(result, dict) or not result.get("choices"):
+        raise ValueError("Missing completion result")
+    extension = result.get("hybridclaw", {})
+    if not isinstance(extension, dict):
+        raise ValueError("Invalid gateway execution metadata")
+    if "pendingApproval" not in extension:
+        return {"status": "completed"}
+    approval = extension["pendingApproval"]
+    if (not isinstance(approval, dict) or not isinstance(approval.get("approvalId"), str)
+            or not approval["approvalId"] or "expiresAt" not in approval
+            or (approval["expiresAt"] is not None
+                and not isinstance(approval["expiresAt"], (int, float)))
+            or ("toolName" in approval and not isinstance(approval["toolName"], str))):
+        raise ValueError("Invalid gateway pending approval")
+    return {"status": "awaiting_approval", "pending_approval": {
+        key: approval[key] for key in ("approvalId", "toolName", "expiresAt") if key in approval}}
+
+
 def main():
     payload = json.load(sys.stdin)
     root = Path(os.environ["HYBRIDCLAW_DATA_DIR"])
