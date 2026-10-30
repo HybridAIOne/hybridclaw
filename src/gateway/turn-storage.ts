@@ -6,6 +6,7 @@
  * while the turn ran (`steerNotes`, as user messages of their own), then the
  * reply. NOT the audit trail or compaction; `recordSuccessfulTurn` and
  * `recordErrorTurn` in gateway-service.ts decide those and what the reply is.
+ * Final storage replaces provisional recovery rows in the same SQLite commit.
  */
 import { logger } from '../logger.js';
 import {
@@ -16,6 +17,7 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { finishTurnCheckpoint } from './turn-checkpoint.js';
 
 export function storeTurnMessages(opts: {
   sessionId: string;
@@ -55,7 +57,7 @@ export function storeTurnMessages(opts: {
     artifacts: opts.artifacts,
     toolHistory: opts.toolHistoryForReplay,
   };
-  const storedTurn =
+  const storedTurn = finishTurnCheckpoint(opts.sessionId, () =>
     opts.replaceBuiltInMemory === true
       ? storeMessagesOnly(opts.sessionId, user, steerNotes, assistant)
       : memoryService.storeTurn({
@@ -63,7 +65,8 @@ export function storeTurnMessages(opts: {
           user,
           steerNotes,
           assistant,
-        });
+        }),
+  );
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
     try {
       memoryService.appendCanonicalMessages({

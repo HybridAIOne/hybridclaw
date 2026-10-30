@@ -138,6 +138,38 @@ clients cannot select this path. The agent retains its default bootstrap and
 skills, and the execution workspace fence remains enabled. Changing this setting
 requires a new eval session; it is not a way to alter an active worker's roots.
 
+### Interrupted Turns
+
+Before worker dispatch, the gateway commits the user message and an unfinished
+assistant placeholder to SQLite. Normal completion replaces those provisional
+rows and removes the pending marker in one transaction. After a gateway restart,
+the next turn recovers that session's checkpoint before building model context.
+
+Workers write `turn-checkpoint.json` in the protected session state directory
+under `.hybridclaw-runtime/sessions/<session-key>/`. The checkpoint records model
+tool requests before execution, execution starts before invoking tools, and each
+completed result immediately, including individual results in concurrent batches.
+The last complete assistant message is retained too. Once a run has proposed tools,
+a killed worker's replacement returns its evidence for the same run ID without
+calling the model or tools. Runs with no proposed tools remain safe to retry.
+A new run starts a fresh checkpoint; recovered exchanges are conversation context,
+never executable instructions or approval grants.
+
+A started call without a saved result has an **unknown outcome**: its side effects
+may already have occurred. Recovery marks it explicitly and asks for external-state
+verification before retrying. A proposed call that never started is marked **not
+executed**. Recovery after interruption never applies queued gateway side effects;
+authoritative error replies retain their results and queued effects. Missing or
+corrupt journals retain the gateway's uncertainty placeholder;
+unreadable journals refuse worker replay. Recovery readers reject links and enforce
+the configured IPC output size limit. These atomic checkpoints cover abrupt process
+termination, not power-loss durability or exactly-once execution of external APIs.
+
+Risk boundary: checkpoint persistence must succeed before a tool starts. A crash
+between an external effect and its result checkpoint cannot prove success or failure,
+so recovery must never automatically repeat that call. The protected state remains
+subject to the existing approval-state guard; it confers no execution authority.
+
 Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
 maximum execution attempts. The worker reserves each attempt synchronously
 before execution and persists counts under its protected session state directory

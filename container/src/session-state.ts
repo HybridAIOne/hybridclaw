@@ -10,26 +10,18 @@
  * never a home for secrets or environment snapshots. One worker serves a
  * session at a time, so writes take no lock.
  */
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../shared/atomic-write.js';
+import { sessionStatePath as workspaceSessionStatePath } from '../shared/turn-checkpoint.js';
 import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
-
-const SESSION_STATE_ROOT = path.join(
-  WORKSPACE_STATE_ROOT,
-  '.hybridclaw-runtime',
-  'sessions',
-);
 
 // Stands in for a session id in paths and records, which keeps peer ids such
 // as phone numbers out of agent-readable files.
-export function sessionStateKey(sessionId: string): string {
-  return createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
-}
+export { sessionStateKey } from '../shared/turn-checkpoint.js';
 
 export function sessionStatePath(sessionId: string, name: string): string {
-  return path.join(SESSION_STATE_ROOT, sessionStateKey(sessionId), name);
+  return workspaceSessionStatePath(WORKSPACE_STATE_ROOT, sessionId, name);
 }
 
 export function ensureSessionStateDir(filePath: string): void {
