@@ -1109,6 +1109,7 @@ async function processRequest(
   const turnToolHistory = new TurnToolHistory(
     params.sessionId,
     WORKSPACE_STATE_ROOT,
+    WORKSPACE_ROOT,
     inFlightInput?.runId || inFlightInput?.requestId || randomUUID(),
   );
   if (turnToolHistory.recovered) return turnToolHistory.recovered;
@@ -1503,6 +1504,7 @@ async function processRequestInner(
         },
       });
       if (!compacted.changed) {
+        if (turnToolHistory.boundContext(history, guardContextWindow)) continue;
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,

@@ -10,6 +10,9 @@ import { writeFileAtomic } from './atomic-write.js';
 import { validateToolHistory } from './tool-history.js';
 
 export function sessionStateKey(sessionId) {
+  // lgtm[js/insufficient-password-hash] This is a deterministic session/user
+  // lookup key for state files and approval records, never a password/token
+  // verifier. Keep identifiers and path separators out of persistent filenames.
   return createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
 }
 

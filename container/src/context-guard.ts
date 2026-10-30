@@ -1,7 +1,7 @@
 /**
  * Measures whole-context pressure without changing evidence or token caches.
  * Unlike in-loop compaction, this guard never replaces messages or tool results;
- * a successful archived summary is the only way the loop prunes context.
+ * the caller chooses archived compaction or disk-backed result excerpts.
  */
 import {
   CONTEXT_GUARD_DEFAULTS,

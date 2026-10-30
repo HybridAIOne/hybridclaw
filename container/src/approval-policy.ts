@@ -50,6 +50,7 @@ import {
   type ApprovalDirective,
   parseApprovalUserResponse,
 } from './approval-directive.js';
+import { approvalReason } from './approval-reason.js';
 import {
   messageToolEmailTarget,
   messageToolTarget,
@@ -1574,17 +1575,6 @@ function isRedRuleActive(context: ToolCallContext): boolean {
     (requireBaseTier(context) === 'red' || context.tier === 'red') &&
     context.decision === 'auto'
   );
-}
-
-// Keep the classifier's reason and add the anomaly score, so approval prompts
-// and audit events say why an elevated call's tier rose.
-function approvalReason(
-  context: ToolCallContext,
-  classified: ClassifiedAction,
-): string {
-  return context.anomalyElevated && context.anomaly
-    ? `${classified.reason}; ${context.anomaly.reason}`
-    : classified.reason;
 }
 
 function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
@@ -3959,7 +3949,7 @@ export class TrustedAgentApprovalRuntime {
       actionKey: 'bash:other',
       intent: `run shell command \`${normalizePreview(command)}\``,
       consequenceIfDenied: 'I will continue without running that command.',
-      reason: 'this command may change local state',
+      reason: 'the effects of this command are not classified as read-only',
       commandPreview: normalizePreview(command),
       pathHints,
       hostHints: hosts,

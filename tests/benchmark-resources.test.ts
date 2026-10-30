@@ -6,6 +6,7 @@ import {
   BenchmarkResources,
   DEFAULT_BENCHMARK_BUDGET,
   parseEngineResources,
+  parseMacMemoryPressure,
   type BenchmarkSnapshot,
 } from '../eval-harness/src/benchmark-resources.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
@@ -15,7 +16,7 @@ vi.mock('../eval-harness/src/benchmark-command.js', () => ({ benchmarkCommand: m
 const GIB = 1024 ** 3;
 const budget = DEFAULT_BENCHMARK_BUDGET;
 const healthy: BenchmarkSnapshot = {
-  hostMemoryAvailable: 64 * GIB, hostSwapUsed: 0, hostDiskFree: 200 * GIB,
+  hostMemoryAvailable: 64 * GIB, hostSwapUsed: 0, hostMemoryPressureLevel: 1, hostDiskFree: 200 * GIB,
   engineMemoryAvailable: 32 * GIB, engineSwapFree: 16 * GIB,
   engineSwapUsed: 0, engineDiskFree: 200 * GIB,
 };
@@ -47,6 +48,7 @@ beforeEach(() => {
   mocks.command.mockImplementation(async ({ command, args }: { command: string; args: string[] }) => {
     let stdout = '';
     if (command === '/usr/bin/vm_stat') stdout = 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 2097152.\nPages inactive: 2097152.';
+    else if (command === '/usr/sbin/sysctl' && args[0] === '-n') stdout = '1\n';
     else if (command === '/usr/sbin/sysctl') stdout = 'vm.swapusage: total = 1024.00M used = 0.00M free = 1024.00M';
     else if (args[0] === 'info') stdout = args.at(-1) === '{{json .}}' ? JSON.stringify({ ID: 'test-engine', MemoryLimit: true, SwapLimit: true }) : 'test-engine\n';
     else if (args[0] === 'exec') stdout = engine;
@@ -63,9 +65,40 @@ function guard() {
 test.each([
   ['hostMemoryAvailable', 7 * GIB], ['engineMemoryAvailable', 5 * GIB],
   ['hostDiskFree', 30 * GIB], ['engineDiskFree', 30 * GIB],
-  ['engineSwapFree', GIB], ['hostSwapUsed', 3 * GIB], ['engineSwapUsed', 3 * GIB],
+  ['engineSwapFree', GIB], ['engineSwapUsed', 3 * GIB],
 ])('refuses concurrent demand or existing pressure for %s', (metric, value) => {
   expect(() => assertBenchmarkCapacity({ ...healthy, [metric]: value }, budget, 2, 2)).toThrow(/admission refused/);
+});
+
+test('retained macOS swap does not veto normal pressure with sufficient headroom', () => {
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostSwapUsed: 24 * GIB }, budget, 1, 1)).not.toThrow();
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostSwapUsed: 24 * GIB, hostMemoryAvailable: GIB }, budget, 1, 1)).toThrow(/hostMemoryAvailable/);
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostSwapUsed: 24 * GIB, engineSwapUsed: 3 * GIB }, budget, 1, 1)).toThrow(/swap pressure/);
+});
+
+test.each([2, 4])('refuses active macOS pressure level %s even with little swap used', (hostMemoryPressureLevel) => {
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostMemoryPressureLevel }, budget, 1, 1)).toThrow(/elevated memory pressure/);
+});
+
+test('retains the swap threshold on hosts without a kernel pressure signal', () => {
+  const snapshot = { ...healthy, hostSwapUsed: 3 * GIB };
+  delete snapshot.hostMemoryPressureLevel;
+  expect(() => assertBenchmarkCapacity(snapshot, budget, 1, 1)).toThrow(/swap pressure/);
+});
+
+test.each(['', '0', '3', '5', 'NaN', 'warning', '1 extra'])('refuses missing or unknown macOS pressure: %j', (value) => {
+  expect(() => parseMacMemoryPressure(value)).toThrow(/metric/);
+});
+test.each([1, 2, 4])('parses kernel pressure level %s', (level) => {
+  expect(parseMacMemoryPressure(`${level}\n`)).toBe(level);
+});
+
+test.each(['2\n', '4\n', '', '9\n'])('refuses bad macOS pressure before Docker creation: %j', async (pressure) => {
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
+    ? {status: 0, stdout: pressure, stderr: ''} : original(params));
+  await expect(guard().resources.start(1, 1)).rejects.toThrow(/pressure/);
+  expect(mocks.command.mock.calls.some(([params]) => params.command === 'docker')).toBe(false);
 });
 
 test('budgets cumulative images, build/extraction data, artifacts and concurrent swap', () => {
@@ -129,7 +162,7 @@ test('cleans up a failed preflight and keeps a missing probe from triggering a p
   expect(mocks.command.mock.calls.some(([params]) => ['run', 'pull'].includes(params.args[0]))).toBe(false);
 });
 
-test.each(['disk', 'memory', 'engine', 'telemetry'])('aborts active work when periodic %s checks fail', async (failure) => {
+test.each(['disk', 'memory', 'engine', 'telemetry', 'pressure'])('aborts active work when periodic %s checks fail', async (failure) => {
   vi.useFakeTimers();
   const { resources, record } = guard();
   await resources.start(1, 1);
@@ -139,6 +172,11 @@ test.each(['disk', 'memory', 'engine', 'telemetry'])('aborts active work when pe
   if (failure === 'memory') engine = engineOutput(GIB);
   if (failure === 'telemetry') engine = '';
   if (failure === 'engine') mocks.command.mockRejectedValue(new Error('engine unavailable'));
+  if (failure === 'pressure') {
+    const original = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
+      ? {status: 0, stdout: '2\n', stderr: ''} : original(params));
+  }
   await vi.advanceTimersByTimeAsync(5000);
   expect(resources.signal.aborted).toBe(true);
   expect(stopped).toHaveBeenCalledOnce();

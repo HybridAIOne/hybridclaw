@@ -61,7 +61,7 @@ test('recovers completed, uncertain and unstarted calls distinctly without execu
 
 test('checkpoints each parallel completion before the rest of its batch finishes', async () => {
   const root = temp();
-  const history = new TurnToolHistory('parallel', root, 'run-a');
+  const history = new TurnToolHistory('parallel', root, root, 'run-a');
   history.recordAssistant({
     role: 'assistant',
     content: null,
@@ -89,7 +89,7 @@ test('checkpoints each parallel completion before the rest of its batch finishes
 
 test('fails before executing a tool when its start cannot be persisted', async () => {
   const root = temp();
-  const history = new TurnToolHistory('unwritable', root, 'run-a');
+  const history = new TurnToolHistory('unwritable', root, root, 'run-a');
   history.recordAssistant({
     role: 'assistant',
     content: null,
@@ -106,6 +106,32 @@ test('fails before executing a tool when its start cannot be persisted', async (
     }),
   ).rejects.toThrow();
   expect(ran).toBe(false);
+});
+
+test('a large completed outcome survives interruption with bounded replay and full evidence on disk', async () => {
+  const state = temp();
+  const execution = temp();
+  const history = new TurnToolHistory('large', state, execution, 'run-a');
+  history.recordAssistant({
+    role: 'assistant',
+    content: null,
+    tool_calls: [call('a')],
+  });
+  const full = 'Report detail\n'.repeat(5000);
+  const result = await history.checkpointExecution('a', async () => ({
+    output: full,
+    isError: false,
+  }));
+  expect(result.output).toBe(full);
+  const recovered = new TurnToolHistory('large', state, execution, 'run-a')
+    .recovered!;
+  const replay = String(recovered.toolHistoryForReplay![1].content);
+  expect(replay.length).toBeLessThan(16_000);
+  const evidence = path.join(state, '.tool-results', 'large', 'a.txt');
+  expect(replay).toContain(evidence);
+  expect(fs.readFileSync(evidence, 'utf8')).toBe(full);
+  expect(fs.readdirSync(execution)).toEqual([]);
+  expect(recovered.toolExecutions![0].isError).toBe(false);
 });
 
 test('worker failure recovers evidence only for its own run, never queued side effects', () => {
