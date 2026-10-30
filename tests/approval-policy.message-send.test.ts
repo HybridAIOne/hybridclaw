@@ -37,13 +37,20 @@ const invitation = {
   content: 'See you then.',
 };
 
-function send(runtime: TrustedAgentApprovalRuntime, args: object) {
+function send(
+  runtime: TrustedAgentApprovalRuntime,
+  args: object,
+  channelId?: string,
+) {
   return runtime.evaluateToolCall({
     toolName: 'message',
     argsJson: JSON.stringify(args),
     latestUserPrompt: 'Tell Pat I can make Friday',
+    channelId,
   });
 }
+
+const CURRENT_CHANNEL = '123456789012345678';
 
 describe('message tool sends', () => {
   test('an email send asks first in the default mode', () => {
@@ -70,6 +77,28 @@ describe('message tool sends', () => {
     expect(
       send(createRuntime(), { action: 'send', content: 'Done.' }).decision,
     ).not.toBe('required');
+  });
+
+  test('naming the channel the conversation is in still runs', () => {
+    const thread = {
+      action: 'thread-create',
+      channelId: CURRENT_CHANNEL,
+      messageId: '234567890123456789',
+      name: 'Deploy failed',
+    };
+    expect(send(createRuntime(), thread, CURRENT_CHANNEL).decision).not.toBe(
+      'required',
+    );
+    expect(
+      send(
+        createRuntime(),
+        { action: 'send', channelId: `<#${CURRENT_CHANNEL}>`, content: 'Done.' },
+        CURRENT_CHANNEL,
+      ).decision,
+    ).not.toBe('required');
+    expect(
+      send(createRuntime(), thread, '345678901234567890'),
+    ).toMatchObject({ tier: 'red', decision: 'required' });
   });
 
   test('a turn another bot started is refused instead of asking nobody', () => {
