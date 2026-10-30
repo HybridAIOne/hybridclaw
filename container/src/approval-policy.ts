@@ -3016,7 +3016,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
-      // Public warning lookups; watching only saves the user's place list.
+      // Public warning lookups; watching saves the user's place list.
       lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
@@ -3041,7 +3041,14 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
-        writeIntent: false,
+        // Still green, but these ring a phone or keep a record.
+        writeIntent:
+          lowerTool === 'call_user' ||
+          lowerTool === 'proof' ||
+          (lowerTool === 'draft_email' && args.track_id !== undefined) ||
+          (lowerTool === 'public_warnings' &&
+            ['watch', 'unwatch'].includes(String(args.action))) ||
+          (lowerTool === 'work' && args.action === 'record'),
         promotableRed: false,
         stickyYellow: false,
       };

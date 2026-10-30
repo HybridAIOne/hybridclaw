@@ -28,6 +28,7 @@ test('a dry run reads, refuses every change with a tool result, and still answer
           toolCall('append-notes', 'bash', {
             command: 'echo learned >> MEMORY.md',
           }),
+          toolCall('ring-user', 'call_user', { reason: 'Order 42 update' }),
         ],
       },
       { role: 'assistant', content: 'The order ships on Friday.' },
@@ -52,12 +53,14 @@ test('a dry run reads, refuses every change with a tool result, and still answer
     ['read', false, 'auto'],
     ['write', true, 'denied'],
     ['bash', true, 'denied'],
+    ['call_user', true, 'denied'],
   ]);
   const toolResults = requests[1].messages.filter(
     (message) => message.role === 'tool',
   );
   expect(toolResults.map((message) => message.content)).toEqual([
     'Orders ship on Fridays.\n',
+    expect.stringContaining('dry run'),
     expect.stringContaining('dry run'),
     expect.stringContaining('dry run'),
   ]);
