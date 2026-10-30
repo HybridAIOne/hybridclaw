@@ -764,6 +764,11 @@ summaries that do not shrink the region leave history unchanged; there is no
 heuristic fallback or character-based transcript cutoff. Each rejected attempt
 logs a distinct reason without logging response text or error payloads.
 
+Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
+That limit bounds consecutive provider context-window recovery retries and resets
+after an accepted loop request, not after a summary. Compaction stops immediately
+when it cannot produce a smaller archived replacement.
+
 The compression model needs enough context for the complete selected region,
 its historical tool schemas, and the summary output budget. It falls back to
 the active model when no compression override is configured. For long tasks,
