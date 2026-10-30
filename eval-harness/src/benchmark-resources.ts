@@ -23,6 +23,11 @@ export const DEFAULT_BENCHMARK_BUDGET = {
 const MEMORY_RESERVE = 2 * GIB;
 const DISK_RESERVE = 20 * GIB;
 const MAX_SWAP_USED = 2 * GIB;
+// XNU exports dispatch pressure levels, not its internal enum. Retained swap
+// alone is not a current-pressure signal on macOS.
+// https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_memorystatus_notify.c
+const MAC_PRESSURE_NORMAL = 1;
+const MAC_PRESSURE_LEVELS = new Set([MAC_PRESSURE_NORMAL, 2, 4]);
 const POLL_MS = 5_000;
 const PROBE_TIMEOUT_MS = 10_000;
 export const BENCHMARK_PROBE_IMAGE = 'busybox:1.37';
@@ -37,11 +42,19 @@ export interface BenchmarkBudget {
 export interface BenchmarkSnapshot {
   hostMemoryAvailable: number;
   hostSwapUsed: number;
+  hostMemoryPressureLevel?: number;
   hostDiskFree: number;
   engineMemoryAvailable: number;
   engineSwapFree: number;
   engineSwapUsed: number;
   engineDiskFree: number;
+}
+
+export function parseMacMemoryPressure(output: string): number {
+  const level = Number(output.trim());
+  if (!MAC_PRESSURE_LEVELS.has(level))
+    throw new Error('Missing or invalid macOS memory-pressure metric');
+  return level;
 }
 
 export function parseEngineResources(
@@ -102,8 +115,17 @@ export function assertBenchmarkCapacity(
       );
     }
   }
+  const pressure = snapshot.hostMemoryPressureLevel;
+  if (pressure !== undefined) {
+    if (!MAC_PRESSURE_LEVELS.has(pressure))
+      throw new Error('Invalid macOS memory-pressure metric');
+    if (pressure !== MAC_PRESSURE_NORMAL)
+      throw new Error(
+        'Benchmark resource admission refused: macOS reports elevated memory pressure.',
+      );
+  }
   if (
-    snapshot.hostSwapUsed > MAX_SWAP_USED ||
+    (pressure === undefined && snapshot.hostSwapUsed > MAX_SWAP_USED) ||
     snapshot.engineSwapUsed > MAX_SWAP_USED
   )
     throw new Error(
@@ -141,6 +163,7 @@ export class BenchmarkResources {
   private async hostResources() {
     let memoryAvailable = os.freemem();
     let swapUsed: number;
+    let memoryPressure: number | undefined;
     if (os.platform() === 'darwin') {
       const vm = await benchmarkCommand({
         command: '/usr/bin/vm_stat',
@@ -159,6 +182,12 @@ export class BenchmarkResources {
       const match = swap.stdout.match(/used = ([\d.]+)M/);
       if (!match) throw new Error('Missing host swap metric');
       swapUsed = Number(match[1]) * 1024 ** 2;
+      const pressure = await benchmarkCommand({
+        command: '/usr/sbin/sysctl',
+        args: ['-n', 'kern.memorystatus_vm_pressure_level'],
+        timeout: PROBE_TIMEOUT_MS,
+      });
+      memoryPressure = parseMacMemoryPressure(pressure.stdout);
     } else if (os.platform() === 'linux') {
       const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
       const read = (name: string) => {
@@ -190,6 +219,9 @@ export class BenchmarkResources {
     return {
       hostMemoryAvailable: memoryAvailable,
       hostSwapUsed: swapUsed,
+      ...(memoryPressure !== undefined
+        ? { hostMemoryPressureLevel: memoryPressure }
+        : {}),
       hostDiskFree: Math.min(...disks),
     };
   }
