@@ -85,6 +85,7 @@ import {
   classifyBrowserCheckout,
 } from './browser-checkout.js';
 import { buildConnectorApproval } from './connector-approvals.js';
+import { guardFileWriteConflict } from './file-write-conflicts.js';
 import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
@@ -2189,7 +2190,13 @@ export class TrustedAgentApprovalRuntime {
         return this.reloadPolicyIfNeeded();
       },
       cleanupExpiredPending: () => this.cleanupExpiredPending(),
-      classifyAction: (toolName, args) => this.classifyAction(toolName, args),
+      classifyAction: (toolName, args) =>
+        guardFileWriteConflict(
+          this.sessionId,
+          toolName,
+          args,
+          this.classifyAction(toolName, args),
+        ),
       isPinnedRed: (input) => this.isPinnedRed(input),
       resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
       runStakesMiddleware: (context) => this.runStakesMiddleware(context),
