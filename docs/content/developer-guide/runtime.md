@@ -420,6 +420,14 @@ package and the Docker image ship source maps beside them (desktop packages
 strip them), but they are off because they slow startup; run with
 `NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
 
+## Approval Explanations
+
+Pinned-sensitive approval explanations identify policy pinning and the one-time
+approval requirement, including for read-only operations. An unclassified shell
+command is described as unclassified rather than asserted to mutate state.
+The same reason is retained in the pending approval and returned evaluation;
+this wording does not alter approval tiers or grant access.
+
 ## Tool Recovery
 
 The system prompt distinguishes a failed method from a blocked task. It uses
