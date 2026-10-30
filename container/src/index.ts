@@ -11,6 +11,7 @@ import './node-version-guard.js';
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
+import { CONTEXT_GUARD_DEFAULTS } from '../shared/context-guard-config.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { compileToolPatterns } from '../shared/tool-patterns.js';
@@ -1261,7 +1262,7 @@ async function processRequestInner(
   let latestFinalAssistantText: string | null = null;
   // The reply written before a steering note, kept as the reply's start.
   let steeredReplyPrefix = '';
-  let compactionRetries = 0;
+  let consecutiveContextErrors = 0;
   // Drops below any estimate the provider rejects as too long.
   let guardContextWindow = contextWindow;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1280,7 +1281,10 @@ async function processRequestInner(
     thinkingFormat,
     tools,
   });
-  const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const maxContextGuardRetries = Math.max(
+    0,
+    contextGuard?.maxRetries ?? CONTEXT_GUARD_DEFAULTS.maxRetries,
+  );
   const recordToolResult = (message: ChatMessage) =>
     turnToolHistory.recordResult(message);
   // Where the turn would end: notes the user sent meanwhile go to the model,
@@ -1464,31 +1468,28 @@ async function processRequestInner(
       cache: tokenEstimateCache,
     });
     if (guardResult.tier3Triggered) {
-      const compacted =
-        compactionRetries < maxContextGuardRetries
-          ? await compactInLoopWithModel({
-              history,
-              sessionId,
-              contextWindowTokens: guardContextWindow,
-              taskModels,
-              tools: availableTools,
-              tokenUsage,
-              fallbackContext: {
-                provider,
-                providerMethod,
-                baseUrl,
-                apiKey,
-                model,
-                chatbotId,
-                requestHeaders,
-                isLocal,
-                contextWindow,
-                modelBehavior,
-                thinkingFormat,
-              },
-            })
-          : null;
-      if (!compacted?.changed) {
+      const compacted = await compactInLoopWithModel({
+        history,
+        sessionId,
+        contextWindowTokens: guardContextWindow,
+        taskModels,
+        tools: availableTools,
+        tokenUsage,
+        fallbackContext: {
+          provider,
+          providerMethod,
+          baseUrl,
+          apiKey,
+          model,
+          chatbotId,
+          requestHeaders,
+          isLocal,
+          contextWindow,
+          modelBehavior,
+          thinkingFormat,
+        },
+      });
+      if (!compacted.changed) {
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,
@@ -1506,9 +1507,8 @@ async function processRequestInner(
       }
       history = compacted.history;
       turnToolHistory.retain(history);
-      compactionRetries += 1;
       console.error(
-        `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
+        `[context] in-loop compaction compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
       );
       continue;
     }
@@ -1558,16 +1558,16 @@ async function processRequestInner(
     } catch (err) {
       if (
         contextGuard?.enabled !== false &&
-        compactionRetries < maxContextGuardRetries &&
+        consecutiveContextErrors < maxContextGuardRetries &&
         isContextWindowExceededError(err)
       ) {
         // The estimate undercounted this prompt: budget the guard below it so
         // the next pass shrinks history. 0.9 (2026-09-26 call): any factor
         // under 1 forces progress; parsing providers' token counts deferred.
         guardContextWindow = Math.floor(estimatedPromptTokensForCall * 0.9);
-        compactionRetries += 1;
+        consecutiveContextErrors += 1;
         console.error(
-          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${compactionRetries}`,
+          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${consecutiveContextErrors}`,
         );
         continue;
       }
@@ -1591,6 +1591,8 @@ async function processRequestInner(
       return failed;
     }
 
+    // Only an accepted loop request resets recovery; summaries are maintenance.
+    consecutiveContextErrors = 0;
     accumulateApiUsage(tokenUsage, response);
 
     const choice = response.choices[0];
