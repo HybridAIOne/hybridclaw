@@ -86,9 +86,11 @@ class HybridClawAgent(BaseAgent):
             if (workspace / "tmp").is_dir():
                 docker("exec", spec.task_id, "mkdir", "-p", "/tmp_workspace/tmp")
                 docker("cp", str(workspace / "tmp") + "/.", spec.task_id + ":/tmp_workspace/tmp/")
-            setup_skills(spec.task_id, spec.task.get("skills", ""),
-                         spec.task.get("skills_path", ""),
-                         container_skills_root="/tmp_workspace/skills")
+            skills = spec.task.get("skills", "")
+            # Upstream creates the directory even when no skills are listed.
+            if skills.strip():
+                setup_skills(spec.task_id, skills, spec.task.get("skills_path", ""),
+                             container_skills_root="/tmp_workspace/skills")
             run_warmup(spec.task_id, spec.task.get("warmup", ""))
             snapshot_workspace_state(spec.task_id)
             spec.output_dir.mkdir(parents=True, exist_ok=True)
