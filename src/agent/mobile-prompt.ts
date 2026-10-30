@@ -43,7 +43,7 @@ export const AFTER_FILE_CHANGE_LINES = [
 ];
 
 export const SOURCE_FOLDER_LINES = [
-  'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not inspect or reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder unless the user explicitly asks to update them or use them as a template.',
+  'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder as source inputs unless the user explicitly asks to update them or use them as a template.',
 ];
 
 export const WEB_CHAT_ARTIFACT_LINES = [

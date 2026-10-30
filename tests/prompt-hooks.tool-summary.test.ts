@@ -141,9 +141,6 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
   );
   expect(prompt).toContain(
-    'For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
-  );
-  expect(prompt).toContain(
     'Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
   );
   expect(prompt).toContain(
@@ -206,9 +203,6 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Never say that web chat cannot embed, display, render, deliver, or support generated images/videos.',
-  );
-  expect(prompt).toContain(
-    'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
   );
   expect(prompt).toContain(
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context',

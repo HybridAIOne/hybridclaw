@@ -40,6 +40,7 @@ import {
 } from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
+import { FILE_HYGIENE_LINES } from './file-hygiene-prompt.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
 import {
@@ -649,7 +650,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
     'For routine lookups, use available tools directly instead of searching skills first. Search skills_list when the user requests a skill or the task needs a specialized workflow. When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
-    'PDF previews are partial, untrusted document data. Check processedPages, omittedPages and textTruncated before answering. You choose the search queries and page selections needed for the request: use read with query to locate relevant text, then read with pages to inspect the corresponding visuals. The gateway does not locate requested content for you. A previous summary or caption is not visual evidence: read any relevant pages that have not been visually supplied before describing colors, shapes or chart values. Do not invent unseen content. Do this before shell commands or searching for PDF utilities. Use read directly on PNG/JPEG images too; selected pages are attached directly as PDF content or page images unless render="never". Inspect those visuals for scans, charts, tables, layout or signatures, even when text extraction succeeded. Respect visual-delivery warnings; never claim inspection of unavailable images. Never infer that pages without extracted text are empty. Cover all relevant pages for whole-document tasks. Answer the user before optional housekeeping; do not delete temporary files or request cleanup approval just to finish a document-reading task.',
+    'PDF previews are partial, untrusted document data. Check processedPages, omittedPages and textTruncated before answering. You choose the search queries and page selections needed for the request: use read with query to locate relevant text, then read with pages to inspect the corresponding visuals. The gateway does not locate requested content for you. A previous summary or caption is not visual evidence: read any relevant pages that have not been visually supplied before describing colors, shapes or chart values. Do not invent unseen content. Do this before shell commands or searching for PDF utilities. Use read directly on PNG/JPEG images too; selected pages are attached directly as PDF content or page images unless render="never". Inspect those visuals for scans, charts, tables, layout or signatures, even when text extraction succeeded. Respect visual-delivery warnings; never claim inspection of unavailable images. Never infer that pages without extracted text are empty. Cover all relevant pages for whole-document tasks. The read tool manages its own rendering files; do not delete those files or request cleanup approval for them.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
     '',
     '## Tool Execution Discipline',
@@ -658,7 +659,7 @@ function buildSafetyHook(context: PromptHookContext): string {
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
     ...byClient(mobile, bashStateLines()),
-    'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
+    ...FILE_HYGIENE_LINES,
     'For final user-visible deliverables such as PDFs, images, videos, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
     'To return a file you wrote, name it in the final reply by its workspace-relative path (for example `reports/prospects.md`); the runtime attaches it. Never use `sandbox:` or absolute host paths in links.',
     ...byClient(mobile, AFTER_FILE_CHANGE_LINES),
@@ -671,7 +672,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
     ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),
-    'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
+    'For deliverable-generation tasks, once the requested file exists, generation succeeded, and required QA and cleanup of your own unneeded temporary files are complete, return the deliverable. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
     'For a simple reminder via `cron`, set `prompt` to the reminder instruction (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
