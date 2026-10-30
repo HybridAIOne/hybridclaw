@@ -424,7 +424,13 @@ results and try materially different permitted methods, and bounds recovery by
 useful progress and the remaining execution budget. Missing configuration does
 not grant permission to obtain credentials or broaden access. Runtime blocks
 and denied approvals must never be bypassed. Unread source content must not be
-replaced with invented findings.
+replaced with invented findings. Recovery may repair dependencies but must not
+manufacture or replace authoritative messages, events, records or source
+fixtures. Missing local files do not establish that a running service has no
+data. Cached or exported data supports only its demonstrated scope and
+freshness; reports must distinguish supported partial findings from complete
+coverage and identify inaccessible sources. These are model instructions,
+not runtime validation of arbitrary business data or connector coverage.
 
 `tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
 `tests/media-tools-readiness.test.ts` checks configuration snapshots and their
