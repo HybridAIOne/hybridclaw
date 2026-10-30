@@ -153,6 +153,10 @@ upstream global summary contains only the corresponding `--category all` run.
   from the execution directory `/tmp_workspace` inside the task container. The host gateway, global binary, and personal workspaces are unused.
 - Host execution inside the benchmark container; no nested Docker sandbox,
   host Docker socket, extra host mounts, or port publication.
+- Task-provided skills are installed only when the task lists skills. Empty
+  skill lists do not create an adapter-owned `skills/` directory in the task
+  workspace. Input directories and agent-created artifacts are preserved for
+  grading; the adapter performs no post-execution workspace cleanup.
 - Explicit `__hc_eval=current-agent` enables existing eval auto-approval. The
   new runtime already provides freshness. Default personality files, tools,
   and bundled skills remain enabled. One-time conversational
