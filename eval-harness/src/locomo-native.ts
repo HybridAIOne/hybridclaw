@@ -2160,6 +2160,7 @@ function resolveSampleRequestModel(params: {
     ablateSystemPrompt: params.runtime.profile.ablateSystemPrompt,
     includePromptParts: [...params.runtime.profile.includePromptParts],
     omitPromptParts: [...params.runtime.profile.omitPromptParts],
+    dryRun: params.runtime.profile.dryRun,
     agentId: buildConversationAgentId(params.sampleId, params.runTag),
   });
 }

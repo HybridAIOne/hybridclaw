@@ -7,18 +7,15 @@
  * scope, which agent resets and session rotation leave alone.
  */
 import { createHash } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
-import { DATA_DIR } from '../config/config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 import { clearCanonicalContext } from '../memory/canonical-sessions.js';
-import { deleteArchives } from '../memory/compaction-archive.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
-import { scopeWorkspaceDir } from '../scopes/scope-paths.js';
-import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
+import {
+  deleteGatewayAdminSession,
+  removeSessionFiles,
+} from './gateway-session-deletion.js';
 import { deleteWebNotificationSession } from './web-notification-store.js';
 
 const SCOPE = 'data-controls';
@@ -196,38 +193,6 @@ export function archiveChat(
   if (archived) list.add(chat.id);
   else list.delete(chat.id);
   setMemoryValue(SCOPE, ARCHIVED_KEY, [...list]);
-}
-
-function safeName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
-}
-
-/** What a session leaves outside the database, by session row id. */
-function removeSessionFiles(
-  sessionId: string,
-  agent: string,
-  scope: string | null,
-): void {
-  // A scoped chat keeps its transcript and tool results in its scope.
-  const workspace = scope
-    ? scopeWorkspaceDir(agent, scope)
-    : agentWorkspaceDir(agent);
-  const safe = safeName(sessionId);
-  deleteArchives(sessionId);
-  for (const target of [
-    path.join(DATA_DIR, 'sessions', safe),
-    path.join(workspace, '.session-transcripts', `${safe}.jsonl`),
-    path.join(workspace, '.tool-results', safe),
-    path.join(workspace, '.session-exports', safe),
-    path.join(
-      workspace,
-      '.hybridclaw-runtime',
-      'sessions',
-      createHash('sha256').update(sessionId).digest('hex').slice(0, 32),
-    ),
-  ]) {
-    fs.rmSync(target, { recursive: true, force: true });
-  }
 }
 
 /**

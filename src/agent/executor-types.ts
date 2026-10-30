@@ -59,6 +59,8 @@ export interface ExecutorRequest
   browserProvider?: RuntimeBrowserProviderKind;
   ralphMaxIterations?: number | null;
   approvalMode?: ApprovalMode;
+  /** Tools that change or send anything are refused; see `ContainerInput`. */
+  dryRun?: boolean;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   /**

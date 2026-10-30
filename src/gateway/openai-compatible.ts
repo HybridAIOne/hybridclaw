@@ -5,6 +5,7 @@ import { isDynamicContextMessageText } from '../../container/shared/dynamic-cont
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HYBRIDAI_MODEL, MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import {
@@ -32,6 +33,7 @@ import {
 } from './chat-result.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { getGatewayAdminModels } from './gateway-service.js';
+import { discardDryRunSessions } from './gateway-session-deletion.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   callOpenAICompatibleModel,
@@ -159,7 +161,7 @@ function acquireOpenAIExecutionSession(params: {
   stopOnFinish: boolean;
   release: () => void;
 } {
-  if (params.prepared.cleanupAgentId) {
+  if (params.prepared.cleanupAgentId || params.prepared.profile.dryRun) {
     return {
       sessionId: buildSessionKey(
         params.prepared.requestAgentId,
@@ -288,6 +290,20 @@ function prepareOpenAICompatibleRequest(
     freshAgentId,
     profileAgentId: profile.agentId,
   });
+  // A dry run covers a turn of the agent itself, where every tool call passes
+  // its read-only gate; the other paths run tools elsewhere.
+  if (
+    profile.dryRun &&
+    (input.usesClientTools ||
+      isDecisionModel(model) ||
+      resolveAgentConfig(requestAgentId).proxy)
+  ) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      'A dry run needs a turn of the agent itself, without client tools, a decision model or a proxied agent.',
+      { param: 'model', code: 'unsupported_value' },
+    );
+  }
   const sessionId = buildSessionKey(
     requestAgentId,
     'openai',
@@ -331,11 +347,12 @@ function buildGatewayChatRequest(params: {
     ...(params.executionSessionId
       ? { executionSessionId: params.executionSessionId }
       : {}),
-    ...(params.prepared.isEvalRequest
+    ...(params.prepared.isEvalRequest && !params.prepared.profile.dryRun
       ? {
           autoApproveTools: true,
         }
       : {}),
+    ...(params.prepared.profile.dryRun ? { dryRun: true } : {}),
     guildId: null,
     channelId: 'openai',
     userId: params.prepared.sessionId,
@@ -974,6 +991,14 @@ export async function handleOpenAICompatibleChatCompletions(
       executionSession?.release();
       if (executionSession?.stopOnFinish) {
         stopSessionExecution(executionSession.sessionId);
+      }
+      if (prepared.profile.dryRun) {
+        discardDryRunSessions(
+          [prepared.sessionId, executionSession?.sessionId ?? ''].filter(
+            Boolean,
+          ),
+          prepared.requestAgentId,
+        );
       }
       if (prepared.cleanupAgentId) {
         resetWorkspace(prepared.cleanupAgentId);
