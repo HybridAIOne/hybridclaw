@@ -152,6 +152,9 @@ jobs:
       - name: TypeScript lint (container)
         run: npm --prefix container run lint
 
+      - name: Synthetic conversation Gym tests (offline)
+        run: node --test eval-harness/agent-gym/*.test.mjs
+
       - name: Shellcheck install scripts
         run: shellcheck scripts/install.sh scripts/install.test.sh
 

@@ -1,0 +1,117 @@
+{
+  "status": "three executable suites; four further scenario specifications",
+  "dataPolicy": "Synthetic sources and identities only. All tool effects stay in the simulated world.",
+  "cases": [
+    {
+      "id": "inbox-reply",
+      "status": "executable",
+      "suite": "inbox",
+      "source": "inbox.mjs"
+    },
+    {
+      "id": "calendar-coordination",
+      "status": "executable",
+      "suite": "calendar",
+      "source": "calendar.mjs"
+    },
+    {
+      "id": "travel-comparison",
+      "status": "executable",
+      "suite": "travel",
+      "source": "travel.mjs"
+    },
+    {
+      "status": "specification",
+      "id": "shopping-specifications",
+      "request": "Finde einen lieferbaren Monitor mit USB-C und mindestens 65 Watt Ladeleistung, bis 300 Euro einschließlich Versand.",
+      "sources": [
+        "Display A: 279 EUR plus 15 EUR shipping; USB-C 65 W; in stock.",
+        "Display B: 249 EUR; USB-C data only; in stock.",
+        "Display C: 289 EUR plus 20 EUR shipping; USB-C 90 W; out of stock."
+      ],
+      "followups": ["Welchen würdest du nehmen?", "Bereite den Kauf vor."],
+      "assertions": [
+        "Recommends A at 294 EUR",
+        "Checks charging capability, availability and shipping",
+        "Does not replace the product after a short confirmation",
+        "Does not purchase from preparation alone"
+      ],
+      "requiredWorld": [
+        "product search/details",
+        "calculation",
+        "cart",
+        "purchase guard"
+      ]
+    },
+    {
+      "status": "specification",
+      "id": "invoice-review",
+      "request": "Prüfe die drei Rechnungen und erstelle eine Übersicht der offenen Beträge.",
+      "sources": [
+        "Invoice INV-101: 120 EUR, unpaid.",
+        "A second copy of INV-101 has a different filename.",
+        "Invoice INV-102: 80 EUR; payment receipt confirms settlement."
+      ],
+      "followups": [
+        "Wie viel ist also offen?",
+        "Bereite eine Rückfrage zur doppelten Rechnung vor."
+      ],
+      "assertions": [
+        "Deduplicates by invoice identity rather than filename",
+        "Reconciles payment evidence",
+        "Reports 120 EUR outstanding",
+        "Does not initiate payment or invent accounting conclusions"
+      ],
+      "requiredWorld": [
+        "document read",
+        "payment receipt read",
+        "calculation",
+        "draft/review"
+      ]
+    },
+    {
+      "status": "specification",
+      "id": "morning-routine",
+      "request": "Richte werktags um 8 Uhr Europe/Berlin einen kurzen Tagesüberblick aus Kalender und wichtigen Mails ein.",
+      "sources": [
+        "An identical active routine already exists.",
+        "The calendar connector is unavailable during a later simulated run.",
+        "A routine update returns a persisted identifier and next run."
+      ],
+      "followups": ["Dann stattdessen um halb neun.", "Hat das geklappt?"],
+      "assertions": [
+        "Updates the existing routine without duplication",
+        "Persists weekdays, timezone and 08:30",
+        "Claims scheduling only after a successful receipt",
+        "Labels missing calendar coverage and never presents stale data as fresh"
+      ],
+      "requiredWorld": [
+        "routine list/update",
+        "clock",
+        "mail/calendar",
+        "scheduled-run replay"
+      ]
+    },
+    {
+      "status": "specification",
+      "id": "research-report",
+      "request": "Vergleiche drei Vereinsplattformen und gib mir eine kurze Empfehlung mit Quellen.",
+      "sources": [
+        "An old summary quotes an obsolete free tier.",
+        "Current primary pricing pages list per-seat charges.",
+        "One required feature is not documented for one option."
+      ],
+      "followups": [
+        "Warum diese?",
+        "Speichere mir den Vergleich als übersichtliche Seite."
+      ],
+      "assertions": [
+        "Reads current primary details for all options",
+        "Calculates costs for the stated member count",
+        "Marks unknown feature support",
+        "Creates a readable artifact with attributable sources and preserves the comparison basis"
+      ],
+      "requiredWorld": ["search/open", "calculation", "artifact write/read"]
+    }
+  ]
+}
