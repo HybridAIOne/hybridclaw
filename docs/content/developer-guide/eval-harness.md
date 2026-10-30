@@ -133,8 +133,10 @@ npm run eval -- terminal-bench-2.0 run --num-tasks 2 --n-concurrent 1 \
 Admission includes every concurrent task's RAM and swap allowance, another
 1 GiB RAM per host agent, and cumulative disk demand across **all** tasks.
 Swap also reserves disk space. It keeps at least 2 GiB available RAM on both
-the host and engine, and 20 GiB free disk on both. Existing host or engine
-swap use above 2 GiB refuses a run. Zero task swap is supported; other budgets
+the host and engine, and 20 GiB free disk on both. On macOS, the kernel must
+report normal live memory pressure; retained swap alone does not refuse a run.
+Missing or unknown pressure telemetry fails closed. Linux host swap and engine
+swap use above 2 GiB still refuse a run. Zero task swap is supported; other budgets
 must be positive. Task containers receive the corresponding memory and
 memory-plus-swap limits.
 
