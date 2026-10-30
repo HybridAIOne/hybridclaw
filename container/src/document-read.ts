@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import { saveVisualSnapshot } from '../shared/visual-snapshots.js';
 import { readPdfFile } from './pdf-read.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 
 export async function readDocumentFile(
@@ -69,7 +69,7 @@ export async function readDocumentFile(
   );
   canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
   const ref = await saveVisualSnapshot(
-    WORKSPACE_ROOT,
+    WORKSPACE_STATE_ROOT,
     {
       pdf: '',
       images: [(await canvas.encode('png')).toString('base64')],

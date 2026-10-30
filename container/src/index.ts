@@ -2,7 +2,7 @@
  * Agent loop keeps request schemas stable while concrete actions pass policy.
  * Local wrappers resolve before approval; rejected batches never execute.
  * Full tool exchanges and surviving model context are retained separately;
- * durable storage lives in the gateway or mounted workspace. Instructions and
+ * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 
@@ -88,6 +88,7 @@ import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
@@ -1097,7 +1098,10 @@ interface ProcessRequestParams {
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
-  const turnToolHistory = new TurnToolHistory(params.sessionId, WORKSPACE_ROOT);
+  const turnToolHistory = new TurnToolHistory(
+    params.sessionId,
+    WORKSPACE_STATE_ROOT,
+  );
   activeTurnToolHistory = turnToolHistory;
   const output = await processRequestInner(params, turnToolHistory).finally(
     () => {

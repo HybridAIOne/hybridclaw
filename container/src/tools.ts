@@ -88,12 +88,14 @@ import {
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
@@ -2637,7 +2639,9 @@ function summarizeSessionCandidate(
 
   return {
     session_id: candidate.sessionId,
-    transcript_path: path.relative(WORKSPACE_ROOT, candidate.filePath),
+    transcript_path: isWithinRoot(candidate.filePath, WORKSPACE_ROOT)
+      ? path.relative(WORKSPACE_ROOT, candidate.filePath)
+      : candidate.filePath,
     match_count: candidate.matchIndexes.length,
     first_message_at: firstTs,
     last_message_at: lastTs,
@@ -3807,12 +3811,14 @@ async function executeToolInternal(
       const includeCurrent = args.include_current === true;
       const roleFilter = parseRoleFilter(args.role_filter);
 
-      // The main chat's workspace holds the scopes' transcripts too.
+      // The owning agent's state holds the scopes' transcripts too.
+      const statePath = (relative: string) =>
+        safeJoin(path.join(WORKSPACE_STATE_ROOT, relative));
       const transcriptDirs = [
         SESSION_TRANSCRIPTS_DIR,
-        ...scopeTranscriptDirs(safeJoin, SESSION_TRANSCRIPTS_DIR),
+        ...scopeTranscriptDirs(statePath, SESSION_TRANSCRIPTS_DIR),
       ]
-        .map((dir) => safeJoin(dir))
+        .map(statePath)
         .filter((dir) => fs.existsSync(dir));
       if (transcriptDirs.length === 0) {
         return JSON.stringify(

@@ -2,9 +2,9 @@
  * Session state dir: the small facts a session's next worker must inherit
  * when this worker dies (idle timeout, provider switch, pool eviction, crash).
  *
- * Lives in the host-mounted workspace under
+ * Lives in the owning agent/scope's persistent state workspace under
  * `.hybridclaw-runtime/sessions/<sha256 of the session id>/`, so it survives
- * worker kills, stays out of agent archives, and goes with the workspace on
+ * worker kills, stays out of agent archives, and goes with agent state on
  * `/reset`. Like `.session-transcripts/`, entries are not pruned. NOT the
  * gateway's session store (conversation and settings stay in SQLite), and
  * never a home for secrets or environment snapshots. One worker serves a
@@ -14,10 +14,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../shared/atomic-write.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 
 const SESSION_STATE_ROOT = path.join(
-  WORKSPACE_ROOT,
+  WORKSPACE_STATE_ROOT,
   '.hybridclaw-runtime',
   'sessions',
 );

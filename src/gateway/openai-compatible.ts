@@ -30,6 +30,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { evalWorkspaceOverrides } from './eval-workspace.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { getGatewayAdminModels } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
@@ -356,6 +357,10 @@ function buildGatewayChatRequest(params: {
     params.prepared.profile.omitPromptParts.length > 0
       ? { omitPromptParts: params.prepared.profile.omitPromptParts }
       : {}),
+    ...evalWorkspaceOverrides(
+      params.prepared.isEvalRequest,
+      params.prepared.requestAgentId,
+    ),
     source: 'gateway.chat.openai-compatible',
   };
 }
