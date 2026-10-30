@@ -1,5 +1,5 @@
 /**
- * Runner binds model credentials and per-agent configuration to one request.
+ * Runner binds request credentials and agent-owned state independently of task cwd.
  * Optional shell OAuth credentials are resolved at tool execution, not here.
  * Local starter names control schema visibility; the independent allowed/blocked
  * tool lists remain the permission boundary enforced by the worker.
@@ -83,6 +83,7 @@ import {
   takeSlideSamples,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
@@ -636,7 +637,9 @@ function getOrSpawnHostProcess(
     workspacePathOverride: params.workspacePathOverride,
   });
   fs.mkdirSync(workspacePath, { recursive: true });
-  ensureWorkspaceNodeModulesLink(workspacePath);
+  const stateRoot = hostWorkspaceStateRoot(params);
+  fs.mkdirSync(stateRoot, { recursive: true });
+  ensureWorkspaceNodeModulesLink(stateRoot);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
@@ -684,10 +687,11 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
       ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
+    HYBRIDCLAW_AGENT_STATE_ROOT: stateRoot,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',
     HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(
-      buildHostAllowedRoots([workspacePath]),
+      buildHostAllowedRoots([workspacePath, stateRoot]),
     ),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,

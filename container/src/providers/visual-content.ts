@@ -8,7 +8,7 @@ import {
   VISUAL_SNAPSHOT_MAX_BYTES,
   validateVisualAttachments,
 } from '../../shared/visual-snapshots.js';
-import { WORKSPACE_ROOT } from '../runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from '../runtime-paths.js';
 import type { ChatContentPart, ChatMessage } from '../types.js';
 import { type NormalizedCallArgs, ProviderRequestError } from './shared.js';
 
@@ -63,7 +63,7 @@ async function materialize(
         'Visual content not sent. Use any extracted text only; otherwise report that image inspection is unavailable. Do not try another image tool on the same endpoint.';
       if (mode !== 'text') {
         try {
-          const snapshot = await loadVisualSnapshot(WORKSPACE_ROOT, ref);
+          const snapshot = await loadVisualSnapshot(WORKSPACE_STATE_ROOT, ref);
           const size =
             mode === 'native' && snapshot.pdf
               ? snapshot.pdf.length

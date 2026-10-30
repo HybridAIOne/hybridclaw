@@ -1,5 +1,5 @@
 /**
- * Policy classifies concrete tool actions and preserves pinned denials.
+ * Policy reads agent-owned state and preserves pinned denials on task actions.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
@@ -101,6 +101,7 @@ import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { SessionStateSet, sessionStateKey } from './session-state.js';
 import {
@@ -392,27 +393,27 @@ export type McpToolBehaviorResolver = (
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   '.hybridclaw',
   'policy.yaml',
 );
 const AGENT_TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   APPROVAL_TRUST_STORE_FILES.agent,
 );
 const PENDING_APPROVAL_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   '.hybridclaw',
   'pending-approvals.json',
 );
 const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
 type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   APPROVAL_TRUST_STORE_FILES.all,
 );
 const LEGACY_AGENT_TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   LEGACY_AGENT_TRUST_STORE_FILE,
 );
 const AGENT_ID_ENV = 'HYBRIDCLAW_AGENT_ID';

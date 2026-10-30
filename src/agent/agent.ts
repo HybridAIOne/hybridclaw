@@ -1,6 +1,6 @@
 /**
  * Agent execution validates replayable tool history at the worker boundary and
- * applies confidential placeholders across turns. Executors run tools; this
+ * applies confidential placeholders across turns. Host state stays agent-owned; this
  * layer blocks binary PDF delivery under confidentiality and never turns audit
  * records into instructions.
  */
@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
+import { hostWorkspaceStateRoot } from '../infra/host-workspace.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
@@ -161,6 +162,10 @@ async function runAgentInner(
   const executor = getExecutor(params.executorModeOverride);
   const workspaceRoot =
     params.workspacePathOverride || executor.getWorkspacePath(agentId);
+  const stateRoot =
+    executor === getExecutor('host')
+      ? hostWorkspaceStateRoot(params)
+      : workspaceRoot;
   // Unknown model capabilities are negotiated through the endpoint; explicit
   // media rejection falls back to text. Confidential text redaction cannot
   // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
@@ -171,6 +176,7 @@ async function runAgentInner(
   const preparedMessages = await injectPdfContextMessages({
     messages: params.messages,
     workspaceRoot,
+    stateRoot,
     media,
     visualMediaAllowed,
   });
@@ -230,7 +236,7 @@ async function runAgentInner(
   // Before rehydration: saved result files hold the text the worker saw.
   const output = restoreSpilledToolResults(workerOutput, {
     sessionId,
-    workspaceRoot,
+    workspaceRoot: stateRoot,
   });
   if (output.toolHistory)
     output.toolHistory = sanitizeToolHistory(output.toolHistory);

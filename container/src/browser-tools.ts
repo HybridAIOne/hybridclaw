@@ -1,3 +1,8 @@
+/**
+ * Browser handles die with a worker; durable runtime files belong to agent state.
+ * User-visible artifacts stay in the execution workspace.
+ * Unlike browser providers this owns tool lifecycle and artifact placement.
+ */
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -36,6 +41,7 @@ import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import type { ToolDefinition } from './types.js';
 
@@ -50,7 +56,10 @@ const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 // Long calendars and filter forms can put their submit button beyond 12k.
 const BROWSER_MAX_SNAPSHOT_CHARS = 48_000;
 const TWO_FACTOR_SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024;
-const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
+const BROWSER_RUNTIME_ROOT = path.join(
+  WORKSPACE_STATE_ROOT,
+  '.hybridclaw-runtime',
+);
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
 const BROWSER_XDG_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'cache');

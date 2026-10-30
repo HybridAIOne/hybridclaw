@@ -94,6 +94,7 @@ import {
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
@@ -2468,7 +2469,10 @@ type SessionSearchCandidate = {
   mtimeMs: number;
 };
 
-const SESSION_TRANSCRIPTS_DIR = '.session-transcripts';
+const SESSION_TRANSCRIPTS_DIR = path.join(
+  WORKSPACE_STATE_ROOT,
+  '.session-transcripts',
+);
 const SESSION_SEARCH_MAX_FILES = 300;
 const SESSION_SEARCH_MAX_RESULTS = 5;
 const SESSION_SEARCH_MAX_ROWS_PER_SESSION = 2_000;

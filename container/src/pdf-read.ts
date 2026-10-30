@@ -13,7 +13,7 @@ import {
   readPdfPages,
   searchPdfPages,
 } from '../shared/pdf-reader.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 
 export const PDF_READ_PARAMETERS = {
@@ -47,7 +47,7 @@ export async function readPdfFile(
   if (args.offset !== undefined || args.limit !== undefined)
     throw new Error('Use pages for PDFs, not line offset/limit');
   const runtimeUrl = pathToFileURL(
-    path.join(WORKSPACE_ROOT, 'skills/pdf/scripts/_pdf_runtime.mjs'),
+    path.join(WORKSPACE_STATE_ROOT, 'skills/pdf/scripts/_pdf_runtime.mjs'),
   ).href;
   if (args.query !== undefined) {
     if (args.pages !== undefined || args.render !== undefined)
@@ -68,7 +68,7 @@ export async function readPdfFile(
       pages: args.pages as PdfReadOptions['pages'],
       render: args.render as PdfReadOptions['render'],
       outputDir,
-      workspaceRoot: WORKSPACE_ROOT,
+      workspaceRoot: WORKSPACE_STATE_ROOT,
       runtimeUrl,
     });
     const { visualAttachments, images, ...summary } = result;
