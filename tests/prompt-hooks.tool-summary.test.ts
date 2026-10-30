@@ -969,3 +969,16 @@ test('with fetch tools enabled, web guidance keeps naming them', () => {
   expect(prompt).toContain('(3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.');
   expect(prompt).not.toContain('`curl` for HTTP API calls');
 });
+
+test.each(['mobile', 'web'])('scheduled task guidance preserves future-run requirements (%s)', (client) => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent', skills: [],
+    runtimeInfo: { channel: 'web', client },
+  });
+  expect(prompt).toMatch(/scheduled task[^\n]+scope[^\n]+sources[^\n]+format[^\n]+destination/);
+  expect(prompt).toMatch(/scheduled task[^\n]+notifying[^\n]+quiet/);
+  expect(prompt).toMatch(/references[^\n]+conversation[^\n]+requirements/);
+  expect(prompt).toMatch(/concise[^\n]+heading/);
+  expect(prompt).toMatch(/recurring work[^\n]+successful run[^\n]+unequal intervals/);
+  expect(prompt).toMatch(/progress[^\n]+successful delivery/);
+});
