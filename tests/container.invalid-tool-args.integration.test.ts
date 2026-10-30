@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
 import { MAX_INVALID_TOOL_CALL_RETRIES } from '../container/src/stalled-turns.js';
 import { validateStructuredToolCalls } from '../container/src/tool-call-validation.js';
+import { useTempDir } from './test-utils.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -24,6 +24,7 @@ const TRUNCATED_WRITE: ToolCall = {
 };
 const VALIDATION_ERROR = validateStructuredToolCalls([TRUNCATED_WRITE]) || '';
 
+const makeTempDir = useTempDir();
 let child: ChildProcess | null = null;
 let server: http.Server | null = null;
 let dir: string | null = null;
@@ -45,7 +46,6 @@ afterEach(async () => {
       listening.closeAllConnections();
     });
   }
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
   dir = null;
 });
 
@@ -64,7 +64,7 @@ const CUT_OFF_REPLY = completion(
 async function runTurn(
   reply: (messages: ChatMessage[]) => unknown,
 ): Promise<{ output: ContainerOutput; requests: ChatMessage[][] }> {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-invalid-tool-args-'));
+  dir = makeTempDir('hc-invalid-tool-args-');
   const ipc = path.join(dir, 'ipc');
   fs.mkdirSync(ipc);
   const requests: ChatMessage[][] = [];
@@ -199,4 +199,46 @@ test('a call to a tool outside the request allowlist fails the turn without runn
   expect(requests).toHaveLength(1);
   expect(output.toolExecutions ?? []).toEqual([]);
   expect(fs.existsSync(path.join(dir || '', 'outside.txt'))).toBe(false);
+}, 40_000);
+
+test('write protection and stale-write errors cross IPC before an intentional replacement succeeds', async () => {
+  const calls = [
+    { contents: 'original' },
+    { contents: 'accidental' },
+    { contents: 'stale', overwrite: true, expected_content: 'outdated' },
+    { contents: 'intentional', overwrite: true, expected_content: 'original' },
+  ];
+  let next = 0;
+  const { output } = await runTurn(() => {
+    const args = calls[next++];
+    return args
+      ? completion(
+          {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: `write_${next}`,
+                type: 'function',
+                function: {
+                  name: 'write',
+                  arguments: JSON.stringify({ path: 'report.md', ...args }),
+                },
+              },
+            ],
+          },
+          'tool_calls',
+        )
+      : completion({ role: 'assistant', content: 'done' }, 'stop');
+  });
+  expect(output.status).toBe('success');
+  expect(output.toolExecutions?.map(({ isError }) => isError)).toEqual([
+    false,
+    true,
+    true,
+    false,
+  ]);
+  expect(fs.readFileSync(path.join(dir || '', 'report.md'), 'utf8')).toBe(
+    'intentional',
+  );
 }, 40_000);

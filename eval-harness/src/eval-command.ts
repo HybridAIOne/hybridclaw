@@ -2010,7 +2010,9 @@ function readTerminalBenchNativeSummary(
       errors?: number;
       mean?: number;
       rewards?: TerminalBenchNativeReward[];
+      infrastructureError?: string;
     };
+    if (parsed.infrastructureError) return null;
     const rewards = Array.isArray(parsed.rewards) ? parsed.rewards : [];
     const passed = rewards.filter((reward) => reward.passed === true).length;
     const failedWithError = rewards.filter(

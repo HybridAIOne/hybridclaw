@@ -781,6 +781,11 @@ on-disk evidence remain intact. A failed result-file write leaves the original
 result in context; the loop reports exhaustion if it still cannot fit. Each
 rejected attempt logs a distinct reason without logging response text or error payloads.
 
+Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
+That limit bounds consecutive provider context-window recovery retries and resets
+after an accepted loop request, not after a summary. Compaction stops immediately
+when it cannot produce a smaller archived replacement.
+
 The compression model needs enough context for the complete selected region,
 its historical tool schemas, and the summary output budget. It falls back to
 the active model when no compression override is configured. For long tasks,
@@ -1100,6 +1105,22 @@ Container-side sandboxed tool families:
 - delegation: `delegate`
 - web extraction: `web_fetch`
 - optional browser automation: `browser_*`
+
+`write` creates files exclusively by default. To replace an existing text file,
+read its complete contents and pass `overwrite: true` and `expected_content`
+containing those exact contents, including trailing newlines. A missing file or
+content mismatch rejects the replacement without changing the target. Empty
+files require `expected_content: ""`. After a stale-write error, read again and
+reconsider the change instead of retrying with the old contents. Use `edit` for
+targeted substitutions.
+
+Publication is atomic, and cooperative `.lock` directories serialize `write`
+checks and replacements across workers, including task sandboxes. These checks
+use current disk state and survive worker replacement. A crashed writer's lock
+fails closed until removed after verifying no writer is active. External editors,
+`bash`, `edit`, and generated-artifact tools do not participate in this protocol;
+a change they make during the check/publication window can still race a write.
+These controls supplement existing path and approval checks.
 
 Prompt and runtime internals:
 

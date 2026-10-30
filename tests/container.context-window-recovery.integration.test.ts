@@ -370,6 +370,90 @@ describe('provider context-length rejections in the tool loop', () => {
     }
   }, 30_000);
 
+  test.each([0, 1])(
+    'finishes a long tool turn with several maintenance compactions and maxRetries=%i',
+    async (maxRetries) => {
+      const reads = 30;
+      for (let index = 0; index < reads; index += 1) {
+        fs.writeFileSync(path.join(workspace, `part-${index}.txt`), BIG_FILE);
+      }
+      const server = await startModelServer((index) => {
+        return index < reads
+          ? completion(null, [
+              {
+                id: `read-${index}`,
+                type: 'function',
+                function: {
+                  name: 'read',
+                  arguments: JSON.stringify({ path: `part-${index}.txt` }),
+                },
+              },
+            ])
+          : completion('done');
+      });
+      try {
+        const output = await runTurn(server, {
+          contextWindow: 30_000,
+          contextGuard: {
+            enabled: true,
+            compactionRatio: 0.75,
+            overflowRatio: 0.9,
+            maxRetries,
+          },
+        });
+
+        expect(output).toMatchObject({ status: 'success', result: 'done' });
+        expect(output.toolExecutions).toHaveLength(reads);
+        expect(server.loopRequests).toHaveLength(reads + 1);
+        expect(server.summaryRequests).toBeGreaterThan(3);
+      } finally {
+        await server.close();
+      }
+    },
+    30_000,
+  );
+
+  test('resets context-error retries after an accepted loop request', async () => {
+    const server = await startModelServer((index) => {
+      if (index === 0 || index === 2) return CONTEXT_LENGTH_REJECTION;
+      if (index === 1) {
+        return completion(
+          null,
+          [1, 2].map((offset) => ({
+            id: `read-line-${offset}`,
+            type: 'function',
+            function: {
+              name: 'read',
+              arguments: JSON.stringify({ path: 'big.txt', offset, limit: 1 }),
+            },
+          })),
+        );
+      }
+      return completion('done');
+    });
+    try {
+      const output = await runTurn(server, {
+        messages: Array.from({ length: 40 }, (_, index) => ({
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: `Message ${index}: ${'x'.repeat(3_000)}`,
+        })),
+        contextGuard: {
+          enabled: true,
+          compactionRatio: 0.75,
+          overflowRatio: 0.9,
+          maxRetries: 1,
+        },
+      });
+
+      expect(output).toMatchObject({ status: 'success', result: 'done' });
+      expect(server.loopRequests).toHaveLength(4);
+      expect(server.summaryRequests).toBe(2);
+      expect(output.toolExecutions).toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
   test('preserves a late pending decision through the worker IPC flow and retains originals after exit', async () => {
     const decision =
       'Pending decision: confirm the migration before deployment.';
@@ -500,16 +584,22 @@ describe('provider context-length rejections in the tool loop', () => {
     30_000,
   );
 
-  test('returns the provider error once the retry budget is spent', async () => {
+  test('stops consecutive context errors even when compaction succeeds', async () => {
     const server = await startModelServer(() => CONTEXT_LENGTH_REJECTION);
     try {
-      const output = await runTurn(server);
+      const output = await runTurn(server, {
+        contextGuard: {
+          enabled: true,
+          compactionRatio: 0.75,
+          overflowRatio: 0.9,
+          maxRetries: 1,
+        },
+      });
 
       expect(output.status).toBe('error');
       expect(output.error).toContain('maximum context length is 8192 tokens');
-      // The default budget allows three context retries after the first call.
-      expect(server.loopRequests.length).toBeGreaterThan(1);
-      expect(server.loopRequests.length).toBeLessThanOrEqual(4);
+      expect(server.loopRequests).toHaveLength(2);
+      expect(server.summaryRequests).toBe(1);
     } finally {
       await server.close();
     }
