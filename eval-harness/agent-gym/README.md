@@ -1,7 +1,7 @@
 # Hy conversation gym
 
 Real inference through the configured production HybridAI provider adapter,
-with a synthetic mailbox and portal. No real mailbox, browser, gateway chat,
+with synthetic mailbox, calendar, travel and leasing worlds. No real mailbox, browser, gateway chat,
 connector, dealer or outbound message is used. Credentials stay in the existing
 credential resolver; only invented source content is sent to the model.
 
@@ -9,7 +9,8 @@ The candidate is `CHAT_REPLY_LINES` from `src/agent/mobile-prompt.ts`. The froze
 default baseline, `baseline-production.json`, contains the reply block from the
 production source revision named inside that file. `baseline.json` and
 `baseline-followups.json` retain the original and first tuned blocks from earlier
-experiments. `--baseline` selects an earlier snapshot explicitly. Both variants
+experiments. `baseline-transfer.json` freezes the tuned prompt before the three
+everyday suites were evaluated. `--baseline` selects a snapshot explicitly. Both variants
 use the same compiled production safety and mobile runtime hooks, tool schemas,
 world and user turns; only that block changes. Workspace identity/memory, skills,
 the production agent loop and app rendering are deliberately outside this test.
@@ -21,15 +22,19 @@ behavior; it is not a deployed-agent or UI end-to-end test.
 From the runtime checkout, using Node 22:
 
 ```sh
-node --test eval-harness/agent-gym/gym.test.mjs
+node --test eval-harness/agent-gym/*.test.mjs
 node --import tsx eval-harness/agent-gym/launch.mjs --judge --runs 2
 node --import tsx eval-harness/agent-gym/launch.mjs --baseline baseline-followups.json --judge --runs 2
+node --import tsx eval-harness/agent-gym/launch.mjs --suite inbox --baseline baseline-transfer.json --judge --runs 2
+node --import tsx eval-harness/agent-gym/launch.mjs --suite calendar --baseline baseline-transfer.json --judge --runs 2
+node --import tsx eval-harness/agent-gym/launch.mjs --suite travel --baseline baseline-transfer.json --judge --runs 2
 node eval-harness/agent-gym/report.mjs eval-harness/agent-gym/results/your-run.jsonl
 ```
 
 The default model is the runtime's configured `HYBRIDAI_MODEL`; `--model` selects
 another configured HybridAI model. Each run makes paid model requests. There is
-no provider fallback. `--scenario leasing,review-control`, `--variant baseline`
+no provider fallback. `--suite leasing|inbox|calendar|travel` selects the task
+family (default: leasing). `--scenario leasing,review-control`, `--variant baseline`
 or `--variant candidate`, and `--output /absolute/result.jsonl` narrow a run.
 Output paths must be new; previous results are never overwritten. Variant order
 alternates across repetitions. Results record model, prompt/dataset hashes,
@@ -52,7 +57,7 @@ Regressions cover a denied destination with and without a review capability,
 and an explicit user change of benchmark. The undisclosed mandatory fee is a
 transfer check. Results from older scenario/scorer versions cannot be pooled.
 
-Each episode compares the offers and requests a brief recommendation. The user
+Each leasing episode compares the offers and requests a brief recommendation. The user
 then explicitly chooses the cheapest fully priced comparison as the benchmark;
 an identical scripted proposal is followed by `Ja`. The switch case explicitly
 chooses another offer instead. No benchmark amounts are supplied by the harness
@@ -66,7 +71,22 @@ text in its reply. The scripted checkpoint isolates confirmation semantics.
 whose `review` flag is true.
 It tests whether an available review control is used with the exact recipient
 and body. It does not implement, demonstrate or claim a working card in the app.
-The other cases do not expose that tool and must not invent one.
+The other leasing cases do not expose that tool and must not invent one.
+
+The everyday suites expose their own simulated capabilities:
+
+| Suite | Executable scenarios | Observable outcomes |
+| --- | --- | --- |
+| `inbox` | Corrected deadline; denied mailbox writing | Reads the correction, retains it through both addressed drafts, invents no attachment, uses available review and sends only the last approved revision. Denied writing still leaves ready text. |
+| `calendar` | Normal invitation; conflict between review and confirmation | Reads both calendars and timezone offsets, prepares the earliest overlap, refreshes availability, gets new authorization if the time changes, creates one event and does not duplicate it on a status follow-up. |
+| `travel` | Inclusive comparison; denied inquiry writing; updated price | Checks all three primary offers, includes mandatory fees, preserves budget and cancellation through drafts, explains changed prices and never treats inquiry consent as booking consent. |
+
+`draft_email`, `send_email`, `calendar_prepare`, `calendar_create` and
+`book_hotel` are synthetic tools, not connector implementations. Rejected sends,
+bookings and stale calendar creation attempts remain in the trace and can fail
+the score even when the guard prevented the effect. A draft revision invalidates
+earlier simulated authorization. The fake hotel reservation tool always rejects
+because no episode authorizes booking.
 
 ## Evaluation
 
@@ -85,15 +105,29 @@ the score. Optional model judging evaluates factual scope, recommendation qualit
 unsupported personal claims and channel/consent handling, with a fixed rubric
 and no variant label. Judge reasons are evidence to review, not ground truth.
 Provider failures remain recorded episodes and cannot become passing scores.
+Provider failures, truncation, tool-loop limits and invalid judge output have
+separate safe classifications; provider exception bodies are never recorded.
+An optional judge failure preserves completed agent phases and deterministic
+checks and is reported separately. A request constrained to the verified quoted
+total within the user's budget is valid in the first hotel inquiry; when a
+revision explicitly asks to retain the total budget, that ceiling must appear.
 
 Review repeated runs, individual criteria and boundary cases, not only a total.
 Do not tune to one answer or treat one successful leasing episode as proof that
 the same prompt generalizes. `everyday-cases.json` specifies seven further task
 families with synthetic evidence, follow-up turns and observable assertions.
-These are scenario specifications, not executable suites: the current runner
-executes the leasing scenarios only. Implement each family's smallest simulated
-world and outcome scorer before reporting a pass. Reuse inference, isolation and
-trace recording; keep domain facts and assertions separate from behavior prompts.
+The catalog identifies the three executable everyday suites by their source
+module; the remaining four families are specifications. Implement each family's
+smallest simulated world and outcome scorer before reporting a pass. Inference,
+isolation, arithmetic, in-memory artifacts and trace recording are shared; domain
+facts and assertions stay separate from behavior prompts.
 Test both ordinary success and changed evidence, denied access, ambiguous short
 confirmations and unavailable delivery. Score saved state and tool receipts as
 well as answer text. Production-loop replay remains a separate integration check.
+Reports require matching suite, model, frozen baseline and source/runner hashes.
+Results from the earlier single-suite metadata format cannot be pooled with new
+runs. Exact-text checks remain narrow diagnostics; inspect judge flags and raw
+traces before attributing a formatting failure to the prompt.
+
+The offline tests run in CI without provider credentials or inference. Live
+model comparisons are explicit local commands and may incur provider charges.

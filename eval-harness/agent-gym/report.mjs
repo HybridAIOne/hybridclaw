@@ -1,6 +1,7 @@
 // Summarize stored evidence without rerunning inference or changing verdicts.
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
+import { latestDraft } from './synthetic-tools.mjs';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -22,11 +23,13 @@ const metadata = files.map((file) =>
   file.rows.find((row) => row.type === 'metadata'),
 );
 for (const key of [
+  'suite',
   'model',
   'baselineSha256',
   'datasetSha256',
   'worldSha256',
   'scorerSha256',
+  'runnerSha256',
 ]) {
   if (!metadata.every((item) => item?.[key] && item[key] === metadata[0][key]))
     throw new Error(`Cannot pool incompatible or incomplete metadata: ${key}`);
@@ -53,7 +56,8 @@ const planned = metadata.reduce((sum, item) => sum + item.plannedEpisodes, 0);
 const lines = [
   '# Synthetic conversation evaluation',
   '',
-  `Model: ${metadata[0].model}. Episodes recorded: ${episodes.length}/${planned}.`,
+  `Suite: ${metadata[0].suite}. Model: ${metadata[0].model}. Episodes recorded: ${episodes.length}/${planned}.`,
+  `Completed agent episodes with checks: ${episodes.filter((row) => Array.isArray(row.checks)).length}/${planned}. Technical interruptions (including optional judging): ${episodes.filter((row) => row.error || row.judgeError).length}. Interrupted episodes are not passing results.`,
   'Real inference; simulated sources, tools, sends and review control. No app UI was exercised.',
   '',
   '| Variant | Scenario | Episodes | Deterministic checks | Model judge (unverified) | Errors |',
@@ -68,7 +72,7 @@ for (const variant of ['baseline', 'candidate'])
     const checks = rows.flatMap((row) => row.checks || []);
     const judge = rows.flatMap((row) => row.judge || []);
     lines.push(
-      `| ${variant} | ${scenario} | ${rows.length} | ${checks.filter((check) => check.pass).length}/${checks.length} | ${judge.filter((check) => check.pass).length}/${judge.length} | ${rows.filter((row) => row.error).length} |`,
+      `| ${variant} | ${scenario} | ${rows.length} | ${checks.filter((check) => check.pass).length}/${checks.length} | ${judge.filter((check) => check.pass).length}/${judge.length} | ${rows.filter((row) => row.error || row.judgeError).length} |`,
     );
   }
 lines.push('', '## Failed deterministic checks', '');
@@ -86,6 +90,13 @@ for (const variant of ['baseline', 'candidate']) {
     if (failures)
       lines.push(`- ${variant}: ${id}: ${failures}/${checks.length} failed.`);
   }
+}
+lines.push('', '## Technical interruptions', '');
+for (const row of episodes.filter((item) => item.error || item.judgeError)) {
+  const detail = row.failure || row.judgeError;
+  lines.push(
+    `- ${row.variant}, ${row.scenario.id}, repetition ${row.run}: ${row.judgeError ? 'judge' : row.failurePhase || 'unknown phase'}; ${JSON.stringify(detail || { kind: 'unclassified' })}.`,
+  );
 }
 lines.push('', '## Candidate evidence', '');
 const example =
@@ -112,7 +123,9 @@ if (example) {
   lines.push(
     'Brief recommendation:',
     '',
-    example.phases.find((phase) => phase.name === 'brief')?.answer || '(none)',
+    example.phases.find((phase) =>
+      ['brief', 'plan', 'inspect'].includes(phase.name),
+    )?.answer || '(none)',
     '',
   );
   const card = example.trace.findLast(
@@ -121,16 +134,22 @@ if (example) {
       call.result.ok &&
       call.phase === 'revise',
   );
+  const draft =
+    latestDraft(example, 'revise') ||
+    latestDraft(example, 'draft') ||
+    latestDraft(example, 'plan');
   lines.push(
     'Latest shortened draft shown for review:',
     '',
-    card?.args.body ||
+    draft?.body ||
+      (draft ? JSON.stringify(draft, null, 2) : null) ||
+      card?.args.body ||
       example.phases.find((phase) => phase.name === 'revise')?.answer ||
       '(none)',
     '',
   );
   lines.push(
-    `Prototype review created: ${Boolean(card)}. Successful simulated sends: ${example.sent.length}.`,
+    `Prototype review created: ${Boolean(card || draft)}. Successful simulated actions: ${example.sent.length}.`,
   );
 }
 const blocked = episodes.find(

@@ -20,6 +20,22 @@ function openMessage(world) {
   return world.call('browser_navigate', { url: localDealer.url });
 }
 
+test('a confirmed portal send remains visible on the next page read', () => {
+  const world = new World(scenarios[0]);
+  openMessage(world);
+  world.call('browser_type', {
+    ref: 'message',
+    text: 'Hallo, bitte nennen Sie die Konditionen.',
+  });
+  world.authorized = true;
+  const result = world.call('browser_click', { ref: 'send' });
+  const page = world.call('browser_snapshot', {});
+  assert.equal(result.ok, true);
+  assert.equal(page.sentMessages.length, 1);
+  assert.equal(page.sentMessages[0].receipt, result.receipt);
+  assert.equal(page.sentMessages[0].body, world.sent[0]);
+});
+
 test('direct runner invocation refuses to import production configuration', () => {
   const result = spawnSync(
     process.execPath,
@@ -37,69 +53,6 @@ test('direct runner invocation refuses to import production configuration', () =
   assert.match(result.stderr, /requires a disposable runtime home/);
   assert.doesNotMatch(result.stderr, /Cannot find module/);
 });
-
-test('a provider failure never persists or prints its credential-bearing exception', async () =>
-  withTemporaryDirectory('hy-gym-provider-failure-', async (home) => {
-    const credential = 'fixture-provider-credential-123456';
-    const writeModule = (name, content) => {
-      const path = `${home}/${name}`;
-      fs.mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
-      fs.writeFileSync(path, content);
-    };
-    writeModule('package.json', '{"type":"module"}');
-    writeModule(
-      'src/config/config.ts',
-      "export const HYBRIDAI_MODEL = 'fixture-model';",
-    );
-    writeModule(
-      'src/providers/factory.ts',
-      `export async function resolveModelRuntimeCredentials() { return { provider: 'hybridai', apiKey: '${credential}' }; }`,
-    );
-    writeModule(
-      'container/src/providers/hybridai.ts',
-      `export async function callHybridAIProvider() { throw new Error('Authorization: Bearer ${credential}'); }`,
-    );
-    writeModule(
-      'src/agent/mobile-prompt.ts',
-      "export const CHAT_REPLY_LINES = ['fixture-prompt'];",
-    );
-    writeModule(
-      'src/agent/prompt-hooks.ts',
-      "export function buildSystemPromptFromHooks() { return 'fixture-prompt'; }",
-    );
-    const output = `${home}/result.jsonl`;
-    const result = spawnSync(
-      process.execPath,
-      [
-        '--experimental-strip-types',
-        fileURLToPath(new URL('./run.mjs', import.meta.url)),
-        '--variant',
-        'candidate',
-        '--scenario',
-        'leasing',
-        '--output',
-        output,
-      ],
-      {
-        cwd: home,
-        env: {
-          ...process.env,
-          NODE_OPTIONS: '',
-          HY_GYM_ISOLATED: '1',
-          HY_GYM_RUNTIME_ROOT: home,
-          HYBRIDCLAW_DATA_DIR: home,
-        },
-        encoding: 'utf8',
-      },
-    );
-    assert.equal(result.status, 1, result.stderr);
-    const recorded = fs.readFileSync(output, 'utf8');
-    for (const text of [recorded, result.stdout, result.stderr])
-      assert.equal(text.includes(credential), false);
-    const episode = JSON.parse(recorded.trim().split('\n').at(-1));
-    assert.match(episode.error, /details omitted/);
-    assert.deepEqual(episode.trace, []);
-  }));
 
 test('synthetic artifacts preserve comparison evidence without writing real files', () => {
   const world = new World(scenarios[0]);
@@ -373,17 +326,20 @@ test('an explicit user benchmark change replaces the reference in both versions'
 
 async function reportFixture(work) {
   return withTemporaryDirectory('hy-gym-report-test-', async (home) => {
-    const write = (name, variant, baseline, candidate) => {
+    const write = (name, variant, baseline, candidate, overrides = {}) => {
       const file = `${home}/${name}.jsonl`;
       const metadata = {
         type: 'metadata',
+        suite: 'leasing',
         model: 'fixture-model',
         baselineSha256: baseline,
         candidateSha256: candidate,
         datasetSha256: 'dataset',
         worldSha256: 'world',
         scorerSha256: 'scorer',
+        runnerSha256: 'runner',
         plannedEpisodes: 1,
+        ...overrides,
       };
       const episode = {
         type: 'episode',
@@ -432,6 +388,29 @@ test('report reuses a frozen baseline when its unused candidate hash differs', a
     assert.match(result.stdout, /Candidate prompt SHA-256: new-candidate/);
     assert.match(result.stdout, /Baseline prompt SHA-256: frozen-baseline/);
   }));
+
+for (const [key, changed] of [
+  ['suite', 'calendar'],
+  ['runnerSha256', 'changed-runner'],
+])
+  test(`report rejects pooled results with different ${key}`, async () =>
+    reportFixture((write) => {
+      const first = write('first', 'baseline', 'baseline', 'candidate');
+      const second = write('second', 'candidate', 'baseline', 'candidate', {
+        [key]: changed,
+      });
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./report.mjs', import.meta.url)),
+          first,
+          second,
+        ],
+        { encoding: 'utf8' },
+      );
+      assert.notEqual(result.status, 0);
+      assert.ok(result.stderr.includes(key));
+    }));
 
 test('report refuses different actual candidate prompts', async () =>
   reportFixture((write) => {

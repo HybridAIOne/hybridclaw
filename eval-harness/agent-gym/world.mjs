@@ -7,36 +7,10 @@ import {
   offers,
 } from './fixtures.mjs';
 
-function tool(name, description, properties, required = []) {
-  return {
-    type: 'function',
-    function: {
-      name,
-      description,
-      parameters: {
-        type: 'object',
-        properties,
-        required,
-        additionalProperties: false,
-      },
-    },
-  };
-}
-const string = { type: 'string' };
+import { sharedCall, sharedSchemas, string, tool } from './synthetic-tools.mjs';
 export function schemas(review) {
   return [
-    tool(
-      'write',
-      'Create or update a synthetic workspace artifact. Only relative paths are allowed; no external filesystem or network is accessed.',
-      { path: string, content: string },
-      ['path', 'content'],
-    ),
-    tool(
-      'read',
-      'Read an artifact previously written in this synthetic workspace.',
-      { path: string },
-      ['path'],
-    ),
+    ...sharedSchemas,
     tool(
       'mail_search',
       'Search the synthetic mailbox; returns message IDs, dates and subjects, not bodies.',
@@ -67,12 +41,6 @@ export function schemas(review) {
       'Click an observed control on the current synthetic page. Sending needs explicit user authorization.',
       { ref: string },
       ['ref'],
-    ),
-    tool(
-      'calculate',
-      'Evaluate one numeric arithmetic expression accurately, using decimal dots. Call separately for separate expressions. No source lookups or side effects.',
-      { expression: string },
-      ['expression'],
     ),
     ...(review
       ? [
@@ -157,6 +125,12 @@ export class World {
         message:
           'Willkommen bei Autohaus Linden. Wir zeigen Ihnen gern unsere Fahrzeuge und bieten eine Probefahrt an. Viele Grüße, Mara Sommer',
         quote: null,
+        sentMessages: this.sent.map((body, index) => ({
+          receipt: `synthetic-message-${index + 1}`,
+          recipient: localDealer.dealer,
+          body,
+          status: 'sent',
+        })),
         controls: [
           { ref: 'message', role: 'textbox', value: this.text },
           { ref: 'send', role: 'button', name: 'Nachricht senden' },
@@ -167,76 +141,9 @@ export class World {
   }
   call(name, args) {
     let result;
-    if (name === 'write') {
-      if (
-        typeof args.path !== 'string' ||
-        args.path.startsWith('/') ||
-        args.path.split('/').includes('..') ||
-        typeof args.content !== 'string' ||
-        args.content.length > 262144
-      )
-        result = {
-          ok: false,
-          error: 'Invalid synthetic artifact path or content',
-        };
-      else {
-        this.files.set(args.path, args.content);
-        result = { ok: true, path: args.path, bytes: args.content.length };
-      }
-    } else if (name === 'read')
-      result = this.files.has(args.path)
-        ? { path: args.path, content: this.files.get(args.path) }
-        : { ok: false, error: 'Unknown synthetic artifact' };
-    else if (name === 'calculate') {
-      // Restricted arithmetic grammar: never evaluate executable JavaScript.
-      const input = String(args.expression);
-      if (!/^[\d.\s()+*/-]+$/.test(input) || input.length > 200)
-        result = { ok: false, error: 'Only numeric arithmetic is supported' };
-      else {
-        const tokens = input.match(/\d+(?:\.\d+)?|[()+*/-]/g) || [];
-        let offset = 0;
-        function factor() {
-          const token = tokens[offset++];
-          if (token === '-') return -factor();
-          if (token === '+') return factor();
-          if (token === '(') {
-            const value = sum();
-            if (tokens[offset++] !== ')')
-              throw new Error('Unclosed parenthesis');
-            return value;
-          }
-          if (!/^\d/.test(token || '')) throw new Error('Expected number');
-          return Number(token);
-        }
-        function product() {
-          let value = factor();
-          while (['*', '/'].includes(tokens[offset])) {
-            const operator = tokens[offset++];
-            const right = factor();
-            value = operator === '*' ? value * right : value / right;
-          }
-          return value;
-        }
-        function sum() {
-          let value = product();
-          while (['+', '-'].includes(tokens[offset])) {
-            const operator = tokens[offset++];
-            const right = product();
-            value = operator === '+' ? value + right : value - right;
-          }
-          return value;
-        }
-        try {
-          const value = sum();
-          result =
-            offset === tokens.length && Number.isFinite(value)
-              ? { value: Math.round(value * 1e8) / 1e8 }
-              : { ok: false, error: 'Invalid expression' };
-        } catch {
-          result = { ok: false, error: 'Invalid expression' };
-        }
-      }
-    } else if (name === 'mail_search') result = { messages: inbox };
+    const shared = sharedCall(this, name, args);
+    if (shared !== undefined) result = shared;
+    else if (name === 'mail_search') result = { messages: inbox };
     else if (name === 'mail_read' && Object.hasOwn(mails, args.id)) {
       this.readMails.add(args.id);
       const body = mails[args.id];

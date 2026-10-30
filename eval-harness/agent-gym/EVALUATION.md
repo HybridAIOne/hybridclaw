@@ -1,5 +1,9 @@
 # Production-source prompt check
 
+Historical check of the first prompt/Gym commit
+`300c9eba64ad85c4aff5fbebeb3e55f1a5cf4f2f`. Later multi-suite runs use revised
+world/scorer/runner fingerprints and must not be pooled with this check.
+
 2026-10-29, based on runtime revision
 `1360759541d32fa89b428e155d53a180c7f3f80b`.
 Model: `hybridai/gpt-6-luna`, using the production HybridAI provider adapter.
