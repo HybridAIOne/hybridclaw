@@ -11,7 +11,17 @@ import {
   useMemo,
   useState,
 } from 'react';
-import type { GatewayModelProviderKey } from '../../../../src/gateway/model-provider-keys.js';
+import {
+  fromGatewayModelProviderKey,
+  GATEWAY_MODEL_PROVIDER_KEYS,
+  type GatewayModelProviderKey,
+  toGatewayModelProviderKey,
+} from '../../../../src/gateway/model-provider-keys.js';
+import {
+  inferProviderFromModelPrefix,
+  isLocalBackendType,
+} from '../../../../src/providers/provider-ids.js';
+import { PROVIDER_META } from '../../../../src/providers/provider-meta.js';
 import type { ChatModelRoutingContext } from '../../api/chat-types';
 import type { ChatModel } from '../../api/types';
 import {
@@ -83,56 +93,12 @@ export interface ParsedModel {
   meta: ModelSwitchEntry;
 }
 
-type KnownProvider =
-  | 'Local'
-  | 'HybridAI'
-  | 'OpenAI API'
-  | 'OpenAI Codex'
-  | 'Anthropic'
-  | 'OpenRouter'
-  | 'Mistral'
-  | 'Hugging Face'
-  | 'Gemini'
-  | 'DeepSeek'
-  | 'xAI'
-  | 'Z.ai'
-  | 'Kimi'
-  | 'MiniMax'
-  | 'DashScope'
-  | 'Xiaomi'
-  | 'Kilo'
-  | 'Ollama'
-  | 'LM Studio'
-  | 'llama.cpp'
-  | 'vLLM'
-  | 'MLX';
-
-// `Record<GatewayModelProviderKey, …>` makes the compiler flag any new gateway
-// provider that ships without an explicit display label — without it, new
-// providers silently fall through to the kebab-to-Title fallback in pretty().
-const PROVIDER_LABELS: Record<GatewayModelProviderKey, KnownProvider> = {
-  hybridai: 'HybridAI',
-  openai: 'OpenAI API',
-  codex: 'OpenAI Codex',
-  anthropic: 'Anthropic',
-  openrouter: 'OpenRouter',
-  mistral: 'Mistral',
-  huggingface: 'Hugging Face',
-  gemini: 'Gemini',
-  deepseek: 'DeepSeek',
-  xai: 'xAI',
-  zai: 'Z.ai',
-  kimi: 'Kimi',
-  minimax: 'MiniMax',
-  dashscope: 'DashScope',
-  xiaomi: 'Xiaomi',
-  kilo: 'Kilo',
-  ollama: 'Ollama',
-  lmstudio: 'LM Studio',
-  llamacpp: 'llama.cpp',
-  vllm: 'vLLM',
-  mlx: 'MLX',
-};
+const PROVIDER_LABELS = Object.fromEntries(
+  GATEWAY_MODEL_PROVIDER_KEYS.map((key) => [
+    key,
+    PROVIDER_META[fromGatewayModelProviderKey(key)].label,
+  ]),
+) as Record<GatewayModelProviderKey, string>;
 
 const VENDOR_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -144,10 +110,12 @@ const VENDOR_LABELS: Record<string, string> = {
   xai: 'xAI',
 };
 
-const PROVIDER_RANK: Partial<Record<KnownProvider, number>> = {
-  Local: 0,
-  HybridAI: 1,
-  'OpenAI Codex': 2,
+const LOCAL_RAIL = 'Local';
+
+const PROVIDER_RANK: Readonly<Record<string, number>> = {
+  [LOCAL_RAIL]: 0,
+  [PROVIDER_LABELS.hybridai]: 1,
+  [PROVIDER_LABELS.codex]: 2,
 };
 
 const VENDOR_ORDER: Record<string, number> = {
@@ -229,27 +197,21 @@ function prettifyModelName(slug: string): string {
 }
 
 function railKeyOf(model: ParsedModel): string {
-  return model.isLocal ? 'Local' : model.provider;
+  return model.isLocal ? LOCAL_RAIL : model.provider;
 }
 
-function inferProviderKeyForSelectedModel(modelId: string): string {
-  const prefix = modelId.split('/', 1)[0]?.trim().toLowerCase() ?? '';
-  if (prefix === 'openai-codex') return 'codex';
-  if (prefix && PROVIDER_LABELS[prefix as GatewayModelProviderKey]) {
-    return prefix;
-  }
-  return 'hybridai';
+function inferProviderKeyForSelectedModel(
+  modelId: string,
+): GatewayModelProviderKey {
+  return toGatewayModelProviderKey(
+    inferProviderFromModelPrefix(modelId) ?? 'hybridai',
+  );
 }
 
 function inferBackendForSelectedModel(
   provider: string,
 ): ModelSwitchEntry['backend'] {
-  if (provider === 'ollama') return 'ollama';
-  if (provider === 'lmstudio') return 'lmstudio';
-  if (provider === 'llamacpp') return 'llamacpp';
-  if (provider === 'vllm') return 'vllm';
-  if (provider === 'mlx') return 'mlx';
-  return null;
+  return isLocalBackendType(provider) ? provider : null;
 }
 
 function buildSelectedModelFallback(modelId: string): ModelSwitchEntry | null {
@@ -272,29 +234,37 @@ function buildSelectedModelFallback(modelId: string): ModelSwitchEntry | null {
 
 type LogoComponent = ComponentType<ProviderLogoProps>;
 
-const PROVIDER_LOGOS: Partial<Record<KnownProvider, LogoComponent>> = {
-  HybridAI: HybridAILogo,
-  'OpenAI Codex': CodexLogo,
-  Anthropic: AnthropicLogo,
-  OpenRouter: OpenRouterLogo,
-  Mistral: MistralLogo,
-  'Hugging Face': HuggingFaceLogo,
-  Gemini: GeminiLogo,
-  DeepSeek: DeepSeekLogo,
-  xAI: XaiLogo,
-  'Z.ai': ZaiLogo,
-  Kimi: KimiLogo,
-  MiniMax: MiniMaxLogo,
-  DashScope: DashScopeLogo,
-  Xiaomi: XiaomiLogo,
-  Kilo: KiloLogo,
-  Ollama: OllamaLogo,
-  'LM Studio': LMStudioLogo,
-  'llama.cpp': LlamaCppLogo,
-  vLLM: VLLMLogo,
-  Local: LocalIcon as LogoComponent,
-  MLX: LocalIcon as LogoComponent,
+const PROVIDER_LOGOS: Record<GatewayModelProviderKey, LogoComponent> = {
+  hybridai: HybridAILogo,
+  openai: OpenAILogo,
+  codex: CodexLogo,
+  anthropic: AnthropicLogo,
+  openrouter: OpenRouterLogo,
+  mistral: MistralLogo,
+  huggingface: HuggingFaceLogo,
+  gemini: GeminiLogo,
+  deepseek: DeepSeekLogo,
+  xai: XaiLogo,
+  zai: ZaiLogo,
+  kimi: KimiLogo,
+  minimax: MiniMaxLogo,
+  dashscope: DashScopeLogo,
+  xiaomi: XiaomiLogo,
+  kilo: KiloLogo,
+  ollama: OllamaLogo,
+  lmstudio: LMStudioLogo,
+  llamacpp: LlamaCppLogo,
+  vllm: VLLMLogo,
+  mlx: LocalIcon as LogoComponent,
 };
+
+const LOGO_BY_PROVIDER_LABEL = new Map<string, LogoComponent>([
+  [LOCAL_RAIL, LocalIcon as LogoComponent],
+  ...GATEWAY_MODEL_PROVIDER_KEYS.map((key): [string, LogoComponent] => [
+    PROVIDER_LABELS[key],
+    PROVIDER_LOGOS[key],
+  ]),
+]);
 
 const VENDOR_LOGOS: Record<string, LogoComponent> = {
   Anthropic: AnthropicLogo,
@@ -315,7 +285,7 @@ function ProviderIcon({
   provider: string;
   size?: number;
 }) {
-  const Logo = PROVIDER_LOGOS[provider as KnownProvider];
+  const Logo = LOGO_BY_PROVIDER_LABEL.get(provider);
   if (Logo) return <Logo width={size} height={size} />;
   return <ServerIcon width={size} height={size} />;
 }
@@ -468,8 +438,8 @@ export function parseModel(entry: ModelSwitchEntry): ParsedModel {
   const providerLabel = vendor ? `${provider} · ${vendor}` : provider;
   const groupLabel = isLocal ? `Local · ${providerLabel}` : providerLabel;
   const providerRank = isLocal
-    ? (PROVIDER_RANK.Local ?? 0)
-    : (PROVIDER_RANK[provider as KnownProvider] ?? 50);
+    ? PROVIDER_RANK[LOCAL_RAIL]
+    : (PROVIDER_RANK[provider] ?? 50);
   const vendorRank = vendor ? (VENDOR_ORDER[vendor] ?? 50) : 0;
   const routeLabel = routeLabelForLocalModel(parts, entry);
 

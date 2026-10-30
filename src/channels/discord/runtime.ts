@@ -176,6 +176,8 @@ export interface MessageRunContext {
    * not to reply. The content then carries the reply policy block.
    */
   replyOptional: boolean;
+  /** Another bot or a webhook sent the message, so no person can approve. */
+  requesterIsBot: boolean;
   sendApprovalNotification?: (params: {
     approval: Pick<
       GatewayChatApprovalEvent,
@@ -1992,6 +1994,7 @@ export async function initDiscord(
           mentionLookup,
           emitLifecyclePhase,
           replyOptional,
+          requesterIsBot: Boolean(msg.author.bot),
           sendApprovalNotification: async ({
             approval,
             presentation,

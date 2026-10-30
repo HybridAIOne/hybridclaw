@@ -342,6 +342,7 @@ export interface ToolCallContextHelpers {
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
   approvalMode(): SessionApprovalMode;
+  approvalUserIsBot(): boolean;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
   getOrCreatePending(
@@ -1860,6 +1861,18 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   red_prompt(context) {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
+    // A card for a bot or webhook would wait for a click that never comes.
+    if (context.helpers.approvalUserIsBot() && !context.escalationTarget) {
+      return decision(
+        buildEvaluation(context, {
+          tier: 'red',
+          decision: 'denied',
+          escalationRoute: 'policy_denial',
+          reason:
+            'another bot or a webhook started this turn, so no person can approve this step',
+        }),
+      );
+    }
     const request = context.helpers.getOrCreatePending({
       fingerprint: requireFingerprint(context),
       actionKey: classified.actionKey,
@@ -2061,6 +2074,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private approvalMode: SessionApprovalMode = 'auto';
+  private approvalUserIsBot = false;
   // The bound session: bash commands start where its shell stopped.
   private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
@@ -2152,8 +2166,10 @@ export class TrustedAgentApprovalRuntime {
   setApprovalMode(params?: {
     mode?: SessionApprovalMode;
     neverApproveTools?: string[];
+    approvalUserIsBot?: boolean;
   }): void {
     this.approvalMode = params?.mode ?? 'auto';
+    this.approvalUserIsBot = params?.approvalUserIsBot === true;
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
       const value = String(raw || '')
@@ -2210,6 +2226,7 @@ export class TrustedAgentApprovalRuntime {
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
       approvalMode: () => this.approvalMode,
+      approvalUserIsBot: () => this.approvalUserIsBot,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
       getPendingCount: () => this.pending.size,

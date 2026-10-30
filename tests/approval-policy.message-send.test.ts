@@ -101,6 +101,35 @@ describe('message tool sends', () => {
     ).toMatchObject({ tier: 'red', decision: 'required' });
   });
 
+  test('a turn another bot started is refused instead of asking nobody', () => {
+    const runtime = createRuntime();
+    runtime.setApprovalMode({ mode: 'auto', approvalUserIsBot: true });
+    expect(
+      send(runtime, {
+        action: 'send',
+        channelId: 'telegram:12345',
+        content: 'On my way',
+      }),
+    ).toMatchObject({
+      tier: 'red',
+      decision: 'denied',
+      reason:
+        'another bot or a webhook started this turn, so no person can approve this step',
+    });
+
+    const escalated = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channelId: 'telegram:12345',
+        content: 'On my way',
+      }),
+      latestUserPrompt: 'Deploy failed',
+      escalationTarget: { channel: 'discord:1', recipient: 'owner' },
+    });
+    expect(escalated.decision).toBe('required');
+  });
+
   test('an email without a subject goes back to the model', () => {
     const { subject: _subject, ...withoutSubject } = invitation;
     expect(send(createRuntime(), withoutSubject)).toMatchObject({

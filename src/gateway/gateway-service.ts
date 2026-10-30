@@ -343,12 +343,17 @@ import {
   formatModelCountSuffix,
   formatModelForDisplay,
   HYBRIDAI_MODEL_PREFIX,
-  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
-import { isRuntimeProviderId } from '../providers/provider-ids.js';
+import {
+  isLocalBackendType,
+  isRuntimeProviderId,
+  LOCAL_BACKEND_IDS,
+  NON_HYBRID_PROVIDER_IDS,
+  providerModelPrefix,
+} from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import {
   normalizeAuxiliaryProviderModel,
@@ -660,6 +665,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
+import { toGatewayModelProviderKey } from './model-provider-keys.js';
 import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -2792,14 +2798,7 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     .trim()
     .toLowerCase();
   if (!normalized) return false;
-  const provider = normalized.split('/', 1)[0] || '';
-  return (
-    provider === 'ollama' ||
-    provider === 'lmstudio' ||
-    provider === 'llamacpp' ||
-    provider === 'vllm' ||
-    provider === 'mlx'
-  );
+  return isLocalBackendType(normalized.split('/', 1)[0] || '');
 }
 
 function formatArchiveReference(archivePath: string): string {
@@ -6242,22 +6241,12 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
-function resolveKnownNonHybridProviderKey(
-  prefix: string,
-): GatewayModelProviderKey {
-  const normalized = prefix.replace(/\/+$/g, '');
-  if (normalized === 'openai-codex') return 'codex';
-  return normalized as GatewayModelProviderKey;
-}
-
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
   [HYBRIDAI_MODEL_PREFIX, 'hybridai'],
-  ...NON_HYBRID_PROVIDER_PREFIXES.map(
-    (prefix): [string, GatewayModelProviderKey] => [
-      prefix,
-      resolveKnownNonHybridProviderKey(prefix),
-    ],
-  ),
+  ...NON_HYBRID_PROVIDER_IDS.map((id): [string, GatewayModelProviderKey] => [
+    providerModelPrefix(id),
+    toGatewayModelProviderKey(id),
+  ]),
 ];
 
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
@@ -6347,13 +6336,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of [
-    'ollama',
-    'lmstudio',
-    'llamacpp',
-    'vllm',
-    'mlx',
-  ] as const) {
+  for (const provider of LOCAL_BACKEND_IDS) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);

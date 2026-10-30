@@ -1,3 +1,4 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 /**
  * Twilio Media Streams wire protocol — the raw-audio counterpart to
  * `conversation-relay.js`.
@@ -7,7 +8,7 @@
  * frames are `media` (base64 8 kHz µ-law) and `clear` (barge-in). Audio is
  * never decoded here; the core realtime session speaks µ-law natively.
  */
-import { isRecord, rawDataToString } from './utils.js';
+import { rawDataToString } from './utils.js';
 
 function str(value) {
   return typeof value === 'string' ? value : '';

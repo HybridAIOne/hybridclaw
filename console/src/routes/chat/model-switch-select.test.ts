@@ -41,7 +41,7 @@ describe('parseModel', () => {
     const parsed = parseModel(
       model({ id: 'openai-codex/gpt-5.4', provider: 'codex' }),
     );
-    expect(parsed.groupLabel).toBe('OpenAI Codex · OpenAI');
+    expect(parsed.groupLabel).toBe('Codex · OpenAI');
     expect(parsed.displayName).toBe('GPT-5.4');
   });
 

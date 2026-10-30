@@ -4,6 +4,7 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
+import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -69,6 +70,7 @@ import type {
   PromptPartName,
   WorkspacePromptPartName,
 } from './prompt-parts.js';
+import { buildRoutinePrompt } from './routine-prompt.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { TOOL_RECOVERY_LINES } from './tool-recovery.js';
 import { buildToolsSummary } from './tool-summary.js';
@@ -415,8 +417,9 @@ function buildRetrievalHook(context: PromptHookContext): string {
 
 function isToolOffered(context: PromptHookContext, toolName: string): boolean {
   return (
-    !context.blockedTools?.includes(toolName) &&
-    (!context.allowedTools || context.allowedTools.includes(toolName))
+    !compileToolPatterns(context.blockedTools)(toolName) &&
+    (!context.allowedTools ||
+      compileToolPatterns(context.allowedTools)(toolName))
   );
 }
 
@@ -631,12 +634,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'A click, a submitted form or a finished checkout is not proof that an order, booking, payment or sign-up went through. After such an action, check: find the confirmation email with the mail tools, or read or screenshot the page that confirms it, then record what you found with `proof`. When nothing confirms it, record that with `proof` and say in your first sentence that you could not confirm it worked; never call it done.',
     'State only what a source says. Do not present your own inferences (such as "shorter" or "the best") as its claims, and when you recommend things you did not look up in this turn, say where they come from.',
     "When the user states standing rules, preferences, or instructions to remember — including a change to one, such as a new briefing time or delivery channel — first write them with the `memory` tool (append to today's daily note) in the same turn, then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
-    'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
-    '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
-    mobile
-      ? 'Scheduled task output is saved in the originating chat when no explicit "channel" is provided.'
-      : 'Scheduled task output is saved in the originating web chat when no explicit "channel" is provided. Browser notifications require the user to enable notifications in the chat sidebar.',
-    'To change an existing schedule (time, channel, or prompt), call `cron` "update" with the taskId from `cron` "list"; never "add" a second task for the same purpose.',
+    ...buildRoutinePrompt(mobile),
     'Outbound messages are always sent from the account HybridClaw is connected with. You cannot choose a different sender number or address, so never claim a message was sent from a specific number.',
     'Reply in the language the user writes in.',
     '',
@@ -674,7 +672,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
     ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
-    'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
+    'For a simple reminder via `cron`, set `prompt` to the reminder instruction (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     '',

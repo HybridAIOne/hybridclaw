@@ -126,8 +126,11 @@ async function materialize(
 }
 
 function unsupportedMedia(error: unknown): boolean {
+  if (!(error instanceof ProviderRequestError)) return false;
+  // OpenRouter reports missing image-capable routes as 404, not 400.
+  if (error.status === 404)
+    return /\bno endpoints found that support image input\b/i.test(error.body);
   return (
-    error instanceof ProviderRequestError &&
     [400, 413, 415, 422].includes(error.status) &&
     /(?:image|vision|document|pdf|file_data|input_file|multimodal)/i.test(
       error.body,

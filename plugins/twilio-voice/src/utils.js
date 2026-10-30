@@ -1,7 +1,3 @@
-export function isRecord(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function rawDataToString(raw) {
   if (typeof raw === 'string') return raw;
   if (Buffer.isBuffer(raw)) return raw.toString('utf8');

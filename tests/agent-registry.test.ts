@@ -389,6 +389,7 @@ test('agent tool allowlists persist and narrow the effective toolset', async () 
       tools: [' read ', 'grep', 'read'],
     },
     { id: 'mute', name: 'Mute Agent', tools: [] },
+    { id: 'ops', name: 'Ops Agent', tools: ['read', 'sentry__*'] },
   ];
   updateRuntimeConfig((draft) => {
     draft.agents.list = list;
@@ -410,6 +411,12 @@ test('agent tool allowlists persist and narrow the effective toolset', async () 
   expect(
     mergeAllowedToolNames({ agentId: 'reader', explicit: ['grep', 'bash'] }),
   ).toEqual(['grep']);
+  expect(
+    mergeAllowedToolNames({
+      agentId: 'ops',
+      explicit: ['sentry__search_errors', 'bash'],
+    }),
+  ).toEqual(['sentry__search_errors']);
 
   // An empty allowlist means no tools, never "every tool".
   expect(mergeAllowedToolNames({ agentId: 'mute', explicit: ['read'] })).toEqual(

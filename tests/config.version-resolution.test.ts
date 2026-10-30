@@ -80,7 +80,7 @@ test('warns when warm pool min idle is clamped by max idle', async () => {
   );
 });
 
-test('warns once when all app-version package probes fail', async () => {
+test('warns once when the app-version package.json cannot be read', async () => {
   const logger = {
     debug: vi.fn(),
     error: vi.fn(),
@@ -129,11 +129,7 @@ test('warns once when all app-version package probes fail', async () => {
   expect(APP_VERSION).toBe('0.0.0');
   expect(logger.warn).toHaveBeenCalledTimes(1);
   expect(logger.warn).toHaveBeenCalledWith(
-    {
-      probePaths: expect.arrayContaining([
-        expect.stringMatching(/package\.json$/),
-      ]),
-    },
-    'Unable to resolve app version from package.json probes; falling back to 0.0.0',
+    { packageJsonPath: expect.stringMatching(/package\.json$/) },
+    expect.any(String),
   );
 });

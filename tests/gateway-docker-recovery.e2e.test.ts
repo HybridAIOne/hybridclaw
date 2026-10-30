@@ -101,8 +101,11 @@ describe.skipIf(!CAN_RUN)('gateway start Docker recovery (real binary)', () => {
   beforeAll(() => {
     if (!fs.existsSync(CLI)) {
       try {
-        // tsc emits dist/cli.js even though a couple of optional deps lack types.
-        execSync('npx tsc', { cwd: REPO, timeout: 300_000, stdio: 'ignore' });
+        execSync('node scripts/bundle-gateway.mjs', {
+          cwd: REPO,
+          timeout: 300_000,
+          stdio: 'ignore',
+        });
       } catch {
         // ignore non-zero exit; existence is verified below.
       }

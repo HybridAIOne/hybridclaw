@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.1',
+  version: '0.41.5',
   highlights: [
-    'Shared HybridAI knowledge and wikis',
-    'Optional nightly wiki maintenance',
-    'Cleaner reminders and working event triggers',
-    'Requires Node 22.23.4 or later in Node 22',
+    'Clearer Teams approval requests',
+    'Show only available approval choices',
+    'View commands and details with 0',
   ],
 } as const;
 

@@ -4,7 +4,12 @@ import {
 } from '../../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../../auth/codex-auth.js';
 import { getRuntimeConfig } from '../../config/runtime-config.js';
+import {
+  fromGatewayModelProviderKey,
+  type GatewayModelProviderKey,
+} from '../../gateway/model-provider-keys.js';
 import { resolveModelProvider } from '../../providers/factory.js';
+import { PROVIDER_META } from '../../providers/provider-meta.js';
 import { dedupeStrings } from '../../utils/normalized-strings.js';
 import {
   type ProviderProbeResult,
@@ -19,18 +24,8 @@ import {
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 
-type ProviderKey =
-  | 'hybridai'
-  | 'openai'
-  | 'codex'
-  | 'anthropic'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface';
-
 interface ProviderPlan {
-  key: ProviderKey;
-  label: string;
+  key: GatewayModelProviderKey;
   active: boolean;
   configured: boolean;
   configuredModelCount: number;
@@ -83,11 +78,15 @@ async function readDiscoveredModelNamesSafely(): Promise<{
   };
 }
 
+function providerLabel(key: GatewayModelProviderKey): string {
+  return PROVIDER_META[fromGatewayModelProviderKey(key)].label;
+}
+
 function formatProbeSegment(
-  label: string,
+  plan: ProviderPlan,
   probe: ProviderProbeResult,
-  configuredModelCount: number,
 ): string {
+  const label = providerLabel(plan.key);
   if (!probe.reachable) {
     return `${label} ${probe.detail || 'unreachable'}`;
   }
@@ -95,12 +94,12 @@ function formatProbeSegment(
   const extras: string[] = [];
   if (typeof probe.modelCount === 'number') {
     extras.push(
-      label === 'HybridAI'
+      plan.key === 'hybridai'
         ? `${probe.modelCount} bots`
         : `${probe.modelCount} models`,
     );
-  } else if (configuredModelCount > 0 && label === 'Codex') {
-    extras.push(`${configuredModelCount} models`);
+  } else if (plan.configuredModelCount > 0 && plan.key === 'codex') {
+    extras.push(`${plan.configuredModelCount} models`);
   }
   if (probe.detail) extras.push(probe.detail);
   return `${label} ✓${extras.length > 0 ? ` (${extras.join(', ')})` : ''}`;
@@ -144,7 +143,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const plans: ProviderPlan[] = [
     {
       key: 'hybridai',
-      label: 'HybridAI',
       active: defaultProvider === 'hybridai',
       configured: true,
       configuredModelCount: hybridaiModels.length,
@@ -152,7 +150,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'codex',
-      label: 'Codex',
       active: defaultProvider === 'openai-codex',
       configured:
         codexStatus.authenticated || defaultProvider === 'openai-codex',
@@ -164,7 +161,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'openai',
-      label: 'OpenAI API',
       active: defaultProvider === 'openai',
       configured: openAIEnabled || defaultProvider === 'openai',
       configuredModelCount: openAIModels.length,
@@ -176,7 +172,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'anthropic',
-      label: 'Anthropic',
       active: defaultProvider === 'anthropic',
       configured:
         anthropicEnabled ||
@@ -197,7 +192,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'openrouter',
-      label: 'OpenRouter',
       active: defaultProvider === 'openrouter',
       configured: openRouterEnabled || defaultProvider === 'openrouter',
       configuredModelCount: openRouterModels.length,
@@ -209,7 +203,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'mistral',
-      label: 'Mistral',
       active: defaultProvider === 'mistral',
       configured: mistralEnabled || defaultProvider === 'mistral',
       configuredModelCount: mistralModels.length,
@@ -221,7 +214,6 @@ export async function checkProviders(): Promise<DiagResult[]> {
     },
     {
       key: 'huggingface',
-      label: 'Hugging Face',
       active: defaultProvider === 'huggingface',
       configured: huggingFaceEnabled || defaultProvider === 'huggingface',
       configuredModelCount: huggingFaceModels.length,
@@ -264,8 +256,8 @@ export async function checkProviders(): Promise<DiagResult[]> {
     }),
   );
 
-  const probesByKey = new Map<ProviderKey, ProviderProbeResult>();
-  const errorsByKey = new Map<ProviderKey, string>();
+  const probesByKey = new Map<GatewayModelProviderKey, ProviderProbeResult>();
+  const errorsByKey = new Map<GatewayModelProviderKey, string>();
 
   probeResults.forEach((result, index) => {
     const plan = selectedPlans[index];
@@ -282,21 +274,19 @@ export async function checkProviders(): Promise<DiagResult[]> {
   for (const plan of selectedPlans) {
     const error = errorsByKey.get(plan.key);
     if (error) {
-      segments.push(`${plan.label} ${error}`);
+      segments.push(`${providerLabel(plan.key)} ${error}`);
       severities.push(plan.active ? 'error' : 'warn');
       continue;
     }
 
     const probe = probesByKey.get(plan.key);
     if (!probe) {
-      segments.push(`${plan.label} health unavailable`);
+      segments.push(`${providerLabel(plan.key)} health unavailable`);
       severities.push(plan.active ? 'error' : 'warn');
       continue;
     }
 
-    segments.push(
-      formatProbeSegment(plan.label, probe, plan.configuredModelCount),
-    );
+    segments.push(formatProbeSegment(plan, probe));
     if (!probe.reachable) {
       severities.push(plan.active ? 'error' : 'warn');
     }
