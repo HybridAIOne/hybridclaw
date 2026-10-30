@@ -1087,6 +1087,22 @@ Container-side sandboxed tool families:
 - web extraction: `web_fetch`
 - optional browser automation: `browser_*`
 
+`write` creates files exclusively by default. To replace an existing text file,
+read its complete contents and pass `overwrite: true` and `expected_content`
+containing those exact contents, including trailing newlines. A missing file or
+content mismatch rejects the replacement without changing the target. Empty
+files require `expected_content: ""`. After a stale-write error, read again and
+reconsider the change instead of retrying with the old contents. Use `edit` for
+targeted substitutions.
+
+Publication is atomic, and cooperative `.lock` directories serialize `write`
+checks and replacements across workers, including task sandboxes. These checks
+use current disk state and survive worker replacement. A crashed writer's lock
+fails closed until removed after verifying no writer is active. External editors,
+`bash`, `edit`, and generated-artifact tools do not participate in this protocol;
+a change they make during the check/publication window can still race a write.
+These controls supplement existing path and approval checks.
+
 Prompt and runtime internals:
 
 - session compaction with pre-compaction memory flush: complete instructions

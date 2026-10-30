@@ -31,7 +31,12 @@ test('batches the calls around a bash barrier and runs a read after the write it
           toolCall('read-a', 'read', { path: 'a.txt' }),
           toolCall('read-b', 'read', { path: 'b.txt' }),
           toolCall('bash', 'bash', { command: 'echo between' }),
-          toolCall('write-c', 'write', { path: 'c.txt', contents: 'fresh' }),
+          toolCall('write-c', 'write', {
+            path: 'c.txt',
+            contents: 'fresh',
+            overwrite: true,
+            expected_content: 'stale',
+          }),
           toolCall('read-b-again', 'read', { path: 'b.txt' }),
           toolCall('read-c', 'read', { path: 'c.txt' }),
         ],

@@ -117,6 +117,7 @@ import {
   ESTIMATE_COST_TOOL_DEFINITION,
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
+import { runFileWrite, WRITE_TOOL_DEFINITION } from './tools/file-write.js';
 import {
   INBOX_CLEANUP_TOOL,
   INBOX_CLEANUP_TOOL_DEFINITION,
@@ -3077,8 +3078,13 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      writeWorkspaceFile(args.path, args.contents);
-      return `Wrote ${args.contents.length} bytes to ${args.path}`;
+      return runFileWrite(
+        args,
+        TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
+        TASK_SANDBOX_FS_ENABLED
+          ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
+          : undefined,
+      );
     }
 
     case SHOW_WIDGET_TOOL: {
@@ -4422,22 +4428,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'write',
-      description:
-        'Write contents to a file on disk, overwriting if it exists. Use this for creating new code/program files instead of shell heredocs or code-only replies.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to write' },
-          contents: { type: 'string', description: 'Content to write' },
-        },
-        required: ['path', 'contents'],
-      },
-    },
-  },
+  WRITE_TOOL_DEFINITION,
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
   SHOW_DASHBOARD_DEFINITION,
