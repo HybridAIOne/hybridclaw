@@ -220,8 +220,10 @@ scripts as well as direct redirects; unrelated shell mutations may also pause.
 Read-only diagnostics, including an `echo` fallback after a read-only command,
 and writing a separate deliverable remain available. File redirections and
 opaque script execution still require approval while a conflict is unresolved.
-Replacement workers reload the conflicts. Corrupt or unreadable guard state and
-persistence errors fail closed; these records contain paths, never file contents.
+Recovery diagnostics list the unresolved paths; writing a separate file leaves
+the script-execution restriction in place. A checked mutation resolves only its
+own path. Replacement workers reload the conflicts. Corrupt or unreadable guard
+state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
 
 ### Auxiliary Model Routing

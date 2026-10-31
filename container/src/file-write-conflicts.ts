@@ -2,6 +2,7 @@
  * Rejected file-write preconditions fence alternate mutation routes for a session.
  * Unlike write's byte comparison, this preserves the rejection across workers;
  * only a successful checked file mutation or a one-time approval can proceed.
+ * Recovery diagnostics name the unresolved paths from that same store.
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
 import type { ClassifiedAction } from './approval-policy.js';
@@ -61,7 +62,6 @@ export function guardFileWriteConflict(
     actionKey: `file-write-conflict:${action.actionKey}`,
     promotableRed: false,
     explicitApprovalRequired: true,
-    reason:
-      'a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Read the file and use a checked write/edit, or create a separate deliverable with write',
+    reason: `a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts])}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`,
   };
 }

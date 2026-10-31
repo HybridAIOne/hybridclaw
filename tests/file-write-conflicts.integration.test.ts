@@ -41,6 +41,9 @@ test('the real dispatcher stops a shell overwrite after failed replacement preco
     allowAgent: false,
     allowAll: false,
   });
+  expect(run.output.pendingApproval?.reason).toContain(
+    JSON.stringify(path.join(fs.realpathSync(run.dir), 'report.md')),
+  );
   expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe(
     'Original work\n',
   );
