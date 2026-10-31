@@ -141,6 +141,16 @@ vision analysis and attachment validation use the same resolver. The alias
 rejects traversal, links and roots outside the existing allowlist; it grants no
 write access and never searches another state directory or project cache.
 
+Visual reads retain content-addressed snapshots in the owning state directory.
+When the primary model cannot receive pixels, dispatch offers the existing
+`vision_analyze` tool a durable `snapshot` reference. For a PDF, `page` selects one
+original page per call; a standalone image needs no page number. The helper uses
+the configured vision policy and requires visual-data delivery permission.
+It validates snapshot ownership, selection, integrity and the existing image
+size limit. Temporary render files can be removed before analysis, and a
+replacement worker can use the same reference. Missing or changed evidence
+requires reading the original file again.
+
 For isolated host evaluations, an operator can set
 `HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
 OpenAI-compatible requests with an explicit eval profile use it. The directory
