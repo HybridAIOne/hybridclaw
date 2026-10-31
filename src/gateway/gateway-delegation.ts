@@ -4,6 +4,7 @@
  * A waiting call (`/api/delegate`) returns the child reports as the parent's
  * tool result. A background batch runs after the turn and then wakes the
  * parent with a hidden results turn, unless that session was reset meanwhile.
+ * Worker aliases are resolved through the active request's conversation owner.
  *
  * NOT A2A: peer-agent delegation across instances lives in `src/a2a/`.
  */
@@ -48,6 +49,7 @@ import {
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import { resolveGatewayRequestSessionId } from './gateway-request-runtime.js';
 import type {
   GatewayChatApprovalEvent,
   GatewayChatResult,
@@ -673,9 +675,11 @@ export async function runDelegationNow(params: {
   effect: DelegationSideEffect;
   abortSignal?: AbortSignal;
 }): Promise<{ result: string } | { error: string; status: number }> {
-  const { sessionId, effect, abortSignal } = params;
-  const parent = resolveWaitingParentContext(sessionId);
-  if (!parent) return { error: 'Unknown delegating session.', status: 404 };
+  const { effect, abortSignal } = params;
+  const sessionId = resolveGatewayRequestSessionId(params.sessionId);
+  const parent = sessionId ? resolveWaitingParentContext(sessionId) : null;
+  if (!sessionId || !parent)
+    return { error: 'Unknown delegating session.', status: 404 };
   const normalized = normalizeDelegationEffect(effect, parent.model);
   if (!normalized.plan) {
     return { error: normalized.error || 'Invalid delegation.', status: 400 };
