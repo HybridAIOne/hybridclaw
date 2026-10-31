@@ -188,7 +188,10 @@ function normalizeWhitespace(value: string): string {
     .trim();
 }
 
-function htmlToMarkdown(html: string): { text: string; title?: string } {
+function htmlToMarkdown(
+  html: string,
+  baseUrl: string,
+): { text: string; title?: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch
     ? normalizeWhitespace(stripTags(titleMatch[1]))
@@ -201,7 +204,13 @@ function htmlToMarkdown(html: string): { text: string; title?: string } {
     /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
     (_, href, body) => {
       const label = normalizeWhitespace(stripTags(body));
-      return label ? `[${label}](${href})` : href;
+      let destination = decodeEntities(href);
+      try {
+        destination = new URL(destination, baseUrl).href;
+      } catch {
+        // Preserve malformed destinations without losing the article.
+      }
+      return label ? `[${label}](${destination})` : destination;
     },
   );
 
@@ -280,7 +289,7 @@ async function extractReadableContent(
 ): Promise<ReadableContent> {
   // Fallback: simple regex-based conversion
   const fallback = (): ReadableContent => {
-    const rendered = htmlToMarkdown(html);
+    const rendered = htmlToMarkdown(html, url);
     if (extractMode === 'text') {
       return { text: markdownToText(rendered.text), title: rendered.title };
     }
@@ -334,7 +343,7 @@ async function extractReadableContent(
         )
           node.remove();
       }
-      pageContext = htmlToMarkdown(context.innerHTML).text.slice(
+      pageContext = htmlToMarkdown(context.innerHTML, url).text.slice(
         0,
         PAGE_CONTEXT_MAX_CHARS,
       );
@@ -363,7 +372,7 @@ Article:
         ? { text: contextPrefix + text, title, articleText: text }
         : fallback();
     }
-    const rendered = htmlToMarkdown(parsed.content);
+    const rendered = htmlToMarkdown(parsed.content, url);
     return {
       text: contextPrefix + rendered.text,
       title: title ?? rendered.title,
