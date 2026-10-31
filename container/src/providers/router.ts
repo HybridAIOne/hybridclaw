@@ -1,3 +1,8 @@
+/**
+ * Routed provider calls share response handling without changing model policy.
+ * Vision returns a complete textual analysis or an error; a token-limited
+ * fragment must never be presented as a successful full analysis.
+ */
 import { getProviderContextError } from '../../shared/provider-context.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
@@ -320,6 +325,11 @@ export async function callVisionProviderModel(
       })
     : await callRoutedModel(request);
 
+  if (response.choices[0]?.finish_reason === 'length') {
+    throw new Error(
+      'vision API reached its output limit; analysis is incomplete. Increase auxiliaryModels.vision.maxTokens for a longer analysis.',
+    );
+  }
   const analysis = extractResponseTextContent(
     response.choices[0]?.message?.content,
   );
