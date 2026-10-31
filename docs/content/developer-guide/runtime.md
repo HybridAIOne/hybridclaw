@@ -119,6 +119,11 @@ it records the resulting memory content so dream's own rewrite does not trigger
 another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
+Private tool-history replay preserves short, nonliteral Python sorting
+callbacks such as `key=ranker.get` and `key=lambda item: item.score`. Public
+logs and exports keep strict credential masking; quoted key values, URL
+credentials and structured authentication fields remain redacted in replay.
+
 ## Worker State
 
 Host workers keep managed state in their owning agent's workspace, or the scope's
@@ -866,6 +871,12 @@ users, and workspace reset removes them.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
+
+`web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
+binary responses fail with a download continuation instead of entering model
+context as text. If available, `http_request` with `responseArtifact` saves the
+file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
+enough for the file. PDF and image inspection use the existing local-file tools.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
