@@ -1207,6 +1207,9 @@ Prompt and runtime internals:
   result; with `background: true` the parent turn ends and a later
   `delegate:results` turn wakes the parent with the reports, hidden from
   history views
+- Waiting delegation resolves an execution worker to its unique active
+  conversation owner. Released, aborted or ambiguous worker aliases cannot
+  identify a parent; no durable alias session is created.
 
 ## PDF reading
 
