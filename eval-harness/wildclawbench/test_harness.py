@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from evidence import convert_database, generation_ids, summarize_generations
+from launch import completion_outcome
 
 spec = importlib.util.spec_from_file_location("wcb_export", Path(__file__).with_name("export.py"))
 exporter = importlib.util.module_from_spec(spec)
@@ -26,6 +27,17 @@ def complete_summary():
                                          "hybridclaw_version": "0.0.0", "image_id": "sha256:" + "b" * 64}},
             })
     return {"task_count": 60, "global_avg": 0.5, "results": rows}
+
+
+class OutcomeTests(unittest.TestCase):
+    def test_prose_is_not_used_as_approval_state(self):
+        self.assertEqual(completion_outcome({"choices": [{"message": {"content": "Approval needed"}}]}),
+                         {"status": "completed"})
+
+    def test_malformed_approval_metadata_is_rejected(self):
+        for value in (None, {}, {"approvalId": "a"}, {"approvalId": 1, "expiresAt": None}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                completion_outcome({"choices": [{}], "hybridclaw": {"pendingApproval": value}})
 
 
 class EvidenceTests(unittest.TestCase):
@@ -92,6 +104,14 @@ class ExportTests(unittest.TestCase):
         self.assertAlmostEqual(result["usd_per_task"], 0.2)
         self.assertEqual(result["minutes_per_task"], 2)
         self.assertEqual(len(result["per_category"]), 6)
+
+    def test_approval_blocks_retain_scores_and_are_counted_separately(self):
+        summary = complete_summary()
+        summary["results"][0]["usage"]["execution_status"] = "awaiting_approval"
+        result = self.export(summary)
+        self.assertEqual(result["approval_blocked"], 1)
+        self.assertEqual(result["failed_infra"], 0)
+        self.assertEqual(result["score"], 50)
 
     def test_partial_duplicate_or_unbilled_runs_are_rejected(self):
         for mutation in (

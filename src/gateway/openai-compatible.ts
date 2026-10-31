@@ -45,6 +45,7 @@ import {
 } from './openai-compatible-request.js';
 import {
   buildOpenAICompatibleCompletionResponse,
+  buildOpenAICompatibleExecutionExtensions,
   buildOpenAICompatibleModelsResponse,
   buildOpenAICompatibleStreamRoleChunk,
   buildOpenAICompatibleStreamStopChunk,
@@ -560,15 +561,7 @@ async function handleOpenAICompatibleNonStreamingChat(
     model: responseModel,
     content: typeof result.result === 'string' ? result.result : '',
     tokenUsage: result.tokenUsage,
-    ...(result.delegation
-      ? {
-          extensions: {
-            hybridclaw: {
-              delegation: result.delegation,
-            },
-          },
-        }
-      : {}),
+    extensions: buildOpenAICompatibleExecutionExtensions(result),
   });
   res.writeHead(200, {
     ...responseTraceHeaders,
@@ -730,15 +723,7 @@ async function handleOpenAICompatibleStreamingChat(
         completionId,
         created,
         model: responseModel,
-        ...(result.delegation
-          ? {
-              extensions: {
-                hybridclaw: {
-                  delegation: result.delegation,
-                },
-              },
-            }
-          : {}),
+        extensions: buildOpenAICompatibleExecutionExtensions(result),
       }),
     );
 

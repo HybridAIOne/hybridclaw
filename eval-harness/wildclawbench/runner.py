@@ -17,6 +17,7 @@ from src.utils.docker_utils import (
 )
 from src.utils.transcript_loader import OPENCLAW_FALLBACK_PATH
 from .evidence import generation_ids, summarize_generations
+from .launch import completion_outcome
 
 RUNTIME = "/tmp/hybridclaw-runtime"
 TRANSCRIPT = OPENCLAW_FALLBACK_PATH
@@ -106,10 +107,19 @@ class HybridClawAgent(BaseAgent):
             elapsed = min(time.perf_counter() - started, spec.timeout_seconds)
             # Upstream Hermes grades whatever exists when the task timeout ends.
             error = None if proc.returncode in (0, 124) else "Task-local HybridClaw exited unsuccessfully"
+            outcome = {"status": "timed_out" if proc.returncode == 124 else "failed"}
+            if proc.returncode == 0:
+                try:
+                    outcome = completion_outcome(json.loads(docker(
+                        "exec", spec.task_id, "cat", RUNTIME + "/completion.json")))
+                except (RuntimeError, ValueError):
+                    error = "Task-local HybridClaw completion metadata is unavailable or invalid"
             (spec.output_dir / "execution.json").write_text(json.dumps({
                 "exit_code": proc.returncode, "timed_out": proc.returncode == 124,
-                "elapsed_time": elapsed,
+                "elapsed_time": elapsed, **outcome,
             }))
+            # Pending approval is a policy stop, not an infrastructure failure.
+            # Keep upstream grading enabled for any partial task artifacts.
             return AgentExecution(elapsed_time=elapsed, error=error, agent_proc=proc)
         except Exception as exc:
             if proc is not None and proc.poll() is None:
@@ -170,5 +180,9 @@ class HybridClawAgent(BaseAgent):
             totals["provenance"] = json.loads((output_dir / "provenance.json").read_text())
         except (OSError, ValueError):
             totals["provenance"] = {}  # Export refuses missing or mixed revisions.
+        try:
+            totals["execution_status"] = json.loads((output_dir / "execution.json").read_text())["status"]
+        except (OSError, ValueError, KeyError):
+            totals["execution_status"] = "unknown"
         totals["elapsed_time"] = round(elapsed_time, 2)
         return totals

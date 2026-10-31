@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import evidence
+import launch
 
 
 class RunnerTests(unittest.TestCase):
@@ -34,16 +35,17 @@ class RunnerTests(unittest.TestCase):
         self.runner = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {
             "src.agents.base": base, "src.utils.docker_utils": utils,
-            "src.utils.transcript_loader": transcript, "test_adapter.evidence": evidence,
+            "src.utils.transcript_loader": transcript, "test_adapter.evidence": evidence, "test_adapter.launch": launch,
         }):
             spec.loader.exec_module(self.runner)
 
-    def run_task(self, task):
+    def run_task(self, task, completion=None, returncode=0, expected_error=None):
         labels = json.dumps({"org.opencontainers.image.revision": "a" * 40,
                              "org.opencontainers.image.version": "0.0.0"})
         docker = Mock(side_effect=lambda *args: labels if args[-1] == "{{json .Config.Labels}}"
-                      else "sha256:test-image")
-        process = Mock(returncode=0)
+                      else json.dumps(completion or {"choices": [{"message": {"content": "Done"}}]})
+                      if args[-1].endswith("/completion.json") else "sha256:test-image")
+        process = Mock(returncode=returncode)
         spec = SimpleNamespace(
             lobster=False, models_config=None, thinking=None,
             model=next(iter(self.runner.MANIFEST["models"])), task_id="test-task",
@@ -56,13 +58,33 @@ class RunnerTests(unittest.TestCase):
                 patch.object(self.runner, "docker", docker), \
                 patch.object(self.runner.subprocess, "Popen", return_value=process):
             result = self.runner.HybridClawAgent("https://example.com").run_task(spec)
-        self.assertIsNone(result.error)
+        self.assertEqual(result.error, expected_error)
         self.runner.run_warmup.assert_called_once()
         self.runner.snapshot_workspace_state.assert_called_once_with("test-task")
         process.communicate.assert_called_once_with(json.dumps({
             "model": spec.model, "prompt": spec.prompt, "timeout_seconds": 60,
         }))
         return docker
+
+    def test_approval_stop_is_reported_and_partial_outputs_remain_gradable(self):
+        self.run_task({}, {"choices": [{}], "hybridclaw": {"pendingApproval": {
+            "approvalId": "approval_a", "toolName": "bash", "expiresAt": None}}})
+        execution = json.loads((self.output / "execution.json").read_text())
+        self.assertEqual(execution["status"], "awaiting_approval")
+        self.assertEqual(execution["pending_approval"]["approvalId"], "approval_a")
+
+    def test_completion_and_timeout_are_separate_outcomes(self):
+        self.run_task({})
+        self.assertEqual(json.loads((self.output / "execution.json").read_text())["status"], "completed")
+        self.runner.run_warmup.reset_mock()
+        self.runner.snapshot_workspace_state.reset_mock()
+        self.run_task({}, returncode=124)
+        self.assertEqual(json.loads((self.output / "execution.json").read_text())["status"], "timed_out")
+
+    def test_invalid_completion_is_not_reported_as_completed(self):
+        self.run_task({}, {"invalid": True}, expected_error=
+                      "Task-local HybridClaw completion metadata is unavailable or invalid")
+        self.assertEqual(json.loads((self.output / "execution.json").read_text())["status"], "failed")
 
     def test_missing_empty_and_whitespace_skills_never_invoke_directory_setup(self):
         for task in ({}, {"skills": ""}, {"skills": " \n\t\n"}):
