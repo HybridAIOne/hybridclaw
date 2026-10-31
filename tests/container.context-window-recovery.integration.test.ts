@@ -571,7 +571,19 @@ describe('provider context-length rejections in the tool loop', () => {
         () => reply,
       );
       try {
-        const output = await runTurn(server, { contextWindow: 6_000 });
+        const output = await runTurn(server, {
+          contextWindow: 6_000,
+          taskModels: {
+            compression: {
+              provider: 'hybridai',
+              model: 'compression-model',
+              baseUrl: server.baseUrl,
+              apiKey: 'test-key',
+              chatbotId: 'test-bot',
+              contextWindow: 128_000,
+            },
+          },
+        });
 
         expect(output.status).toBe('error');
         expect(output.error).toContain('Context window exhausted');
@@ -583,6 +595,27 @@ describe('provider context-length rejections in the tool loop', () => {
     },
     30_000,
   );
+
+  test('stops before a request when the compression model has no context room', async () => {
+    const server = await startModelServer(() => completion('should not run'));
+    try {
+      const output = await runTurn(server, { contextWindow: 6_000 });
+      expect(output.status).toBe('error');
+      expect(output.error).toContain('Context window exhausted');
+      expect(server.summaryRequests).toBe(0);
+      expect(server.loopRequests).toHaveLength(0);
+      const state = path.join(workspace, '.hybridclaw-runtime', 'sessions');
+      const sessions = fs.existsSync(state) ? fs.readdirSync(state) : [];
+      expect(
+        sessions.every(
+          (session) =>
+            !fs.existsSync(path.join(state, session, 'in-loop-compactions')),
+        ),
+      ).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
 
   test('stops consecutive context errors even when compaction succeeds', async () => {
     const server = await startModelServer(() => CONTEXT_LENGTH_REJECTION);

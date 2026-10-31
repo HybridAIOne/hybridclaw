@@ -6,6 +6,7 @@
  */
 
 import {
+  DEFAULT_COMPRESSION_MAX_TOKENS,
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
 } from '../../container/shared/request-max-tokens.js';
@@ -234,7 +235,11 @@ export async function resolveTaskModelPolicy(
   let rawModel = getSelectedTaskModel(task);
   const maxTokens =
     normalizeMaxTokens(configured.maxTokens) ??
-    (task === 'vision' ? DEFAULT_VISION_MAX_TOKENS : undefined);
+    (task === 'vision'
+      ? DEFAULT_VISION_MAX_TOKENS
+      : task === 'compression'
+        ? DEFAULT_COMPRESSION_MAX_TOKENS
+        : undefined);
   if (providerSelection === 'disabled') {
     return { model: '', error: `${task} auxiliary model is disabled.` };
   }

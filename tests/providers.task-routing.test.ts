@@ -833,9 +833,11 @@ test.each([
   { task: 'vision' as const, limit: 1_024, expected: 1_024 },
   { task: 'vision' as const, limit: 200_000, expected: 128_000 },
   { task: 'compression' as const, limit: 777, expected: 777 },
+  { task: 'compression' as const, limit: 0, expected: 8_192 },
+  { task: 'compression' as const, limit: 0, capacity: 512, expected: 512 },
 ])(
   'preserves the $task budget when using the current session model',
-  async ({ task, limit, expected }) => {
+  async ({ task, limit, expected, capacity = 128_000 }) => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.routing.enabled = false;
@@ -851,7 +853,7 @@ test.each([
         baseUrl: 'https://example.com',
         chatbotId: '',
         requestHeaders: {},
-        maxTokens: 128_000,
+        maxTokens: capacity,
       })),
     }));
     const taskRouting = await importFreshTaskRouting(homeDir);

@@ -141,6 +141,16 @@ vision analysis and attachment validation use the same resolver. The alias
 rejects traversal, links and roots outside the existing allowlist; it grants no
 write access and never searches another state directory or project cache.
 
+Visual reads retain content-addressed snapshots in the owning state directory.
+When the primary model cannot receive pixels, dispatch offers the existing
+`vision_analyze` tool a durable `snapshot` reference. For a PDF, `page` selects one
+original page per call; a standalone image needs no page number. The helper uses
+the configured vision policy and requires visual-data delivery permission.
+It validates snapshot ownership, selection, integrity and the existing image
+size limit. Temporary render files can be removed before analysis, and a
+replacement worker can use the same reference. Missing or changed evidence
+requires reading the original file again.
+
 For isolated host evaluations, an operator can set
 `HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
 OpenAI-compatible requests with an explicit eval profile use it. The directory
@@ -871,6 +881,12 @@ then attempts the disk-backed result recovery described above before reporting
 context exhaustion. Archives contain conversation and tool data that the agent
 can read; private file permissions protect against other host
 users, and workspace reset removes them.
+The concise summary target is separate from the generation allowance, which
+includes a reasoning model's thinking tokens. Compression defaults to 8,192
+generation tokens, bounded by the model's output capacity and estimated input
+headroom; `auxiliaryModels.compression.maxTokens` overrides that allowance.
+The summary target stays at up to 1,024 tokens. A truncated generation still
+cannot replace the original evidence.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
@@ -1224,6 +1240,9 @@ Prompt and runtime internals:
 - Waiting delegation resolves an execution worker to its unique active
   conversation owner. Released, aborted or ambiguous worker aliases cannot
   identify a parent; no durable alias session is created.
+- Each live delegated child has its own exact callback identity and model.
+  Nested calls inherit that child's model unless the caller or configured
+  delegate model selects another; a completed child's context is released.
 
 ## PDF reading
 
