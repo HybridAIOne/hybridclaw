@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
@@ -6,7 +6,7 @@ import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { HYBRIDAI_MODEL, MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
+import { HYBRIDAI_MODEL } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
@@ -61,6 +61,11 @@ import {
   isDecisionModel,
 } from './openai-decision.js';
 import {
+  assertDryRunAllowed,
+  discardDryRunSessions,
+} from './openai-dry-run.js';
+import { acquireOpenAIExecutionSession } from './openai-execution-sessions.js';
+import {
   callWithProviderFallback,
   loadFallbackChainFromEnv,
 } from './provider-fallback.js';
@@ -86,16 +91,6 @@ function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
   );
 }
 
-const OPENAI_EXECUTION_SESSION_TTL_MS = 30_000;
-
-interface OpenAIExecutionSessionEntry {
-  sessionId: string;
-  inFlight: number;
-  lastUsedAt: number;
-}
-
-const openAIExecutionSessions = new Map<string, OpenAIExecutionSessionEntry>();
-
 function buildOpenAIExecutionSeed(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
@@ -118,112 +113,6 @@ function buildOpenAIExecutionSeed(params: {
     omitPromptParts: params.prepared.profile.omitPromptParts,
     conversationRoot,
   });
-}
-
-function buildOpenAIExecutionSessionId(agentId: string, seed: string): string {
-  const digest = createHash('sha256').update(seed).digest('hex').slice(0, 24);
-  return buildSessionKey(agentId, 'openai', 'dm', `exec-${digest}`);
-}
-
-function reapExpiredOpenAIExecutionSessions(now = Date.now()): void {
-  for (const [key, entry] of openAIExecutionSessions) {
-    if (
-      entry.inFlight === 0 &&
-      now - entry.lastUsedAt > OPENAI_EXECUTION_SESSION_TTL_MS
-    ) {
-      stopSessionExecution(entry.sessionId);
-      openAIExecutionSessions.delete(key);
-    }
-  }
-}
-
-function evictOldestIdleOpenAIExecutionSession(): boolean {
-  let oldestKey: string | null = null;
-  let oldestEntry: OpenAIExecutionSessionEntry | null = null;
-  for (const [key, entry] of openAIExecutionSessions) {
-    if (entry.inFlight > 0) continue;
-    if (!oldestEntry || entry.lastUsedAt < oldestEntry.lastUsedAt) {
-      oldestKey = key;
-      oldestEntry = entry;
-    }
-  }
-  if (!oldestKey || !oldestEntry) return false;
-  stopSessionExecution(oldestEntry.sessionId);
-  openAIExecutionSessions.delete(oldestKey);
-  return true;
-}
-
-function acquireOpenAIExecutionSession(params: {
-  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
-  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
-}): {
-  sessionId: string;
-  stopOnFinish: boolean;
-  release: () => void;
-} {
-  if (params.prepared.cleanupAgentId) {
-    return {
-      sessionId: buildSessionKey(
-        params.prepared.requestAgentId,
-        'openai',
-        'dm',
-        randomUUID().replace(/-/g, '').slice(0, 16),
-      ),
-      stopOnFinish: true,
-      release: () => {},
-    };
-  }
-
-  const now = Date.now();
-  reapExpiredOpenAIExecutionSessions(now);
-  const seed = buildOpenAIExecutionSeed(params);
-  let entry = openAIExecutionSessions.get(seed);
-  if (!entry) {
-    let evictedIdleSession = false;
-    while (
-      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
-      evictOldestIdleOpenAIExecutionSession()
-    ) {
-      evictedIdleSession = true;
-      // Make room by evicting idle reusable OpenAI execution sessions first.
-    }
-    if (
-      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
-      !evictedIdleSession
-    ) {
-      return {
-        sessionId: buildSessionKey(
-          params.prepared.requestAgentId,
-          'openai',
-          'dm',
-          randomUUID().replace(/-/g, '').slice(0, 16),
-        ),
-        stopOnFinish: true,
-        release: () => {},
-      };
-    }
-    entry = {
-      sessionId: buildOpenAIExecutionSessionId(
-        params.prepared.requestAgentId,
-        seed,
-      ),
-      inFlight: 0,
-      lastUsedAt: now,
-    };
-    openAIExecutionSessions.set(seed, entry);
-  }
-  entry.inFlight += 1;
-  entry.lastUsedAt = now;
-  return {
-    sessionId: entry.sessionId,
-    stopOnFinish: false,
-    release: () => {
-      const current = openAIExecutionSessions.get(seed);
-      if (!current) return;
-      current.inFlight = Math.max(0, current.inFlight - 1);
-      current.lastUsedAt = Date.now();
-    },
-  };
 }
 
 /**
@@ -290,6 +179,13 @@ function prepareOpenAICompatibleRequest(
     freshAgentId,
     profileAgentId: profile.agentId,
   });
+  if (profile.dryRun) {
+    assertDryRunAllowed({
+      usesClientTools: input.usesClientTools,
+      model,
+      agentId: requestAgentId,
+    });
+  }
   const sessionId = buildSessionKey(
     requestAgentId,
     'openai',
@@ -333,11 +229,12 @@ function buildGatewayChatRequest(params: {
     ...(params.executionSessionId
       ? { executionSessionId: params.executionSessionId }
       : {}),
-    ...(params.prepared.isEvalRequest
+    ...(params.prepared.isEvalRequest && !params.prepared.profile.dryRun
       ? {
           autoApproveTools: true,
         }
       : {}),
+    ...(params.prepared.profile.dryRun ? { dryRun: true } : {}),
     guildId: null,
     channelId: 'openai',
     userId: params.prepared.sessionId,
@@ -888,7 +785,13 @@ export async function handleOpenAICompatibleChatCompletions(
     const executionSession =
       input.usesClientTools || usesDecisionModel
         ? null
-        : acquireOpenAIExecutionSession({ input, prepared });
+        : acquireOpenAIExecutionSession({
+            agentId: prepared.requestAgentId,
+            seed: buildOpenAIExecutionSeed({ input, prepared }),
+            ephemeral: Boolean(
+              prepared.cleanupAgentId || prepared.profile.dryRun,
+            ),
+          });
     const completionId = `chatcmpl_${randomUUID().replace(/-/g, '')}`;
     const created = Math.floor(Date.now() / 1000);
 
@@ -964,6 +867,12 @@ export async function handleOpenAICompatibleChatCompletions(
       executionSession?.release();
       if (executionSession?.stopOnFinish) {
         stopSessionExecution(executionSession.sessionId);
+      }
+      if (prepared.profile.dryRun) {
+        discardDryRunSessions(
+          [prepared.sessionId, executionSession?.sessionId],
+          prepared.requestAgentId,
+        );
       }
       if (prepared.cleanupAgentId) {
         resetWorkspace(prepared.cleanupAgentId);

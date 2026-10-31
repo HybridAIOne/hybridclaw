@@ -4,7 +4,8 @@
  *
  * The stores agree on order: the user's message, then each note they sent
  * while the turn ran (`steerNotes`, as user messages of their own), then the
- * reply. NOT the audit trail or compaction; `recordSuccessfulTurn` and
+ * reply. A dry run writes the messages alone, to a session that is discarded.
+ * NOT the audit trail or compaction; `recordSuccessfulTurn` and
  * `recordErrorTurn` in gateway-service.ts decide those and what the reply is.
  * Final storage replaces provisional recovery rows in the same SQLite commit.
  */
@@ -39,6 +40,8 @@ export function storeTurnMessages(opts: {
   /** Stored with the reply, for replay in later turns. */
   toolHistoryForReplay?: ChatMessage[];
   replaceBuiltInMemory?: boolean;
+  /** Keeps the turn in its own session, which the caller then discards. */
+  dryRun?: boolean;
 }): { userMessageId: number; assistantMessageId: number } {
   const steerNotes = opts.steerNotes ?? [];
   const user = {
@@ -58,7 +61,7 @@ export function storeTurnMessages(opts: {
     toolHistory: opts.toolHistoryForReplay,
   };
   const storedTurn = finishTurnCheckpoint(opts.sessionId, () =>
-    opts.replaceBuiltInMemory === true
+    opts.dryRun || opts.replaceBuiltInMemory === true
       ? storeMessagesOnly(opts.sessionId, user, steerNotes, assistant)
       : memoryService.storeTurn({
           sessionId: opts.sessionId,
@@ -67,6 +70,7 @@ export function storeTurnMessages(opts: {
           assistant,
         }),
   );
+  if (opts.dryRun) return storedTurn;
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
     try {
       memoryService.appendCanonicalMessages({

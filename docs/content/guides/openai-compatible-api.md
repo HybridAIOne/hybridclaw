@@ -117,9 +117,9 @@ clean for OpenAI SDKs that validate it:
   display name.
 - An unknown id does **not** fail the request: it runs a default-shaped agent
   under that id, so verify the id rather than trusting a 200.
-- Further flags are comma-separated after the marker (`fresh-agent`,
-  `ablate-system`, `include=`, `omit=`) — those belong to the eval harness, see
-  [Commands](../reference/commands.md).
+- Further flags are comma-separated after the marker. `dry-run` is described
+  below; `fresh-agent`, `ablate-system`, `include=` and `omit=` belong to the
+  eval harness, see [Commands](../reference/commands.md).
 
 > **Tools are auto-approved when an agent profile is present.** The marker and
 > the header both flag the request as an eval-profile request, which runs the
@@ -129,6 +129,33 @@ clean for OpenAI SDKs that validate it:
 > approval request. Only hand out
 > tokens for agent-selected integrations to callers you would also trust to
 > approve that agent's tools.
+
+### Re-ask an agent without side effects
+
+Add `dry-run` to the profile to ask the real agent a question and leave no
+trace, for example when an evaluator checks how the agent now answers a
+question a user rated badly:
+
+```bash
+-H "X-HybridClaw-Eval-Profile: agent=support-desk,dry-run"
+```
+
+A dry-run turn sees what a normal turn of that agent sees: its workspace files,
+memory, skills, model, tools, and the history in `messages`. What differs is
+what it leaves behind:
+
+- Tools that only read run. Every other call, such as a file or memory write,
+  a sent message, or anything that would need an approval, is refused, and the
+  refusal goes back to the model as the tool's result, so the agent still
+  answers. Tools are not auto-approved.
+- The turn runs in a throwaway session that is deleted afterwards with its
+  messages and files. It writes no transcript, compaction, memory flush, title
+  or skill observation, starts no delegate runs, and calls no memory plugin.
+- Usage is recorded as for any turn. The audit trail keeps the turn, with
+  `dryRun: true` on its `turn.start` event.
+- A request that sends its own `tools`, uses a decision model, or selects a
+  proxied agent is rejected with `400`, and so is an agent id without a
+  workspace: a dry run never creates an agent.
 
 ## 5. Handle delegated answers
 

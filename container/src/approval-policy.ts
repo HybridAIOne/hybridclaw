@@ -187,6 +187,7 @@ export const DEFAULT_APPROVAL_RULE_ORDER = [
   'stakes',
   'anomaly_reranker',
   'autonomy_override',
+  'dry_run',
   'red_hard_deny',
   'red_one_shot',
   'red_session_trust',
@@ -355,6 +356,7 @@ export interface ToolCallContextHelpers {
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
   approvalMode(): SessionApprovalMode;
+  dryRun(): boolean;
   approvalUserIsBot(): boolean;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
@@ -1733,6 +1735,23 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     return nextRule();
   },
 
+  // Runs on the final tier, before any trust, full-auto or prompt can let a
+  // call through: a dry run changes and sends nothing, whoever trusted what.
+  dry_run(context) {
+    if (!context.helpers.dryRun()) return nextRule();
+    if (context.tier === 'green' && !requireClassified(context).writeIntent) {
+      return nextRule();
+    }
+    return decision(
+      buildEvaluation(context, {
+        decision: 'denied',
+        escalationRoute: 'policy_denial',
+        reason:
+          'this is a dry run, which only reads and changes or sends nothing',
+      }),
+    );
+  },
+
   red_hard_deny(context) {
     const classified = requireClassified(context);
     if (!isRedRuleActive(context) || !classified.hardDeny) return nextRule();
@@ -2051,6 +2070,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private approvalMode: SessionApprovalMode = 'auto';
+  private dryRun = false;
   private approvalUserIsBot = false;
   // The bound session: bash commands start where its shell stopped.
   private sessionId = '';
@@ -2144,8 +2164,10 @@ export class TrustedAgentApprovalRuntime {
     mode?: SessionApprovalMode;
     neverApproveTools?: string[];
     approvalUserIsBot?: boolean;
+    dryRun?: boolean;
   }): void {
     this.approvalMode = params?.mode ?? 'auto';
+    this.dryRun = params?.dryRun === true;
     this.approvalUserIsBot = params?.approvalUserIsBot === true;
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
@@ -2155,6 +2177,10 @@ export class TrustedAgentApprovalRuntime {
       if (!value) continue;
       this.fullAutoNeverApprove.add(value);
     }
+  }
+
+  isDryRun(): boolean {
+    return this.dryRun;
   }
 
   recordAnomalyTraceJudgeResult(
@@ -2208,6 +2234,7 @@ export class TrustedAgentApprovalRuntime {
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
       approvalMode: () => this.approvalMode,
+      dryRun: () => this.dryRun,
       approvalUserIsBot: () => this.approvalUserIsBot,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
@@ -2978,7 +3005,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
-      // Public warning lookups; watching only saves the user's place list.
+      // Public warning lookups; watching saves the user's place list.
       lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
@@ -3003,7 +3030,14 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
-        writeIntent: false,
+        // Still green, but these ring a phone or keep a record.
+        writeIntent:
+          lowerTool === 'call_user' ||
+          lowerTool === 'proof' ||
+          (lowerTool === 'draft_email' && args.track_id !== undefined) ||
+          (lowerTool === 'public_warnings' &&
+            ['watch', 'unwatch'].includes(String(args.action))) ||
+          (lowerTool === 'work' && args.action === 'record'),
         promotableRed: false,
         stickyYellow: false,
       };

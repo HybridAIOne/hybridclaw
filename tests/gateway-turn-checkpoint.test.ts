@@ -118,6 +118,37 @@ test('finalization replaces provisional rows once and rolls back if storage fail
   );
 });
 
+test('dry-run storage finalizes the checkpoint without cross-session writes', async () => {
+  const { memory, checkpoint, opts } = await setup();
+  const { storeTurnMessages } = await import('../src/gateway/turn-storage.js');
+  const { getMemoryValue } = await import('../src/memory/kv.js');
+  const transcripts = await import('../src/session/session-transcripts.js');
+  const appendCanonical = vi.spyOn(memory, 'appendCanonicalMessages');
+  const appendTranscript = vi.spyOn(transcripts, 'appendSessionTranscript');
+  checkpoint.beginTurnCheckpoint(opts);
+
+  storeTurnMessages({
+    ...opts,
+    channelId: 'web',
+    canonicalScopeId: 'user_a',
+    assistantContent: 'The sample report is ready.',
+    dryRun: true,
+  });
+
+  const rows = memory.getConversationHistory(opts.sessionId, 10).reverse();
+  expect(rows.map((row) => [row.role, row.content])).toEqual([
+    ['user', opts.userContent],
+    ['assistant', 'The sample report is ready.'],
+  ]);
+  expect(getMemoryValue(opts.sessionId, 'gateway.turn-checkpoint')).toBeNull();
+  expect(appendCanonical).not.toHaveBeenCalled();
+  expect(appendTranscript).not.toHaveBeenCalled();
+  checkpoint.recoverTurnCheckpoint(opts.sessionId);
+  expect(memory.getConversationHistory(opts.sessionId, 10).reverse()).toEqual(
+    rows,
+  );
+});
+
 test('a missing or corrupt worker journal preserves the user message and explicit uncertainty', async () => {
   const { root, memory, checkpoint, opts } = await setup();
   checkpoint.beginTurnCheckpoint(opts);

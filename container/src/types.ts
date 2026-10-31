@@ -248,6 +248,8 @@ export interface ContainerInput
   ralphMaxIterations?: number | null;
   disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
+  /** Only reads run; every other tool call returns its refusal to the model. */
+  dryRun?: boolean;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   skipContainerSystemPrompt?: boolean;
