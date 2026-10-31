@@ -868,6 +868,12 @@ then attempts the disk-backed result recovery described above before reporting
 context exhaustion. Archives contain conversation and tool data that the agent
 can read; private file permissions protect against other host
 users, and workspace reset removes them.
+The concise summary target is separate from the generation allowance, which
+includes a reasoning model's thinking tokens. Compression defaults to 8,192
+generation tokens, bounded by the model's output capacity and estimated input
+headroom; `auxiliaryModels.compression.maxTokens` overrides that allowance.
+The summary target stays at up to 1,024 tokens. A truncated generation still
+cannot replace the original evidence.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
