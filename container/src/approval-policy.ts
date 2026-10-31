@@ -1148,7 +1148,13 @@ function skillManagedWriteApprovalReason(
 
 function isReadOnlyCommand(words: string[]): boolean {
   const text = words.join(' ');
-  return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
+  // 2026-10-31, Codex: echo may print a diagnostic fallback in a read-only
+  // chain. The first-command whitelist remains unchanged.
+  return (
+    words[0] === 'echo' ||
+    READ_ONLY_BASH_RE.test(text) ||
+    READ_ONLY_PDF_SCRIPT_RE.test(text)
+  );
 }
 
 function extractAbsolutePaths(input: string): string[] {

@@ -162,7 +162,9 @@ Until a checked write or edit succeeds for that file, non-green or write-intent
 Bash calls and deletion of that file or its parent require one-time approval,
 including in full-auto and evaluation sessions. This deliberately fences opaque
 scripts as well as direct redirects; unrelated shell mutations may also pause.
-Read-only diagnostics and writing a separate deliverable remain available.
+Read-only diagnostics, including an `echo` fallback after a read-only command,
+and writing a separate deliverable remain available. File redirections and
+opaque script execution still require approval while a conflict is unresolved.
 Replacement workers reload the conflicts. Corrupt or unreadable guard state and
 persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.

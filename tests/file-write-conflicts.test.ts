@@ -233,9 +233,67 @@ test('deleting a parent or a symlink alias cannot bypass a recorded conflict', a
   });
 });
 
-
 test('a rejected replacement without expected bytes also fences alternate mutations', async () => {
   const runtime = await worker();
-  expect(() => runtime.write({path:'report.md',contents:'replacement',overwrite:true})).toThrow(/expected_content/);
-  expect(runtime.call('bash',{command:'printf replacement > report.md'})).toMatchObject({pinned:true,decision:'required'});
+  expect(() =>
+    runtime.write({
+      path: 'report.md',
+      contents: 'replacement',
+      overwrite: true,
+    }),
+  ).toThrow(/expected_content/);
+  expect(
+    runtime.call('bash', { command: 'printf replacement > report.md' }),
+  ).toMatchObject({ pinned: true, decision: 'required' });
+});
+
+test.each([
+  'ls -la report.md 2>&1 || echo absent',
+  'cat report.md 2>/dev/null || echo absent',
+  'ls report.md >/dev/null 2>&1 || echo absent',
+])('a rejected write still permits diagnostic fallback %s', async (command) => {
+  const runtime = await worker();
+  expect(() =>
+    runtime.write({ path: 'report.md', contents: 'replacement' }),
+  ).toThrow();
+  expect(runtime.call('bash', { command })).toMatchObject({
+    tier: 'green',
+    pinned: false,
+    decision: 'auto',
+  });
+  expect(fs.readFileSync(path.join(workspace, 'report.md'), 'utf8')).toBe(
+    'Original work\n',
+  );
+});
+
+test.each([
+  'ls report.md > report.md 2>&1 || echo absent',
+  'ls report.md || echo replacement > report.md',
+  'ls report.md || echo replacement | tee report.md',
+  'ls report.md || echo "$(python3 generated.py)"',
+  'ls report.md || sh generated.sh',
+  'ls report.md || echo <(python3 generated.py)',
+  'ls report.md || echo >(tee report.md)',
+  'ls report.md || echo `python3 generated.py`',
+])(
+  'diagnostic-looking chains still fence mutations or scripts: %s',
+  async (command) => {
+    const runtime = await worker();
+    expect(() =>
+      runtime.write({ path: 'report.md', contents: 'replacement' }),
+    ).toThrow();
+    expect(runtime.call('bash', { command })).toMatchObject({
+      pinned: true,
+      decision: 'required',
+    });
+  },
+);
+
+test('diagnostic fallbacks still require approval for pinned-sensitive paths', async () => {
+  const runtime = await worker();
+  expect(
+    runtime.call('bash', {
+      command: 'ls -la /etc/secrets/ 2>&1 || echo absent',
+    }),
+  ).toMatchObject({ pinned: true, decision: 'required' });
 });

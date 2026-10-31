@@ -46,10 +46,13 @@ test('the real dispatcher stops a shell overwrite after failed replacement preco
   );
 }, 20000);
 
-test('the real dispatcher allows recovery into a separate deliverable', async () => {
+test('the real dispatcher allows diagnostic fallback before a separate deliverable', async () => {
   const run = await runAgent(
     [
       call('write-1', 'write', { path: 'report.md', contents: 'Replacement' }),
+      call('diagnose', 'bash', {
+        command: 'ls -la report.md 2>&1 || echo absent',
+      }),
       call('write-2', 'write', {
         path: 'report-new.md',
         contents: 'New deliverable',
