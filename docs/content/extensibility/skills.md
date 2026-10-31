@@ -55,6 +55,7 @@ Skill roots include:
   `AGENTS.md`, `CLAUDE.md`, or `~/.hybridclaw/config.json` are blocked at every
   trust level except bundled
 - bundled repo skills are mirrored into `/workspace/skills/<name>` inside the agent runtime so bundled script paths like `skills/pdf/scripts/...` stay valid
+- when host execution uses a separate working directory, skill locations are absolute paths to the agent-owned assets. Runtime metadata names the skill workspace for documented relative helper commands; deliverables still belong in the execution workspace. Skill discovery does not copy assets into that directory or expand tool permissions.
 
 ## Runtime Discovery
 
