@@ -171,7 +171,10 @@ function runExtract(args: string[]) {
       encoding: 'utf8',
       env: {
         ...process.env,
-        NODE_PATH: path.join(runtimeToolsDir, 'node_modules'),
+        NODE_PATH: [
+          path.join(runtimeToolsDir, 'node_modules'),
+          path.join(repoRoot, 'container', 'node_modules'),
+        ].join(path.delimiter),
       },
     },
   );
@@ -180,6 +183,54 @@ function runExtract(args: string[]) {
   }
   return result.stdout;
 }
+
+test.each([
+  {
+    name: 'quoted tag attributes',
+    html: '<p title="a > b">Visible <b>message</b>.</p>',
+    body: 'Visible message.',
+  },
+  {
+    name: 'comments and hidden head content',
+    html: '<html><head><title>Hidden title</title></head><body><!-- hidden > comment --><p>Visible</p></body></html>',
+    body: 'Visible',
+  },
+  {
+    name: 'script and style closing tags with whitespace',
+    html: '<script>hiddenScript()</script ><style>hiddenStyle { color: red }</style ><p>Visible</p>',
+    body: 'Visible',
+  },
+  {
+    name: 'unclosed script content',
+    html: '<p>Visible</p><script>hiddenScript()',
+    body: 'Visible',
+  },
+  {
+    name: 'block spacing and HTML entities',
+    html: '<div>One<br>Two</div><p>&copy; &amp; &#x1F600; &#8364;</p>',
+    body: 'One\nTwo\n© & 😀 €',
+  },
+  {
+    name: 'encoded markup preserved as text',
+    html: '<p>&lt;script&gt;example&lt;/script&gt;</p>',
+    body: '<script>example</script>',
+  },
+])('extract_msg converts HTML to text: $name', ({ html, body }) => {
+  const dir = makeTempDir();
+  const msgPath = path.join(dir, 'html.msg');
+  const outDir = path.join(dir, 'out');
+  fs.writeFileSync(
+    msgPath,
+    burnCfb([text('0037', 'HTML test'), text('1013', html)]),
+  );
+
+  const summary = JSON.parse(runExtract([msgPath, '--out', outDir, '--json']));
+
+  expect(summary.body).toBe(body);
+  expect(runExtract([msgPath, '--out', outDir])).toContain(
+    `Subject: HTML test\n\n${body}\n`,
+  );
+});
 
 test('extract_msg prints headers and body and extracts nested attachments', () => {
   const dir = makeTempDir();

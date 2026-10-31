@@ -8,6 +8,7 @@ requires:
     - node
   node_modules:
     - "@kenjiuno/msgreader"
+    - linkedom
 metadata:
   hybridclaw:
     category: office

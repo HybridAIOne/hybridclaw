@@ -6,17 +6,11 @@ import path from 'node:path';
 import process from 'node:process';
 
 // Shared skill libraries resolve through NODE_PATH, which import() ignores.
-const MsgReader = createRequire(import.meta.url)('@kenjiuno/msgreader').default;
+const require = createRequire(import.meta.url);
+const MsgReader = require('@kenjiuno/msgreader').default;
+const { parseHTML } = require('linkedom');
 
 const MAX_FILENAME_CHARS = 120;
-const HTML_ENTITIES = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-};
 
 function parseArgs(argv) {
   const args = { inputPath: '', outDir: '', json: false };
@@ -57,21 +51,19 @@ function decodeHtmlBytes(bytes, codepage) {
 }
 
 function htmlToText(html) {
-  return html
-    .replace(/<(head|style|script)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6]|table|blockquote)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code) => {
-      if (code[0] !== '#') return HTML_ENTITIES[code.toLowerCase()] ?? entity;
-      const point =
-        code[1] === 'x' || code[1] === 'X'
-          ? Number.parseInt(code.slice(2), 16)
-          : Number.parseInt(code.slice(1), 10);
-      return Number.isFinite(point) && point <= 0x10ffff
-        ? String.fromCodePoint(point)
-        : entity;
-    })
+  // Parse without executing scripts or fetching resources; return only text.
+  const { document } = parseHTML(html);
+  for (const node of document.querySelectorAll('head, style, script')) {
+    node.remove();
+  }
+  for (const node of document.querySelectorAll(
+    'br, p, div, tr, li, h1, h2, h3, h4, h5, h6, table, blockquote',
+  )) {
+    node.after('\n');
+  }
+  const content = document.createElement('div');
+  content.append(...document.childNodes);
+  return content.textContent
     .replace(/[ \t ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
