@@ -1,14 +1,17 @@
 /**
  * Each live delegated child owns its callback context under its exact ID.
- * Context exists only while that child's agent call is running, unlike the
+ * Scope and routing exist only while that child's agent call is running, unlike the
  * durable parent session; sibling prefixes and finished children never match.
  */
+import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
+
 export interface DelegationChildContext {
   channelId: string;
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
   model: string;
+  runtimeScope?: RuntimeScope;
 }
 
 const activeChildren = new Map<string, Readonly<DelegationChildContext>>();

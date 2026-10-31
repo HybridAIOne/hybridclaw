@@ -712,6 +712,12 @@ callbacks act only for that scope's chats. Scoped chats do not use the warm
 pool. The main chat's `memory` search and `session_search` also read
 `scopes/*/`.
 
+Delegated children inherit the scope workspace, connector limits and runtime
+token at every nesting level. While a child is running, its exact gateway-issued
+ID can make a waiting delegation callback for that scope. This identity grants
+no other session routes and expires when the call finishes, including failures.
+Deleting the scope refuses further callbacks and nested execution.
+
 ## Persistent Browser Profiles
 
 HybridClaw can reuse a real logged-in browser session for later automation:

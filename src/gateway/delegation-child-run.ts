@@ -1,7 +1,8 @@
 /**
  * Delegated attempts retain the selected model and release callback identity
- * after every agent call, including failures and retries. Background delivery
- * and parent wakeups belong to gateway-delegation, not this runner.
+ * after every agent call, including failures and retries. Nested runs inherit
+ * their live parent's scope; deleted scopes never become unscoped runs.
+ * Background delivery and parent wakeups belong to gateway-delegation.
  */
 import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import { runAgent } from '../agent/agent.js';
@@ -39,7 +40,10 @@ import {
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
 import { sleep } from '../utils/sleep.js';
-import { withDelegationChildContext } from './delegation-child-context.js';
+import {
+  getActiveDelegationChildContext,
+  withDelegationChildContext,
+} from './delegation-child-context.js';
 import {
   type DelegationMode,
   type DelegationRunResult,
@@ -266,8 +270,11 @@ export async function runDelegationTaskWithRetry(
   } = input;
   const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
   // A scoped chat's subagents work in its scope, with its limits.
+  const parentScope =
+    getActiveDelegationChildContext(parentSessionId)?.runtimeScope;
   const scopeRun = await resolveScopeRun(
-    memoryService.getSessionById(parentSessionId),
+    memoryService.getSessionById(parentSessionId) ??
+      (parentScope ? { scope: parentScope.scopeId } : null),
     agentId,
   );
   if (isScopeRunError(scopeRun)) {
@@ -281,6 +288,7 @@ export async function runDelegationTaskWithRetry(
       attempts: 0,
     };
   }
+  const scopeParams = scopeRunAgentParams(scopeRun);
   const blockedTools = [
     ...resolveSubagentBlockedTools(childDepth),
     ...(scopeRun?.blockedTools ?? []),
@@ -325,7 +333,14 @@ export async function runDelegationTaskWithRetry(
     try {
       output = await withDelegationChildContext(
         sessionId,
-        { channelId, chatbotId, enableRag, agentId, model: task.model },
+        {
+          channelId,
+          chatbotId,
+          enableRag,
+          agentId,
+          model: task.model,
+          runtimeScope: scopeParams.runtimeScope,
+        },
         () =>
           runAgent({
             sessionId,
@@ -336,7 +351,7 @@ export async function runDelegationTaskWithRetry(
             agentId,
             channelId,
             blockedTools,
-            ...scopeRunAgentParams(scopeRun),
+            ...scopeParams,
             abortSignal,
             onToolProgress: (event) => {
               toolReported = true;
