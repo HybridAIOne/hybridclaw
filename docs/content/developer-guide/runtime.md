@@ -949,6 +949,11 @@ applies. This preserves supplied page status and dates without interpreting them
 or promising a complete page rendering. Context already in the article is omitted.
 Extraction-failure hints assess the article itself, excluding that added context.
 
+Short section headings grouped with inline links or controls retain their heading
+structure during article extraction. Their original attributes remain in place,
+so hidden groups and navigation remain eligible for exclusion. This preserves
+section boundaries without adding site-specific extraction rules.
+
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
 navigation; another search does not render it. Protection scripts alone do not
