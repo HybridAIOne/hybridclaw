@@ -28,7 +28,7 @@ test('host workers execute in the task directory and keep their node modules and
   vi.stubEnv('HYBRIDCLAW_AGENT_STATE_ROOT', '/untrusted-inherited-root');
   fs.writeFileSync(path.join(task, 'input.txt'), 'input');
   const child = Object.assign(new EventEmitter(), {
-    stdin: Object.assign(new EventEmitter(), { write: vi.fn() }),
+    stdin: Object.assign(new EventEmitter(), { write: vi.fn((_chunk: string) => true) }),
     stderr: new EventEmitter(),
     killed: false,
     exitCode: null as number | null,
@@ -77,9 +77,13 @@ test('host workers execute in the task directory and keep their node modules and
     enableRag: false,
     workspacePathOverride: task,
     workspaceDisplayRootOverride: task,
+    visualMediaAllowed: true,
+    primaryModelSupportsVisualMedia: false,
     messages: [{ role: 'user', content: 'Inspect input.txt' }],
   });
   expect(result.status).toBe('success');
+  const input = JSON.parse(child.stdin.write.mock.calls[0][0]);
+  expect(input).toMatchObject({ visualMediaAllowed: true, primaryModelSupportsVisualMedia: false });
   const options = spawn.mock.calls[0][2] as unknown as {
     cwd: string;
     env: NodeJS.ProcessEnv;

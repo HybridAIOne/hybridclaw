@@ -2419,6 +2419,7 @@ async function main(): Promise<void> {
     firstInput.media,
     firstInput.readableMediaPaths,
     firstInput.visualMediaAllowed,
+    firstInput.primaryModelSupportsVisualMedia,
   );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -2595,6 +2596,7 @@ async function main(): Promise<void> {
       input.media,
       input.readableMediaPaths,
       input.visualMediaAllowed,
+      input.primaryModelSupportsVisualMedia,
     );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,

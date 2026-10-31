@@ -1,8 +1,7 @@
 /**
- * Agent execution validates replayable tool history at the worker boundary and
- * applies confidential placeholders across turns. Host state stays agent-owned; this
- * layer blocks binary PDF delivery under confidentiality and never turns audit
- * records into instructions.
+ * Validates replayable tool history and applies confidential placeholders.
+ * Host state stays agent-owned; pixel permission is independent of model
+ * capability. Audit records never become authoritative instructions.
  */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -169,16 +168,16 @@ async function runAgentInner(
   // Unknown model capabilities are negotiated through the endpoint; explicit
   // media rejection falls back to text. Confidential text redaction cannot
   // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
-  const visualMediaAllowed =
-    !isConfidentialRedactionEnabled() &&
-    (isModelVisionCapable(model) ||
-      !resolveStaticModelCatalogMetadata(model).known);
+  const visualMediaAllowed = !isConfidentialRedactionEnabled();
+  const primaryModelSupportsVisualMedia =
+    isModelVisionCapable(model) ||
+    !resolveStaticModelCatalogMetadata(model).known;
   const preparedMessages = await injectPdfContextMessages({
     messages: params.messages,
     workspaceRoot,
     stateRoot,
     media,
-    visualMediaAllowed,
+    visualMediaAllowed: visualMediaAllowed && primaryModelSupportsVisualMedia,
   });
   const confidentialRuleSet = isConfidentialRedactionEnabled()
     ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
@@ -200,6 +199,7 @@ async function runAgentInner(
     sessionId,
     messages: dehydratedMessages,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     chatbotId,
     model,
     agentId,

@@ -66,10 +66,10 @@ test.each([
         path.join(ipcDir, 'input.json'),
         encodeAuthenticatedInput(
           WORKER_SECRET,
-          JSON.stringify({ sessionId: 'session-a', messages: [] }),
+          JSON.stringify({ sessionId: 'session-a', messages: [], visualMediaAllowed: false, primaryModelSupportsVisualMedia: true }),
         ),
       ),
-    expected: { sessionId: 'session-a' },
+    expected: { sessionId: 'session-a', visualMediaAllowed: false, primaryModelSupportsVisualMedia: true },
   },
   {
     name: 'health-input.json',
