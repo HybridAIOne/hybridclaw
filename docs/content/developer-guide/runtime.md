@@ -894,6 +894,13 @@ context as text. If available, `http_request` with `responseArtifact` saves the
 file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
 enough for the file. PDF and image inspection use the existing local-file tools.
 
+When Readability omits context outside its selected article, `web_fetch` retains
+an explicitly labeled leading excerpt from a main HTML landmark. It excludes
+navigation, sidebars, scripts and explicitly hidden markup; the existing output cap still
+applies. This preserves supplied page status and dates without interpreting them
+or promising a complete page rendering. Context already in the article is omitted.
+Extraction-failure hints assess the article itself, excluding that added context.
+
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
 navigation; another search does not render it. Protection scripts alone do not
