@@ -1,6 +1,7 @@
 /**
  * Fetch public text within one timeout and the existing SSRF boundary.
  * Body read failures propagate; only explicit size limits allow partial output.
+ * Leading main-page context survives article extraction within a bounded excerpt.
  * Extraction hints distinguish visible challenges from browser-only pages.
  * Unlike browser navigation, this tool never executes page JavaScript.
  */
@@ -24,6 +25,9 @@ const TIMEOUT_MS = 30_000;
 const CACHE_TTL_MS = 15 * 60_000; // 15 min
 const CACHE_MAX_ENTRIES = 100;
 const READABILITY_MAX_HTML_CHARS = 1_000_000;
+// 1,000 chars (Codex, 2026-10-31): retain leading status/context without duplicating
+// the whole document; full-page inspection remains a browser operation.
+const PAGE_CONTEXT_MAX_CHARS = 1_000;
 const ESCALATION_MIN_TEXT_CHARS = 200;
 const ESCALATION_MIN_HTML_CHARS = 5_000;
 // 1,000 chars (Benedikt Koehler, 2026-09-25): challenge pages carry almost no
@@ -263,13 +267,19 @@ function loadReadabilityDeps() {
   return readabilityDeps;
 }
 
+interface ReadableContent {
+  text: string;
+  title?: string;
+  articleText?: string;
+}
+
 async function extractReadableContent(
   html: string,
   url: string,
   extractMode: 'markdown' | 'text',
-): Promise<{ text: string; title?: string }> {
+): Promise<ReadableContent> {
   // Fallback: simple regex-based conversion
-  const fallback = (): { text: string; title?: string } => {
+  const fallback = (): ReadableContent => {
     const rendered = htmlToMarkdown(html);
     if (extractMode === 'text') {
       return { text: markdownToText(rendered.text), title: rendered.title };
@@ -290,17 +300,75 @@ async function extractReadableContent(
       /* best-effort */
     }
 
+    const style = document.createElement('div').style;
+    const isHidden = (node: Element): boolean => {
+      style.cssText = node.getAttribute('style') ?? '';
+      return (
+        node.hasAttribute('hidden') ||
+        node.getAttribute('aria-hidden') === 'true' ||
+        style.display === 'none' ||
+        style.visibility === 'hidden'
+      );
+    };
+    const main = [...document.querySelectorAll('main, [role="main"]')].find(
+      (element) => {
+        for (
+          let node: Element | null = element;
+          node;
+          node = node.parentElement
+        ) {
+          if (isHidden(node)) return false;
+        }
+        return true;
+      },
+    );
+    let pageContext = '';
+    if (main) {
+      const context = main.cloneNode(true) as typeof main;
+      for (const node of context.querySelectorAll('*')) {
+        if (
+          node.matches(
+            'script,style,noscript,nav,footer,aside,[role="navigation"]',
+          ) ||
+          isHidden(node)
+        )
+          node.remove();
+      }
+      pageContext = htmlToMarkdown(context.innerHTML).text.slice(
+        0,
+        PAGE_CONTEXT_MAX_CHARS,
+      );
+    }
+
     const reader = new Readability(document, { charThreshold: 0 });
     const parsed = reader.parse();
     if (!parsed?.content) return fallback();
 
     const title = parsed.title || undefined;
+    const articleContext = `${title ?? ''} ${parsed.textContent ?? ''}`;
+    const contextPrefix =
+      pageContext &&
+      !normalizeForDetection(articleContext).includes(
+        normalizeForDetection(markdownToText(pageContext)),
+      )
+        ? `Page context (leading excerpt):
+${extractMode === 'text' ? markdownToText(pageContext) : pageContext}
+
+Article:
+`
+        : '';
     if (extractMode === 'text') {
       const text = normalizeWhitespace(parsed.textContent ?? '');
-      return text ? { text, title } : fallback();
+      return text
+        ? { text: contextPrefix + text, title, articleText: text }
+        : fallback();
     }
     const rendered = htmlToMarkdown(parsed.content);
-    return { text: rendered.text, title: title ?? rendered.title };
+    return {
+      text: contextPrefix + rendered.text,
+      title: title ?? rendered.title,
+      articleText: markdownToText(rendered.text),
+    };
   } catch {
     return fallback();
   }
@@ -709,6 +777,7 @@ export async function webFetch(params: {
     let extractor = 'raw';
     let text = body;
     let nextPageUrl: string | undefined;
+    let articleText: string | undefined;
 
     if (contentType.includes('text/markdown')) {
       extractor = 'cf-markdown';
@@ -721,6 +790,7 @@ export async function webFetch(params: {
       );
       text = readable.text;
       title = readable.title;
+      articleText = readable.articleText;
       extractor = 'readability';
       nextPageUrl = findNextPageUrl(body, finalUrl);
     } else if (contentType.includes('application/json')) {
@@ -732,7 +802,9 @@ export async function webFetch(params: {
       }
     }
 
-    const extractedText = extractMode === 'text' ? text : markdownToText(text);
+    // Supplemental context must not conceal short or blocked article extraction.
+    const extractedText =
+      articleText ?? (extractMode === 'text' ? text : markdownToText(text));
     const escalationHint = detectEscalationHint({
       status: res.status,
       contentType: normalizedContentType,
