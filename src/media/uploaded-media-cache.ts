@@ -27,6 +27,7 @@ const TRIM_FILENAME_PUNCTUATION_RE = /^[-_.]+|[-_.]+$/g;
 const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
   'application/pdf': '.pdf',
+  'application/vnd.ms-outlook': '.msg',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation':
     '.pptx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
