@@ -8,6 +8,7 @@
 
 import './node-version-guard.js';
 
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
@@ -741,6 +742,9 @@ async function executePreparedToolCall(
   toolCatalog?: ToolCatalog,
 ): Promise<CompletedToolCallExecution> {
   const { call, approval } = prepared;
+  const turnToolHistory = activeTurnToolHistory;
+  if (!turnToolHistory)
+    throw new Error('Tool execution requires an active turn.');
   const toolName = call.function.name;
   const argsJson = call.function.arguments;
   const toolStart = Date.now();
@@ -771,7 +775,10 @@ async function executePreparedToolCall(
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
-          () => executeToolWithMetadata(toolName, argsJson, prepared.boost),
+          () =>
+            turnToolHistory.checkpointExecution(call.id, () =>
+              executeToolWithMetadata(toolName, argsJson, prepared.boost),
+            ),
           emitStreamActivity,
         )));
   const toolDuration = Date.now() - toolStart;
@@ -1103,7 +1110,9 @@ async function processRequest(
     params.sessionId,
     WORKSPACE_STATE_ROOT,
     WORKSPACE_ROOT,
+    inFlightInput?.runId || inFlightInput?.requestId || randomUUID(),
   );
+  if (turnToolHistory.recovered) return turnToolHistory.recovered;
   activeTurnToolHistory = turnToolHistory;
   const output = await processRequestInner(params, turnToolHistory).finally(
     () => {
@@ -2419,6 +2428,7 @@ async function main(): Promise<void> {
     firstInput.media,
     firstInput.readableMediaPaths,
     firstInput.visualMediaAllowed,
+    firstInput.primaryModelSupportsVisualMedia,
   );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -2595,6 +2605,7 @@ async function main(): Promise<void> {
       input.media,
       input.readableMediaPaths,
       input.visualMediaAllowed,
+      input.primaryModelSupportsVisualMedia,
     );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,

@@ -29,6 +29,7 @@ async function loadTools(context: AuxiliaryTaskContext) {
     `${JSON.stringify({ sessionId: 'session-a', role: 'user', content: 'Release plan' })}\n`,
   );
   const tools = await import('../container/src/tools.js');
+  tools.setMediaContext([], [], true);
   const { setModelContext, setTaskModelPolicies } = await import(
     '../container/src/model-context.js'
   );
@@ -262,4 +263,47 @@ test('routing snapshots keep headers and policies across request replacement', a
   expect(next.taskModels).toBeUndefined();
   expect(snapshot.fallbackContext.providerMethod).toBe('claude-cli');
   expect(snapshot.taskModels?.vision?.model).toBe('vllm/vision-model');
+});
+
+test.each(['vision_analyze', 'browser_vision'])(
+  '%s cannot route pixels around a gateway policy block',
+  async (toolName) => {
+    const { tools, args } = await loadTools({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'test-key',
+      model: 'openrouter/example/vision-model',
+      chatbotId: '',
+    });
+    tools.setMediaContext([], [], false, true);
+    const fetch = vi.fn(async (url) => {
+      expect(url).toBe('http://gateway.test/api/browser/tool');
+      return Response.json({ imageBase64: 'aW1hZ2U=' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const result = await tools.executeToolWithMetadata(
+      toolName,
+      JSON.stringify(args),
+    );
+    expect(result.isError).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(toolName === 'browser_vision' ? 1 : 0);
+  },
+);
+
+test('each turn captures independent gateway pixel permissions', async () => {
+  const { tools } = await loadTools({
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    apiKey: 'test-key',
+    model: 'openrouter/example/text-model',
+    chatbotId: '',
+  });
+  const { captureAuxiliaryRuntimeContext } = await import(
+    '../container/src/model-context.js'
+  );
+  tools.setMediaContext([], [], true, false);
+  const earlier = captureAuxiliaryRuntimeContext();
+  tools.setMediaContext([], [], false, true);
+  expect(earlier.visualMediaAllowed).toBe(true);
+  expect(captureAuxiliaryRuntimeContext().visualMediaAllowed).toBe(false);
 });

@@ -1,14 +1,17 @@
 /**
  * One request-scoped routing context serves browser vision and auxiliary tools.
- * Tool calls capture independent snapshots so later requests cannot reroute them.
+ * Tool calls capture independent routing and visual-permission snapshots so
+ * later requests cannot reroute or broaden them.
  * Unlike the provider router, this module stores context and never calls a model;
  * workers rebuild it from each ContainerInput rather than persisting it.
  */
 import type { AuxiliaryTaskContext } from './providers/auxiliary.js';
 import { resolveRuntimeProviderContext } from './providers/provider-ids.js';
+import { isVisualMediaAllowed } from './providers/visual-content.js';
 import { TASK_MODEL_KEYS, type TaskModelPolicies } from './types.js';
 
 export interface AuxiliaryRuntimeContext {
+  visualMediaAllowed: boolean;
   fallbackContext: AuxiliaryTaskContext;
   taskModels?: TaskModelPolicies;
 }
@@ -63,6 +66,7 @@ export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
 
 export function captureAuxiliaryRuntimeContext(): AuxiliaryRuntimeContext {
   return {
+    visualMediaAllowed: isVisualMediaAllowed(),
     fallbackContext: {
       ...currentModelContext,
       requestHeaders: { ...currentModelContext.requestHeaders },

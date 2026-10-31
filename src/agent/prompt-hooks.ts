@@ -110,6 +110,8 @@ export interface PromptRuntimeInfo {
   channel?: ChannelInfo;
   sessionContext?: SessionContext;
   workspacePath?: string;
+  /** Host-visible skill root when execution uses a separate working directory. */
+  skillWorkspacePath?: string;
 }
 
 export interface PromptHookContext {
@@ -776,6 +778,11 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
     `Workspace: ${workspaceLabel}`,
+    ...(runtimeInfo.skillWorkspacePath
+      ? [
+          `Skill workspace: ${sanitizePromptInlineValue(runtimeInfo.skillWorkspacePath)}. Run commands using \`skills/...\` or \`.agents/skills/...\` helper paths from this directory; use the execution workspace above for task inputs and deliverables.`,
+        ]
+      : []),
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
     // Earlier turns keep the context they were sent with (prompt caching).

@@ -86,7 +86,7 @@ export async function readDocumentFile(
       deliveredWidth: canvas.width,
       deliveredHeight: canvas.height,
       visualDelivery:
-        'Image queued for direct model delivery; dispatch reports availability. No separate vision tool or temporary-file cleanup is needed.',
+        'Image prepared for model delivery; dispatch reports whether the selected model received pixels and which permitted analysis paths remain available. No temporary-file cleanup is needed.',
       ...(header.subarray(0, 3).toString() === 'GIF'
         ? { coverage: 'First frame only' }
         : {}),

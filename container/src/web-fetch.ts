@@ -1,7 +1,7 @@
 /**
- * Fetch public URLs within one SSRF/timeout boundary; cached URLs retain case.
- * Extraction hints distinguish visible access challenges from pages needing
- * browser rendering; loading a protection script is not proof of blocking.
+ * Fetch public URLs within one timeout and the existing SSRF boundary.
+ * Body read failures propagate; only explicit size limits allow partial output.
+ * Extraction hints distinguish visible challenges from browser-only pages.
  * Unlike browser navigation, this tool never executes page JavaScript.
  */
 
@@ -349,9 +349,9 @@ async function readResponseText(
           break;
         }
       }
-    } catch {
+    } catch (error) {
       if (signal.aborted) throw abortError(signal);
-      /* return what we have */
+      throw error;
     } finally {
       signal.removeEventListener('abort', cancelOnAbort);
       if (truncated) {

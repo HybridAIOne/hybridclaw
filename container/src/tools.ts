@@ -1,7 +1,8 @@
 /**
  * Tool implementations execute only after the agent loop's permission checks.
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
- * Run limits reserve attempts before dispatch; this never grants action approval.
+ * Run limits reserve attempts before dispatch; pixel analysis also requires the
+ * gateway's visual-data permission. This never grants action approval.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -73,6 +74,7 @@ import {
   type GatewayJsonResponse,
   postGatewayJson,
 } from './gateway-json-post.js';
+import { resolveHttpArtifactReadPath } from './http-artifact-read-path.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import {
   type AuxiliaryRuntimeContext,
@@ -795,10 +797,11 @@ export function setMediaContext(
   media?: MediaContextItem[],
   readableMediaPaths: string[] = [],
   visualMediaAllowed = false,
+  primaryModelSupportsVisualMedia = true,
 ): void {
   currentMediaContext = Array.isArray(media) ? media : [];
   setReadableMediaPaths(readableMediaPaths);
-  setVisualMediaAllowed(visualMediaAllowed);
+  setVisualMediaAllowed(visualMediaAllowed, primaryModelSupportsVisualMedia);
 }
 
 function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
@@ -1927,6 +1930,8 @@ function normalizeVisionLocalPath(rawPath: string): string | null {
   if (!trimmed) return null;
   const normalized = extractArtifactUrlLocalPath(trimmed) || trimmed;
 
+  const artifactPath = resolveHttpArtifactReadPath(normalized);
+  if (artifactPath) return artifactPath;
   const workspacePath = resolveWorkspacePath(normalized);
   if (workspacePath) return workspacePath;
 
@@ -2100,6 +2105,10 @@ async function runVisionAnalyze(
   runtimeContext: AuxiliaryRuntimeContext,
   toolName = 'vision_analyze',
 ): Promise<string> {
+  if (!runtimeContext.visualMediaAllowed)
+    return failTool(
+      'Error: Visual analysis is disabled by visual-data delivery policy.',
+    );
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
 
@@ -3008,6 +3017,7 @@ async function executeToolInternal(
         } else {
           const filePath =
             resolveSessionMediaReadPath(args.path, currentMediaContext) ||
+            resolveHttpArtifactReadPath(args.path) ||
             safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
@@ -3535,7 +3545,9 @@ async function executeToolInternal(
             : undefined;
         if (filePath) {
           const resolvedFilePath =
-            resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
+            resolveHttpArtifactReadPath(filePath) ||
+            resolveWorkspacePath(filePath) ||
+            resolveMediaPath(filePath);
           if (!resolvedFilePath) {
             return failTool(
               `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`,

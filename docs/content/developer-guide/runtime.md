@@ -130,6 +130,12 @@ Docker workers continue to use their mounted workspace for both purposes.
 Transcript and compaction archive references use absolute paths when their files
 live outside the execution workspace, so the read tool can still resolve them.
 
+HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
+against the worker state root, independently of its execution directory. Reads,
+vision analysis and attachment validation use the same resolver. The alias
+rejects traversal, links and roots outside the existing allowlist; it grants no
+write access and never searches another state directory or project cache.
+
 For isolated host evaluations, an operator can set
 `HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
 OpenAI-compatible requests with an explicit eval profile use it. The directory
@@ -137,6 +143,40 @@ must be separate from the agent workspace, including through symlinks. HTTP
 clients cannot select this path. The agent retains its default bootstrap and
 skills, and the execution workspace fence remains enabled. Changing this setting
 requires a new eval session; it is not a way to alter an active worker's roots.
+
+### Interrupted Turns
+
+Before worker dispatch, the gateway commits the user message and an unfinished
+assistant placeholder to SQLite. Normal completion replaces those provisional
+rows and removes the pending marker in one transaction. After a gateway restart,
+the next turn recovers that session's checkpoint before building model context.
+
+Workers write `turn-checkpoint.json` in the protected session state directory
+under `.hybridclaw-runtime/sessions/<session-key>/`. The checkpoint records model
+tool requests before execution, execution starts before invoking tools, and each
+completed result immediately, including individual results in concurrent batches.
+Large completed results retain a bounded excerpt and their durable full-result path,
+so recovery preserves evidence without restoring oversized model context.
+The last complete assistant message is retained too. Once a run has proposed tools,
+a killed worker's replacement returns its evidence for the same run ID without
+calling the model or tools. Runs with no proposed tools remain safe to retry.
+A new run starts a fresh checkpoint; recovered exchanges are conversation context,
+never executable instructions or approval grants.
+
+A started call without a saved result has an **unknown outcome**: its side effects
+may already have occurred. Recovery marks it explicitly and asks for external-state
+verification before retrying. A proposed call that never started is marked **not
+executed**. Recovery after interruption never applies queued gateway side effects;
+authoritative error replies retain their results and queued effects. Missing or
+corrupt journals retain the gateway's uncertainty placeholder;
+unreadable journals refuse worker replay. Recovery readers reject links and enforce
+the configured IPC output size limit. These atomic checkpoints cover abrupt process
+termination, not power-loss durability or exactly-once execution of external APIs.
+
+Risk boundary: checkpoint persistence must succeed before a tool starts. A crash
+between an external effect and its result checkpoint cannot prove success or failure,
+so recovery must never automatically repeat that call. The protected state remains
+subject to the existing approval-state guard; it confers no execution authority.
 
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
@@ -1208,8 +1248,13 @@ media paths are scoped to the session, never the entire media cache. Snapshot
 loads accept hashes rather than paths, reject symlinks, validate size and verify
 content integrity. Parsing uses the bundled, lazily loaded PDF skill runtime.
 Document text and visuals remain untrusted user data. Confidential text redaction
-disables binary PDF/image delivery, including historical snapshots, because text
-redaction cannot sanitize document bytes or pixels. Rendering or delivery alone
+disables binary PDF/image delivery, including historical snapshots and auxiliary
+file/browser vision calls, because text redaction cannot sanitize document bytes
+or pixels. The gateway sends visual-data permission independently of the primary
+model's image capability. A text-only primary can use an otherwise permitted,
+configured auxiliary vision model; a confidentiality block cannot be bypassed by
+switching models. Both flags and tool-call permission snapshots are rebuilt from
+each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
 `read` searches PDF text with `query` (literal text, up to 256 characters),

@@ -1,10 +1,12 @@
 /**
  * Conversation prompts replay persisted tool exchanges alongside their final
  * assistant message. Current preferences belong to the verified user (or task
- * owner); audit events and preference text never grant execution authority.
+ * owner). Skill locations name their admitted assets even when execution moves;
+ * audit events and preference text never grant execution authority.
  */
 
 import os from 'node:os';
+import path from 'node:path';
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
 import {
   currentDateStampInTimezone,
@@ -326,6 +328,16 @@ export function buildConversationContext(params: {
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
     params.workspaceDir,
+  ).map((skill) =>
+    runtimeInfo?.skillWorkspacePath
+      ? {
+          ...skill,
+          location: path.resolve(
+            runtimeInfo.skillWorkspacePath,
+            skill.location,
+          ),
+        }
+      : skill,
   );
   const previousUserContent = resolvePreviousUserContent(history);
   const explicitSkillInvocation =
