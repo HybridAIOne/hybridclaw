@@ -33,6 +33,7 @@ function makeConfig(): AdminConfig {
       trustModelAcceptedBy: '',
       confidentialRedactionEnabled: false,
       disabledSafetyRules: [],
+      defaultApprovalMode: 'auto',
     },
     hybridai: {
       baseUrl: 'https://hybridai.one',

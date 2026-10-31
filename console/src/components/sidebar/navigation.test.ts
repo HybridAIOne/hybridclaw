@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Network, Share } from '../icons';
+import { Policy, Share } from '../icons';
 import { ADMIN_CONFIG_SECTION_OWNERS, SIDEBAR_NAV_GROUPS } from './navigation';
 
 describe('SIDEBAR_NAV_GROUPS', () => {
@@ -49,8 +49,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       {
         label: 'Security',
         items: [
-          { to: '/admin/network-policy', label: 'Network Policy' },
-          { to: '/admin/safety-rules', label: 'Safety blocks' },
+          { to: '/admin/security', label: 'Approvals & firewall' },
           { to: '/admin/output-guard', label: 'Output Guard' },
           { to: '/admin/credentials', label: 'Credentials' },
         ],
@@ -87,15 +86,15 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(22);
+    ).toHaveLength(21);
   });
 
-  it('uses network-oriented icons for network policy and Agent2Agent', () => {
+  it('uses security and network icons for their owning pages', () => {
     const items = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
 
-    expect(
-      items.find((item) => item.to === '/admin/network-policy')?.icon,
-    ).toBe(Network);
+    expect(items.find((item) => item.to === '/admin/security')?.icon).toBe(
+      Policy,
+    );
     expect(items.find((item) => item.to === '/admin/federation')?.icon).toBe(
       Share,
     );

@@ -25,10 +25,10 @@ describe('legacy admin routes', () => {
     await router.navigate({ to: '/admin' });
   });
 
-  it('redirects Approvals bookmarks to Network Policy', async () => {
+  it('redirects Approvals bookmarks to approval modes', async () => {
     await router.navigate({ to: '/admin/approvals' });
 
-    expect(router.state.location.pathname).toBe('/admin/network-policy');
+    expect(router.state.location.pathname).toBe('/admin/security');
   });
 
   it('redirects Teams setup bookmarks to the Connectors subview', async () => {

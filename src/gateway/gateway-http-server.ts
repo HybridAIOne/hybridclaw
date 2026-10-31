@@ -221,6 +221,7 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import { WIDGET_MIME_TYPE } from './app-widgets.js';
 import { approvalAnswerText, parseApprovalAnswer } from './approval-answer.js';
+import { handleApprovalSettingsAdmin } from './approval-settings-admin.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -11233,6 +11234,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
             handleApiAdminAudit(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/approval-settings') {
+            await handleApprovalSettingsAdmin(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
             return;
           }
           if (pathname === '/api/admin/safety-rules') {
