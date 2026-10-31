@@ -942,6 +942,11 @@ Oversized HTTP responses are cancelled without saving a partial artifact. The
 artifact error reports the limit and declared or received size so the caller can
 choose an explicit bound for a retry; the gateway does not raise it automatically.
 
+When a fetch body or extracted text reaches its size limit, the tool identifies
+the source as incomplete before the returned content. This warning also applies
+to cached results and auxiliary summaries. A saved tool-result file contains the
+retained extraction, not any source content discarded at the fetch limit.
+
 When Readability omits context outside its selected article, `web_fetch` retains
 an explicitly labeled leading excerpt from a main HTML landmark. It excludes
 navigation, sidebars, scripts and explicitly hidden markup; the existing output cap still

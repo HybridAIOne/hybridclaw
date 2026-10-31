@@ -3953,6 +3953,8 @@ async function executeToolInternal(
       const header = result.title ? `# ${result.title}\n\n` : '';
       const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
       const lines = [meta];
+      if (result.truncated)
+        lines.push('Source content was truncated; this result is incomplete.');
       if (result.escalationHint === 'bot_blocked') {
         lines.push(
           'Escalation hint: bot_blocked (access denied or a challenge; browser rendering may not resolve it).',
