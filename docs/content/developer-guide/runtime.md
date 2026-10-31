@@ -1232,6 +1232,12 @@ files require `expected_content: ""`. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
 targeted substitutions.
 
+Successful `write` and `edit` calls check JSON syntax for `.json` files up to
+256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested
+bytes remain saved, including intentionally invalid test fixtures. Larger JSON
+files report that the automatic check was skipped. This checks syntax only,
+not schemas or correctness, and does not apply to shell writes or other formats.
+
 Publication is atomic, and cooperative `.lock` directories serialize `write`
 checks and replacements across workers, including task sandboxes. These checks
 use current disk state and survive worker replacement. A crashed writer's lock

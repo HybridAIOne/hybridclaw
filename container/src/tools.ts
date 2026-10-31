@@ -121,6 +121,7 @@ import {
   ESTIMATE_COST_TOOL_DEFINITION,
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
+import { fileSyntaxFeedback } from './tools/file-syntax-feedback.js';
 import { runFileWrite, WRITE_TOOL_DEFINITION } from './tools/file-write.js';
 import {
   INBOX_CLEANUP_TOOL,
@@ -3203,7 +3204,7 @@ async function executeToolInternal(
           writeTempFileToTaskSandbox(filePath, sandboxPath);
         }
         resolveFileWriteConflict(currentSessionId, args.path);
-        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
+        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
       } finally {
         if (tempDirToCleanup) {
           fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
