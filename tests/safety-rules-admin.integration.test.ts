@@ -123,6 +123,16 @@ test('authenticated admins review and change guards; scoped callers, invalid and
     ]) {
       expect((await request(undefined, 'PUT', invalid)).status).toBe(400);
     }
+    expect(
+      (
+        await request(undefined, 'PUT', {
+          disabledRuleIds: ['eval'],
+          expectedDisabledRuleIds: [],
+          padding: 'x'.repeat(20_000),
+        })
+      ).status,
+    ).toBe(413);
+    expect((await request()).body.disabledRuleIds).toEqual([]);
     const saved = await request(undefined, 'PUT', {
       disabledRuleIds: ['recursive-delete'],
       expectedDisabledRuleIds: [],

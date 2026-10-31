@@ -44,6 +44,7 @@ export async function handleSafetyRulesAdmin(
     sendJson(res, 405, { error: 'Method not allowed.' });
     return;
   }
+  // 16 KiB (implementation choice, 2026-10-31): this endpoint accepts small ID lists.
   const body = await readJsonBody(req, 16_384);
   if (
     !isRecord(body) ||

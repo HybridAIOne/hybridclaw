@@ -1,3 +1,7 @@
+/*
+ * Safety rules stay readable with long patterns and narrow viewports.
+ * Presentation only; enabled state and permission checks belong to the API.
+ */
 .page {
   display: flex;
   flex-direction: column;

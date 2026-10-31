@@ -1,3 +1,7 @@
+/**
+ * Operator edits remain local until saved and failed saves retain the draft.
+ * These UI checks do not substitute for the authenticated gateway boundary tests.
+ */
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { SafetyRulesResponse } from '../../../container/shared/safety-rules.js';
