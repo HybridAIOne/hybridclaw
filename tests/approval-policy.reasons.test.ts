@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
+import { parseTuiApprovalPrompt } from '../src/tui-approval.js';
 import { useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir('approval-reasons-');
@@ -88,4 +89,24 @@ test('does not assert mutation for an unclassified shell command', () => {
   });
   expect(evaluation.reason).toMatch(/not classified as read-only/);
   expect(evaluation.reason).not.toContain('may change local state');
+});
+
+
+test.each([
+  ['bash', { command: 'ls -la /workspace/Repo/.env*' }, '/workspace/Repo/.env*'],
+  ['bash', { command: 'git push --force origin HEAD:Release' }, 'HEAD:Release'],
+  ['write', { path: '.env.Production', content: 'example' }, '.env.Production'],
+] as const)('preserves case in the approval summary for %s %j', (toolName, args, target) => {
+  const { instance } = runtime();
+  const evaluation = instance.evaluateToolCall({
+    toolName,
+    argsJson: JSON.stringify(args),
+  });
+  expect(evaluation).toMatchObject({ pinned: true, decision: 'required' });
+  const before = structuredClone(evaluation);
+  const prompt = instance.formatApprovalRequest(evaluation);
+  expect(prompt.split('\n')[0]).toContain(target);
+  expect(prompt.split('\n').find(line => line.startsWith('Proposed action:'))).toContain(target);
+  expect(parseTuiApprovalPrompt(prompt)?.intent).toBe(evaluation.intent);
+  expect(evaluation).toEqual(before);
 });
