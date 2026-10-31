@@ -1,6 +1,6 @@
 /**
- * Auxiliary task policies preserve task output budgets independently of model
- * capacity; they resolve provider defaults, not execution tier choices.
+ * Auxiliary policies resolve defaults and keep task budgets separate from model capacity.
+ * Disabled policies remain explicit across the worker boundary, preventing fallback.
  * Routing classification has its own task identity and explicit model; Skills Hub
  * settings cannot enable, disable or redirect that classifier.
  */
@@ -240,7 +240,9 @@ export async function resolveTaskModelPolicy(
       : task === 'compression'
         ? DEFAULT_COMPRESSION_MAX_TOKENS
         : undefined);
-  if (providerSelection === 'disabled') return undefined;
+  if (providerSelection === 'disabled') {
+    return { model: '', error: `${task} auxiliary model is disabled.` };
+  }
 
   if (providerSelection === 'auto' && !rawModel) {
     const routing = getRuntimeConfig().routing;

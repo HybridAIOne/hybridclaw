@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { TASK_MODEL_KEYS as WORKER_TASK_MODEL_KEYS } from '../container/src/types.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { TASK_MODEL_KEYS } from '../src/types/models.js';
 import { useTempDir } from './test-utils.js';
@@ -261,7 +262,7 @@ test('prefers auxiliary env overrides for provider and model selection', async (
   expect(policy?.maxTokens).toBe(222);
 });
 
-test('omits disabled auxiliary task policy', async () => {
+test('preserves an explicit disabled auxiliary task policy', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.auxiliaryModels.session_title.provider = 'disabled';
@@ -272,8 +273,73 @@ test('omits disabled auxiliary task policy', async () => {
   expect(taskRouting.isAuxiliaryTaskDisabled('session_title')).toBe(true);
   await expect(
     taskRouting.resolveTaskModelPolicy('session_title'),
-  ).resolves.toBeUndefined();
+  ).resolves.toMatchObject({ model: '', error: expect.stringMatching(/disabled/i) });
 });
+
+test.each(WORKER_TASK_MODEL_KEYS)(
+  'a disabled %s policy survives IPC and blocks the worker fallback',
+  async (task) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      for (const key of TASK_MODEL_KEYS) {
+        config.auxiliaryModels[key].provider = 'disabled';
+      }
+    });
+    const routing = await importFreshTaskRouting(homeDir);
+    expect(routing.isAuxiliaryTaskDisabled(task)).toBe(true);
+    const policies = await routing.resolveTaskModelPolicies({
+      sessionModel: 'openrouter/example-model',
+    });
+    const { cloneTaskModelPolicies } = await import(
+      '../container/src/model-context.js'
+    );
+    const transferred = cloneTaskModelPolicies(
+      JSON.parse(JSON.stringify(policies ?? null)) ?? undefined,
+    );
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: { role: 'assistant', content: 'Fallback was called.' },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { callAuxiliaryModel } = await import(
+      '../container/src/providers/auxiliary.js'
+    );
+    const context = {
+      provider: 'openrouter' as const,
+      baseUrl: 'https://example.com/v1',
+      apiKey: 'test-key',
+      model: 'openrouter/example-model',
+      chatbotId: '',
+    };
+    const call =
+      task === 'vision'
+        ? callAuxiliaryModel({
+            task,
+            taskModels: transferred,
+            fallbackContext: context,
+            question: 'Describe the fixture.',
+            imageDataUrl: 'data:image/png;base64,aGVsbG8=',
+          })
+        : callAuxiliaryModel({
+            task,
+            taskModels: transferred,
+            fallbackContext: context,
+            messages: [{ role: 'user', content: 'Inspect the fixture.' }],
+          });
+    await expect(call).rejects.toThrow(/disabled/i);
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 
 test('captures env overrides at module load', async () => {
   const homeDir = makeTempHome();
