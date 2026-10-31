@@ -1,3 +1,8 @@
+/**
+ * Delegated attempts retain the selected model and release callback identity
+ * after every agent call, including failures and retries. Background delivery
+ * and parent wakeups belong to gateway-delegation, not this runner.
+ */
 import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import { runAgent } from '../agent/agent.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
@@ -34,6 +39,7 @@ import {
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
 import { sleep } from '../utils/sleep.js';
+import { withDelegationChildContext } from './delegation-child-context.js';
 import {
   type DelegationMode,
   type DelegationRunResult,
@@ -317,22 +323,27 @@ export async function runDelegationTaskWithRetry(
     let output: ContainerOutput | undefined;
     let toolReported = false;
     try {
-      output = await runAgent({
+      output = await withDelegationChildContext(
         sessionId,
-        messages: requestMessages,
-        chatbotId,
-        enableRag,
-        model: task.model,
-        agentId,
-        channelId,
-        blockedTools,
-        ...scopeRunAgentParams(scopeRun),
-        abortSignal,
-        onToolProgress: (event) => {
-          toolReported = true;
-          onToolProgress?.(event);
-        },
-      });
+        { channelId, chatbotId, enableRag, agentId, model: task.model },
+        () =>
+          runAgent({
+            sessionId,
+            messages: requestMessages,
+            chatbotId,
+            enableRag,
+            model: task.model,
+            agentId,
+            channelId,
+            blockedTools,
+            ...scopeRunAgentParams(scopeRun),
+            abortSignal,
+            onToolProgress: (event) => {
+              toolReported = true;
+              onToolProgress?.(event);
+            },
+          }),
+      );
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
       lastToolsUsed = output.toolsUsed || [];
