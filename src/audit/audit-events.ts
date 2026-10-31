@@ -216,11 +216,39 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         arguments: auditArguments,
+        ...(execution.approvalObservation
+          ? { approvalObservation: execution.approvalObservation }
+          : {}),
         ...(recipients.length > 0 ? { recipientDomains: recipients } : {}),
         ...(senders.length > 0 ? { senderDomains: senders } : {}),
         anomaly,
       },
     });
+
+    if (execution.approvalObservation) {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'approval.observed',
+          toolCallId,
+          toolName: execution.name,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          mode: 'learning',
+          wouldDecision: execution.approvalObservation.decision,
+          tier: execution.approvalObservation.tier,
+          pinned: execution.approvalObservation.pinned,
+          reason: execution.approvalObservation.reason,
+          arguments: auditArguments,
+          actualDecision: effectiveDecision,
+          outcome: execution.blocked
+            ? 'blocked'
+            : execution.isError
+              ? 'error'
+              : 'succeeded',
+        },
+      });
+    }
 
     recordAuditEvent({
       sessionId,

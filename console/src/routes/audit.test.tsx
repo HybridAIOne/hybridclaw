@@ -348,6 +348,23 @@ describe('AuditPage', () => {
     ).toBeTruthy();
   });
 
+  it('filters learning observations for retrospective review', async () => {
+    fetchAuditMock.mockResolvedValue(makeResponse([]));
+    renderWithProviders(<AuditPage />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Learning flags' }),
+    );
+    await waitFor(() =>
+      expect(fetchAuditMock).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ eventType: 'approval.observed' }),
+      ),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Learning flags', pressed: true }),
+    ).toBeTruthy();
+  });
+
   it('category chip click supports onboarding events', async () => {
     fetchAuditMock.mockResolvedValue(
       makeResponse([makeEntry({ eventType: 'onboarding.complete' })]),

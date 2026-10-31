@@ -1183,9 +1183,7 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     workspacePathOverride || agentWorkspaceDir(agentId),
   );
-  const approvalMode = autoApproveTools
-    ? 'full'
-    : resolveSessionApprovalMode(session);
+  const approvalMode = resolveSessionApprovalMode(session, autoApproveTools);
   recoverTurnCheckpoint(req.sessionId);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools

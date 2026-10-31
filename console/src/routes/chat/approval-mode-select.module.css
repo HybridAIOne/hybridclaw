@@ -8,12 +8,16 @@
   flex-shrink: 0;
 }
 
-.trigger[data-mode="full"],
-.trigger.trigger[data-mode="full"]:is(:hover, :focus, [data-state="open"]) {
+.trigger:is([data-mode="full"], [data-mode="learning"]),
+.trigger.trigger:is([data-mode="full"], [data-mode="learning"]):is(
+  :hover,
+  :focus,
+  [data-state="open"]
+) {
   color: var(--danger);
 }
 
-.trigger[data-mode="full"] {
+.trigger:is([data-mode="full"], [data-mode="learning"]) {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
@@ -53,9 +57,9 @@
   white-space: normal;
 }
 
-.item[data-mode="full"] .icon,
-.item[data-mode="full"] .title,
-.item[data-mode="full"] .subtitle {
+.item:is([data-mode="full"], [data-mode="learning"]) .icon,
+.item:is([data-mode="full"], [data-mode="learning"]) .title,
+.item:is([data-mode="full"], [data-mode="learning"]) .subtitle {
   color: var(--danger);
 }
 

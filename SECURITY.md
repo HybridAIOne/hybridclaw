@@ -71,6 +71,14 @@ Tool actions are risk-tiered at runtime:
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
 
+The explicitly selected session mode `learning` records normal approval prompts
+and notices but allows those actions, including pinned-sensitive actions, without
+human confirmation. It is not a dry run. It never overrides unconditional tool
+blocks, explicit policy denials, authentication, or sandbox restrictions, and it
+does not create consent or durable trust. `approval.observed` audit events retain
+the normal decision and actual execution outcome. Other modes retain the pinned
+floor described below.
+
 The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
 
 - `approval.pinned_red` (high-risk actions that always need a human, even in

@@ -835,6 +835,7 @@ async function executePreparedToolCall(
       approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
+      approvalObservation: approval.approvalObservation,
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
