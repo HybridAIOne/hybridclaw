@@ -2,8 +2,8 @@
  * Stored tool exchanges belong to their final assistant message and expand as
  * one unit for replay and compaction. This is conversation storage, not the
  * audit trail; only validated tool exchanges may introduce tool-role messages.
- * Input transforms preserve JSON structure and keep provider copies in sync;
- * signed reasoning metadata is never transformed.
+ * Sanitization preserves JSON structure and nonliteral sorting callbacks for
+ * private replay; provider copies stay in sync and signed reasoning is unchanged.
  * A user message expands with the dynamic context it was sent with, so replay
  * reproduces the earlier request byte for byte.
  */
@@ -86,8 +86,10 @@ export function transformToolHistory(
 }
 
 export function sanitizeToolHistory(value: unknown): ChatMessage[] {
-  return transformToolHistory(value, redactCredentialSecrets, (input) =>
-    redactSecretsDeep(input, redactCredentialSecrets),
+  const redactReplayText = (text: string) =>
+    redactCredentialSecrets(text, false, true);
+  return transformToolHistory(value, redactReplayText, (input) =>
+    redactSecretsDeep(input, redactReplayText),
   );
 }
 

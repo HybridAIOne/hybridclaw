@@ -119,6 +119,11 @@ it records the resulting memory content so dream's own rewrite does not trigger
 another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
+Private tool-history replay preserves short, nonliteral Python sorting
+callbacks such as `key=ranker.get` and `key=lambda item: item.score`. Public
+logs and exports keep strict credential masking; quoted key values, URL
+credentials and structured authentication fields remain redacted in replay.
+
 ## Worker State
 
 Host workers keep managed state in their owning agent's workspace, or the scope's
