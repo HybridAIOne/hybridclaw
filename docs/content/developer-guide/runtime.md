@@ -910,6 +910,9 @@ binary responses fail with a download continuation instead of entering model
 context as text. If available, `http_request` with `responseArtifact` saves the
 file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
 enough for the file. PDF and image inspection use the existing local-file tools.
+Oversized HTTP responses are cancelled without saving a partial artifact. The
+artifact error reports the limit and declared or received size so the caller can
+choose an explicit bound for a retry; the gateway does not raise it automatically.
 
 When Readability omits context outside its selected article, `web_fetch` retains
 an explicitly labeled leading excerpt from a main HTML landmark. It excludes

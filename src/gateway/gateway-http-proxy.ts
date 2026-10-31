@@ -2591,14 +2591,16 @@ export async function handleApiHttpRequest(
       return;
     }
 
-    const responseBody =
-      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
-        ? {
-            buffer: Buffer.alloc(0),
-            bytesRead: declaredBodyBytes,
-            truncated: true,
-          }
-        : await readHttpResponseBuffer(response, maxResponseBytes);
+    const declaredOversize =
+      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes;
+    if (declaredOversize) await response.body?.cancel();
+    const responseBody = declaredOversize
+      ? {
+          buffer: Buffer.alloc(0),
+          bytesRead: declaredBodyBytes,
+          truncated: true,
+        }
+      : await readHttpResponseBuffer(response, maxResponseBytes);
     const bodyBytes =
       responseBody.truncated && declaredBodyBytes !== undefined
         ? declaredBodyBytes
@@ -2644,7 +2646,7 @@ export async function handleApiHttpRequest(
       if (bodyTruncated) {
         throw new GatewayRequestError(
           502,
-          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}). Response size (declared or received so far): ${responseBody.bytesRead} bytes. Retry with an explicit, bounded maxResponseBytes sufficient for the intended file.`,
         );
       }
       const artifact = await saveHttpResponseArtifact({
