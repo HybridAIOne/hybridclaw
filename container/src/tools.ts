@@ -68,6 +68,7 @@ import {
   type FileReferenceExpansion,
   prepareToolArguments,
 } from './file-reference.js';
+import { resolveFileWriteConflict } from './file-write-conflicts.js';
 import {
   type GatewayJsonResponse,
   postGatewayJson,
@@ -3087,6 +3088,7 @@ async function executeToolInternal(
         TASK_SANDBOX_FS_ENABLED
           ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
           : undefined,
+        currentSessionId,
       );
     }
 
@@ -3175,6 +3177,7 @@ async function executeToolInternal(
         if (TASK_SANDBOX_FS_ENABLED) {
           writeTempFileToTaskSandbox(filePath, sandboxPath);
         }
+        resolveFileWriteConflict(currentSessionId, args.path);
         return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
       } finally {
         if (tempDirToCleanup) {

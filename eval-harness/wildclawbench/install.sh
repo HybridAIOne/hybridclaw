@@ -14,5 +14,5 @@ expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["wil
 git -C "$bench" apply --check "$here/integration.patch"
 git -C "$bench" apply "$here/integration.patch"
 mkdir -p "$bench/src/agents/hybridclaw"
-cp "$here/runner.py" "$here/evidence.py" "$here/manifest.json" "$bench/src/agents/hybridclaw/"
+cp "$here/runner.py" "$here/launch.py" "$here/evidence.py" "$here/manifest.json" "$bench/src/agents/hybridclaw/"
 touch "$bench/src/agents/hybridclaw/__init__.py"

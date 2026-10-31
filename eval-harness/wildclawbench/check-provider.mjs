@@ -36,7 +36,23 @@ globalThis.fetch = async (input, init) => {
     assert.ok(state && state !== '/tmp_workspace');
     assert.ok(fs.existsSync(state + '/SOUL.md'));
     assert.equal(process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT, '/tmp_workspace');
-    if (!fs.existsSync('/tmp_workspace/results/fixture.txt')) {
+    if (process.env.HYBRIDCLAW_CHECK_APPROVAL === '1') {
+      message = {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'fixture-approval',
+            type: 'function',
+            function: {
+              name: 'read',
+              arguments: JSON.stringify({ path: '.env' }),
+            },
+          },
+        ],
+      };
+      finish = 'tool_calls';
+    } else if (!fs.existsSync('/tmp_workspace/results/fixture.txt')) {
       message = {
         role: 'assistant',
         content: null,

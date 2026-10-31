@@ -222,3 +222,16 @@ The image removes its inherited OpenClaw workspace at build time, before task
 data is copied in. It never cleans or filters model-created files before grading.
 Record a patched source revision for new runs; preserve earlier evidence as the
 original baseline.
+
+### Approval stops
+
+The adapter records structured gateway approval stops in `execution.json` with
+`status: "awaiting_approval"` and minimal `pending_approval` metadata. Other
+outcomes are `completed`, `timed_out`, or `failed`. A clean process exit alone
+is not evidence of task completion; missing or invalid completion metadata fails
+the adapter. Assistant prose is never used to infer approval state.
+
+Pending approvals retain partial-artifact grading, elapsed time and billing.
+Usage includes `execution_status`; exports count `approval_blocked` separately
+from infrastructure failures, preserving the official score and 60-task denominator.
+The adapter never approves a blocked call automatically.

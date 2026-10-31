@@ -190,6 +190,17 @@ A replacement worker reloads them; switching sessions clears the prior session's
 grants. These files use the existing pinned approval-state protections.
 
 
+Rejected `write` preconditions persist canonical file paths in
+`.hybridclaw-runtime/sessions/<session-key>/file-write-conflicts.json`.
+Until a checked write or edit succeeds for that file, non-green or write-intent
+Bash calls and deletion of that file or its parent require one-time approval,
+including in full-auto and evaluation sessions. This deliberately fences opaque
+scripts as well as direct redirects; unrelated shell mutations may also pause.
+Read-only diagnostics and writing a separate deliverable remain available.
+Replacement workers reload the conflicts. Corrupt or unreadable guard state and
+persistence errors fail closed; these records contain paths, never file contents.
+The existing pinned approval-state rules protect this directory.
+
 ### Auxiliary Model Routing
 
 Browser vision and auxiliary tools share one model context and task-policy store
@@ -470,7 +481,13 @@ results and try materially different permitted methods, and bounds recovery by
 useful progress and the remaining execution budget. Missing configuration does
 not grant permission to obtain credentials or broaden access. Runtime blocks
 and denied approvals must never be bypassed. Unread source content must not be
-replaced with invented findings.
+replaced with invented findings. Recovery may repair dependencies but must not
+manufacture or replace authoritative messages, events, records or source
+fixtures. Missing local files do not establish that a running service has no
+data. Cached or exported data supports only its demonstrated scope and
+freshness; reports must distinguish supported partial findings from complete
+coverage and identify inaccessible sources. These are model instructions,
+not runtime validation of arbitrary business data or connector coverage.
 
 `tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
 `tests/media-tools-readiness.test.ts` checks configuration snapshots and their
