@@ -162,14 +162,3 @@ export function normalizeDisabledSafetyRules(value) {
     (rule) => rule.id,
   );
 }
-
-export function matchSafetyRule(scope, value, disabledRuleIds = []) {
-  return (
-    SAFETY_RULES.find(
-      (rule) =>
-        rule.scope === scope &&
-        !disabledRuleIds.includes(rule.id) &&
-        rule.pattern.test(value.toLowerCase()),
-    ) ?? null
-  );
-}
