@@ -93,9 +93,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -176,9 +177,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -231,9 +233,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -310,9 +313,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext, setTaskModelPolicies } = await import(
       '../container/src/model-context.js'
     );
@@ -367,9 +371,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -441,9 +446,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -502,9 +508,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext, setTaskModelPolicies } = await import(
       '../container/src/model-context.js'
     );
@@ -549,7 +556,7 @@ describe.sequential('container tool runtime guards', () => {
     expect(requestBody).toMatchObject({
       model: 'qwen/qwen2.5-vl',
     });
-    expect(requestBody.max_tokens).toBeUndefined();
+    expect(requestBody.max_tokens).toBe(321);
     expect(result.output).toContain('Detected via task model policy.');
   });
 
@@ -587,9 +594,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );

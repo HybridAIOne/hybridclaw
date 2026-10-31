@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { TASK_MODEL_KEYS } from '../src/types/models.js';
+import { useTempDir } from './test-utils.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
@@ -16,9 +16,7 @@ const ORIGINAL_AUXILIARY_COMPRESSION_MODEL =
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-task-routing-'));
-}
+const makeTempHome = useTempDir('hybridclaw-task-routing-');
 
 function writeRuntimeConfig(
   homeDir: string,
@@ -139,10 +137,10 @@ test('resolves configured vision task model policy on the host', async () => {
       isLocal: true,
     },
   });
-  expect(taskModels?.vision?.maxTokens).toBeUndefined();
-  expect(taskModels?.compression?.maxTokens).toBeUndefined();
-  expect(taskModels?.web_extract?.maxTokens).toBeUndefined();
-  expect(taskModels?.session_search?.maxTokens).toBeUndefined();
+  expect(taskModels?.vision?.maxTokens).toBe(321);
+  expect(taskModels?.compression?.maxTokens).toBe(222);
+  expect(taskModels?.web_extract?.maxTokens).toBe(210);
+  expect(taskModels?.session_search?.maxTokens).toBe(211);
 });
 
 test('routes default auxiliary tasks to the bottom configured rung', async () => {
@@ -260,7 +258,7 @@ test('prefers auxiliary env overrides for provider and model selection', async (
     requestHeaders: {},
     isLocal: true,
   });
-  expect(policy?.maxTokens).toBeUndefined();
+  expect(policy?.maxTokens).toBe(222);
 });
 
 test('omits disabled auxiliary task policy', async () => {
@@ -305,7 +303,7 @@ test('captures env overrides at module load', async () => {
     baseUrl: 'http://127.0.0.1:1234',
     model: 'lmstudio/qwen/qwen2.5-instruct',
   });
-  expect(policy?.maxTokens).toBeUndefined();
+  expect(policy?.maxTokens).toBe(222);
 });
 
 test('resolves configured Anthropic task models on the host', async () => {
@@ -349,7 +347,7 @@ test('resolves configured Anthropic task models on the host', async () => {
       requestHeaders: {
         'anthropic-version': '2023-06-01',
       },
-      maxTokens: 32_000,
+      maxTokens: 512,
     },
     compression: {
       provider: 'anthropic',
@@ -360,7 +358,7 @@ test('resolves configured Anthropic task models on the host', async () => {
       requestHeaders: {
         'anthropic-version': '2023-06-01',
       },
-      maxTokens: 32_000,
+      maxTokens: 256,
     },
   });
 });
@@ -435,7 +433,7 @@ test('uses Anthropic discovery vision capability when routing vision fallbacks',
     model: 'anthropic/claude-vision-from-discovery-test',
     isLocal: false,
     contextWindow: 200_000,
-    maxTokens: 32_000,
+    maxTokens: 8_192,
   });
 });
 
@@ -545,10 +543,11 @@ test('discovers OpenRouter vision models before choosing a fallback on cold star
     },
     isLocal: false,
     contextWindow: 262_144,
+    maxTokens: 654,
   });
 });
 
-test('uses discovered OpenRouter Anthropic max tokens instead of configured task max tokens', async () => {
+test('preserves configured task budget instead of discovered Anthropic output capacity', async () => {
   const homeDir = makeTempHome();
   process.env.OPENROUTER_API_KEY = 'or-task-routing-test';
   writeRuntimeConfig(homeDir, (config) => {
@@ -595,11 +594,11 @@ test('uses discovered OpenRouter Anthropic max tokens instead of configured task
     provider: 'openrouter',
     model: 'openrouter/anthropic/claude-sonnet-4',
     contextWindow: 262_144,
-    maxTokens: 64_000,
+    maxTokens: 222,
   });
 });
 
-test('omits max tokens for non-Anthropic HybridAI task models', async () => {
+test('preserves configured output budgets for non-Anthropic HybridAI task models', async () => {
   const homeDir = makeTempHome();
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   writeRuntimeConfig(homeDir, (config) => {
@@ -631,7 +630,7 @@ test('omits max tokens for non-Anthropic HybridAI task models', async () => {
     provider: 'hybridai',
     model: 'gpt-5-nano',
   });
-  expect(policy?.maxTokens).toBeUndefined();
+  expect(policy?.maxTokens).toBe(222);
 });
 
 test('warns when no vision fallback is available after OpenRouter discovery refresh', async () => {
@@ -762,3 +761,41 @@ test('routing classification is independent of the disabled Skills Hub task', as
  expect(isAuxiliaryTaskDisabled('routing_classifier')).toBe(false);
  fs.rmSync(homeDir,{recursive:true,force:true});
 });
+
+test.each([
+  { task: 'vision' as const, limit: 0, expected: 8_192 },
+  { task: 'vision' as const, limit: 1_024, expected: 1_024 },
+  { task: 'vision' as const, limit: 200_000, expected: 128_000 },
+  { task: 'compression' as const, limit: 777, expected: 777 },
+])(
+  'preserves the $task budget when using the current session model',
+  async ({ task, limit, expected }) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.routing.enabled = false;
+      config.auxiliaryModels[task].provider = 'auto';
+      config.auxiliaryModels[task].model = '';
+      config.auxiliaryModels[task].maxTokens = limit;
+    });
+    vi.doMock('../src/providers/factory.js', () => ({
+      resolveModelRuntimeCredentials: vi.fn(async () => ({
+        provider: 'hybridai',
+        model: 'gpt-5-nano',
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com',
+        chatbotId: '',
+        requestHeaders: {},
+        maxTokens: 128_000,
+      })),
+    }));
+    const taskRouting = await importFreshTaskRouting(homeDir);
+    const policy = await taskRouting.resolveTaskModelPolicy(task, {
+      sessionModel: 'gpt-5-nano',
+    });
+    expect(policy).toMatchObject({
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      maxTokens: expected,
+    });
+  },
+);

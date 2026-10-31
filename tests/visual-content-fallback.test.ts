@@ -195,3 +195,51 @@ test('successful image delivery is unchanged', async () => {
   await callRoutedModel(args);
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+test.each([false, true])(
+  'a text-only primary preserves the policy boundary (pixels allowed=%s)',
+  async (allowed) => {
+    const args = await fixture();
+    const { setVisualMediaAllowed } = await import(
+      '../container/src/providers/visual-content.js'
+    );
+    setVisualMediaAllowed(allowed, false);
+    const { callWithVisualContent } = await import(
+      '../container/src/providers/visual-content.js'
+    );
+    const call = vi.fn(async (request) => {
+      const body = JSON.stringify(request.messages);
+      expect(body).not.toContain('base64');
+      const delivery = request.messages.at(-1);
+      expect(delivery.role).toBe('user');
+      expect(JSON.stringify(delivery.content).includes('vision_analyze')).toBe(
+        allowed,
+      );
+      return {
+        choices: [
+          {
+            message: { role: 'assistant' as const, content: 'Text response.' },
+            finish_reason: 'stop' as const,
+          },
+        ],
+      };
+    });
+    await callWithVisualContent(
+      {
+        ...args,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'vision_analyze',
+              description: 'Configured image analysis',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        ],
+      },
+      call,
+    );
+    expect(call).toHaveBeenCalledTimes(1);
+  },
+);

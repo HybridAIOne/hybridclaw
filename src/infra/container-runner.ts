@@ -155,6 +155,7 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import { recoverWorkerOutput } from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
@@ -1144,6 +1145,7 @@ async function runContainerInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     escalationTarget,
@@ -1281,6 +1283,7 @@ async function runContainerInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,
@@ -1428,7 +1431,7 @@ async function runContainerInner(
       });
     }
 
-    const output = await readOutput(
+    let output = await readOutput(
       entry.ipcSessionId,
       requestId,
       inactivityTimeoutMs === undefined
@@ -1451,6 +1454,13 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
+    output = recoverWorkerOutput(
+      output,
+      workspacePath,
+      sessionId,
+      input.runId || input.requestId,
+      Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
+    );
     remapOutputArtifacts(
       output,
       workspacePath,

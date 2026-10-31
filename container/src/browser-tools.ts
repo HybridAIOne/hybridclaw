@@ -1,6 +1,7 @@
 /**
  * Browser handles die with a worker; durable runtime files belong to agent state.
- * User-visible artifacts stay in the execution workspace.
+ * User-visible artifacts stay in the execution workspace. Screenshot analysis
+ * requires gateway-owned visual-data permission, independent of model capability.
  * Unlike browser providers this owns tool lifecycle and artifact placement.
  */
 import { execFile, spawnSync } from 'node:child_process';
@@ -2118,6 +2119,10 @@ async function callVisionModel(
   imageBase64: string,
 ): Promise<{ model: string; analysis: string }> {
   const runtimeContext = captureAuxiliaryRuntimeContext();
+  if (!runtimeContext.visualMediaAllowed)
+    throw new Error(
+      'Visual analysis is disabled by visual-data delivery policy.',
+    );
   const vision = await callAuxiliaryModel({
     task: 'vision',
     ...runtimeContext,
