@@ -4,6 +4,7 @@
  * Handles `POST /api/http/request` — routes outbound HTTP calls with secret
  * placeholder resolution, bearer token injection, auth rule matching, and
  * explicit response-field capture.
+ * The outbound deadline covers headers and body consumption.
  *
  * SSRF: DNS answers are checked when the URL is validated and again when fetch
  * dials, so an answer that turns private in between (rebinding) is refused.
@@ -2537,6 +2538,7 @@ export async function handleApiHttpRequest(
     }
     response = await fetch(url, fetchOptions);
   } catch (error) {
+    clearTimeout(timeout);
     await tlsDispatcher?.close();
     const privateAddressError = findPrivateAddressError(error);
     if (privateAddressError) {
@@ -2554,8 +2556,6 @@ export async function handleApiHttpRequest(
       `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
       { cause: error },
     );
-  } finally {
-    clearTimeout(timeout);
   }
 
   try {
@@ -2699,6 +2699,7 @@ export async function handleApiHttpRequest(
       ...(responseJson === undefined ? {} : { json: responseJson }),
     });
   } finally {
+    clearTimeout(timeout);
     await tlsDispatcher?.close();
   }
 }
