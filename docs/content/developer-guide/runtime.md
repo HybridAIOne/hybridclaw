@@ -220,6 +220,9 @@ Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
 Tool calls capture routing and header snapshots before calling auxiliary models.
+Disabled auxiliary tasks carry an explicit denial through worker IPC. Their
+calls stop before provider fallback or network access; primary conversation
+routing remains a separate setting.
 This state lives in worker memory and is rebuilt when a worker is replaced.
 
 ### Browser Live Frames
