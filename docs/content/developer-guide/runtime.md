@@ -817,6 +817,13 @@ returns to the model once to plan work that omits prohibited effects. Remaining
 calls in that batch are marked unexecuted; every new call still faces the same
 policy. A second shell hard block ends the turn, as do other policy denials.
 Pending human approvals still pause execution.
+
+The eval block checks parsed shell words and nested shell commands, so an `eval`
+directory inside a simple path does not block unrelated tools. Executables named
+`eval` and eval text in inline code remain blocked. Heredoc input retains the
+conservative text check; other safety matchers and normal approval policy still
+apply.
+
 Generation and verification run separately from necessary cleanup. Agents leave
 disposable scratch files alone unless cleanup was requested or is needed for the
 result; ordinary housekeeping does not delay delivery or turn success into a

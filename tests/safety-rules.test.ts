@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from 'vitest';
 import {
   SAFETY_RULES,
-  matchSafetyRule,
   normalizeDisabledSafetyRules,
 } from '../container/shared/safety-rules.js';
 import {
@@ -94,13 +93,8 @@ test('shell and file hooks use the same selected rules and retain file format va
 });
 
 test('every enabled matcher is omitted when all rules are explicitly disabled', () => {
-  expect(
-    matchSafetyRule(
-      'bash',
-      'rm -rf /',
-      SAFETY_RULES.map((r) => r.id),
-    ),
-  ).toBeNull();
+  configureSafetyRules(SAFETY_RULES.map((rule) => rule.id));
+  expect(guardCommand('rm -rf /')).toBeNull();
 });
 
 test('the endpoint maps to config permissions and runtime-only callers cannot change rules', () => {
