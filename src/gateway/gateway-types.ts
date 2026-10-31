@@ -1,6 +1,14 @@
+/**
+ * Gateway turn contracts keep approval interpretations separate from execution.
+ * Transports render these results; they do not grant consent from reply prose.
+ * Authorization and pending-state ownership remain in the approval runtimes.
+ */
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import type {
+  ApprovalReplyContext,
+  ApprovalReplyInterpretation,
+} from '../../container/shared/approval-reply.js';
 import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
@@ -133,6 +141,7 @@ export interface GatewayA2ADeliveryDescriptor {
 }
 
 export interface GatewayChatResult {
+  approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];

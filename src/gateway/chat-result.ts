@@ -283,6 +283,12 @@ export function normalizePendingApprovalReply(
   const approval = extractGatewayChatApprovalEvent(result);
   if (!approval) return result;
 
+  if (
+    result.approvalReply?.decision === 'unclear' ||
+    result.approvalReply?.decision === 'error'
+  )
+    return result;
+
   const summary = formatGatewayChatApprovalSummary(approval);
   if (String(result.result || '').trim() === summary) {
     return result;

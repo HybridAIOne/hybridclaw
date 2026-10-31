@@ -197,6 +197,10 @@ Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
 
+The shell-denial replan budget uses the current request's tool execution records.
+It grants one replan per request, not per session; it does not persist across
+requests or authorize execution after worker replacement.
+
 Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
 maximum execution attempts. The worker reserves each attempt synchronously
 before execution and persists counts under its protected session state directory
@@ -796,8 +800,31 @@ config changes can change exposure on the next request, invalidating cached
 tool prefixes; a failed replacement never grants the old connection new trust.
 Routine lookups use
 available tools directly; skill discovery is for requested skills or specialized
-workflows. Tools that accept multiple identifiers should fetch independent
-items in one request within the tool's limits.
+workflows. An applicable listed skill is read before its first operation,
+including when a workbook or document is an input to a broader task. Workspace
+discovery uses scoped `glob`, `grep`, and `read` calls. Independent reads stay in
+separate tool calls so a shell approval gate cannot hold up an unrelated read.
+This is planning guidance, not an approval exemption: required approvals still
+pause execution, and recursive shell searches that can reach pinned files
+still require approval. Tools that accept multiple identifiers should fetch
+independent items in one request within the tool's limits.
+
+Shell safety hard blocks run before approval resolution and again at execution.
+They cannot be overridden by a user approval, so prohibited commands produce a
+denial without creating a pending approval. The first such denial in a request
+returns to the model once to plan work that omits prohibited effects. Remaining
+calls in that batch are marked unexecuted; every new call still faces the same
+policy. A second shell hard block ends the turn, as do other policy denials.
+Pending human approvals still pause execution.
+Generation and verification run separately from necessary cleanup. Agents leave
+disposable scratch files alone unless cleanup was requested or is needed for the
+result; ordinary housekeeping does not delay delivery or turn success into a
+failure message.
+Approval clarification replies retain their text in Teams alongside the existing
+choices and expiry; asking a question neither grants consent nor extends expiry.
+The hard-block patterns are unchanged and commands are never rewritten or split
+by this check. Clarification text is escaped for display and cannot alter the
+stored executable call, allowed scopes, or permission decision.
 
 MCP calls are serial barriers by default. Operators can declare trusted read
 behavior under a server's `toolBehavior` configuration:
