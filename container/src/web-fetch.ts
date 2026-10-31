@@ -1,5 +1,5 @@
 /**
- * Fetch public URLs within one timeout and the existing SSRF boundary.
+ * Fetch public URLs within one SSRF/timeout boundary; cached URLs retain case.
  * Extraction hints distinguish visible access challenges from pages needing
  * browser rendering; loading a protection script is not proof of blocking.
  * Unlike browser navigation, this tool never executes page JavaScript.
@@ -600,8 +600,7 @@ export async function webFetch(params: {
   );
 
   // Check cache
-  const cacheKey =
-    `fetch:${params.url}:${extractMode}:${maxChars}`.toLowerCase();
+  const cacheKey = `fetch:${params.url}:${extractMode}:${maxChars}`;
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
