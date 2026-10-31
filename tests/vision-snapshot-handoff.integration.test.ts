@@ -47,14 +47,16 @@ test.each(['full', 'starred'] as const)(
                     : [],
               )
               .join('\n');
-            const start = content.indexOf(
-              mode === 'full' ? '{"name":"vision_analyze"' : '{"snapshot"',
-            );
-            if (start < 0) throw new Error('Missing durable visual handoff.');
-            const handoff = JSON.parse(
-              content.slice(start, content.lastIndexOf('}') + 1),
-            );
-            const args = mode === 'full' ? handoff.arguments : handoff;
+            const reference = content.match(
+              /\{"id":"[a-f0-9]{64}","pages":\[[\d,]*\]\}/,
+            )?.[0];
+            if (!reference) throw new Error('Missing durable visual handoff.');
+            const snapshot = JSON.parse(reference);
+            const args = {
+              snapshot,
+              page: snapshot.pages[0],
+              question: 'Inspect the selected page.',
+            };
             return {
               role: 'assistant',
               content: null,
@@ -103,6 +105,7 @@ test.each(['full', 'starred'] as const)(
         },
       );
       expect(run.output.status).toBe('success');
+      expect(run.requests).toHaveLength(3);
       const read = run.output.toolHistory?.find(
         (message) => message.tool_call_id === 'read_page',
       );
