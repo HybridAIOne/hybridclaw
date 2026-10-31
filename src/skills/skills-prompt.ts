@@ -66,7 +66,7 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
     notice: (compactedDescriptions, omittedSkills) =>
       `  <skills_catalog_notice compacted_descriptions="${compactedDescriptions}" omitted_skills="${omittedSkills}">Catalog constrained by maxSkillsPromptChars=${MAX_SKILLS_PROMPT_CHARS}. Use skills_list to search the complete eligible catalog.</skills_catalog_notice>`,
     scanRule:
-      'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
+      'Before answering or making the first task-related tool call: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries. Recheck when a later step introduces a different workflow.',
     namedRule:
       '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     readRule:
@@ -88,7 +88,7 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
     notice: (compactedDescriptions, omittedSkills) =>
       `(${compactedDescriptions} descriptions shortened and ${omittedSkills} skills left out to fit the prompt. Use skills_list to search the complete eligible catalog.)`,
     scanRule:
-      'Before replying: scan the skill list below. Each line is `- name [category]: description`.',
+      'Before answering or making the first task-related tool call: scan the skill list below. Each line is `- name [category]: description`. Recheck when a later step introduces a different workflow.',
     namedRule:
       '- If the user explicitly names a listed skill, treat that skill as selected.',
     readRule:
@@ -280,7 +280,7 @@ export function buildSkillsSection(
     '- A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
     format.namedRule,
     format.readRule,
-    '- After reading SKILL.md, use ordinary available tools exactly as the skill instructs.',
+    '- Read the selected SKILL.md before the first operation in its workflow, including inspecting an input artifact for a broader task. After reading SKILL.md, use ordinary available tools exactly as the skill instructs.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',

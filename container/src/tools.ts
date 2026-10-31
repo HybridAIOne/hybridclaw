@@ -35,6 +35,7 @@ import {
   type BashProcessResult,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
+import { guardCommand } from './bash-safety.js';
 import {
   isPersistentBashStateEnabled,
   runBash,
@@ -176,37 +177,6 @@ import {
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 export { resetPersistentBashSessions } from './bash-session.js';
-
-const DENY_PATTERNS: RegExp[] = [
-  /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
-  /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
-  /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/, // format command at segment start (Windows)
-  /\bdd\s+if=/, // raw disk I/O
-  /:\(\)\s*\{.*\};\s*:/, // fork bomb :(){ :|:& };:
-  /\|\s*(sh|bash|zsh)\b/, // pipe to shell
-  /;\s*rm\s+-[rf]/, // chained rm after semicolon
-  /&&\s*rm\s+-[rf]/, // chained rm after &&
-  /\|\|\s*rm\s+-[rf]/, // chained rm after ||
-  /\bcurl\b.*\|\s*(sh|bash)/, // curl | sh
-  /\bwget\b.*\|\s*(sh|bash)/, // wget | sh
-  /\beval\b/, // eval execution
-  /\bsource\s+.*\.sh\b/, // source shell scripts
-  /\bpkill\b/, // process killing
-  /\bkillall\b/, // process killing
-  /\bkill\s+-9\b/, // force kill
-  /\b(shutdown|reboot|poweroff)\b/, // system power control
-  />\s*\/dev\/sd[a-z]\b/, // write to block devices
-];
-
-function guardCommand(command: string): string | null {
-  const lower = command.toLowerCase();
-  for (const pattern of DENY_PATTERNS) {
-    if (pattern.test(lower)) {
-      return 'Command blocked by safety guard (dangerous pattern detected)';
-    }
-  }
-  return null;
-}
 
 // Heartbeat has no user-facing conversation for scheduled output.
 const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['heartbeat']);

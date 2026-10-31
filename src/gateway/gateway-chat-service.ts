@@ -3091,6 +3091,7 @@ async function handleGatewayMessageInner(
       toolExecutions,
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
+      approvalReply: output.approvalReply,
       effectiveUserPrompt: output.effectiveUserPrompt,
       assistantPresentation:
         getGatewayAssistantPresentationForMessageAgent(agentId),

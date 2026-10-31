@@ -130,7 +130,6 @@ import {
 import {
   type ApprovalPrelude,
   approvalRuntime,
-  buildApprovalDeniedToolExecution,
   buildApprovalRequiredToolExecution,
   buildPendingApproval,
   createToolApprovalResolver,
@@ -150,6 +149,7 @@ import {
   resolveToolCountLimit,
   toolCountLimitFailure,
 } from './tool-count-limit.js';
+import { canReplanAfterDenial, handleToolDenial } from './tool-denial.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -2120,7 +2120,7 @@ async function processRequestInner(
           history,
           unrunCalls: toolCalls.slice(callIndex),
           recordResult: recordToolResult,
-          closeIfEmpty: true,
+          closeIfEmpty: !canReplanAfterDenial(approval, toolExecutions),
         });
         if (steered) break;
       }
@@ -2163,31 +2163,19 @@ async function processRequestInner(
       }
 
       if (approval.decision === 'denied') {
-        const denialText = `Approval denied: ${approval.reason}`;
-        toolExecutions.push(
-          buildApprovalDeniedToolExecution({
-            toolName,
-            argsJson: call.function.arguments,
-            denialText,
-            approval,
-          }),
-        );
-        const denied: ContainerOutput = {
-          status: 'success',
-          result: denialText,
-          toolsUsed: [...new Set(toolsUsed)],
-          outputPresentation: statusOutputPresentation(true),
-          ...(artifacts.length > 0 ? { artifacts } : {}),
+        const denied = await handleToolDenial({
+          approval,
+          unrunCalls: toolCalls.slice(callIndex),
+          history,
+          recordResult: recordToolResult,
           toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
+          toolsUsed,
+          artifacts,
+          tokenUsage,
           effectiveUserPrompt,
-        };
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: denied.status,
-          toolsUsed: denied.toolsUsed,
         });
-        return denied;
+        if (denied) return denied;
+        break;
       }
 
       const completed = await executePreparedToolCall(
