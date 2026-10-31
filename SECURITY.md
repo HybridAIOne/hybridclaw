@@ -22,7 +22,15 @@ injected into prompts.
 `tests/safety-guardrails.live.test.ts` replays scripted agent turns against a
 live model to check these guardrails (opt-in via `HYBRIDCLAW_RUN_LIVE_SAFETY=1`).
 
-Implementation: [src/agent/prompt-hooks.ts](./src/agent/prompt-hooks.ts)
+Repository-publication guidance requires inspection of actual file content and
+all outgoing commits before committing or publishing, including secrets that a
+later commit removes. Suspected credentials stop publication and are reported
+by location without their values. Authentication recovery stays within the
+configured identity, destination and approved credential path. This is model
+guidance, not a deterministic Git-content scanner or an egress boundary.
+
+Implementation: [src/agent/safety-guidance.ts](./src/agent/safety-guidance.ts),
+assembled by [src/agent/prompt-hooks.ts](./src/agent/prompt-hooks.ts)
 
 ### 1.1) Browser Authentication Flows
 

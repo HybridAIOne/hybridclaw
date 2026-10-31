@@ -26,11 +26,32 @@ merge readiness.
 1. Sync the base branch.
 2. Create a focused branch for one change.
 3. Implement and validate locally.
-4. Commit with a clear message.
-5. Push and open or update the PR.
+4. Review the complete content being committed for credentials, then commit with a clear message.
+5. Review every outgoing commit for credentials, then push and open or update the PR.
 6. Check CI and fix failures.
 7. Address review feedback.
 8. Merge only when the branch is green and approved.
+
+## Publication Safety
+
+Inspect the actual files being committed, including unchanged content in those
+files. Before pushing, establish the destination and complete outgoing commit
+range from current Git state, then review all files and intermediate commits
+that will become reachable there. A diff summary or a clean final tree can miss
+a secret retained in an earlier commit. Use an available credential scanner
+with matching values suppressed, and inspect relevant content through permitted
+tools; never paste secret values into a reply, commit message, PR, or diagnostic.
+
+If a suspected secret is present, stop before publication and report its file
+and line or commit without the value. Removing it from the latest file does not
+remove it from history. Ask the user to resolve credentials and authorize any
+history rewrite; do not delete their changes or rewrite history on your own.
+If the outgoing range or its contents cannot be verified, explain that blocker.
+
+Use the configured Git identity and approved authentication. A failed commit or
+push does not authorize a fabricated author, a remote/protocol change, or a
+search of credential stores. Read-only status checks are fine; explain the
+missing prerequisite when the approved path is unavailable.
 
 ## Core Commands
 
