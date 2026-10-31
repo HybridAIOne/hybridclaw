@@ -948,6 +948,9 @@ navigation, sidebars, scripts and explicitly hidden markup; the existing output 
 applies. This preserves supplied page status and dates without interpreting them
 or promising a complete page rendering. Context already in the article is omitted.
 Extraction-failure hints assess the article itself, excluding that added context.
+HTML comments stay out of converted text, links, headings and title selection,
+including the fallback used for large documents. Escaped comment examples remain
+visible as source text.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
