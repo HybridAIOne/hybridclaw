@@ -41,6 +41,9 @@ test('the real dispatcher stops a shell overwrite after failed replacement preco
     allowAgent: false,
     allowAll: false,
   });
+  expect(run.output.pendingApproval?.reason).toContain(
+    JSON.stringify(path.join(fs.realpathSync(run.dir), 'report.md')),
+  );
   expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe(
     'Original work\n',
   );
@@ -69,4 +72,46 @@ test('the real dispatcher allows diagnostic fallback before a separate deliverab
   expect(fs.readFileSync(path.join(run.dir, 'report-new.md'), 'utf8')).toBe(
     'New deliverable',
   );
+}, 20000);
+
+test('one-time approval still executes a fenced script and a later run needs a new approval', async () => {
+  const command = 'bash ./generate.sh';
+  const replies: Array<Record<string, unknown>> = [
+    call('failed-write', 'write', { path: 'report.md', contents: 'Replacement' }),
+    call('first-script', 'bash', { command }),
+    { role: 'assistant', content: 'Generated the output.' },
+    call('second-script', 'bash', { command }),
+  ];
+  let interpretations = 0;
+  const run = await runAgent(async (body) => {
+    const message = body.messages?.at(-1);
+    if (typeof message?.content === 'string') {
+      let input: { pending?: Array<{ approvalId: string }>; userReply?: string } = {};
+      try { input = JSON.parse(message.content); } catch {}
+      if (input.pending) {
+        interpretations += 1;
+        expect(input.userReply).toBe('yes');
+        expect(body.tools ?? []).toEqual([]);
+        return { role: 'assistant', content: JSON.stringify({ decision: 'approve', approvalId: input.pending[0].approvalId, scope: 'once', reply: '' }) };
+      }
+    }
+    return replies.shift() ?? { role: 'assistant', content: 'done' };
+  }, {
+    approvalMode: 'full', approvalUserId: 'user_a', approvalUserText: 'Generate a new output from the prepared script.',
+  }, {
+    'report.md': 'Original work\n',
+    'generate.sh': "printf 'generated\\n' >> generated.log\n",
+  });
+  expect(run.output.pendingApproval).toMatchObject({ toolName: 'bash', allowSession: false, allowAgent: false, allowAll: false });
+  expect(fs.existsSync(path.join(run.dir, 'generated.log'))).toBe(false);
+  const approved = await run.followup({ approvalUserText: 'yes', messages: [{ role: 'user', content: 'yes' }] });
+  expect(approved.status).toBe('success');
+  expect(approved.pendingApproval).toBeUndefined();
+  expect(interpretations).toBe(1);
+  expect(fs.readFileSync(path.join(run.dir, 'generated.log'), 'utf8')).toBe('generated\n');
+  const again = await run.followup({ approvalUserText: 'Run it again.', messages: [{ role: 'user', content: 'Run it again.' }] });
+  expect(again.pendingApproval?.approvalId).toBeTruthy();
+  expect(again.pendingApproval?.approvalId).not.toBe(run.output.pendingApproval?.approvalId);
+  expect(fs.readFileSync(path.join(run.dir, 'generated.log'), 'utf8')).toBe('generated\n');
+  expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Original work\n');
 }, 20000);

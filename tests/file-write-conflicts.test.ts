@@ -297,3 +297,41 @@ test('diagnostic fallbacks still require approval for pinned-sensitive paths', a
     }),
   ).toMatchObject({ pinned: true, decision: 'required' });
 });
+
+
+test('recovery diagnostics track every unresolved target across workers', async () => {
+  const canonicalWorkspace = fs.realpathSync(workspace);
+  fs.writeFileSync(path.join(workspace, 'notes.md'), 'Existing notes');
+  const first = await worker();
+  for (const file of ['report.md', 'notes.md']) {
+    expect(() => first.write({ path: file, contents: 'replacement' })).toThrow();
+  }
+  vi.resetModules();
+  const restarted = await worker();
+  restarted.write({ path: 'draft.py', contents: 'print(1)' });
+  const call = () => restarted.call('bash', { command: 'python3 draft.py' });
+  const pending = call();
+  expect(pending).toMatchObject({ pinned: true, decision: 'required' });
+  expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'report.md')));
+  expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'notes.md')));
+  expect(pending.reason).not.toContain(JSON.stringify(path.join(canonicalWorkspace, 'draft.py')));
+  restarted.write({ path: 'report.md', contents: 'Revised', overwrite: true, expected_content: 'Original work\n' });
+  const remaining = call();
+  expect(remaining).toMatchObject({ pinned: true, decision: 'required' });
+  expect(remaining.reason).not.toContain(JSON.stringify(path.join(canonicalWorkspace, 'report.md')));
+  expect(remaining.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'notes.md')));
+  restarted.write({ path: 'notes.md', contents: 'Revised notes', overwrite: true, expected_content: 'Existing notes' });
+  expect(call().pinned).toBe(false);
+});
+
+test('a conflict path stays literal in approval diagnostics', async () => {
+  const canonicalWorkspace = fs.realpathSync(workspace);
+  const file = 'notes\narchive.md';
+  fs.writeFileSync(path.join(workspace, file), 'existing');
+  const runtime = await worker();
+  expect(() => runtime.write({ path: file, contents: 'replacement' })).toThrow();
+  const pending = runtime.call('bash', { command: 'python3 generated.py' });
+  expect(pending).toMatchObject({ pinned: true, decision: 'required' });
+  expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, file)));
+  expect(pending.reason).not.toContain('\n');
+});
