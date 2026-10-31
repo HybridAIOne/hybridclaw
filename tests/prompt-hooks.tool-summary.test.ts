@@ -1,4 +1,6 @@
 import { expect, test, vi } from 'vitest';
+import { FILE_HYGIENE_LINES } from '../src/agent/file-hygiene-prompt.js';
+import { AFTER_FILE_CHANGE_LINES } from '../src/agent/mobile-prompt.js';
 
 import {
   buildRetrievedContextPrompt,
@@ -769,7 +771,7 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   const dropped = [
     'shell heredocs, echo redirects, sed, or awk',
     'For `bash`:',
-    'After file changes, run commands only when asked',
+    ...AFTER_FILE_CHANGE_LINES,
     'from a folder of source files',
     'In web chat, image, PDF, and video artifacts can be previewed',
     'Do not hand-write `/api/artifact` links',
@@ -781,6 +783,10 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   for (const text of dropped) {
     expect(web).toContain(text);
     expect(mobile).not.toContain(text);
+  }
+  for (const text of FILE_HYGIENE_LINES) {
+    expect(web.split(text)).toHaveLength(2);
+    expect(mobile.split(text)).toHaveLength(2);
   }
 
   const kept = [

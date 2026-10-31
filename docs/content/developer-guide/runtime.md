@@ -224,6 +224,12 @@ Replacement workers reload the conflicts. Corrupt or unreadable guard state and
 persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
 
+File-delivery guidance asks the agent to parse structured data and check the
+requested structure after its final edit. This read-only QA is part of completing
+the requested deliverable; optional builds, tests and generated-code execution
+still require a request. This is model guidance, not automatic format enforcement
+by the text-editing tools, and existing command permissions continue to apply.
+
 ### Auxiliary Model Routing
 
 Browser vision and auxiliary tools share one model context and task-policy store
