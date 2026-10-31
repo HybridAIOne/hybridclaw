@@ -5,6 +5,8 @@
  * and calls a signal cut off are marked "outcome unknown", never "not run".
  * Models and replay see bounded excerpts with durable file references; the
  * gateway restores full evidence only for audit and transcript storage.
+ * Call starts and individual results are checkpointed before batch assembly,
+ * so an abrupt worker kill cannot erase completed outcomes.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +16,7 @@ import {
   toolResultForTransport,
   validateToolHistory,
 } from '../shared/tool-history.js';
+import { TurnCheckpoint } from '../shared/turn-checkpoint.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
 // Engineering choice, 2026-10-30: cap inline evidence at 16k characters;
@@ -30,18 +33,26 @@ export class TurnToolHistory {
     { full: string; reference: string }
   >();
   private activeHistory: ChatMessage[] | undefined;
+  private readonly checkpoint?: TurnCheckpoint;
+  readonly recovered: ContainerOutput | null;
 
   constructor(
     private readonly sessionId: string,
     private readonly workspaceRoot?: string,
     private readonly executionRoot = workspaceRoot,
-  ) {}
+    turnId?: string,
+  ) {
+    if (workspaceRoot && turnId)
+      this.checkpoint = new TurnCheckpoint(workspaceRoot, sessionId, turnId);
+    this.recovered = this.checkpoint?.recovered ?? null;
+  }
 
   retain(history: ChatMessage[]): void {
     this.activeHistory = history;
   }
 
   recordAssistant(message: ChatMessage): void {
+    this.checkpoint?.assistant(message);
     if (message.tool_calls?.length) {
       this.messages.push(structuredClone(message));
       this.replayMessages.push(message);
@@ -50,6 +61,7 @@ export class TurnToolHistory {
 
   recordResult(message: ChatMessage): ChatMessage {
     const visible = this.forContext(message);
+    this.checkpoint?.result(visible);
     this.messages.push(structuredClone(message));
     this.replayMessages.push(visible);
     return visible;
@@ -137,6 +149,29 @@ export class TurnToolHistory {
       ...message,
       content: `${reference}\n${message.content.length} characters total. Excerpt only; use read with path=${JSON.stringify(contextPath)}, char_offset/max_chars for slices or query for literal search.\n\n${message.content.slice(0, headChars)}\n\n[... omitted ...]\n\n${message.content.slice(-(excerptChars - headChars))}`,
     };
+  }
+
+  async checkpointExecution<
+    T extends {
+      output: string;
+      isError: boolean;
+      visualAttachments?: ChatMessage['visualAttachments'];
+    },
+  >(id: string, execute: () => Promise<T>): Promise<T> {
+    this.checkpoint?.start(id);
+    const result = await execute();
+    this.checkpoint?.result(
+      this.forContext({
+        role: 'tool',
+        tool_call_id: id,
+        content: result.output,
+        ...(result.isError ? { is_error: true } : {}),
+        ...(result.visualAttachments
+          ? { visualAttachments: result.visualAttachments }
+          : {}),
+      }),
+    );
+    return result;
   }
 
   /** Send file references across IPC; leave context compaction edits intact. */

@@ -272,6 +272,10 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import {
+  beginTurnCheckpoint,
+  recoverTurnCheckpoint,
+} from './turn-checkpoint.js';
 import { turnReceiptFromExecutions } from './turn-receipt.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
@@ -1182,6 +1186,7 @@ async function handleGatewayMessageInner(
   const approvalMode = autoApproveTools
     ? 'full'
     : resolveSessionApprovalMode(session);
+  recoverTurnCheckpoint(req.sessionId);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools
     : approvalMode === 'full'
@@ -2089,6 +2094,18 @@ async function handleGatewayMessageInner(
   try {
     const scheduledTaskCount =
       listManageableScheduledTasks(session).tasks.length;
+    beginTurnCheckpoint({
+      ...req,
+      ...scopeRunAgentParams(scopeRun),
+      agentId,
+      runId,
+      workspacePath,
+      workerSessionId: req.executionSessionId || req.sessionId,
+      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      userMedia: media,
+      userDynamicContext: dynamicContext,
+      userSource: userTurnSource(req),
+    });
     let firstTextDeltaMs: number | null = null;
     const tail = new TurnTailTimer();
     const replyFetches = new ReplyFetchGuard(messages, (text) =>
