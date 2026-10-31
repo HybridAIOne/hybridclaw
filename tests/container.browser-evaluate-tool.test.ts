@@ -133,6 +133,39 @@ test('an exception in the page comes back as a tool error with its message', asy
   );
 
   expect(output).toMatch(/^Error: .*list not loaded/s);
+  expect(output).not.toContain('browser_snapshot');
+});
+
+test.each([
+  ['missing match', '[].find(() => true).parentElement', 'undefined'],
+  ['missing element', 'null.textContent', 'null'],
+  ['past the root', '({ parentElement: null }).parentElement.tagName', 'null'],
+])('gives recovery guidance for %s without replaying or saving', async (_, expression, missing) => {
+  const { tools, root, pageScripts } = await loadTools();
+  const savedPath = path.join(root, 'result.json');
+  fs.writeFileSync(savedPath, 'previous result');
+
+  const output = await tools.executeTool(
+    'browser_evaluate',
+    JSON.stringify({ expression, path: 'result.json' }),
+  );
+
+  expect(output).toMatch(/^Error:/);
+  expect(output).toContain(`TypeError: Cannot read properties of ${missing}`);
+  expect(output).toContain('browser_snapshot');
+  expect(pageScripts()).toEqual(['location.href', expression]);
+  expect(fs.readFileSync(savedPath, 'utf-8')).toBe('previous result');
+});
+
+test('unrelated TypeErrors retain their original diagnostic', async () => {
+  const { tools } = await loadTools();
+  const output = await tools.executeTool(
+    'browser_evaluate',
+    JSON.stringify({ expression: '({}).missingFunction()' }),
+  );
+
+  expect(output).toMatch(/^Error: .*TypeError: .*not a function/s);
+  expect(output).not.toContain('browser_snapshot');
 });
 
 test('a secret typed into the page cannot be read back by a page script', async () => {
@@ -172,7 +205,7 @@ test('a page on a private host runs no script unless private hosts are allowed',
 
 // A browser the gateway drives: the container reaches it through
 // /api/browser/tool, which answers like the gateway's Playwright sessions.
-async function loadGatewayTools() {
+async function loadGatewayTools(evaluationError?: string) {
   const { tools } = await loadTools();
   const calls: Array<Record<string, unknown>> = [];
   vi.stubGlobal(
@@ -184,6 +217,9 @@ async function loadGatewayTools() {
       }
       calls.push(body);
       const args = body.args as Record<string, unknown>;
+      if (evaluationError && args.expression !== 'location.href') {
+        return new Response(JSON.stringify({ success: false, error: evaluationError }));
+      }
       const result =
         args.expression === 'location.href'
           ? 'https://fair.example/exhibitors'
@@ -206,6 +242,22 @@ async function loadGatewayTools() {
       .map((call) => (call.args as Record<string, unknown>).expression);
   return { tools, evaluateCalls };
 }
+
+test('gateway evaluation failures get the same guidance without replaying', async () => {
+  const error = "TypeError: Cannot read properties of undefined (reading 'parentElement')";
+  const { tools, evaluateCalls } = await loadGatewayTools(error);
+  const expression = '[].find(() => true).parentElement';
+
+  const output = await tools.executeTool(
+    'browser_evaluate',
+    JSON.stringify({ expression }),
+  );
+
+  expect(output).toMatch(/^Error:/);
+  expect(output).toContain(error);
+  expect(output).toContain('browser_snapshot');
+  expect(evaluateCalls()).toEqual(['location.href', expression]);
+});
 
 test('a gateway browser checks the page, then runs the expression', async () => {
   const { tools, evaluateCalls } = await loadGatewayTools();
