@@ -612,52 +612,63 @@ test('observability ingest sends one batch per agent, named after the session ag
   ]);
 });
 
-test('observability ingest resumes from the cursor of the stream keyed by bot and agent', async () => {
-  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
-  await configureObservabilityFixture();
+test.each(['current', 'legacy', 'other-node'] as const)(
+  'observability ingest uses only its node cursor (%s)',
+  async (cursorKind) => {
+    setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+    await configureObservabilityFixture();
 
-  const sentRunIds: string[] = [];
-  const fetchMock = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (requestUrl(input).endsWith('/ingest-token:ensure')) {
-        return Response.json({ success: true, token: 'ingest-token' });
-      }
-      const payload = JSON.parse(String(init?.body)) as {
-        events: Array<{ run_id: string }>;
-      };
-      sentRunIds.push(...payload.events.map((event) => event.run_id));
-      return okIngestResponse(payload.events.length);
-    },
-  );
-  vi.stubGlobal('fetch', fetchMock);
-
-  const { initDatabase, setObservabilityOffset, withMemoryDatabase } =
-    await import('../src/memory/db.ts');
-  const { startObservabilityIngest, stopObservabilityIngest } = await import(
-    '../src/audit/observability-ingest.ts'
-  );
-  initDatabase({ quiet: true });
-  await recordObservabilityBotSetEvent('session-legacy', 'run-already-sent');
-  const lastSentId = withMemoryDatabase(
-    (database) =>
-      (
-        database.prepare('SELECT MAX(id) AS id FROM audit_events').get() as {
-          id: number;
+    const sentRunIds: string[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (requestUrl(input).endsWith('/ingest-token:ensure')) {
+          return Response.json({ success: true, token: 'ingest-token' });
         }
-      ).id,
-  );
-  setObservabilityOffset(
-    'https://hybridai.one/api/v1/agent-observability/events:batch|bot-observability|agent_main',
-    lastSentId,
-  );
-  await recordObservabilityBotSetEvent('session-legacy', 'run-new');
+        const payload = JSON.parse(String(init?.body)) as {
+          events: Array<{ run_id: string }>;
+        };
+        sentRunIds.push(...payload.events.map((event) => event.run_id));
+        return okIngestResponse(payload.events.length);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
 
-  startObservabilityIngest();
-  await vi.waitFor(() => {
-    expect(sentRunIds).toEqual(['run-new']);
-  });
-  stopObservabilityIngest();
-});
+    const { initDatabase, setObservabilityOffset, withMemoryDatabase } =
+      await import('../src/memory/db.ts');
+    const { startObservabilityIngest, stopObservabilityIngest } = await import(
+      '../src/audit/observability-ingest.ts'
+    );
+    initDatabase({ quiet: true });
+    await recordObservabilityBotSetEvent('session-legacy', 'run-already-sent');
+    const lastSentId = withMemoryDatabase(
+      (database) =>
+        (
+          database.prepare('SELECT MAX(id) AS id FROM audit_events').get() as {
+            id: number;
+          }
+        ).id,
+    );
+    const { resolveLocalInstanceId } = await import('../src/identity/agent-id.ts');
+    const cursorSuffixes = {
+      current: resolveLocalInstanceId(),
+      legacy: 'bot-observability|agent_main',
+      'other-node': 'another-node',
+    };
+    setObservabilityOffset(
+      `https://hybridai.one/api/v1/agent-observability/events:batch|${cursorSuffixes[cursorKind]}`,
+      lastSentId,
+    );
+    await recordObservabilityBotSetEvent('session-legacy', 'run-new');
+
+    startObservabilityIngest();
+    await vi.waitFor(() => {
+      expect(sentRunIds).toEqual(
+        cursorKind === 'current' ? ['run-new'] : ['run-already-sent', 'run-new'],
+      );
+    });
+    stopObservabilityIngest();
+  },
+);
 
 test('observability ingest identifies the install with a node id that survives a restart', async () => {
   setupHome({ HYBRIDAI_API_KEY: 'test-key' });

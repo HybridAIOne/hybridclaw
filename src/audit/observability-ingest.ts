@@ -2,7 +2,8 @@
  * Observability push — forwards local audit rows to the platform ingest API.
  *
  * The stream is keyed by this install's node id, not by bot or agent; each
- * batch carries the executing agent recorded at run start. NOT the audit trail
+ * batch carries the executing agent recorded at run start. A cursor from another
+ * stream never advances this node's export. NOT the audit trail
  * itself (`audit-trail.ts` owns the hash chain this module only relays).
  */
 import { randomUUID } from 'node:crypto';
@@ -28,7 +29,6 @@ import {
 } from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
-  getLatestObservabilityOffsetWithPrefix,
   getObservabilityIngestToken,
   getObservabilityOffset,
   setObservabilityIngestToken,
@@ -676,10 +676,7 @@ async function flushObservability(reason: string): Promise<void> {
     const streamKey = buildStreamKey(config);
     const observabilityHost = resolveObservabilityHost(config.ingestUrl);
     ingestState.streamKey = streamKey;
-    let cursor =
-      getObservabilityOffset(streamKey) ||
-      // compat: remove after v0.42 — resume the stream keyed by bot and agent instead of re-sending history.
-      getLatestObservabilityOffsetWithPrefix(`${config.ingestUrl}|`);
+    let cursor = getObservabilityOffset(streamKey);
     ingestState.lastCursor = cursor;
     const fetchLimit = clampInteger(
       config.batchMaxEvents * FETCH_LIMIT_FACTOR,

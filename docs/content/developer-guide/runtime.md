@@ -1017,7 +1017,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
   identity, including app-generated session IDs and delayed uploads after an
   agent switch. Records without a captured execution identity retain the
   session-key/default-agent fallback; already exported history is not rewritten.
-- persisted cursor: `observability_offsets`
+- persisted cursor: `observability_offsets`, keyed by ingest URL and node ID;
+  cursors from other nodes and retired bot/agent keys are never reused
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`
 
