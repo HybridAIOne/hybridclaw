@@ -58,9 +58,19 @@ const ENUM_OPTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
   'web.search.provider': ['auto', 'brave', 'perplexity', 'searxng', 'tavily'],
 };
 
-const SENSITIVE_SETTING_OWNERS: Readonly<Record<string, string>> = {
-  'ops.webApiToken': '/admin/gateway',
-  'ops.gatewayApiToken': '/admin/gateway',
+const GATEWAY_SETTING_OWNER = {
+  to: '/admin/gateway',
+  description: 'Credential values are managed outside runtime config.',
+  label: 'Open Gateway →',
+};
+const SETTING_OWNERS: Readonly<Record<string, typeof GATEWAY_SETTING_OWNER>> = {
+  'security.disabledSafetyRules': {
+    to: '/admin/safety-rules',
+    description: 'Review and enable or disable the installed safety rules.',
+    label: 'Open Safety blocks →',
+  },
+  'ops.webApiToken': GATEWAY_SETTING_OWNER,
+  'ops.gatewayApiToken': GATEWAY_SETTING_OWNER,
 };
 
 function initialSearchParam(name: string): string {
@@ -152,16 +162,15 @@ function SettingField(props: {
 }) {
   if (props.entry.owner) return <OwnedSettingRow entry={props.entry} />;
 
-  if (SENSITIVE_SETTING_OWNERS[props.entry.path]) {
+  const owner = SETTING_OWNERS[props.entry.path];
+  if (owner) {
     return (
       <div id={settingAnchor(props.entry.path)} className={styles.ownedSetting}>
         <div>
           <strong>{props.entry.label}</strong>
-          <span>Credential values are managed outside runtime config.</span>
+          <span>{owner.description}</span>
         </div>
-        <Link to={SENSITIVE_SETTING_OWNERS[props.entry.path]}>
-          Open Gateway →
-        </Link>
+        <Link to={owner.to}>{owner.label}</Link>
       </div>
     );
   }

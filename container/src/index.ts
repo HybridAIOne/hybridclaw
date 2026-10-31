@@ -92,6 +92,7 @@ import {
   WORKSPACE_ROOT_DISPLAY,
   WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
+import { configureSafetyRules } from './safety-rules.js';
 import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
@@ -2437,6 +2438,7 @@ async function main(): Promise<void> {
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
   const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
+  configureSafetyRules(firstInput.disabledSafetyRules);
   approvalRuntime.setApprovalMode({
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
@@ -2607,6 +2609,7 @@ async function main(): Promise<void> {
       media: input.media,
       audioTranscriptsPrepended: input.audioTranscriptsPrepended,
     });
+    configureSafetyRules(input.disabledSafetyRules);
     approvalRuntime.setApprovalMode({
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,

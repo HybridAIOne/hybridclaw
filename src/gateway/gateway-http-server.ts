@@ -528,6 +528,7 @@ import {
   evaluateConfiguredRouting,
   isJevAvailable,
 } from './routing-evaluator.js';
+import { handleSafetyRulesAdmin } from './safety-rules-admin.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -11232,6 +11233,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
             handleApiAdminAudit(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/safety-rules') {
+            await handleSafetyRulesAdmin(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
             return;
           }
           if (pathname === '/api/admin/approvals' && method === 'GET') {

@@ -57,7 +57,24 @@ Before tool execution, HybridClaw applies policy hooks that block known dangerou
 - remote shell execution patterns (for example `curl | sh`)
 - environment/file exfiltration patterns (`printenv|...|curl`, key-file piping)
 
-Implementation: [container/src/extensions.ts](./container/src/extensions.ts)
+All built-in shell and file-content patterns are listed in **Admin → Security →
+Safety blocks** (`/admin/safety-rules`). Rules are enabled by default. An operator
+with `admin.config.write` may explicitly disable individual rules for the whole
+gateway; this is a security-policy change, not tool consent. Other matching rules
+and the normal approval policy still apply. Enabled rules cannot be bypassed by
+approval replies or learning mode. Authentication, sandbox restrictions, network
+policy, and tool argument validation remain separate boundaries.
+
+Settings live in gateway-owned `security.disabledSafetyRules` and are sent through
+authenticated worker input on every turn. Changes take effect on the next turn,
+including in an existing worker; in-flight turns retain their snapshot. Unknown
+rule IDs are rejected, and missing settings enable all rules. Admin saves produce
+configuration revisions and `safety.rules_changed` audit events. These pattern
+checks are heuristics, not a complete shell parser or sandbox.
+
+Implementation: [shared catalog](./container/shared/safety-rules.js),
+[worker enforcement](./container/src/safety-rules.ts), and
+[admin controls](./src/gateway/safety-rules-admin.ts)
 
 ### 2.1) Trusted-Coworker Approvals
 

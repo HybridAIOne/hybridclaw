@@ -32,6 +32,7 @@ import { OutputGuardPage } from './routes/output-guard';
 import { PublishedToolsPage } from './routes/published-tools';
 import { RelationshipMemoryPage } from './routes/relationship-memory';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
+import { SafetyRulesPage } from './routes/safety-rules';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { TeamsPage } from './routes/teams';
@@ -183,6 +184,12 @@ const networkPolicyRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/network-policy',
   component: ApprovalsPage,
+});
+
+const safetyRulesRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/safety-rules',
+  component: SafetyRulesPage,
 });
 
 const legacyApprovalsRoute = createRoute({
@@ -612,6 +619,7 @@ const routeTree = rootRoute.addChildren([
     activityRoute,
     legacyStatisticsRoute,
     networkPolicyRoute,
+    safetyRulesRoute,
     legacyApprovalsRoute,
     federationRoute,
     legacyA2AInboxRoute,

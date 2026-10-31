@@ -69,6 +69,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
@@ -1251,6 +1252,7 @@ async function runContainerInner(
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
     ralphMaxIterations,
+    disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
     approvalMode,
     approvalUserText,
     approvalUserId,

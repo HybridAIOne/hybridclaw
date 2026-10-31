@@ -5,45 +5,13 @@
  */
 import { createHash } from 'node:crypto';
 import type { ToolApprovalEvaluation } from './approval-policy.js';
+import { activeSafetyBlock } from './safety-rules.js';
 import { parseToolArgsJson } from './tool-args.js';
 
 export const BASH_SAFETY_ACTION_KEY = 'bash:safety-guard';
 
-const DENY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\brm\s+-[rf]{1,2}\b/, reason: 'rm -r, rm -f, rm -rf' },
-  {
-    pattern: /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/,
-    reason: 'mkfs command at segment start',
-  },
-  {
-    pattern: /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/,
-    reason: 'format command at segment start (Windows)',
-  },
-  { pattern: /\bdd\s+if=/, reason: 'raw disk I/O' },
-  { pattern: /:\(\)\s*\{.*\};\s*:/, reason: 'fork bomb :(){ :|:& };:' },
-  { pattern: /\|\s*(sh|bash|zsh)\b/, reason: 'pipe to shell' },
-  { pattern: /;\s*rm\s+-[rf]/, reason: 'chained rm after semicolon' },
-  { pattern: /&&\s*rm\s+-[rf]/, reason: 'chained rm after &&' },
-  { pattern: /\|\|\s*rm\s+-[rf]/, reason: 'chained rm after ||' },
-  { pattern: /\bcurl\b.*\|\s*(sh|bash)/, reason: 'curl | sh' },
-  { pattern: /\bwget\b.*\|\s*(sh|bash)/, reason: 'wget | sh' },
-  { pattern: /\beval\b/, reason: 'eval execution' },
-  { pattern: /\bsource\s+.*\.sh\b/, reason: 'source shell scripts' },
-  { pattern: /\bpkill\b/, reason: 'process killing' },
-  { pattern: /\bkillall\b/, reason: 'process killing' },
-  { pattern: /\bkill\s+-9\b/, reason: 'force kill' },
-  { pattern: /\b(shutdown|reboot|poweroff)\b/, reason: 'system power control' },
-  { pattern: />\s*\/dev\/sd[a-z]\b/, reason: 'write to block devices' },
-];
-
 export function guardCommand(command: string): string | null {
-  const lower = command.toLowerCase();
-  for (const { pattern, reason } of DENY_PATTERNS) {
-    if (pattern.test(lower)) {
-      return `Command blocked by safety guard (${reason}). Approval cannot override this restriction.`;
-    }
-  }
-  return null;
+  return activeSafetyBlock('bash', command);
 }
 
 export function evaluateBashSafety(input: {
