@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 
 describe('resolveCurrentAdminNavItem', () => {
-  it('resolves a nav item by exact path', () => {
-    expect(resolveCurrentAdminNavItem('/admin/network-policy')).toMatchObject({
-      to: '/admin/network-policy',
-      label: 'Network Policy',
+  it.each([
+    ['/admin/security', 'Approvals & firewall'],
+    ['/admin/network-policy', 'Network Policy'],
+    ['/admin/safety-rules', 'Safety blocks'],
+  ])('resolves the security page title for %s', (to, label) => {
+    expect(resolveCurrentAdminNavItem(to)).toMatchObject({
+      to,
+      label,
     });
   });
 
