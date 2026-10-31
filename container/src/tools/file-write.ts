@@ -14,6 +14,7 @@ import {
   resolveFileWriteConflict,
 } from '../file-write-conflicts.js';
 import type { ToolDefinition } from '../types.js';
+import { fileSyntaxFeedback } from './file-syntax-feedback.js';
 
 export const WRITE_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -162,5 +163,5 @@ export function runFileWrite(
     throw error;
   }
   resolveFileWriteConflict(sessionId, args.path);
-  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}`;
+  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}${fileSyntaxFeedback(args.path, args.contents)}`;
 }
