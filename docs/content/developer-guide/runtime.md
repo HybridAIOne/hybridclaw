@@ -1221,6 +1221,9 @@ Prompt and runtime internals:
 - Waiting delegation resolves an execution worker to its unique active
   conversation owner. Released, aborted or ambiguous worker aliases cannot
   identify a parent; no durable alias session is created.
+- Each live delegated child has its own exact callback identity and model.
+  Nested calls inherit that child's model unless the caller or configured
+  delegate model selects another; a completed child's context is released.
 
 ## PDF reading
 
