@@ -130,6 +130,12 @@ Docker workers continue to use their mounted workspace for both purposes.
 Transcript and compaction archive references use absolute paths when their files
 live outside the execution workspace, so the read tool can still resolve them.
 
+HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
+against the worker state root, independently of its execution directory. Reads,
+vision analysis and attachment validation use the same resolver. The alias
+rejects traversal, links and roots outside the existing allowlist; it grants no
+write access and never searches another state directory or project cache.
+
 For isolated host evaluations, an operator can set
 `HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
 OpenAI-compatible requests with an explicit eval profile use it. The directory
