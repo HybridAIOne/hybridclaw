@@ -59,6 +59,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       trustModelVersion: '',
       trustModelAcceptedBy: '',
       confidentialRedactionEnabled: false,
+      disabledSafetyRules: [],
     },
     hybridai: {
       baseUrl: 'https://hybridai.one',

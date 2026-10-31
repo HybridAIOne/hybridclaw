@@ -555,6 +555,7 @@ export interface AdminEmailAccountConfig {
 export interface AdminConfig {
   version: number;
   security: {
+    disabledSafetyRules: string[];
     trustModelAccepted: boolean;
     trustModelAcceptedAt: string;
     trustModelVersion: string;

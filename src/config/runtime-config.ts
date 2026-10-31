@@ -23,6 +23,7 @@ import {
   normalizeMcpToolMode,
 } from '../../container/shared/local-tool-config.js';
 import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
+import { normalizeDisabledSafetyRules } from '../../container/shared/safety-rules.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -255,6 +256,7 @@ type DeepPartial<T> = {
 };
 
 export interface RuntimeSecurityConfig {
+  disabledSafetyRules: string[];
   trustModelAccepted: boolean;
   trustModelAcceptedAt: string;
   trustModelVersion: string;
@@ -1428,6 +1430,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   security: {
+    disabledSafetyRules: [],
     trustModelAccepted: false,
     trustModelAcceptedAt: '',
     trustModelVersion: '',
@@ -6946,6 +6949,9 @@ function normalizeRuntimeConfig(
       },
     },
     security: {
+      disabledSafetyRules: normalizeDisabledSafetyRules(
+        rawSecurity.disabledSafetyRules,
+      ),
       trustModelAccepted: normalizeBoolean(
         rawSecurity.trustModelAccepted,
         DEFAULT_RUNTIME_CONFIG.security.trustModelAccepted,

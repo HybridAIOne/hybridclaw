@@ -800,3 +800,27 @@ IPC and resumes the saved call without a second interpretation. A broker failure
 keeps execution blocked. Host API-token requests without a human chat identity
 cannot supply natural-language consent. The calendar rule does not override a
 platform broker's own approval requirement.
+
+
+## Configuring unconditional safety blocks
+
+Open **Admin → Security → Safety blocks** (`/admin/safety-rules`) to see the
+installed shell and file-content rules, their patterns, explanations, and enabled
+states. Toggle individual rules, then choose **Save changes**. **Enable all rules**
+restores the default selection; save it to apply. The page links to the audit
+history of changes. A stale edit is rejected so it cannot overwrite another
+operator's update; choose **Reload** to review the current settings.
+
+The setting is gateway-wide, stored as `security.disabledSafetyRules` in the
+runtime config, and requires `admin.config.write`. Missing settings keep every
+rule enabled. Invalid IDs are rejected. Workers receive a fresh snapshot through
+authenticated input each turn, including when they are reused. An in-flight turn
+finishes with its existing snapshot. No gateway restart is needed.
+
+An enabled rule blocks even in learning mode and cannot be overridden by a normal
+approval. Disabling a rule removes only that rule: overlapping patterns may still
+block the same action, and normal approval requirements remain. This screen
+configures built-in pattern guards; it does not change authentication, sandbox
+limits, network policy, or tool argument validation. Patterns are fixed in the
+installed catalog; these controls enable or disable them without accepting
+arbitrary regular expressions.

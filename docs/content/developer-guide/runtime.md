@@ -303,6 +303,7 @@ agent archives skip and `reset yes` removes with the workspace.
 
 | State | Lives in | When the worker exits |
 | --- | --- | --- |
+| Safety-rule configuration | Gateway runtime config; authenticated snapshot on every worker input | Rebuilt each turn; absent settings restore all guards |
 | Conversation, session settings, usage, audit trail | Gateway SQLite and data dir | Kept |
 | Agent files, memory, transcripts, artifacts | Workspace | Kept |
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
