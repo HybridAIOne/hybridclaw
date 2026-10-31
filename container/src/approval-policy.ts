@@ -2623,7 +2623,7 @@ export class TrustedAgentApprovalRuntime {
           'Reply `no` to deny.',
         ];
     return [
-      `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `I need your approval before I ${evaluation.intent}.`,
       `Proposed action: ${evaluation.commandPreview || evaluation.intent}`,
       `Classifier reasoning: ${formatStakesReasoning(evaluation.stakesScore)}`,
       ...(evaluation.escalationTarget
