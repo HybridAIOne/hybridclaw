@@ -827,6 +827,12 @@ The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
 
+`web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
+binary responses fail with a download continuation instead of entering model
+context as text. If available, `http_request` with `responseArtifact` saves the
+file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
+enough for the file. PDF and image inspection use the existing local-file tools.
+
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
 navigation; another search does not render it. Protection scripts alone do not

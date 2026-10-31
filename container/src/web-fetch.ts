@@ -1,5 +1,5 @@
 /**
- * Fetch public URLs within one timeout and the existing SSRF boundary.
+ * Fetch public text within one timeout and the existing SSRF boundary.
  * Extraction hints distinguish visible access challenges from pages needing
  * browser rendering; loading a protection script is not proof of blocking.
  * Unlike browser navigation, this tool never executes page JavaScript.
@@ -588,6 +588,21 @@ export interface WebFetchResult {
   nextPageUrl?: string;
 }
 
+function binaryResponseError(url: string, response: Response): Error {
+  const declaredBytes = Number(response.headers.get('content-length'));
+  const sizeHint =
+    Number.isSafeInteger(declaredBytes) && declaredBytes > 0
+      ? ` Declared size: ${declaredBytes} bytes.`
+      : '';
+  const next = {
+    name: 'http_request',
+    arguments: { method: 'GET', url, responseArtifact: {} },
+  };
+  return new Error(
+    `web_fetch cannot decode this binary response as text.${sizeHint} Download it with an available artifact tool and a bounded maxResponseBytes large enough for the file, then inspect the saved file with read or an appropriate permitted skill. If http_request is offered, use: ${JSON.stringify(next)}`,
+  );
+}
+
 export async function webFetch(params: {
   url: string;
   extractMode?: 'markdown' | 'text';
@@ -670,13 +685,26 @@ export async function webFetch(params: {
     const contentType =
       res.headers.get('content-type') ?? 'application/octet-stream';
     const normalizedContentType =
-      contentType.split(';')[0]?.trim() || 'application/octet-stream';
+      contentType.split(';')[0]?.trim().toLowerCase() ||
+      'application/octet-stream';
+    if (
+      normalizedContentType === 'application/pdf' ||
+      (/^(?:image|audio|video)\//.test(normalizedContentType) &&
+        !normalizedContentType.endsWith('+xml'))
+    ) {
+      void res.body?.cancel().catch(() => {});
+      if (!res.ok)
+        throw new Error(`Web fetch failed (${res.status}): ${res.statusText}`);
+      throw binaryResponseError(finalUrl, res);
+    }
     const bodyResult = await readResponseText(
       res,
       MAX_RESPONSE_BYTES,
       controller.signal,
     );
     const body = bodyResult.text;
+    if (body.startsWith('%PDF-') || body.includes('\0'))
+      throw binaryResponseError(finalUrl, res);
 
     let title: string | undefined;
     let extractor = 'raw';
