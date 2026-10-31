@@ -600,8 +600,7 @@ export async function webFetch(params: {
   );
 
   // Check cache
-  const cacheKey =
-    `fetch:${params.url}:${extractMode}:${maxChars}`.toLowerCase();
+  const cacheKey = `fetch:${params.url}:${extractMode}:${maxChars}`;
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
