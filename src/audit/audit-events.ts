@@ -1,3 +1,9 @@
+/**
+ * Tool decisions and outcomes share the redacted durable audit boundary.
+ * Learning observations preserve would-be approvals without claiming human
+ * consent. Unlike approval policy, this module records decisions, never grants
+ * permission or controls whether an action executes.
+ */
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/audit.js';

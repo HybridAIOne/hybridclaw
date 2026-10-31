@@ -1,5 +1,7 @@
 /**
- * Policy reads agent-owned state and preserves pinned denials on task actions.
+ * Policy classifies task actions and preserves unconditional denials.
+ * Explicit learning mode observes approvals, including pinned prompts, without
+ * granting trust; other modes enforce the pinned approval floor.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */

@@ -410,6 +410,7 @@ export function AuditPage(
             className={styles.categoryChip}
             data-category="approval"
             aria-pressed={parsed.eventType === 'approval.observed'}
+            data-active={parsed.eventType === 'approval.observed' || undefined}
             onClick={() =>
               setSearchInput((current) =>
                 setAuditField(current, 'type', 'approval.observed'),
