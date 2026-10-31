@@ -38,7 +38,7 @@ export function bashStateLines(): string[] {
 }
 
 export const AFTER_FILE_CHANGE_LINES = [
-  'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
+  'After file changes, run optional builds, tests or generated code only when asked; otherwise offer to run them.',
   'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
 ];
 
