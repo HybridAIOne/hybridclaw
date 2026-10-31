@@ -36,7 +36,7 @@ test('the real worker excludes commented text from large-page fallback output', 
     const result = body.messages.at(-1);
     expect(result?.role).toBe('tool');
     expect(result?.content).toContain('Visible article.');
-    expect(result?.content).not.toMatch(/Draft author|Discarded title|-->/);
+    expect(result?.content).not.toMatch(/Draft author|Discarded title|--!?>/);
     observed = true;
     return { role: 'assistant', content: 'The article is available.' };
   });

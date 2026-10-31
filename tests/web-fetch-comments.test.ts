@@ -31,7 +31,7 @@ test.each([
     expect(result.title).toBe('Field report');
     expect(result.text).toContain('Visible ending.');
     expect(result.text).not.toMatch(
-      /Draft section|Draft author|Discarded title|-->/,
+      /Draft section|Draft author|Discarded title|--!?>/,
     );
   },
 );
@@ -59,7 +59,7 @@ test.each([
   const result = await webFetch({ url: 'https://93.184.216.34/report' });
   expect(result.text).toContain('Visible start.');
   expect(result.text).toContain('Visible ending.');
-  expect(result.text).not.toMatch(/discarded|const marker|-->/);
+  expect(result.text).not.toMatch(/discarded|const marker|--!?>/);
 });
 
 test('fallback preserves escaped comment examples and ordinary custom tags', async () => {
