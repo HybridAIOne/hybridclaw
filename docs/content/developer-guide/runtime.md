@@ -238,6 +238,12 @@ by the text-editing tools, and existing command permissions continue to apply.
 
 ### Auxiliary Model Routing
 
+Model discovery retries on the next lookup if its initial request fails. An
+empty error fallback is not cached as a successful catalog, so a temporary
+startup outage does not hide model capabilities for the catalog's cache lifetime.
+Concurrent lookups share one request; populated catalogs keep their existing
+stale-cache and background-refresh behavior.
+
 Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
