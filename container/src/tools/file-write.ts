@@ -9,6 +9,10 @@ import {
   lockMemoryFile,
   writeMemoryFileAtomic,
 } from '../../shared/memory-file.js';
+import {
+  recordFileWriteConflict,
+  resolveFileWriteConflict,
+} from '../file-write-conflicts.js';
 import type { ToolDefinition } from '../types.js';
 
 export const WRITE_TOOL_DEFINITION: ToolDefinition = {
@@ -58,7 +62,7 @@ if [ "$overwrite" = true ]; then
   chmod --reference="$target" -- "$stage/content"
   mv -fT -- "$stage/content" "$target"
 else
-  ln -T -- "$stage/content" "$target" || { echo 'File already exists or cannot be created; replacement requires overwrite=true and expected_content.' >&2; exit 1; }
+  ln -T -- "$stage/content" "$target" || { echo 'File already exists or cannot be created; use a separate path for a new deliverable, or checked replacement.' >&2; exit 1; }
 fi`;
 
 export function runFileWrite(
@@ -73,6 +77,7 @@ export function runFileWrite(
       error?: Error;
     };
   },
+  sessionId = '',
 ): string {
   if (
     typeof args.path !== 'string' ||
@@ -88,68 +93,74 @@ export function runFileWrite(
     throw new Error('overwrite must be a boolean');
   }
   const overwrite = args.overwrite === true;
-  if (overwrite && typeof args.expected_content !== 'string') {
-    throw new Error(
-      'Replacement requires expected_content matching the entire current file',
-    );
-  }
-  if (!overwrite && args.expected_content !== undefined) {
-    throw new Error('expected_content requires overwrite=true');
-  }
   const target = resolvePath(args.path);
   if (!target) throw new Error(`Path escapes workspace: ${args.path}`);
-  if (sandbox) {
-    const result = sandbox.run({
-      args: ['exec', '-i', sandbox.container, 'bash', '-c', SANDBOX_WRITE],
-      input: [
-        target,
-        String(overwrite),
-        Buffer.from(
-          overwrite ? (args.expected_content as string) : '',
-        ).toString('base64'),
-        Buffer.from(args.contents).toString('base64'),
-      ]
-        .map((field) => `${field}\0`)
-        .join(''),
-    });
-    if (result.status !== 0) {
+  try {
+    if (overwrite && typeof args.expected_content !== 'string') {
       throw new Error(
-        result.stderr.trim() ||
-          result.error?.message ||
-          'Failed to write task sandbox file',
+        'Replacement requires expected_content matching the entire current file',
       );
     }
-  } else {
-    const release = lockMemoryFile(target);
-    try {
-      if (overwrite) {
-        const stat = fs.lstatSync(target, { throwIfNoEntry: false });
-        if (!stat?.isFile()) {
-          throw new Error('Replacement requires an existing regular file');
-        }
-        if (
-          !fs
-            .readFileSync(target)
-            .equals(Buffer.from(args.expected_content as string))
-        ) {
-          throw new Error(
-            'Stale write: expected_content does not match; read the file again',
-          );
-        }
-        writeMemoryFileAtomic(target, args.contents);
-      } else {
-        try {
-          writeFileAtomicExclusive(target, args.contents);
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-          throw new Error(
-            'File already exists; replacement requires overwrite=true and expected_content',
-          );
-        }
-      }
-    } finally {
-      release();
+    if (!overwrite && args.expected_content !== undefined) {
+      throw new Error('expected_content requires overwrite=true');
     }
+    if (sandbox) {
+      const result = sandbox.run({
+        args: ['exec', '-i', sandbox.container, 'bash', '-c', SANDBOX_WRITE],
+        input: [
+          target,
+          String(overwrite),
+          Buffer.from(
+            overwrite ? (args.expected_content as string) : '',
+          ).toString('base64'),
+          Buffer.from(args.contents).toString('base64'),
+        ]
+          .map((field) => `${field}\0`)
+          .join(''),
+      });
+      if (result.status !== 0) {
+        throw new Error(
+          result.stderr.trim() ||
+            result.error?.message ||
+            'Failed to write task sandbox file',
+        );
+      }
+    } else {
+      const release = lockMemoryFile(target);
+      try {
+        if (overwrite) {
+          const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+          if (!stat?.isFile()) {
+            throw new Error('Replacement requires an existing regular file');
+          }
+          if (
+            !fs
+              .readFileSync(target)
+              .equals(Buffer.from(args.expected_content as string))
+          ) {
+            throw new Error(
+              'Stale write: expected_content does not match; read the file again',
+            );
+          }
+          writeMemoryFileAtomic(target, args.contents);
+        } else {
+          try {
+            writeFileAtomicExclusive(target, args.contents);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+            throw new Error(
+              'File already exists; use a separate path for a new deliverable, or intentional overwrite=true with exact expected_content',
+            );
+          }
+        }
+      } finally {
+        release();
+      }
+    }
+  } catch (error) {
+    recordFileWriteConflict(sessionId, args.path);
+    throw error;
   }
+  resolveFileWriteConflict(sessionId, args.path);
   return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}`;
 }

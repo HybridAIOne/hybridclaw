@@ -156,6 +156,17 @@ A replacement worker reloads them; switching sessions clears the prior session's
 grants. These files use the existing pinned approval-state protections.
 
 
+Rejected `write` preconditions persist canonical file paths in
+`.hybridclaw-runtime/sessions/<session-key>/file-write-conflicts.json`.
+Until a checked write or edit succeeds for that file, non-green or write-intent
+Bash calls and deletion of that file or its parent require one-time approval,
+including in full-auto and evaluation sessions. This deliberately fences opaque
+scripts as well as direct redirects; unrelated shell mutations may also pause.
+Read-only diagnostics and writing a separate deliverable remain available.
+Replacement workers reload the conflicts. Corrupt or unreadable guard state and
+persistence errors fail closed; these records contain paths, never file contents.
+The existing pinned approval-state rules protect this directory.
+
 ### Auxiliary Model Routing
 
 Browser vision and auxiliary tools share one model context and task-policy store
