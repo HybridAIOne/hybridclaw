@@ -556,7 +556,7 @@ describe.sequential('container tool runtime guards', () => {
     expect(requestBody).toMatchObject({
       model: 'qwen/qwen2.5-vl',
     });
-    expect(requestBody.max_tokens).toBeUndefined();
+    expect(requestBody.max_tokens).toBe(321);
     expect(result.output).toContain('Detected via task model policy.');
   });
 
