@@ -40,6 +40,15 @@ User-directed browser authentication testing is permitted when the user explicit
 - Credentials must be used only for the requested auth flow on the intended domain.
 - Credentials must not be echoed in assistant prose, written to workspace files, or sent to unrelated domains.
 
+### 1.2) Visual Data Under Confidentiality
+
+Text redaction cannot sanitize pixels. When confidentiality redaction is enabled,
+the gateway denies binary visual delivery to both the primary model and auxiliary
+file/browser vision calls. Primary-model image capability is a separate routing
+fact and cannot grant visual-data permission. Workers rebuild these permissions
+on each input; a text-only primary may use configured vision tools only when the
+gateway permits pixel delivery.
+
 ### 2) Runtime Tool Blocking
 
 Before tool execution, HybridClaw applies policy hooks that block known dangerous patterns:
