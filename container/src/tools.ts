@@ -168,6 +168,11 @@ import type {
   ToolDefinition,
   ToolRunResult,
 } from './types.js';
+import {
+  analyzeVisualSnapshot,
+  VISION_ANALYZE_TOOL_DEFINITION,
+  VISION_IMAGE_MAX_BYTES,
+} from './vision-snapshot.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 export { resetPersistentBashSessions } from './bash-session.js';
@@ -386,7 +391,6 @@ let memoryTimezoneCache: {
   value: string | undefined;
 } | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
-const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
 const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
   new Set(
@@ -2120,6 +2124,17 @@ async function runVisionAnalyze(
     readStringValue(args.fallback_url) ||
     readStringValue(args.fallbackUrl) ||
     readStringValue(args.original_url);
+  if (args.snapshot !== undefined) {
+    if (imageRef || fallbackUrl)
+      return failTool('Error: Choose image_url or snapshot, not both.');
+    return analyzeVisualSnapshot(
+      { snapshot: args.snapshot, page: args.page, question },
+      runtimeContext,
+      toolName,
+    );
+  }
+  if (args.page !== undefined)
+    return failTool('Error: page requires a snapshot reference.');
   if (!imageRef) return failTool('Error: image_url is required');
 
   const candidates = [imageRef, fallbackUrl].filter((value): value is string =>
@@ -4425,7 +4440,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are delivered visually, never as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools; no separate vision call or cleanup is needed.`,
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are prepared for visual delivery, never decoded as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools. Dispatch reports whether the selected model received pixels and offers a durable reference for permitted vision analysis when needed. Temporary-file cleanup is handled by read.`,
       parameters: {
         type: 'object',
         properties: {
@@ -5210,36 +5225,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'vision_analyze',
-      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          image_url: {
-            type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
-          },
-          question: {
-            type: 'string',
-            description: 'Question to ask about the image.',
-          },
-          fallback_url: {
-            type: 'string',
-            description:
-              'Optional fallback Discord CDN URL if the local image path cannot be read.',
-          },
-          original_url: {
-            type: 'string',
-            description: 'Optional original URL alias for fallback_url.',
-          },
-        },
-        required: ['image_url', 'question'],
-      },
-    },
-  },
+  VISION_ANALYZE_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
