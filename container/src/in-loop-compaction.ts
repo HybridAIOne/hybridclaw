@@ -4,6 +4,7 @@
  * replacement. Unlike gateway session compaction, this changes only loop input;
  * failed or empty summaries never authorize a lossy heuristic replacement.
  * The visible summary target excludes the provider's reasoning allowance.
+ * Oversized regions shrink at complete exchanges; unselected evidence stays live.
  */
 import { extractResponseTextContent } from '../shared/response-text.js';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
@@ -167,7 +168,10 @@ export async function compactInLoop(params: {
     summaryTargetTokens: number,
   ) => Promise<ChatCompletionResponse>;
   archive: InLoopCompactionArchive;
+  inputFits?: (messages: ChatMessage[]) => boolean;
+  estimateTokens?: (messages: ChatMessage[]) => number;
 }): Promise<InLoopCompactionResult> {
+  const estimateTokens = params.estimateTokens ?? estimateMessageTokens;
   const region = buildCompactionRegion(params.history);
   const unchanged = (reason: string): InLoopCompactionResult => {
     console.error(`[context] in-loop compaction skipped reason=${reason}`);
@@ -189,6 +193,42 @@ export async function compactInLoop(params: {
     Math.min(1_024, Math.floor(contextWindowTokens * 0.08)),
   );
 
+  try {
+    if (
+      params.inputFits &&
+      !params.inputFits(
+        buildSummaryPromptMessages(region.middle, summaryTargetTokens),
+      )
+    ) {
+      const boundaries = findSafeToolExchangeBoundaries(region.middle).flatMap(
+        (safe, index) => (safe && index > 0 ? [index] : []),
+      );
+      let low = 0;
+      let high = boundaries.length - 1;
+      let end = 0;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = boundaries[mid];
+        if (
+          params.inputFits(
+            buildSummaryPromptMessages(
+              region.middle.slice(0, candidate),
+              summaryTargetTokens,
+            ),
+          )
+        ) {
+          end = candidate;
+          low = mid + 1;
+        } else high = mid - 1;
+      }
+      if (!end) return unchanged('summary_input_budget');
+      region.suffix = [...region.middle.slice(end), ...region.suffix];
+      region.middle = region.middle.slice(0, end);
+    }
+  } catch {
+    return unchanged('summary_budget_failed');
+  }
+
   // Keep the archive independent of any provider-side message normalization.
   let originals: ChatMessage[];
   try {
@@ -203,7 +243,7 @@ export async function compactInLoop(params: {
       summaryTargetTokens,
     );
     console.error(
-      `[context] in-loop summarizer inputTokens=${estimateMessageTokens(messages)} summaryTargetTokens=${summaryTargetTokens}`,
+      `[context] in-loop summarizer inputTokens=${estimateTokens(messages)} summaryTargetTokens=${summaryTargetTokens}`,
     );
     response = await params.summarize(messages, summaryTargetTokens);
   } catch (error) {
@@ -226,9 +266,7 @@ export async function compactInLoop(params: {
     role: 'assistant',
     content: `${SUMMARY_LABEL}\n${summary}\n\nOriginal messages: ${params.archive.path}`,
   };
-  if (
-    estimateMessageTokens([summaryMessage]) >= estimateMessageTokens(originals)
-  ) {
+  if (estimateTokens([summaryMessage]) >= estimateTokens(originals)) {
     return unchanged('no_shrink');
   }
 

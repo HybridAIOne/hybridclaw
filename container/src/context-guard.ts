@@ -7,11 +7,13 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../shared/context-guard-config.js';
-import {
-  estimateMessageTokens,
-  type TokenEstimateCache,
-} from './token-usage.js';
-import type { ChatMessage, ContextGuardConfig } from './types.js';
+import { estimateVisualMessageTokens } from './providers/visual-content.js';
+import type { TokenEstimateCache } from './token-usage.js';
+import type {
+  ChatMessage,
+  ContextGuardConfig,
+  ToolDefinition,
+} from './types.js';
 
 export interface ContextGuardResult {
   totalTokensAfter: number;
@@ -31,6 +33,8 @@ export function applyContextGuard(params: {
   promptOverheadTokens?: number;
   config?: Partial<ContextGuardConfig>;
   cache?: TokenEstimateCache;
+  providerMethod?: string;
+  tools?: ToolDefinition[];
 }): ContextGuardResult {
   const config = resolveConfig(params.config);
   const contextWindowTokens = Math.max(
@@ -61,7 +65,8 @@ export function applyContextGuard(params: {
   const tier3BudgetTokens =
     promptOverheadTokens > 0 ? contextWindowTokens : overflowBudgetTokens;
   const totalTokens =
-    estimateMessageTokens(params.history, params.cache) + promptOverheadTokens;
+    estimateVisualMessageTokens(params.history, params, params.cache) +
+    promptOverheadTokens;
 
   return {
     totalTokensAfter: totalTokens,
