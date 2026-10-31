@@ -780,7 +780,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${workspaceLabel}`,
     ...(runtimeInfo.skillWorkspacePath
       ? [
-          `Skill workspace: ${sanitizePromptInlineValue(runtimeInfo.skillWorkspacePath)}. Run workspace-relative skill helper commands from this directory; keep deliverables in the execution workspace above.`,
+          `Skill workspace: ${sanitizePromptInlineValue(runtimeInfo.skillWorkspacePath)}. Run commands using \`skills/...\` or \`.agents/skills/...\` helper paths from this directory; use the execution workspace above for task inputs and deliverables.`,
         ]
       : []),
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
