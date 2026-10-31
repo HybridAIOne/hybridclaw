@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { beforeEach, describe, expect, test } from 'vitest';
-import type { ChatMessage } from '../src/types/api.js';
-import type { ContainerInput } from '../src/types/container.js';
 import { toolResultFilePath } from '../container/shared/tool-history.js';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
-import { useTempDir } from './test-utils.js';
+import type { ChatMessage } from '../src/types/api.js';
+import type { ContainerInput } from '../src/types/container.js';
 import { runContainerWorker } from './helpers/container-worker.js';
+import { useTempDir } from './test-utils.js';
 
 interface Reply {
   status: number;
@@ -472,7 +472,20 @@ describe('provider context-length rejections in the tool loop', () => {
       },
     );
     try {
-      const output = await runTurn(server, { messages, contextWindow: 24_000 });
+      const output = await runTurn(server, {
+        messages,
+        contextWindow: 24_000,
+        taskModels: {
+          compression: {
+            provider: 'hybridai',
+            model: 'compression-model',
+            baseUrl: server.baseUrl,
+            apiKey: 'test-key',
+            chatbotId: 'test-bot',
+            contextWindow: 128_000,
+          },
+        },
+      });
 
       expect(output).toMatchObject({ status: 'success', result: 'done' });
       expect(server.summaryInputs).toHaveLength(1);
@@ -599,7 +612,19 @@ describe('provider context-length rejections in the tool loop', () => {
   test('stops before a request when the compression model has no context room', async () => {
     const server = await startModelServer(() => completion('should not run'));
     try {
-      const output = await runTurn(server, { contextWindow: 6_000 });
+      const output = await runTurn(server, {
+        contextWindow: 6_000,
+        taskModels: {
+          compression: {
+            provider: 'hybridai',
+            model: 'compression-model',
+            baseUrl: server.baseUrl,
+            apiKey: 'test-key',
+            chatbotId: 'test-bot',
+            contextWindow: 128,
+          },
+        },
+      });
       expect(output.status).toBe('error');
       expect(output.error).toContain('Context window exhausted');
       expect(server.summaryRequests).toBe(0);
@@ -610,6 +635,24 @@ describe('provider context-length rejections in the tool loop', () => {
         sessions.every(
           (session) =>
             !fs.existsSync(path.join(state, session, 'in-loop-compactions')),
+        ),
+      ).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
+  test('recovers with bounded summary regions when the compression window is small', async () => {
+    const server = await startModelServer(() => completion('done'));
+    try {
+      const output = await runTurn(server, { contextWindow: 6_000 });
+      expect(output).toMatchObject({ status: 'success', result: 'done' });
+      expect(server.summaryRequests).toBeGreaterThan(0);
+      expect(server.loopRequests).toHaveLength(1);
+      expect(server.loopRequests[0].at(-1)).toEqual(conversation().at(-1));
+      expect(
+        server.summaryInputs.every(
+          (input) => input.length < conversation().length,
         ),
       ).toBe(true);
     } finally {
