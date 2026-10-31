@@ -1,3 +1,9 @@
+export const SECURITY_TABS = [
+  { id: 'approvals', label: 'Approval modes' },
+  { id: 'safety', label: 'Safety blocks' },
+  { id: 'network', label: 'Network policy' },
+] as const;
+
 export const ACTIVITY_TABS = [
   { id: 'usage', label: 'Usage' },
   { id: 'sessions', label: 'Sessions' },
@@ -37,6 +43,7 @@ export const FEDERATION_TABS = [
 ] as const;
 
 export const ADMIN_TAB_GROUPS = [
+  { label: 'Approvals & firewall', to: '/admin/security', tabs: SECURITY_TABS },
   { label: 'Activity', to: '/admin/activity', tabs: ACTIVITY_TABS },
   { label: 'Agents', to: '/admin/agents', tabs: AGENT_TABS },
   { label: 'Jobs', to: '/admin/automation', tabs: AUTOMATION_TABS },

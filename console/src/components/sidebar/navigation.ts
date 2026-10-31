@@ -88,11 +88,10 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Security',
     items: [
       {
-        to: '/admin/network-policy',
-        label: 'Network Policy',
-        icon: Network,
+        to: '/admin/security',
+        label: 'Approvals & firewall',
+        icon: Policy,
       },
-      { to: '/admin/safety-rules', label: 'Safety blocks', icon: Policy },
       { to: '/admin/output-guard', label: 'Output Guard', icon: Policy },
       { to: '/admin/credentials', label: 'Credentials', icon: Secrets },
     ],

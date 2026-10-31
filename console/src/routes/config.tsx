@@ -64,8 +64,14 @@ const GATEWAY_SETTING_OWNER = {
   label: 'Open Gateway →',
 };
 const SETTING_OWNERS: Readonly<Record<string, typeof GATEWAY_SETTING_OWNER>> = {
+  'security.defaultApprovalMode': {
+    to: '/admin/security',
+    description:
+      'Set the approval mode for new conversations or change one existing conversation.',
+    label: 'Open Approvals & firewall →',
+  },
   'security.disabledSafetyRules': {
-    to: '/admin/safety-rules',
+    to: '/admin/security?tab=safety',
     description: 'Review and enable or disable the installed safety rules.',
     label: 'Open Safety blocks →',
   },

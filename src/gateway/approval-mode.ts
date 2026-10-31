@@ -3,7 +3,8 @@
  * effective mode a turn runs with.
  *
  * An explicit learning choice survives `/fullauto`; other full-auto turns
- * run in `full`. Only a human command changes it, and every change is audited.
+ * run in `full`. Human commands and authorized admin edits change it; every
+ * change is audited.
  * NOT the approval pipeline (`container/src/approval-policy.ts` applies the
  * mode) and NOT `/approve`, which answers a single pending request.
  */
@@ -89,6 +90,18 @@ export function handleApprovalsCommand(params: {
   if (!isApprovalMode(next)) {
     return { kind: 'error', title: 'Usage', text: usage };
   }
+  const updated = setSessionApprovalMode(session, next, {
+    userId: req.userId ?? null,
+    channelId: req.channelId,
+  });
+  return modeResult(updated, json);
+}
+
+export function setSessionApprovalMode(
+  session: Session,
+  next: ApprovalMode,
+  audit: { userId?: string | null; channelId: string; actor?: string | null },
+): Session {
   const previous = session.approval_mode;
   if (previous !== next) {
     updateSessionApprovalMode(session.id, next);
@@ -99,11 +112,11 @@ export function handleApprovalsCommand(params: {
         type: 'approval.mode_changed',
         from: previous,
         to: next,
-        user_id: req.userId ?? null,
-        channel_id: req.channelId,
+        user_id: audit.userId ?? null,
+        channel_id: audit.channelId,
+        ...(audit.actor ? { actor: audit.actor } : {}),
       },
     });
   }
-  const updated: Session = { ...session, approval_mode: next };
-  return modeResult(updated, json);
+  return { ...session, approval_mode: next };
 }
