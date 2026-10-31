@@ -3,6 +3,7 @@
  * Every selected message reaches the summarizer intact and is archived before
  * replacement. Unlike gateway session compaction, this changes only loop input;
  * failed or empty summaries never authorize a lossy heuristic replacement.
+ * The visible summary target excludes the provider's reasoning allowance.
  */
 import { extractResponseTextContent } from '../shared/response-text.js';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
@@ -139,7 +140,10 @@ function buildCompactionRegion(history: ChatMessage[]): {
   };
 }
 
-function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
+function buildSummaryPromptMessages(
+  compacted: ChatMessage[],
+  summaryTargetTokens: number,
+): ChatMessage[] {
   return [
     ...compacted,
     {
@@ -148,6 +152,7 @@ function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
         'Summarize the preceding conversation region so the agent can continue working without losing state.',
         'Preserve the user goal, active plan, tool outputs that still matter, file paths, commands, URLs, errors, decisions, and unresolved follow-ups.',
         'Drop filler and repetitive detail.',
+        `Target at most ${summaryTargetTokens} tokens of summary text; reasoning is separate from this target.`,
         'Return a concise plain markdown summary only. Do not execute tools or continue the task.',
       ].join('\n'),
     },
@@ -159,7 +164,7 @@ export async function compactInLoop(params: {
   contextWindowTokens?: number;
   summarize: (
     messages: ChatMessage[],
-    maxTokens: number,
+    summaryTargetTokens: number,
   ) => Promise<ChatCompletionResponse>;
   archive: InLoopCompactionArchive;
 }): Promise<InLoopCompactionResult> {
@@ -179,7 +184,7 @@ export async function compactInLoop(params: {
     1_024,
     Math.floor(params.contextWindowTokens || 128_000),
   );
-  const maxSummaryTokens = Math.max(
+  const summaryTargetTokens = Math.max(
     256,
     Math.min(1_024, Math.floor(contextWindowTokens * 0.08)),
   );
@@ -193,11 +198,14 @@ export async function compactInLoop(params: {
   }
   let response: ChatCompletionResponse;
   try {
-    const messages = buildSummaryPromptMessages(structuredClone(originals));
-    console.error(
-      `[context] in-loop summarizer inputTokens=${estimateMessageTokens(messages)} maxOutputTokens=${maxSummaryTokens}`,
+    const messages = buildSummaryPromptMessages(
+      structuredClone(originals),
+      summaryTargetTokens,
     );
-    response = await params.summarize(messages, maxSummaryTokens);
+    console.error(
+      `[context] in-loop summarizer inputTokens=${estimateMessageTokens(messages)} summaryTargetTokens=${summaryTargetTokens}`,
+    );
+    response = await params.summarize(messages, summaryTargetTokens);
   } catch (error) {
     return unchanged(
       isContextWindowExceededError(error)

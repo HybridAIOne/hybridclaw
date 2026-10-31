@@ -25,7 +25,7 @@ export const PDF_READ_PARAMETERS = {
     type: 'string',
     enum: ['auto', 'never'],
     description:
-      'PDF images: auto attaches selected pages directly to the model; never extracts text only.',
+      'PDF images: auto prepares selected pages for visual delivery; dispatch reports actual coverage and permitted analysis paths. render=never extracts text only.',
   },
 };
 
