@@ -84,3 +84,17 @@ test('a running full-auto loop forces full access regardless of the stored mode'
   expect(effective()).toBe('full');
   expect(memoryService.getSessionById('s-loop')?.approval_mode).toBe('auto');
 });
+
+test('learning is persisted, audited, and remains effective during full-auto', async () => {
+  const { db, memoryService, run, effective } = await setup('s-learning');
+  expect(JSON.parse((await run('mode', 'learning', '--json')).text)).toEqual({ approvalMode: 'learning' });
+  expect(memoryService.getSessionById('s-learning')?.approval_mode).toBe('learning');
+  db.updateSessionFullAuto('s-learning', { enabled: true });
+  expect(effective()).toBe('learning');
+  const { resolveSessionApprovalMode } = await import('../src/gateway/approval-mode.js');
+  expect(resolveSessionApprovalMode(memoryService.getSessionById('s-learning')!, true)).toBe('learning');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
+  await flushAuditTrail();
+  const event = db.getRecentStructuredAuditForSession('s-learning').find(row => row.event_type === 'approval.mode_changed');
+  expect(JSON.parse(event?.payload || '{}')).toMatchObject({ from: 'auto', to: 'learning', user_id: 'user_a' });
+});

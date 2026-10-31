@@ -1,3 +1,9 @@
+/**
+ * Tool decisions and outcomes share the redacted durable audit boundary.
+ * Learning observations preserve would-be approvals without claiming human
+ * consent. Unlike approval policy, this module records decisions, never grants
+ * permission or controls whether an action executes.
+ */
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/audit.js';
@@ -216,11 +222,39 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         arguments: auditArguments,
+        ...(execution.approvalObservation
+          ? { approvalObservation: execution.approvalObservation }
+          : {}),
         ...(recipients.length > 0 ? { recipientDomains: recipients } : {}),
         ...(senders.length > 0 ? { senderDomains: senders } : {}),
         anomaly,
       },
     });
+
+    if (execution.approvalObservation) {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'approval.observed',
+          toolCallId,
+          toolName: execution.name,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          mode: 'learning',
+          wouldDecision: execution.approvalObservation.decision,
+          tier: execution.approvalObservation.tier,
+          pinned: execution.approvalObservation.pinned,
+          reason: execution.approvalObservation.reason,
+          arguments: auditArguments,
+          actualDecision: effectiveDecision,
+          outcome: execution.blocked
+            ? 'blocked'
+            : execution.isError
+              ? 'error'
+              : 'succeeded',
+        },
+      });
+    }
 
     recordAuditEvent({
       sessionId,

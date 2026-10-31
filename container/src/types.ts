@@ -1,4 +1,7 @@
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type {
+  ApprovalMode,
+  ApprovalObservation,
+} from '../shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -327,6 +330,7 @@ export function normalizeEscalationTarget(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;

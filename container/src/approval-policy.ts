@@ -1,5 +1,7 @@
 /**
- * Policy reads agent-owned state and preserves pinned denials on task actions.
+ * Policy classifies task actions and preserves unconditional denials.
+ * Explicit learning mode observes approvals, including pinned prompts, without
+ * granting trust; other modes enforce the pinned approval floor.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
@@ -10,7 +12,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
-import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
+import type {
+  ApprovalObservation,
+  ApprovalMode as SessionApprovalMode,
+} from '../shared/approval-mode.js';
 import type { ApprovalReplyInterpretation } from '../shared/approval-reply.js';
 import {
   APPROVAL_TRUST_STORE_FILES,
@@ -50,6 +55,11 @@ import {
   type ApprovalDirective,
   parseApprovalUserResponse,
 } from './approval-directive.js';
+import {
+  observeLearningApproval,
+  resolveApprovalPrompt,
+  resolveApprovalQueue,
+} from './approval-prompt-rule.js';
 import { approvalReason } from './approval-reason.js';
 import {
   messageToolEmailTarget,
@@ -258,6 +268,7 @@ export interface ApprovalPrelude {
 }
 
 export interface ToolApprovalEvaluation {
+  approvalObservation?: ApprovalObservation;
   baseTier: ApprovalTier;
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;
@@ -1812,9 +1823,8 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   red_full_auto(context) {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
-    // Pinned calls prompt in every mode (owner call, 2026-09-27), as
-    // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
-    // exemption.
+    // Full access keeps the pinned floor. Learning mode observes the prompt
+    // later, before queuing it (owner request, 2026-10-31).
     if (
       context.helpers.approvalMode() === 'full' &&
       !requirePinned(context) &&
@@ -1833,61 +1843,31 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
 
   red_queue(context) {
     if (!isRedRuleActive(context)) return nextRule();
-    if (
-      context.helpers.getPendingCount() < context.policy.maxPendingApprovals
-    ) {
-      return nextRule();
-    }
-    return decision(
-      buildEvaluation(context, {
-        tier: 'red',
-        decision: 'denied',
-        escalationRoute: 'policy_denial',
-        consequenceIfDenied:
-          'If this is denied, I will continue with non-destructive alternatives only.',
-        reason: `Approval queue is full (${context.policy.maxPendingApprovals} pending).`,
-      }),
-    );
-  },
-
-  red_prompt(context) {
-    if (!isRedRuleActive(context)) return nextRule();
-    const classified = requireClassified(context);
-    // A card for a bot or webhook would wait for a click that never comes.
-    if (context.helpers.approvalUserIsBot() && !context.escalationTarget) {
-      return decision(
-        buildEvaluation(context, {
-          tier: 'red',
-          decision: 'denied',
-          escalationRoute: 'policy_denial',
-          reason:
-            'another bot or a webhook started this turn, so no person can approve this step',
-        }),
-      );
-    }
-    const request = context.helpers.getOrCreatePending({
-      fingerprint: requireFingerprint(context),
-      actionKey: classified.actionKey,
-      toolName: context.params.toolName,
-      argsJson: context.params.argsJson,
-      intent: classified.intent,
-      consequenceIfDenied: classified.consequenceIfDenied,
-      reason: approvalReason(context, classified),
-      commandPreview: classified.commandPreview,
-      originalPrompt: context.params.latestUserPrompt,
-      pinned: requirePinned(context),
-    });
-    return decision(
+    const result = resolveApprovalQueue(
+      context,
       buildEvaluation(context, {
         tier: 'red',
         decision: 'required',
         escalationRoute: 'approval_request',
-        requestId: request.id,
-        expiresAtMs: request.expiresAtMs,
-        pausedBy: requirePinned(context)
-          ? 'protected'
-          : context.raisedBy || 'risky',
       }),
+    );
+    return result ? decision(result) : nextRule();
+  },
+
+  red_prompt(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    return decision(
+      resolveApprovalPrompt(
+        context,
+        buildEvaluation(context, {
+          tier: 'red',
+          decision: 'required',
+          escalationRoute: 'approval_request',
+          pausedBy: requirePinned(context)
+            ? 'protected'
+            : context.raisedBy || 'risky',
+        }),
+      ),
     );
   },
 
@@ -1925,7 +1905,12 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   green_fallback(context) {
-    return decision(buildEvaluation(context));
+    return decision(
+      observeLearningApproval(
+        buildEvaluation(context),
+        context.helpers.approvalMode(),
+      ),
+    );
   },
 };
 
@@ -2565,7 +2550,7 @@ export class TrustedAgentApprovalRuntime {
     evaluation: ToolApprovalEvaluation,
     succeeded: boolean,
   ): void {
-    if (!succeeded) return;
+    if (!succeeded || evaluation.approvalObservation) return;
     this.bumpCount(this.actionExecutionCounts, evaluation.actionKey);
     if (
       evaluation.decision !== 'required' &&

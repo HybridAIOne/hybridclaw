@@ -1,4 +1,4 @@
-export const APPROVAL_MODES: readonly ['ask', 'auto', 'full'];
+export const APPROVAL_MODES: readonly ['ask', 'auto', 'full', 'learning'];
 
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
@@ -9,3 +9,11 @@ export const APPROVAL_MODE_PRESENTATION: Readonly<
 >;
 
 export function isApprovalMode(value: unknown): value is ApprovalMode;
+
+/** The normal auto-mode decision observed without asking or granting trust. */
+export interface ApprovalObservation {
+  decision: 'required' | 'implicit';
+  tier: 'green' | 'yellow' | 'red';
+  pinned: boolean;
+  reason: string;
+}
