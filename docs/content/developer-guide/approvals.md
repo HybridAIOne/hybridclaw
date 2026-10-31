@@ -204,20 +204,39 @@ Two important transitions:
 
 Each session has an approval mode. It changes how many of the tiers above stop
 for a human. Pick it from the chip next to the model in the web chat composer,
-or with `/approvals mode [ask|auto|full]` on any surface.
+or with `/approvals mode [ask|auto|full|learning]` on any surface.
 
 | Mode | Label | Green | Yellow | Red |
 | --- | --- | --- | --- | --- |
 | `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
 | `auto` (default) | Auto | Runs | Runs | Prompts |
 | `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+| `learning` | Learning | Runs | Records the normal notice and runs without waiting | Records the normal approval requirement and runs, including pinned actions; unconditional denials remain enforced |
 
 - The mode is stored per session. A new chat and `/reset` start at `auto`;
   an automatic idle-expiry reset keeps the mode.
-- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- A running `/fullauto` loop uses `full` unless the session explicitly selects `learning`.
 - Trust you already granted (`yes for session`, `agent`, or `all`) still
   applies in `ask`.
 - Every mode change is written to the audit log as `approval.mode_changed`.
+
+Learning is an opt-in observation mode, not a dry run: actions execute. It
+evaluates the normal `auto` policy but suppresses its prompts and implicit waits.
+It does not create pending approvals, record human consent, grant durable trust,
+or train approval promotion from observed actions. Returning to `auto` restores
+normal prompting. Older pending calls are not automatically answered or replayed.
+Unconditional shell blocks, explicit policy denials, authentication, sandbox
+limits, and remote providers' own consent requirements remain enforced. Credit
+purchase confirmations are separate from tool approval policy.
+
+In `/admin/approvals`, choose **Review learning flags**, or use **Learning flags**
+in the audit view. These `approval.observed` events carry the tool call ID,
+normal decision, reason, tier, pinned status, redacted arguments, and actual
+outcome. `succeeded`, `error`, and `blocked` distinguish permission to proceed
+from execution success. Events use the ordinary durable audit and observability
+ingestion path; remote visibility requires observability ingestion to be enabled.
+The action reference below describes enforcement modes; learning observes their
+approval requirements while preserving unconditional denials.
 
 ## Action Reference
 
@@ -800,3 +819,27 @@ IPC and resumes the saved call without a second interpretation. A broker failure
 keeps execution blocked. Host API-token requests without a human chat identity
 cannot supply natural-language consent. The calendar rule does not override a
 platform broker's own approval requirement.
+
+
+## Configuring unconditional safety blocks
+
+Open **Admin → Security → Safety blocks** (`/admin/safety-rules`) to see the
+installed shell and file-content rules, their patterns, explanations, and enabled
+states. Toggle individual rules, then choose **Save changes**. **Enable all rules**
+restores the default selection; save it to apply. The page links to the audit
+history of changes. A stale edit is rejected so it cannot overwrite another
+operator's update; choose **Reload** to review the current settings.
+
+The setting is gateway-wide, stored as `security.disabledSafetyRules` in the
+runtime config, and requires `admin.config.write`. Missing settings keep every
+rule enabled. Invalid IDs are rejected. Workers receive a fresh snapshot through
+authenticated input each turn, including when they are reused. An in-flight turn
+finishes with its existing snapshot. No gateway restart is needed.
+
+An enabled rule blocks even in learning mode and cannot be overridden by a normal
+approval. Disabling a rule removes only that rule: overlapping patterns may still
+block the same action, and normal approval requirements remain. This screen
+configures built-in pattern guards; it does not change authentication, sandbox
+limits, network policy, or tool argument validation. Patterns are fixed in the
+installed catalog; these controls enable or disable them without accepting
+arbitrary regular expressions.

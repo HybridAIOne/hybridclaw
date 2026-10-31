@@ -30,6 +30,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { evalWorkspaceOverrides } from './eval-workspace.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { getGatewayAdminModels } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
@@ -44,6 +45,7 @@ import {
 } from './openai-compatible-request.js';
 import {
   buildOpenAICompatibleCompletionResponse,
+  buildOpenAICompatibleExecutionExtensions,
   buildOpenAICompatibleModelsResponse,
   buildOpenAICompatibleStreamRoleChunk,
   buildOpenAICompatibleStreamStopChunk,
@@ -253,6 +255,10 @@ function buildGatewayChatRequest(params: {
     params.prepared.profile.omitPromptParts.length > 0
       ? { omitPromptParts: params.prepared.profile.omitPromptParts }
       : {}),
+    ...evalWorkspaceOverrides(
+      params.prepared.isEvalRequest,
+      params.prepared.requestAgentId,
+    ),
     source: 'gateway.chat.openai-compatible',
   };
 }
@@ -452,15 +458,7 @@ async function handleOpenAICompatibleNonStreamingChat(
     model: responseModel,
     content: typeof result.result === 'string' ? result.result : '',
     tokenUsage: result.tokenUsage,
-    ...(result.delegation
-      ? {
-          extensions: {
-            hybridclaw: {
-              delegation: result.delegation,
-            },
-          },
-        }
-      : {}),
+    extensions: buildOpenAICompatibleExecutionExtensions(result),
   });
   res.writeHead(200, {
     ...responseTraceHeaders,
@@ -622,15 +620,7 @@ async function handleOpenAICompatibleStreamingChat(
         completionId,
         created,
         model: responseModel,
-        ...(result.delegation
-          ? {
-              extensions: {
-                hybridclaw: {
-                  delegation: result.delegation,
-                },
-              },
-            }
-          : {}),
+        extensions: buildOpenAICompatibleExecutionExtensions(result),
       }),
     );
 

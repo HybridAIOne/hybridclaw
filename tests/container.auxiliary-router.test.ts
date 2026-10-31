@@ -21,7 +21,7 @@ describe('container auxiliary router', () => {
         expect(body).toMatchObject({
           model: 'qwen/qwen2.5-vl',
         });
-        expect(body.max_tokens).toBeUndefined();
+        expect(body.max_tokens).toBe(321);
         return new Response(
           JSON.stringify({
             id: 'resp_aux',
@@ -153,7 +153,7 @@ describe('container auxiliary router', () => {
         expect(body).toMatchObject({
           model: 'mistral-small',
         });
-        expect(body.max_tokens).toBeUndefined();
+        expect(body.max_tokens).toBe(222);
         return new Response(
           JSON.stringify({
             id: 'resp_aux_text',

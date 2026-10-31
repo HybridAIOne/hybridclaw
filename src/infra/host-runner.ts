@@ -1,5 +1,5 @@
 /**
- * Runner binds model credentials and per-agent configuration to one request.
+ * Runner binds request credentials and agent-owned state independently of task cwd.
  * Optional shell OAuth credentials are resolved at tool execution, not here.
  * Local starter names control schema visibility; the independent allowed/blocked
  * tool lists remain the permission boundary enforced by the worker.
@@ -54,6 +54,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
 import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
@@ -83,6 +84,7 @@ import {
   takeSlideSamples,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
@@ -133,6 +135,7 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import { recoverWorkerOutput } from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
@@ -636,7 +639,9 @@ function getOrSpawnHostProcess(
     workspacePathOverride: params.workspacePathOverride,
   });
   fs.mkdirSync(workspacePath, { recursive: true });
-  ensureWorkspaceNodeModulesLink(workspacePath);
+  const stateRoot = hostWorkspaceStateRoot(params);
+  fs.mkdirSync(stateRoot, { recursive: true });
+  ensureWorkspaceNodeModulesLink(stateRoot);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
@@ -684,10 +689,11 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
       ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
+    HYBRIDCLAW_AGENT_STATE_ROOT: stateRoot,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',
     HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(
-      buildHostAllowedRoots([workspacePath]),
+      buildHostAllowedRoots([workspacePath, stateRoot]),
     ),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
@@ -935,6 +941,7 @@ async function runHostProcessInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     escalationTarget,
@@ -1033,6 +1040,7 @@ async function runHostProcessInner(
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
     ralphMaxIterations,
+    disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
     approvalMode,
     dryRun,
     approvalUserText,
@@ -1066,6 +1074,7 @@ async function runHostProcessInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,
@@ -1198,7 +1207,7 @@ async function runHostProcessInner(
       });
     }
 
-    const output = await readOutput(
+    let output = await readOutput(
       entry.ipcSessionId,
       requestId,
       inactivityTimeoutMs === undefined
@@ -1221,6 +1230,13 @@ async function runHostProcessInner(
       );
       stopSessionHostProcess(sessionId);
     }
+    output = recoverWorkerOutput(
+      output,
+      hostWorkspaceStateRoot(params),
+      sessionId,
+      input.runId || input.requestId,
+      Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
+    );
     remapOutputArtifacts(
       output,
       workspacePath,

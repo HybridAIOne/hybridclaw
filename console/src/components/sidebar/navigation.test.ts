@@ -50,6 +50,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         label: 'Security',
         items: [
           { to: '/admin/network-policy', label: 'Network Policy' },
+          { to: '/admin/safety-rules', label: 'Safety blocks' },
           { to: '/admin/output-guard', label: 'Output Guard' },
           { to: '/admin/credentials', label: 'Credentials' },
         ],
@@ -86,7 +87,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(21);
+    ).toHaveLength(22);
   });
 
   it('uses network-oriented icons for network policy and Agent2Agent', () => {

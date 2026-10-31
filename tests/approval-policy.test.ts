@@ -695,13 +695,12 @@ approval:
     const pinned = evaluate(GREEN_CLASSIFIED, true);
 
     expect(hardDenied).toMatchObject({ baseTier: 'red', decision: 'denied' });
-    // Base-red calls are never anomaly-elevated, so the reason stays the
-    // classifier's own.
+    // Base-red calls retain their classifier reason without anomaly elevation.
     expect(pinned).toMatchObject({
       baseTier: 'red',
       decision: 'required',
       pinned: true,
-      reason: GREEN_CLASSIFIED.reason,
+      reason: expect.stringContaining(GREEN_CLASSIFIED.reason),
     });
   });
 

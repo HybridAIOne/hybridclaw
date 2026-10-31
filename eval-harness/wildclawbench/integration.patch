@@ -1,0 +1,56 @@
+diff --git a/eval/run_batch.py b/eval/run_batch.py
+index d271f94..3a89493 100644
+--- a/eval/run_batch.py
++++ b/eval/run_batch.py
+@@ -315,6 +315,9 @@ def main() -> None:
+         )
+     elif args.agent_backend == "codex":
+         backend = CodexAgent()
++    elif args.agent_backend == "hybridclaw":
++        from src.agents.hybridclaw.runner import HybridClawAgent
++        backend = HybridClawAgent(openrouter_base_url=OPENROUTER_BASE_URL_OPENCLAW)
+     elif args.agent_backend == "hermesagent":
+         from src.agents.hermesagent import HermesAgentAgent
+         backend = HermesAgentAgent(
+diff --git a/script/run.sh b/script/run.sh
+index 8699d76..8e28201 100644
+--- a/script/run.sh
++++ b/script/run.sh
+@@ -8,6 +8,7 @@ Usage:
+   bash script/run.sh claudecode  [run_batch args...]
+   bash script/run.sh codex       [run_batch args...]
+   bash script/run.sh hermesagent [run_batch args...]
++  bash script/run.sh hybridclaw  [run_batch args...]
+
+ Examples:
+   bash script/run.sh openclaw --category all --parallel 4 --model openrouter/openai/gpt-5.5
+@@ -33,12 +34,15 @@ case "$backend" in
+   codex)
+     exec python3 eval/run_batch.py --agent-backend codex "$@"
+     ;;
++  hybridclaw)
++    exec python3 eval/run_batch.py --agent-backend hybridclaw "$@"
++    ;;
+   hermesagent)
+     exec python3 eval/run_batch.py --agent-backend hermesagent "$@"
+     ;;
+   *)
+     echo "Unknown backend: $backend"
+-    echo "Expected one of: openclaw, claudecode, codex, hermesagent"
++    echo "Expected one of: openclaw, claudecode, codex, hermesagent, hybridclaw"
+     exit 1
+     ;;
+ esac
+diff --git a/src/utils/cli_args.py b/src/utils/cli_args.py
+index bad7f65..55605c9 100644
+--- a/src/utils/cli_args.py
++++ b/src/utils/cli_args.py
+@@ -20,7 +20,7 @@ def build_run_batch_parser(default_model: str, default_parallel: int) -> argpars
+     parser.add_argument(
+         "--agent-backend",
+         default="openclaw",
+-        choices=["openclaw", "claudecode", "codex", "hermesagent"],
++        choices=["openclaw", "claudecode", "codex", "hermesagent", "hybridclaw"],
+         help="Agent backend implementation (default: openclaw)",
+     )
+     parser.add_argument(

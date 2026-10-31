@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApprovalModeSelect } from './approval-mode-select';
 
 describe('ApprovalModeSelect', () => {
+  it('offers learning as an explicit selection', () => {
+    const onChange = vi.fn();
+    render(<ApprovalModeSelect value="auto" onChange={onChange} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Approvals: Auto' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Learning' }));
+    expect(onChange).toHaveBeenCalledWith('learning');
+  });
   it('shows the current mode and reports a new choice', () => {
     const onChange = vi.fn();
     render(<ApprovalModeSelect value="auto" onChange={onChange} />);

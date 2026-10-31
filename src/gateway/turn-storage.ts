@@ -7,6 +7,7 @@
  * reply. A dry run writes the messages alone, to a session that is discarded.
  * NOT the audit trail or compaction; `recordSuccessfulTurn` and
  * `recordErrorTurn` in gateway-service.ts decide those and what the reply is.
+ * Final storage replaces provisional recovery rows in the same SQLite commit.
  */
 import { logger } from '../logger.js';
 import {
@@ -17,6 +18,7 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { finishTurnCheckpoint } from './turn-checkpoint.js';
 
 export function storeTurnMessages(opts: {
   sessionId: string;
@@ -58,18 +60,17 @@ export function storeTurnMessages(opts: {
     artifacts: opts.artifacts,
     toolHistory: opts.toolHistoryForReplay,
   };
-  if (opts.dryRun) {
-    return storeMessagesOnly(opts.sessionId, user, steerNotes, assistant);
-  }
-  const storedTurn =
-    opts.replaceBuiltInMemory === true
+  const storedTurn = finishTurnCheckpoint(opts.sessionId, () =>
+    opts.dryRun || opts.replaceBuiltInMemory === true
       ? storeMessagesOnly(opts.sessionId, user, steerNotes, assistant)
       : memoryService.storeTurn({
           sessionId: opts.sessionId,
           user,
           steerNotes,
           assistant,
-        });
+        }),
+  );
+  if (opts.dryRun) return storedTurn;
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
     try {
       memoryService.appendCanonicalMessages({

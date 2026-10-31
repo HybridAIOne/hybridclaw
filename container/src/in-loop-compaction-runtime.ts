@@ -2,7 +2,10 @@
  * Routes loop summaries with historical tool schemas and completion metadata.
  * Unlike auxiliary text tools, compaction must reject partial and empty replies;
  * historical schemas describe evidence, never grant permission to execute tools.
+ * The concise summary target is separate from the reasoning-inclusive budget.
  */
+import { parsePositiveInteger } from '../shared/primitive-values.js';
+import { DEFAULT_COMPRESSION_MAX_TOKENS } from '../shared/request-max-tokens.js';
 import { compactInLoop } from './in-loop-compaction.js';
 import { createInLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import {
@@ -64,7 +67,7 @@ export async function compactInLoopWithModel(params: {
     history: params.history,
     contextWindowTokens: params.contextWindowTokens,
     archive: createInLoopCompactionArchive(params.sessionId),
-    summarize: async (messages, maxTokens) => {
+    summarize: async (messages) => {
       await haltIfShuttingDown();
       const context = resolveAuxiliaryTaskContext({
         task: 'compression',
@@ -73,13 +76,25 @@ export async function compactInLoopWithModel(params: {
         toolName: 'in_loop_compaction',
       });
       const tools = historicalTools(messages, params.tools);
-      params.tokenUsage.modelCalls += 1;
       const inputTokens =
         estimateMessageTokens(messages) +
         estimateTextTokens(JSON.stringify(tools));
+      const generationBudget =
+        parsePositiveInteger(context.maxTokens) ??
+        DEFAULT_COMPRESSION_MAX_TOKENS;
+      const maxTokens = context.contextWindow
+        ? Math.min(
+            generationBudget,
+            Math.floor(context.contextWindow) - inputTokens,
+          )
+        : generationBudget;
+      if (maxTokens < 1) {
+        throw new Error('Compression model has no context room for a summary.');
+      }
+      params.tokenUsage.modelCalls += 1;
       params.tokenUsage.estimatedPromptTokens += inputTokens;
       console.error(
-        `[context] compression request inputTokens=${inputTokens} windowTokens=${context.contextWindow ?? 'unknown'} historicalTools=${tools.length}`,
+        `[context] compression request inputTokens=${inputTokens} windowTokens=${context.contextWindow ?? 'unknown'} maxOutputTokens=${maxTokens} historicalTools=${tools.length}`,
       );
       const result = await callAuxiliaryModel({
         task: 'compression',

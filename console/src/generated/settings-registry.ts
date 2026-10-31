@@ -2143,6 +2143,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: false,
     },
     {
+      path: 'security.disabledSafetyRules',
+      section: 'security',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
       path: 'security.trustModelAccepted',
       section: 'security',
       kind: 'boolean',

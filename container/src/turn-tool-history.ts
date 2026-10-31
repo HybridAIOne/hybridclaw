@@ -3,22 +3,26 @@
  * Unlike loop detection, it retains ordered model messages for later replay;
  * unexecuted calls receive explicit terminal results, never fabricated success,
  * and calls a signal cut off are marked "outcome unknown", never "not run".
- * Models see complete results. Large text crosses IPC as a file reference,
- * restored by the gateway for storage and replay without a per-result cap.
+ * Models and replay see bounded excerpts with durable file references; the
+ * gateway restores full evidence only for audit and transcript storage.
+ * Call starts and individual results are checkpointed before batch assembly,
+ * so an abrupt worker kill cannot erase completed outcomes.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeFileAtomic } from '../shared/atomic-write.js';
 import {
-  TOOL_RESULTS_DIR,
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
 } from '../shared/tool-history.js';
+import { TurnCheckpoint } from '../shared/turn-checkpoint.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
-// Engineering choice, 2026-10-03: spill above 16k for IPC, never model context.
+// Engineering choice, 2026-10-30: cap inline evidence at 16k characters;
+// retain full text on disk rather than rely on a larger compression model.
 const TOOL_RESULT_SPILL_THRESHOLD_CHARS = 16_000;
-const TOOL_RESULT_FILE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const TOOL_RESULT_EXCERPT_CHARS = 8_000;
 
 export class TurnToolHistory {
   private readonly messages: ChatMessage[] = [];
@@ -29,18 +33,26 @@ export class TurnToolHistory {
     { full: string; reference: string }
   >();
   private activeHistory: ChatMessage[] | undefined;
-  private prunedStaleResults = false;
+  private readonly checkpoint?: TurnCheckpoint;
+  readonly recovered: ContainerOutput | null;
 
   constructor(
     private readonly sessionId: string,
     private readonly workspaceRoot?: string,
-  ) {}
+    private readonly executionRoot = workspaceRoot,
+    turnId?: string,
+  ) {
+    if (workspaceRoot && turnId)
+      this.checkpoint = new TurnCheckpoint(workspaceRoot, sessionId, turnId);
+    this.recovered = this.checkpoint?.recovered ?? null;
+  }
 
   retain(history: ChatMessage[]): void {
     this.activeHistory = history;
   }
 
   recordAssistant(message: ChatMessage): void {
+    this.checkpoint?.assistant(message);
     if (message.tool_calls?.length) {
       this.messages.push(structuredClone(message));
       this.replayMessages.push(message);
@@ -48,17 +60,118 @@ export class TurnToolHistory {
   }
 
   recordResult(message: ChatMessage): ChatMessage {
-    const savedPath = this.saveFullResult(message);
-    const visible = toolResultForTransport(message, savedPath);
-    if (savedPath && message.tool_call_id) {
-      this.savedResults.set(message.tool_call_id, {
-        full: String(message.content),
-        reference: String(visible.content),
-      });
-    }
+    const visible = this.forContext(message);
+    this.checkpoint?.result(visible);
     this.messages.push(structuredClone(message));
-    this.replayMessages.push(message);
-    return message;
+    this.replayMessages.push(visible);
+    return visible;
+  }
+
+  /** Recover old oversized results, including a protected newest exchange. */
+  boundContext(history: ChatMessage[], contextWindow = 128_000): boolean {
+    // Engineering choice, 2026-10-30: reserve most of the window for the
+    // request and schemas when ordinary compaction cannot make progress.
+    const maxChars = Math.max(
+      256,
+      Math.min(TOOL_RESULT_EXCERPT_CHARS, Math.floor(contextWindow / 8)),
+    );
+    let changed = false;
+    for (let index = 0; index < history.length; index += 1) {
+      const message = history[index];
+      if (
+        message.role !== 'tool' ||
+        typeof message.content !== 'string' ||
+        message.content.length <= maxChars * 2
+      )
+        continue;
+      const visible = this.forContext(message, maxChars, maxChars * 2, true);
+      if (
+        visible !== message &&
+        String(visible.content).length < message.content.length
+      ) {
+        history[index] = visible;
+        const replayIndex = this.replayMessages.indexOf(message);
+        if (replayIndex !== -1) this.replayMessages[replayIndex] = visible;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private contextPath(relative: string): string {
+    return this.workspaceRoot && this.workspaceRoot !== this.executionRoot
+      ? path.join(this.workspaceRoot, relative)
+      : relative;
+  }
+
+  private forContext(
+    message: ChatMessage,
+    excerptChars = TOOL_RESULT_EXCERPT_CHARS,
+    threshold = TOOL_RESULT_SPILL_THRESHOLD_CHARS,
+    recovering = false,
+  ): ChatMessage {
+    const existingReference = String(
+      toolResultForTransport(
+        message,
+        this.contextPath(
+          toolResultFilePath(this.sessionId, message.tool_call_id),
+        ),
+      ).content,
+    );
+    if (
+      recovering &&
+      message.role === 'tool' &&
+      typeof message.content === 'string' &&
+      message.content.startsWith(existingReference)
+    ) {
+      return {
+        ...message,
+        content: `${existingReference}\n[Excerpt shortened for context recovery; use read with char_offset/max_chars or query.]\n${message.content.slice(-excerptChars)}`,
+      };
+    }
+    const savedPath = this.saveFullResult(message, threshold);
+    if (
+      !savedPath ||
+      !message.tool_call_id ||
+      typeof message.content !== 'string'
+    )
+      return message;
+    const contextPath = this.contextPath(savedPath);
+    const reference = String(
+      toolResultForTransport(message, contextPath).content,
+    );
+    this.savedResults.set(message.tool_call_id, {
+      full: message.content,
+      reference: String(toolResultForTransport(message, savedPath).content),
+    });
+    const headChars = Math.floor(excerptChars * 0.75);
+    return {
+      ...message,
+      content: `${reference}\n${message.content.length} characters total. Excerpt only; use read with path=${JSON.stringify(contextPath)}, char_offset/max_chars for slices or query for literal search.\n\n${message.content.slice(0, headChars)}\n\n[... omitted ...]\n\n${message.content.slice(-(excerptChars - headChars))}`,
+    };
+  }
+
+  async checkpointExecution<
+    T extends {
+      output: string;
+      isError: boolean;
+      visualAttachments?: ChatMessage['visualAttachments'];
+    },
+  >(id: string, execute: () => Promise<T>): Promise<T> {
+    this.checkpoint?.start(id);
+    const result = await execute();
+    this.checkpoint?.result(
+      this.forContext({
+        role: 'tool',
+        tool_call_id: id,
+        content: result.output,
+        ...(result.isError ? { is_error: true } : {}),
+        ...(result.visualAttachments
+          ? { visualAttachments: result.visualAttachments }
+          : {}),
+      }),
+    );
+    return result;
   }
 
   /** Send file references across IPC; leave context compaction edits intact. */
@@ -100,38 +213,34 @@ export class TurnToolHistory {
     };
   }
 
-  private saveFullResult(message: ChatMessage): string | undefined {
+  private saveFullResult(
+    message: ChatMessage,
+    threshold: number,
+  ): string | undefined {
     if (
+      message.role !== 'tool' ||
       !this.workspaceRoot ||
       typeof message.content !== 'string' ||
-      message.content.length <= TOOL_RESULT_SPILL_THRESHOLD_CHARS
+      message.content.length <= threshold
     )
       return undefined;
     const relative = toolResultFilePath(this.sessionId, message.tool_call_id);
     try {
       const filePath = path.join(this.workspaceRoot, relative);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, message.content, { mode: 0o600 });
-      this.pruneStaleResults();
+      const root = fs.realpathSync(this.workspaceRoot);
+      let dir = root;
+      for (const component of path.dirname(relative).split('/')) {
+        dir = path.join(dir, component);
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        if (fs.realpathSync(dir) !== dir) return undefined;
+      }
+      if (fs.lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink())
+        return undefined;
+      writeFileAtomic(filePath, message.content, { mode: 0o600 });
       return relative;
     } catch {
       return undefined;
     }
-  }
-
-  private pruneStaleResults(): void {
-    if (this.prunedStaleResults || !this.workspaceRoot) return;
-    this.prunedStaleResults = true;
-    const root = path.join(this.workspaceRoot, TOOL_RESULTS_DIR);
-    const cutoff = Date.now() - TOOL_RESULT_FILE_MAX_AGE_MS;
-    try {
-      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const dir = path.join(root, entry.name);
-        if (fs.statSync(dir).mtimeMs < cutoff)
-          fs.rmSync(dir, { recursive: true, force: true });
-      }
-    } catch {}
   }
 
   finish(reason: string, forReplay = false): ChatMessage[] {

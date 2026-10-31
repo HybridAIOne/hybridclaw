@@ -23,6 +23,10 @@ import {
   Agent as UndiciAgent,
 } from 'undici';
 
+import {
+  HTTP_RESPONSE_ARTIFACT_DIR,
+  HTTP_RESPONSE_ARTIFACT_PREFIX,
+} from '../../container/shared/http-response-artifacts.js';
 import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
@@ -489,7 +493,7 @@ async function saveHttpResponseArtifact(params: {
   sha256: string;
 }> {
   const workspaceDir = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
-  const artifactDir = path.join(workspaceDir, '.http-artifacts');
+  const artifactDir = path.join(workspaceDir, HTTP_RESPONSE_ARTIFACT_DIR);
   await fs.promises.mkdir(artifactDir, { recursive: true, mode: 0o700 });
 
   const responseMimeType =
@@ -507,7 +511,7 @@ async function saveHttpResponseArtifact(params: {
   await fs.promises.writeFile(hostPath, params.body, { mode: 0o600 });
 
   return {
-    path: `/workspace/.http-artifacts/${storedFilename}`,
+    path: `${HTTP_RESPONSE_ARTIFACT_PREFIX}${storedFilename}`,
     filename,
     mimeType: responseMimeType,
     sha256: sha256ArtifactHex(params.body),
@@ -2587,14 +2591,16 @@ export async function handleApiHttpRequest(
       return;
     }
 
-    const responseBody =
-      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
-        ? {
-            buffer: Buffer.alloc(0),
-            bytesRead: declaredBodyBytes,
-            truncated: true,
-          }
-        : await readHttpResponseBuffer(response, maxResponseBytes);
+    const declaredOversize =
+      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes;
+    if (declaredOversize) await response.body?.cancel();
+    const responseBody = declaredOversize
+      ? {
+          buffer: Buffer.alloc(0),
+          bytesRead: declaredBodyBytes,
+          truncated: true,
+        }
+      : await readHttpResponseBuffer(response, maxResponseBytes);
     const bodyBytes =
       responseBody.truncated && declaredBodyBytes !== undefined
         ? declaredBodyBytes
@@ -2640,7 +2646,7 @@ export async function handleApiHttpRequest(
       if (bodyTruncated) {
         throw new GatewayRequestError(
           502,
-          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}). Response size (declared or received so far): ${responseBody.bytesRead} bytes. Retry with an explicit, bounded maxResponseBytes sufficient for the intended file.`,
         );
       }
       const artifact = await saveHttpResponseArtifact({

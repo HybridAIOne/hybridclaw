@@ -1,4 +1,7 @@
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type {
+  ApprovalMode,
+  ApprovalObservation,
+} from '../shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -243,6 +246,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   /** Only reads run; every other tool call returns its refusal to the model. */
   dryRun?: boolean;
@@ -329,6 +333,7 @@ export function normalizeEscalationTarget(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;

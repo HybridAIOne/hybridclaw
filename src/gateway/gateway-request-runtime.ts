@@ -1,3 +1,8 @@
+/**
+ * Active gateway requests own cancellation, steering and worker identity.
+ * A worker alias resolves only to its unique live conversation; this registry
+ * does not create durable sessions or guess an owner after a request ends.
+ */
 import { stopSessionExecution } from '../agent/executor.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 
@@ -78,6 +83,25 @@ export function abortActiveGatewayRequests(sessionId: string): number {
     entry.controller.abort(new Error('Interrupted by user.'));
   }
   return entries.length;
+}
+
+export function resolveGatewayRequestSessionId(
+  executionSessionId: string,
+): string | null {
+  let owner: string | null = null;
+  for (const [sessionId, entries] of activeGatewayRequestsBySession) {
+    if (
+      ![...entries].some(
+        (entry) =>
+          entry.executionSessionId === executionSessionId &&
+          !entry.controller.signal.aborted,
+      )
+    )
+      continue;
+    if (owner !== null && owner !== sessionId) return null;
+    owner = sessionId;
+  }
+  return owner ?? executionSessionId;
 }
 
 /**

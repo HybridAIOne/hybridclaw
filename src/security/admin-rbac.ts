@@ -758,7 +758,10 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/connectors/logout' && method === 'POST') {
     return 'secret.unset';
   }
-  if (pathname === '/api/admin/config') {
+  if (
+    pathname === '/api/admin/config' ||
+    pathname === '/api/admin/safety-rules'
+  ) {
     if (method === 'GET') return 'admin.config.read';
     if (method === 'PUT') return 'admin.config.write';
     return null;

@@ -1,25 +1,41 @@
 /**
  * Visual replay references become endpoint-specific user content only at dispatch.
  * Tool replies retain their pairing and snapshots survive worker replacement.
- * Unlike vision_analyze this never calls a second model or grants file access.
+ * Direct-model capability never grants pixel-delivery permission. Unlike
+ * vision_analyze this never calls a second model or grants file access.
+ * Text-only handoffs retain a durable reference for an explicit analysis call.
  */
 import {
   loadVisualSnapshot,
   VISUAL_SNAPSHOT_MAX_BYTES,
   validateVisualAttachments,
 } from '../../shared/visual-snapshots.js';
-import { WORKSPACE_ROOT } from '../runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from '../runtime-paths.js';
 import type { ChatContentPart, ChatMessage } from '../types.js';
 import { type NormalizedCallArgs, ProviderRequestError } from './shared.js';
 
 type PdfMode = 'native' | 'images' | 'text';
 let mediaAllowed = false;
-export function setVisualMediaAllowed(allowed: boolean): void {
+let primaryModelSupportsVisualMedia = true;
+export function setVisualMediaAllowed(
+  allowed: boolean,
+  primarySupportsVisualMedia = true,
+): void {
   mediaAllowed = allowed;
+  primaryModelSupportsVisualMedia = primarySupportsVisualMedia;
+}
+
+export function isVisualMediaAllowed(): boolean {
+  return mediaAllowed;
 }
 
 function modeForEndpoint(args: NormalizedCallArgs): PdfMode {
-  if (!mediaAllowed || args.providerMethod === 'claude-cli') return 'text';
+  if (
+    !mediaAllowed ||
+    !primaryModelSupportsVisualMedia ||
+    args.providerMethod === 'claude-cli'
+  )
+    return 'text';
   const url = new URL(args.baseUrl);
   if (
     url.protocol === 'https:' &&
@@ -39,6 +55,7 @@ function asParts(content: ChatMessage['content']): ChatContentPart[] {
 async function materialize(
   messages: ChatMessage[],
   mode: PdfMode,
+  auxiliaryVisionAvailable: boolean,
 ): Promise<ChatMessage[]> {
   const result: ChatMessage[] = [];
   let toolMedia: ChatContentPart[] = [];
@@ -59,11 +76,23 @@ async function materialize(
     const parts: ChatContentPart[] = [];
     for (const ref of validateVisualAttachments(visualAttachments)) {
       const label = `${message.role === 'tool' ? `Read result ${message.tool_call_id}: ` : ''}${ref.pages.length ? `PDF ${ref.id.slice(0, 12)}, original pages ${ref.pages.join(', ')} (in this order).` : `Image ${ref.id.slice(0, 12)}.`}`;
-      let status =
-        'Visual content not sent. Use any extracted text only; otherwise report that image inspection is unavailable. Do not try another image tool on the same endpoint.';
+      const visionCall = {
+        name: 'vision_analyze',
+        arguments: {
+          snapshot: ref,
+          page: ref.pages[0],
+          question: 'Describe the relevant visual evidence.',
+        },
+      };
+      const visionAdvice = auxiliaryVisionAvailable
+        ? `Use the configured vision tool with this durable read reference; choose one original page per call: ${JSON.stringify(visionCall)}`
+        : `Use extracted text, or discover whether another permitted vision-capable tool supports read snapshots; otherwise report the limitation. Durable read reference: ${JSON.stringify(visionCall.arguments)}`;
+      let status = mediaAllowed
+        ? `Visual content not sent to this model. ${visionAdvice} Do not retry visual input to this same model or search for provider credentials.`
+        : 'Visual content not sent: visual-data delivery is disabled by policy. Use extracted text only; do not send these pixels to another model.';
       if (mode !== 'text') {
         try {
-          const snapshot = await loadVisualSnapshot(WORKSPACE_ROOT, ref);
+          const snapshot = await loadVisualSnapshot(WORKSPACE_STATE_ROOT, ref);
           const size =
             mode === 'native' && snapshot.pdf
               ? snapshot.pdf.length
@@ -154,7 +183,11 @@ export async function callWithVisualContent<T extends NormalizedCallArgs>(
     try {
       return await call({
         ...args,
-        messages: await materialize(args.messages, mode),
+        messages: await materialize(
+          args.messages,
+          mode,
+          args.tools.some((tool) => tool.function.name === 'vision_analyze'),
+        ),
       });
     } catch (error) {
       if (mode === 'text' || emitted() || !unsupportedMedia(error)) throw error;

@@ -201,3 +201,14 @@ job." as if it were the answer, so handle it before going live.
 | `400` `The final chat message must have role 'user'.` | Last entry in `messages` is not a user turn |
 | `400 Unknown HybridClaw eval profile flag` | Typo in the `__hc_eval=` flag list |
 | The wrong agent answers | No agent flag was sent, so the turn ran as `main` |
+
+## Pending approvals
+
+A successful HTTP response can pause at an approval boundary before the task
+finishes. Both non-streaming responses and the final streaming stop chunk include
+`hybridclaw.pendingApproval` when the gateway has a pending approval. It contains
+`approvalId`, optional `toolName`, and `expiresAt` (a timestamp or `null`), without
+raw tool arguments or review payloads. Clients should treat its presence as
+awaiting human approval, rather than infer completion from assistant text or
+`finish_reason: "stop"`. The extension does not grant permission or bypass policy.
+Delegation metadata remains under `hybridclaw.delegation`.

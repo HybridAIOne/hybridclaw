@@ -246,6 +246,18 @@ describe('normalizeSilentMessageSendReply', () => {
 });
 
 describe('normalizePendingApprovalReply', () => {
+  test.each(['unclear', 'error'] as const)('retains the %s approval answer instead of replacing it with a summary', (decision) => {
+    const result = makeResult({
+      result: 'The scratch file would be removed; the report would be kept.',
+      approvalReply: { decision, approvalId: 'approval_a', scope: null },
+      pendingApproval: {
+        approvalId: 'approval_a', prompt: 'Clarification', intent: 'Remove a scratch file', reason: 'deletion',
+        allowSession: false, allowAgent: false, allowAll: false, expiresAt: null,
+      },
+    });
+    expect(normalizePendingApprovalReply(result)).toBe(result);
+  });
+
   test('replaces raw approval prose with a compact approval summary', () => {
     const result = makeResult({
       result:

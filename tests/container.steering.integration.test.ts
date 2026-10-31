@@ -248,6 +248,32 @@ test(
 );
 
 test(
+  'a shell-denial replan keeps the inbox open for a later user correction',
+  { timeout: 60_000 },
+  async () => {
+    const { ipc, workspace, inbox } = setup();
+    const accepted: boolean[] = [];
+    const model = await scriptedModel(
+      [
+        { toolCalls: [['blocked', 'rm -f scratch.txt']] },
+        { content: 'Scratch file preserved.' },
+        { content: 'Correction received.' },
+      ],
+      { 1: () => accepted.push(inbox.deliver('stop working on the report')) },
+    );
+
+    const output = await runTurn({ ipc, workspace, baseUrl: model.baseUrl });
+
+    expect(accepted).toEqual([true]);
+    expect(model.calls).toHaveLength(3);
+    expect(model.calls[1]?.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'blocked' });
+    expect(output.pendingApproval).toBeUndefined();
+    expect(inbox.shownNotes(output.steerNoteIds)).toEqual(['stop working on the report']);
+    expect(inbox.deliver('after the turn')).toBe(false);
+  },
+);
+
+test(
   'notes the agent’s own tools could write never reach the model',
   { timeout: 60_000 },
   async () => {

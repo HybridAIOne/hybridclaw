@@ -108,3 +108,56 @@ npm run eval -- --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
   eval request
 - detached run logs and summaries are stored under
   `~/.hybridclaw/data/evals/`
+
+## Terminal-Bench resource admission
+
+Terminal-Bench shares the Docker engine with other services. Its native runner
+checks host and engine capacity before loading the dataset or building/pulling
+task images. Cache the small monitoring image separately before running:
+
+```bash
+docker pull busybox:1.37
+npm run eval -- terminal-bench-2.0 run --num-tasks 2 --n-concurrent 1
+```
+
+The default per-task estimates are 2 GiB RAM, 1 GiB additional swap, 8 GiB disk
+for images, build cache, extracted environments and writable layers, and 1 GiB
+for retained workspace/verifier artifacts. Adjust these estimates for the tasks:
+
+```bash
+npm run eval -- terminal-bench-2.0 run --num-tasks 2 --n-concurrent 1 \
+  --task-memory-gib 4 --task-swap-gib 0 \
+  --task-disk-gib 12 --artifact-disk-gib 2
+```
+
+Admission includes every concurrent task's RAM and swap allowance, another
+1 GiB RAM per host agent, and cumulative disk demand across **all** tasks.
+Swap also reserves disk space. It keeps at least 2 GiB available RAM on both
+the host and engine, and 20 GiB free disk on both. On macOS, the kernel must
+report normal live memory pressure; retained swap alone does not refuse a run.
+Missing or unknown pressure telemetry fails closed. Linux host swap and engine
+swap use above 2 GiB still refuse a run. Zero task swap is supported; other budgets
+must be positive. Task containers receive the corresponding memory and
+memory-plus-swap limits.
+
+The runner measures the install, runtime data, temporary and home filesystems,
+plus the OrbStack backing-data filesystem when present on macOS. A cached,
+read-only probe measures engine memory, swap and storage. Missing telemetry,
+an unavailable engine, or unsupported memory/swap limits refuse admission.
+An exclusive lock permits one native benchmark run per engine on this host;
+ordinary services continue to run. After an unclean process exit, verify the
+PID in the reported lock has exited before removing that lock manually.
+
+Checks run before each task and every five seconds during builds, execution,
+copies and verification. Crossing a resource floor or losing engine health
+cancels benchmark commands and sessions and removes only the runner's own
+containers. It never prunes shared images, volumes or build caches, or restarts
+the engine. Metrics are appended to the job's `resources.jsonl` and detached
+stdout log. An interrupted run records `infrastructureError` and a null mean
+in `result.json`, exits with failure, and is excluded from scored results.
+
+These estimates and polling are orchestration safeguards, not a filesystem
+quota: unusually fast disk growth or underestimated build demand can outpace
+them. Size budgets from observed tasks and use a dedicated engine for heavy
+runs. Resource exhaustion is an infrastructure failure; it does not establish
+a core-runtime defect.

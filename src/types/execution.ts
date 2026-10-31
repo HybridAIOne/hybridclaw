@@ -1,3 +1,4 @@
+import type { ApprovalObservation } from '../../container/shared/approval-mode.js';
 import type { ApprovalRule } from '../../container/shared/approval-rules.js';
 import type { BoostPrompt } from '../../container/shared/boost-offer.js';
 import type {
@@ -74,6 +75,7 @@ export function escalationTargetEquals(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;

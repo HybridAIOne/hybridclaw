@@ -1,10 +1,15 @@
 /**
- * Auxiliary task policies resolve provider defaults, not execution tier choices.
+ * Auxiliary policies resolve defaults and keep task budgets separate from model capacity.
+ * Disabled policies remain explicit across the worker boundary, preventing fallback.
  * Routing classification has its own task identity and explicit model; Skills Hub
  * settings cannot enable, disable or redirect that classifier.
  */
 
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
+import {
+  DEFAULT_COMPRESSION_MAX_TOKENS,
+  DEFAULT_VISION_MAX_TOKENS,
+  resolveProviderRequestMaxTokens,
+} from '../../container/shared/request-max-tokens.js';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,
@@ -228,8 +233,16 @@ export async function resolveTaskModelPolicy(
   const configured = getConfiguredTaskSelection(task);
   const providerSelection = getSelectedTaskProvider(task);
   let rawModel = getSelectedTaskModel(task);
-  const maxTokens = normalizeMaxTokens(configured.maxTokens);
-  if (providerSelection === 'disabled') return undefined;
+  const maxTokens =
+    normalizeMaxTokens(configured.maxTokens) ??
+    (task === 'vision'
+      ? DEFAULT_VISION_MAX_TOKENS
+      : task === 'compression'
+        ? DEFAULT_COMPRESSION_MAX_TOKENS
+        : undefined);
+  if (providerSelection === 'disabled') {
+    return { model: '', error: `${task} auxiliary model is disabled.` };
+  }
 
   if (providerSelection === 'auto' && !rawModel) {
     const routing = getRuntimeConfig().routing;
@@ -287,10 +300,16 @@ export async function resolveTaskModelPolicy(
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
-              maxTokens: resolveProviderRequestMaxTokens({
-                model: fallback,
-                discoveredMaxTokens: resolved.maxTokens,
-              }),
+              maxTokens:
+                maxTokens !== undefined
+                  ? Math.min(
+                      maxTokens,
+                      normalizeMaxTokens(resolved.maxTokens) ?? maxTokens,
+                    )
+                  : resolveProviderRequestMaxTokens({
+                      model: fallback,
+                      discoveredMaxTokens: resolved.maxTokens,
+                    }),
             };
           } catch (err) {
             logger.warn(
@@ -326,7 +345,8 @@ export async function resolveTaskModelPolicy(
         }
       }
     }
-    return undefined;
+    if (!maxTokens || !params.sessionModel) return undefined;
+    rawModel = params.sessionModel;
   }
 
   const model =
@@ -374,10 +394,16 @@ export async function resolveTaskModelPolicy(
       thinkingFormat: resolved.thinkingFormat,
       model: resolved.model || model,
       chatbotId: resolved.chatbotId,
-      maxTokens: resolveProviderRequestMaxTokens({
-        model,
-        discoveredMaxTokens: resolved.maxTokens,
-      }),
+      maxTokens:
+        maxTokens !== undefined
+          ? Math.min(
+              maxTokens,
+              normalizeMaxTokens(resolved.maxTokens) ?? maxTokens,
+            )
+          : resolveProviderRequestMaxTokens({
+              model,
+              discoveredMaxTokens: resolved.maxTokens,
+            }),
     };
   } catch (err) {
     logger.warn(

@@ -12,6 +12,10 @@ export async function resolveApprovalPrelude(
   input: ContainerInput,
   messages: ChatMessage[],
 ) {
+  // A mode change does not answer or replay an older pending call.
+  if (input.approvalMode === 'learning' && !input.approvalReplyDecision) {
+    return handleBoostAnswer(input.sessionId, messages, input.approvalUserText);
+  }
   return (
     (input.approvalReplyDecision
       ? null

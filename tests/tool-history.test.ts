@@ -1,8 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { toolResultForTransport, validateToolHistory } from '../container/shared/tool-history.js';
+import {
+  toolResultForTransport,
+  validateToolHistory,
+} from '../container/shared/tool-history.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import {
   expandStoredMessage,
@@ -10,6 +12,9 @@ import {
 } from '../src/session/tool-history.js';
 import { optimizeHistoryMessagesForPrompt } from '../src/session/token-efficiency.js';
 import type { ChatMessage } from '../src/types/api.js';
+import { useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('tool-results-');
 
 function call(id: string) {
   return {
@@ -20,8 +25,8 @@ function call(id: string) {
 }
 
 describe('persistent tool history', () => {
-  test('preserves complete results for model input, storage and replay', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
+  test('preserves complete results on disk and in storage with bounded model input and replay', () => {
+    const workspace = makeTempDir();
     const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
       role: 'assistant',
@@ -34,14 +39,18 @@ describe('persistent tool history', () => {
       tool_call_id: 'a',
     };
     const visible = recorder.recordResult(full);
-    expect(visible).toEqual(full);
+    expect(visible).not.toEqual(full);
+    expect(String(visible.content).length).toBeLessThan(9_000);
     expect(
-      fs.readFileSync(path.join(workspace, '.tool-results/session-a/a.txt'), 'utf8'),
+      fs.readFileSync(
+        path.join(workspace, '.tool-results/session-a/a.txt'),
+        'utf8',
+      ),
     ).toBe(full.content);
-    expect(String(visible.content)).toMatch(/^head\n/);
+    expect(String(visible.content)).toContain('head\n');
     expect(String(visible.content)).toMatch(/\ntail$/);
     const saved = recorder.finish('Turn ended');
-    expect(saved[1]).toEqual(visible);
+    expect(saved[1]).toEqual(full);
     const replay = expandStoredMessage({
       role: 'assistant',
       content: 'Done',
@@ -58,11 +67,10 @@ describe('persistent tool history', () => {
     });
     expect(replayOfFull[1]).toEqual(full);
     expect(toolResultForTransport(full)).toEqual(full);
-    fs.rmSync(workspace, { recursive: true, force: true });
   });
 
   test('a saved result crosses IPC as a file reference named for restore', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
+    const workspace = makeTempDir();
     const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
       role: 'assistant',
@@ -99,11 +107,74 @@ describe('persistent tool history', () => {
 
     expect(output.spilledToolCallIds).toEqual(['big']);
     expect(output.toolExecutions?.map((entry) => entry.result)).toEqual([
-      toolResultForTransport(visible, '.tool-results/session-a/big.txt').content,
+      toolResultForTransport(visible, '.tool-results/session-a/big.txt')
+        .content,
       'Inventory count: 42',
     ]);
-    fs.rmSync(workspace, { recursive: true, force: true });
   });
+
+  test('context recovery shortens an excerpt without overwriting its full evidence', () => {
+    const workspace = makeTempDir();
+    const recorder = new TurnToolHistory('session-a', workspace);
+    const full = 'start ' + 'x'.repeat(679 * 1024) + ' end';
+    const result = recorder.recordResult({
+      role: 'tool',
+      content: full,
+      tool_call_id: 'a',
+    });
+    const history = [result];
+    expect(recorder.boundContext(history, 4_000)).toBe(true);
+    expect(String(history[0].content).length).toBeLessThan(1_000);
+    expect(
+      fs.readFileSync(
+        path.join(workspace, '.tool-results/session-a/a.txt'),
+        'utf8',
+      ) === full,
+    ).toBe(true);
+    expect(recorder.boundContext(history, 4_000)).toBe(false);
+  });
+
+  test('a failed spill preserves evidence and cannot pretend recovery succeeded', () => {
+    const workspace = makeTempDir();
+    fs.writeFileSync(
+      path.join(workspace, '.tool-results'),
+      'blocks directory creation',
+    );
+    const recorder = new TurnToolHistory('session-a', workspace);
+    const original: ChatMessage = {
+      role: 'tool',
+      content: 'x'.repeat(50_000),
+      tool_call_id: 'a',
+    };
+    expect(recorder.recordResult(original)).toBe(original);
+    expect(recorder.boundContext([original], 4_000)).toBe(false);
+  });
+
+  test.each(['directory', 'file'])(
+    'does not spill through a %s symlink',
+    (kind) => {
+      const workspace = makeTempDir();
+      const outside = makeTempDir();
+      const resultDir = path.join(workspace, '.tool-results/session-a');
+      const target = path.join(outside, 'a.txt');
+      fs.writeFileSync(target, 'unchanged');
+      if (kind === 'directory')
+        fs.symlinkSync(outside, path.join(workspace, '.tool-results'));
+      else {
+        fs.mkdirSync(resultDir, { recursive: true });
+        fs.symlinkSync(target, path.join(resultDir, 'a.txt'));
+      }
+      const recorder = new TurnToolHistory('session-a', workspace);
+      const original: ChatMessage = {
+        role: 'tool',
+        content: 'x'.repeat(50_000),
+        tool_call_id: 'a',
+      };
+      expect(recorder.recordResult(original)).toBe(original);
+      expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+      expect(fs.existsSync(path.join(outside, 'session-a'))).toBe(false);
+    },
+  );
 
   test('preserves full model evidence without a writable workspace', () => {
     const recorder = new TurnToolHistory('session-a');
@@ -142,7 +213,12 @@ describe('persistent tool history', () => {
     const history: ChatMessage[] = [
       { role: 'assistant', content: null, tool_calls: [call('a'), call('b')] },
       { role: 'tool', tool_call_id: 'a', content: 'ok' },
-      { role: 'tool', tool_call_id: 'b', content: 'Error: boom', is_error: true },
+      {
+        role: 'tool',
+        tool_call_id: 'b',
+        content: 'Error: boom',
+        is_error: true,
+      },
     ];
     expect(validateToolHistory(history)).toEqual(history);
     expect(sanitizeToolHistory(history)).toEqual(history);

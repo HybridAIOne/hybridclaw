@@ -89,6 +89,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   /** Only reads run; every other tool call returns its refusal to the model. */
   dryRun?: boolean;
