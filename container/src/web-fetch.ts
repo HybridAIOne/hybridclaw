@@ -191,6 +191,7 @@ function normalizeWhitespace(value: string): string {
 function htmlToMarkdown(
   html: string,
   baseUrl: string,
+  linksDecoded = false,
 ): { text: string; title?: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch
@@ -204,13 +205,15 @@ function htmlToMarkdown(
     /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
     (_, href, body) => {
       const label = normalizeWhitespace(stripTags(body));
-      let destination = decodeEntities(href);
+      let destination = linksDecoded ? href : decodeEntities(href);
       try {
         destination = new URL(destination, baseUrl).href;
       } catch {
         // Preserve malformed destinations without losing the article.
       }
-      return label ? `[${label}](${destination})` : destination;
+      // The final stripTags pass decodes entities once more.
+      const escapedDestination = destination.replace(/&/g, '&amp;');
+      return label ? `[${label}](${escapedDestination})` : escapedDestination;
     },
   );
 
@@ -343,7 +346,7 @@ async function extractReadableContent(
         )
           node.remove();
       }
-      pageContext = htmlToMarkdown(context.innerHTML, url).text.slice(
+      pageContext = htmlToMarkdown(context.innerHTML, url, true).text.slice(
         0,
         PAGE_CONTEXT_MAX_CHARS,
       );
@@ -372,7 +375,7 @@ Article:
         ? { text: contextPrefix + text, title, articleText: text }
         : fallback();
     }
-    const rendered = htmlToMarkdown(parsed.content, url);
+    const rendered = htmlToMarkdown(parsed.content, url, true);
     return {
       text: contextPrefix + rendered.text,
       title: title ?? rendered.title,

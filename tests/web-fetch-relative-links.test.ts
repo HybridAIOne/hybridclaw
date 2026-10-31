@@ -14,6 +14,7 @@ function response(html: string) {
 
 test.each([
   ['/reference?q=one&amp;v=two', 'https://93.184.216.34/reference?q=one&v=two'],
+  ['/reference?q=&amp;amp;', 'https://93.184.216.34/reference?q=&amp;'],
   ['../authors/profile', 'https://93.184.216.34/library/authors/profile'],
   ['?page=2', `${pageUrl}?page=2`],
   ['#details', `${pageUrl}#details`],
@@ -61,4 +62,11 @@ test('text extraction retains labels without markdown destinations', async () =>
   const result = await webFetch({ url: pageUrl, extractMode: 'text' });
   expect(result.text).toContain('Related material');
   expect(result.text).not.toContain('](');
+});
+
+test('fallback extraction decodes URL entities exactly once', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => response(page('/reference?q=&amp;amp;') + `<!--${'x'.repeat(1_000_001)}-->`)));
+  const { webFetch } = await import('../container/src/web-fetch.js');
+  const result = await webFetch({ url: pageUrl });
+  expect(result.text).toContain('[Related material](https://93.184.216.34/reference?q=&amp;)');
 });
