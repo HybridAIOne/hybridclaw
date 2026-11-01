@@ -83,6 +83,7 @@ describe('audio_transcribe runner', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.configured_count).toBe(0);
     expect(parsed.providers).toEqual([
+      expect.objectContaining({ id: 'hybridai', ready: false }),
       expect.objectContaining({ id: 'openai', ready: false }),
       expect.objectContaining({ id: 'deepgram', ready: false }),
       expect.objectContaining({ id: 'assemblyai', ready: false }),

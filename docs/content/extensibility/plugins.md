@@ -135,6 +135,13 @@ in a hand-edited config are dropped when the plugin loads.
   `audio_transcribe`. Provider calls run in the gateway with keys from the
   secret store (or the session model's credentials), so no provider key enters
   the sandbox. Reference media and outputs go through `api.media`.
+  `audio_transcribe` uses the default HybridAI credentials and platform URL
+  automatically, including when chat uses another provider. An explicit
+  provider override or configured speech-to-text preference still takes
+  precedence. HybridAI returns transcript text; timestamps, speaker labels,
+  and language-detection metadata require another configured provider.
+  `image_generate` and `video_generate` require their own supported provider
+  credentials; they do not yet support HybridAI credentials.
   Its per-turn prompt hook reports each tool as `configured`, `unavailable`
   (no configured provider), or `unknown` (session credentials could not be
   checked). The snapshot uses the same provider selection as execution,
