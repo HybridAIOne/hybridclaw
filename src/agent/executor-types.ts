@@ -82,6 +82,11 @@ export interface ExecutorRequest
   steerInbox?: SteerInbox;
 }
 
+export type WorkspaceOverrides = Pick<
+  ExecutorRequest,
+  'workspacePathOverride' | 'workspaceDisplayRootOverride'
+>;
+
 export interface Executor {
   exec(request: ExecutorRequest): Promise<ContainerOutput>;
   getWorkspacePath(agentId: string): string;

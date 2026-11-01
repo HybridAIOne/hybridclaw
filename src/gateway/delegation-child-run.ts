@@ -1,7 +1,7 @@
 /**
  * Delegated attempts retain the selected model and release callback identity
  * after every agent call, including failures and retries. Nested runs inherit
- * their live parent's scope; deleted scopes never become unscoped runs.
+ * their live parent's workspace and scope; deleted scopes never become unscoped runs.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
 import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
@@ -289,6 +289,9 @@ export async function runDelegationTaskWithRetry(
     };
   }
   const scopeParams = scopeRunAgentParams(scopeRun);
+  const workspaceOverrides = scopeRun
+    ? { workspacePathOverride: scopeParams.workspacePathOverride }
+    : input.workspaceOverrides;
   const blockedTools = [
     ...resolveSubagentBlockedTools(childDepth),
     ...(scopeRun?.blockedTools ?? []),
@@ -340,6 +343,7 @@ export async function runDelegationTaskWithRetry(
           agentId,
           model: task.model,
           runtimeScope: scopeParams.runtimeScope,
+          workspaceOverrides,
         },
         () =>
           runAgent({
@@ -351,6 +355,7 @@ export async function runDelegationTaskWithRetry(
             agentId,
             channelId,
             blockedTools,
+            ...workspaceOverrides,
             ...scopeParams,
             abortSignal,
             onToolProgress: (event) => {
