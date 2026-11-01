@@ -27,6 +27,46 @@ afterEach(() => {
 });
 
 describe('openrouter discovery', () => {
+  test.each<[Record<string, unknown>, boolean | null]>([
+    [{ architecture: { modality: 'text->text' } }, false],
+    [{ architecture: { modality: 'text->image' } }, false],
+    [{ architecture: { modality: 'text+image->text' } }, true],
+    [{ architecture: { input_modalities: ['text', 'image'] } }, true],
+    [{ architecture: { input_modalities: ['text', ' Image '] } }, true],
+    [{ architecture: { input_modalities: ['text'] } }, false],
+    [{ capabilities: ['vision'] }, true],
+    [{ capabilities: ['tools'] }, null],
+    [{ architecture: { input_modalities: [] } }, null],
+    [{ architecture: { modality: 42, input_modalities: [null] } }, null],
+    [{ context_length: 200_000 }, null],
+  ])(
+    'preserves explicit and unknown visual capability: %j',
+    async (metadata, expected) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                data: [{ id: 'example/model', ...metadata }],
+              }),
+            ),
+        ),
+      );
+      const { createOpenRouterDiscoveryStore } = await importFreshDiscovery();
+      const store = createOpenRouterDiscoveryStore();
+      await store.discoverModels();
+      expect(store.getModelVisionCapability('example/model')).toBe(expected);
+      expect(store.getModelVisionCapability('openrouter/example/model')).toBe(
+        expected,
+      );
+      expect(store.getModelVisionCapability('example/missing')).toBeNull();
+      expect(store.isModelVisionCapable('example/model')).toBe(
+        expected === true,
+      );
+    },
+  );
+
   test('normalizes model ids when checking whether a discovered model is free', async () => {
     vi.stubGlobal(
       'fetch',

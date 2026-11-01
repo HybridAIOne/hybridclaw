@@ -7,6 +7,7 @@
 import { extractResponseTextContent } from '../shared/response-text.js';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import { isContextWindowExceededError } from './model-retry.js';
+import { ProviderRequestError } from './providers/shared.js';
 import { estimateMessageTokens } from './token-usage.js';
 import type { ChatCompletionResponse, ChatMessage } from './types.js';
 
@@ -263,6 +264,11 @@ export async function compactInLoop(params: {
     );
     response = await params.summarize(messages, summaryTargetTokens);
   } catch (error) {
+    // Provider bodies can contain request data; retain only the HTTP status.
+    if (error instanceof ProviderRequestError)
+      console.error(
+        `[context] in-loop summarizer failed status=${error.status}`,
+      );
     return unchanged(
       isContextWindowExceededError(error)
         ? 'summary_context_overflow'

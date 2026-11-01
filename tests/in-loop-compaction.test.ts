@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
+import { ProviderRequestError } from '../container/src/providers/shared.js';
 import { estimateMessageTokens } from '../container/src/token-usage.js';
 import type {
   ChatCompletionResponse,
@@ -62,6 +63,26 @@ function buildHistory(): ChatMessage[] {
 }
 
 describe('compactInLoop', () => {
+  test('retains provider failure status without logging the body or changing history', async () => {
+    const history = buildHistory();
+    const original = structuredClone(history);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const archive = vi.fn();
+    const result = await compactInLoop({
+      history,
+      archive: { path: 'archive.json', write: archive },
+      summarize: async () => {
+        throw new ProviderRequestError(413, 'private request evidence');
+      },
+    });
+    expect(result.changed).toBe(false);
+    expect(history).toEqual(original);
+    expect(archive).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('[context] in-loop summarizer failed status=413');
+    expect(log).toHaveBeenLastCalledWith('[context] in-loop compaction skipped reason=summarizer_failed');
+    expect(log.mock.calls.flat().join(' ')).not.toContain('private request evidence');
+  });
+
   test.each([
     { contextWindowTokens: 26_000, promptOverheadTokens: 0, visual: false },
     { contextWindowTokens: 43_000, promptOverheadTokens: 4_000, visual: false },
@@ -341,7 +362,6 @@ describe('compactInLoop', () => {
         throw new Error('maximum context length exceeded: sensitive payload');
       },
     },
-    ,
   ])(
     'preserves history when summarization $name',
     async ({ summarize, reason }) => {

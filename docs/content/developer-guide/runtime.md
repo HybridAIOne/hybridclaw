@@ -916,7 +916,8 @@ compactable middle, the loop saves oversized tool results and reduces their
 inline excerpts to fit the active context budget. Call/result pairing and full
 on-disk evidence remain intact. A failed result-file write leaves the original
 result in context; the loop reports exhaustion if it still cannot fit. Each
-rejected attempt logs a distinct reason without logging response text or error payloads.
+rejected attempt logs a distinct reason without logging response text or error
+payloads. Provider failures also retain the HTTP status for diagnosis.
 
 Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
 That limit bounds consecutive provider context-window recovery retries and resets
@@ -1329,7 +1330,10 @@ PDF content on the official OpenAI Responses and Anthropic Messages endpoints.
 Other endpoints, including Qwen/vLLM, Ollama, Codex and Gemini's OpenAI-compatible
 API, receive rendered page images. Claude CLI receives text only. Vision support
 and native PDF endpoint support are separate: known text-only models receive
-text; unknown models negotiate image support through the endpoint. Explicit
+text. Explicit OpenRouter input-modality metadata takes precedence over the static
+catalog. The gateway waits for cached discovery before selecting visual capability,
+including the first turn after startup. Missing modality remains unknown and
+negotiates support through the endpoint. Explicit
 media rejection retries native PDF → images → text, never after a streamed text
 or thinking delta. Authentication, network and unrelated errors are not retried
 by this fallback. Text-only delivery always reports unavailable visual coverage.

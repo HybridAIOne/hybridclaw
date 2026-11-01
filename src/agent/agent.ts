@@ -11,8 +11,7 @@ import { hostWorkspaceStateRoot } from '../infra/host-workspace.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
-import { isModelVisionCapable } from '../providers/model-catalog.js';
-import { resolveStaticModelCatalogMetadata } from '../providers/model-metadata.js';
+import { canModelAcceptVisualMedia } from '../providers/model-catalog.js';
 import {
   createConfidentialRuntimeContext,
   getConfidentialRuleSet,
@@ -170,8 +169,7 @@ async function runAgentInner(
   // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
   const visualMediaAllowed = !isConfidentialRedactionEnabled();
   const primaryModelSupportsVisualMedia =
-    isModelVisionCapable(model) ||
-    !resolveStaticModelCatalogMetadata(model).known;
+    await canModelAcceptVisualMedia(model);
   const preparedMessages = await injectPdfContextMessages({
     messages: params.messages,
     workspaceRoot,
