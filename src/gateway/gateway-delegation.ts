@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { enqueueDelegation } from '../agent/delegation-manager.js';
+import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { PROACTIVE_DELEGATION_MAX_DEPTH } from '../config/config.js';
@@ -43,6 +44,7 @@ import {
   type DelegationCompletionEntry,
   type DelegationStatusEntry,
   type DelegationStatusSnapshot,
+  type DelegationTaskRunInput,
   extractDelegationDepth,
   interpolateChainPrompt,
   type NormalizedDelegationPlan,
@@ -53,7 +55,7 @@ import {
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
-import { resolveGatewayRequestSessionId } from './gateway-request-runtime.js';
+import { resolveGatewayRequestContext } from './gateway-request-runtime.js';
 import type {
   GatewayChatApprovalEvent,
   GatewayChatResult,
@@ -235,15 +237,10 @@ function storeDelegationFallback(params: {
   });
 }
 
-interface DelegationRunContext {
-  parentSessionId: string;
-  childDepth: number;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  abortSignal?: AbortSignal;
-}
+type DelegationRunContext = Omit<
+  DelegationTaskRunInput,
+  'mode' | 'task' | 'onToolProgress'
+>;
 
 function buildStatusEntries(
   plans: NormalizedDelegationPlan[],
@@ -379,6 +376,7 @@ export type DelegationParentTurnRunner = (params: {
 
 export function enqueueDelegationBatchFromSideEffects(params: {
   plans: NormalizedDelegationPlan[];
+  workspaceOverrides?: WorkspaceOverrides;
   parentSessionId: string;
   channelId: string;
   chatbotId: string;
@@ -452,6 +450,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
   }
 
   const context: DelegationRunContext = {
+    workspaceOverrides: params.workspaceOverrides,
     parentSessionId,
     childDepth,
     channelId,
@@ -637,7 +636,8 @@ export async function runDelegationNow(params: {
   abortSignal?: AbortSignal;
 }): Promise<{ result: string } | { error: string; status: number }> {
   const { effect, abortSignal } = params;
-  const sessionId = resolveGatewayRequestSessionId(params.sessionId);
+  const request = resolveGatewayRequestContext(params.sessionId);
+  const sessionId = request?.sessionId;
   const parent = sessionId ? resolveWaitingParentContext(sessionId) : null;
   if (!sessionId || !parent)
     return { error: 'Unknown delegating session.', status: 404 };
@@ -655,6 +655,8 @@ export async function runDelegationNow(params: {
   const plans = [normalized.plan];
   const context: DelegationRunContext = {
     parentSessionId: sessionId,
+    workspaceOverrides:
+      request?.workspaceOverrides ?? parent.workspaceOverrides,
     childDepth,
     channelId: parent.channelId,
     chatbotId: parent.chatbotId,

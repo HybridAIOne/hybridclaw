@@ -1,0 +1,12 @@
+/*
+ * Mode descriptions and save controls stay together without paragraph margins.
+ * Presentation only; the gateway owns stored and effective approval modes.
+ */
+.content {
+  display: grid;
+  gap: 12px;
+}
+
+.content p {
+  margin: 0;
+}

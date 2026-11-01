@@ -10,6 +10,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+  normalizeApprovalMode,
+} from '../../container/shared/approval-mode.js';
 import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
@@ -256,6 +261,7 @@ type DeepPartial<T> = {
 };
 
 export interface RuntimeSecurityConfig {
+  defaultApprovalMode: ApprovalMode;
   disabledSafetyRules: string[];
   trustModelAccepted: boolean;
   trustModelAcceptedAt: string;
@@ -1430,6 +1436,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   security: {
+    defaultApprovalMode: DEFAULT_APPROVAL_MODE,
     disabledSafetyRules: [],
     trustModelAccepted: false,
     trustModelAcceptedAt: '',
@@ -6949,6 +6956,9 @@ function normalizeRuntimeConfig(
       },
     },
     security: {
+      defaultApprovalMode: normalizeApprovalMode(
+        rawSecurity.defaultApprovalMode,
+      ),
       disabledSafetyRules: normalizeDisabledSafetyRules(
         rawSecurity.disabledSafetyRules,
       ),

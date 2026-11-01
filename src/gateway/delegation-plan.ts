@@ -8,6 +8,7 @@
  * `gateway-delegation.ts` schedules plans and returns their results.
  */
 import { randomUUID } from 'node:crypto';
+import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { normalizeHybridAIModelForRuntime } from '../providers/model-names.js';
 import type {
@@ -82,6 +83,7 @@ export interface DelegationStatusSnapshot {
 }
 
 export interface DelegationTaskRunInput {
+  workspaceOverrides?: WorkspaceOverrides;
   parentSessionId: string;
   childDepth: number;
   channelId: string;

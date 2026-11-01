@@ -238,6 +238,12 @@ by the text-editing tools, and existing command permissions continue to apply.
 
 ### Auxiliary Model Routing
 
+Model discovery retries on the next lookup if its initial request fails. An
+empty error fallback is not cached as a successful catalog, so a temporary
+startup outage does not hide model capabilities for the catalog's cache lifetime.
+Concurrent lookups share one request; populated catalogs keep their existing
+stale-cache and background-refresh behavior.
+
 Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
@@ -817,6 +823,13 @@ returns to the model once to plan work that omits prohibited effects. Remaining
 calls in that batch are marked unexecuted; every new call still faces the same
 policy. A second shell hard block ends the turn, as do other policy denials.
 Pending human approvals still pause execution.
+
+The eval block checks parsed shell words and nested shell commands, so an `eval`
+directory inside a simple path does not block unrelated tools. Executables named
+`eval` and eval text in inline code remain blocked. Heredoc input retains the
+conservative text check; other safety matchers and normal approval policy still
+apply.
+
 Generation and verification run separately from necessary cleanup. Agents leave
 disposable scratch files alone unless cleanup was requested or is needed for the
 result; ordinary housekeeping does not delay delivery or turn success into a
@@ -892,8 +905,14 @@ returns a matching excerpt and its character offset; use `char_offset` to
 continue searching. These reads return at most 2,000 excerpt characters.
 The existing workspace and approval checks apply to every read.
 
-The context guard measures pressure without rewriting tool results. In-loop
-compaction sends every selected message intact to the compression model,
+The context guard measures pressure without rewriting tool results. It includes
+tool schemas and estimates visuals according to the active delivery route. A
+text-only route counts the text handoff and durable snapshot references rather
+than reserving image tokens for pixels it will not send. Handoff wording, call
+IDs, snapshots, page lists, visual-data permissions, and available tools are
+unchanged.
+
+In-loop compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
 interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
@@ -901,6 +920,10 @@ replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
 summaries that do not shrink the region never authorize dropping messages.
+If the protected history plus tool schemas and summary allowance cannot fit,
+the loop keeps the newest complete exchange and allows older parallel batches
+into the summary region. This avoids repeatedly summarizing small setup messages
+while the large results remain protected. Calls and results still stay together.
 If compaction cannot progress, including when the newest exchange leaves no
 compactable middle, the loop saves oversized tool results and reduces their
 inline excerpts to fit the active context budget. Call/result pairing and full
@@ -914,10 +937,15 @@ after an accepted loop request, not after a summary. Compaction stops immediatel
 when it cannot produce a smaller archived replacement.
 
 The compression model needs enough context for the complete selected region,
-its historical tool schemas, and the summary output budget. It falls back to
-the active model when no compression override is configured. For long tasks,
-configure `auxiliaryModels.compression` with sufficient capacity; a larger
-window than the active model helps recover even when that model overflows.
+its historical tool schemas, and the summary output budget. If the candidate
+region does not fit, compaction selects the largest fitting prefix ending at a
+complete tool exchange and leaves the remaining messages in live context. It
+never splits parallel calls from their results or truncates selected messages.
+Generation reserves the configured allowance, or half the window for a small
+compression model. The model falls back to the active model when no compression
+override is configured. A single exchange too large to summarize still uses
+the saved-result recovery described above; an unsuccessful recovery fails
+explicitly rather than discarding evidence.
 An input rejected as too large reports `summary_context_overflow`; the loop
 then attempts the disk-backed result recovery described above before reporting
 context exhaustion. Archives contain conversation and tool data that the agent
@@ -941,6 +969,14 @@ enough for the file. PDF and image inspection use the existing local-file tools.
 Oversized HTTP responses are cancelled without saving a partial artifact. The
 artifact error reports the limit and declared or received size so the caller can
 choose an explicit bound for a retry; the gateway does not raise it automatically.
+The outbound `timeoutMs` deadline remains active through response-body reading,
+so a server that sends headers and then stalls cannot leave a download waiting
+indefinitely. A timed-out download does not save a partial artifact.
+
+When a fetch body or extracted text reaches its size limit, the tool identifies
+the source as incomplete before the returned content. This warning also applies
+to cached results and auxiliary summaries. A saved tool-result file contains the
+retained extraction, not any source content discarded at the fetch limit.
 
 When Readability omits context outside its selected article, `web_fetch` retains
 an explicitly labeled leading excerpt from a main HTML landmark. It excludes
@@ -951,6 +987,11 @@ Extraction-failure hints assess the article itself, excluding that added context
 HTML comments stay out of converted text, links, headings and title selection,
 including the fallback used for large documents. Escaped comment examples remain
 visible as source text.
+
+Short section headings grouped with inline links or controls retain their heading
+structure during article extraction. Their original attributes remain in place,
+so hidden groups and navigation remain eligible for exclusion. This preserves
+section boundaries without adding site-specific extraction rules.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
@@ -1020,7 +1061,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
   identity, including app-generated session IDs and delayed uploads after an
   agent switch. Records without a captured execution identity retain the
   session-key/default-agent fallback; already exported history is not rewritten.
-- persisted cursor: `observability_offsets`
+- persisted cursor: `observability_offsets`, keyed by ingest URL and node ID;
+  cursors from other nodes and retired bot/agent keys are never reused
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`
 
@@ -1301,6 +1343,11 @@ Prompt and runtime internals:
 - Waiting delegation resolves an execution worker to its unique active
   conversation owner. Released, aborted or ambiguous worker aliases cannot
   identify a parent; no durable alias session is created.
+- Waiting and queued children inherit the trusted parent execution workspace,
+  including nested children; task roots are never taken from tool arguments.
+  Scope workspaces and restrictions take precedence. Conflicting roots for an
+  active worker alias fail closed. These contexts live on the gateway and are
+  released with their request or child; worker restarts cannot change them.
 - Each live delegated child has its own exact callback identity and model.
   Nested calls inherit that child's model unless the caller or configured
   delegate model selects another; a completed child's context is released.

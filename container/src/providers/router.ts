@@ -2,11 +2,13 @@
  * Routed provider calls share response handling without changing model policy.
  * Vision returns a complete textual analysis or an error; a token-limited
  * fragment must never be presented as a successful full analysis.
+ * Context overhead includes schemas even when the API accepts them outside messages.
  */
 import { getProviderContextError } from '../../shared/provider-context.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
+import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -173,13 +175,19 @@ export async function callProviderModelStream(
 export function estimateRoutedPromptOverheadTokens(
   params: RoutedPromptOverheadParams,
 ): number {
-  if (!isOpenAICompatProviderId(params.provider)) return 0;
-  return estimateLocalOpenAICompatPromptOverheadTokens({
-    provider: params.provider,
-    model: params.model,
-    tools: params.tools,
-    modelBehavior: params.modelBehavior,
-  });
+  const schemas = params.tools?.length
+    ? estimateTextTokens(JSON.stringify(params.tools))
+    : 0;
+  if (!isOpenAICompatProviderId(params.provider)) return schemas;
+  return Math.max(
+    schemas,
+    estimateLocalOpenAICompatPromptOverheadTokens({
+      provider: params.provider,
+      model: params.model,
+      tools: params.tools,
+      modelBehavior: params.modelBehavior,
+    }),
+  );
 }
 
 export async function callRoutedModel(

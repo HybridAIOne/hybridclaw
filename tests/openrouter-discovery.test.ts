@@ -27,6 +27,39 @@ afterEach(() => {
 });
 
 describe('openrouter discovery', () => {
+  test('recovers vision metadata on the next lookup after an initial timeout', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new DOMException('Timed out', 'TimeoutError'))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'example/vision-model',
+                architecture: { modality: 'text+image->text' },
+                context_length: 64000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createOpenRouterDiscoveryStore();
+
+    await expect(store.discoverModels()).resolves.toEqual([]);
+    expect(store.isModelVisionCapable('example/vision-model')).toBe(false);
+    await expect(store.discoverModels()).resolves.toEqual([
+      'openrouter/example/vision-model',
+    ]);
+    expect(store.isModelVisionCapable('example/vision-model')).toBe(true);
+    expect(store.getModelContextWindow('example/vision-model')).toBe(64000);
+    await store.discoverModels();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test('normalizes model ids when checking whether a discovered model is free', async () => {
     vi.stubGlobal(
       'fetch',

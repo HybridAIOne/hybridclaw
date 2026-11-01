@@ -822,6 +822,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/audit' && method === 'GET') {
     return 'admin.audit.read';
   }
+  if (pathname === '/api/admin/approval-settings') {
+    if (method === 'GET') return 'admin.approvals.read';
+    if (method === 'PUT') return 'admin.policy.write';
+    return null;
+  }
   if (pathname === '/api/admin/approvals' && method === 'GET') {
     return 'admin.approvals.read';
   }

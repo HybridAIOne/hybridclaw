@@ -9084,7 +9084,7 @@ export function getGatewaySessionContextUsage(sessionId: string): {
       sessionId,
       snapshot: null,
       routing: null,
-      approvalMode: null,
+      approvalMode: getRuntimeConfig().security.defaultApprovalMode,
     };
   }
   return {

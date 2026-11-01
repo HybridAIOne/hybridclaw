@@ -843,3 +843,27 @@ configures built-in pattern guards; it does not change authentication, sandbox
 limits, network policy, or tool argument validation. Patterns are fixed in the
 installed catalog; these controls enable or disable them without accepting
 arbitrary regular expressions.
+
+### Admin approval modes and firewall
+
+Open **/admin → Security → Approvals & firewall** (`/admin/security`).
+The **Approval modes** tab provides **Default for new conversations**: select
+**Learning**, then **Save default**. It applies to subsequently created
+conversations and an explicit settings reset. Existing conversations keep their
+stored choice; forks and ordinary resets preserve it. The default is **Auto**.
+
+To change an existing conversation, choose it under **Existing conversation**,
+select **Learning**, then **Save conversation mode**. This uses the same stored
+choice as `/approvals mode learning`. Changes apply on the next turn and do not
+answer pending approvals. Full-auto's effective mode is shown separately when
+it overrides the saved choice; explicit Learning remains effective in full-auto.
+
+The **Safety blocks** tab lists and configures the unconditional shell/file
+rules. **Network policy** retains the existing agent policies and pending
+approvals. **Review learning flags** opens the audit log for `approval.observed`.
+
+The new-conversation default is stored as `security.defaultApprovalMode` in
+`config.json`. Admin reads require `admin.approvals.read`, and mode edits require
+`admin.policy.write`. Saved changes are audited; stale edits are rejected so an
+operator must reload before overwriting a newer choice. Enabled hard guards
+remain enforced in all modes.

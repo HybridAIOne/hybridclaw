@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.5',
+  version: '0.42.0',
   highlights: [
-    'Clearer Teams approval requests',
-    'Show only available approval choices',
-    'View commands and details with 0',
+    'Learning mode with approval audit flags',
+    'Admin approval defaults and safety controls',
+    'Safer file writes and interrupted-turn recovery',
+    'More reliable web, vision and delegation',
   ],
 } as const;
 
