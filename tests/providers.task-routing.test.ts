@@ -5,7 +5,9 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { TASK_MODEL_KEYS as WORKER_TASK_MODEL_KEYS } from '../container/src/types.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { TASK_MODEL_KEYS } from '../src/types/models.js';
-import { useTempDir } from './test-utils.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
+
+useCleanMocks({ unstubAllEnvs: true });
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
@@ -427,6 +429,62 @@ test('resolves configured Anthropic task models on the host', async () => {
       maxTokens: 256,
     },
   });
+});
+
+test('vision routing recovers after session credentials encounter a cold discovery timeout', async () => {
+  const homeDir = makeTempHome();
+  vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+  vi.stubEnv('HYBRIDAI_API_KEY', '');
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/example/text-model'];
+    config.auxiliaryModels.vision.provider = 'auto';
+    config.auxiliaryModels.vision.model = '';
+    config.routing.enabled = false;
+  });
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    .mockRejectedValueOnce(new DOMException('Timed out', 'TimeoutError'))
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'example/text-model',
+              architecture: { modality: 'text->text' },
+            },
+            {
+              id: 'example/vision-model',
+              architecture: { modality: 'text+image->text' },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+  vi.stubGlobal('fetch', fetchMock);
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const { resolveModelRuntimeCredentials } = await import(
+    '../src/providers/factory.js'
+  );
+  await expect(
+    resolveModelRuntimeCredentials({
+      model: 'openrouter/example/text-model',
+      enableRag: false,
+    }),
+  ).resolves.toMatchObject({ provider: 'openrouter' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    sessionModel: 'openrouter/example/text-model',
+  });
+  expect(policy).toMatchObject({
+    provider: 'openrouter',
+    model: 'openrouter/example/vision-model',
+    apiKey: 'test-key',
+  });
+  expect(policy?.error).toBeUndefined();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 test('uses Anthropic discovery vision capability when routing vision fallbacks', async () => {
