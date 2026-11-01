@@ -1,10 +1,8 @@
 /**
- * Visual replay references become endpoint-specific user content only at dispatch.
- * Tool replies retain their pairing and snapshots survive worker replacement.
- * Direct-model capability never grants pixel-delivery permission. Unlike
- * vision_analyze this never calls a second model or grants file access.
- * Text-only handoffs retain every durable reference with shared batch guidance;
- * estimates charge those notices instead of pixels the route cannot send.
+ * Delivers durable snapshots without changing tool pairing or visual permissions.
+ * Unlike vision_analyze, this never invokes another model or grants file access.
+ * Text-only routes retain the existing durable-reference handoff; estimates
+ * charge that text while pixel-capable routes retain conservative image budgets.
  */
 import {
   loadVisualSnapshot,
@@ -61,19 +59,6 @@ function asParts(content: ChatMessage['content']): ChatContentPart[] {
     : [{ type: 'text', text: content || '' }];
 }
 
-function textGuidance(auxiliaryVisionAvailable: boolean): ChatContentPart {
-  return {
-    type: 'text',
-    text: !mediaAllowed
-      ? 'Visual content not sent: visual-data delivery is disabled by policy. Use extracted text only; do not send these pixels to another model.'
-      : `Visual content not sent to this model. ${
-          auxiliaryVisionAvailable
-            ? 'Use vision_analyze with snapshot=<reference below> and question=<what to inspect>; set page=<one original page> for PDFs, omit page for images.'
-            : 'Use extracted text, or discover whether a permitted vision-capable tool supports these read snapshots; otherwise report the limitation.'
-        } Do not retry visual input to this same model or search for provider credentials.`,
-  };
-}
-
 function visualLabel(
   message: ChatMessage,
   ref: NonNullable<ChatMessage['visualAttachments']>[number],
@@ -81,17 +66,27 @@ function visualLabel(
   return `${message.role === 'tool' ? `Read result ${message.tool_call_id}: ` : ''}${ref.pages.length ? `PDF ${ref.id.slice(0, 12)}, original pages ${ref.pages.join(', ')} (in this order).` : `Image ${ref.id.slice(0, 12)}.`}`;
 }
 
-function textReference(
-  message: ChatMessage,
+function textStatus(
   ref: NonNullable<ChatMessage['visualAttachments']>[number],
-): ChatContentPart {
-  return {
-    type: 'text',
-    text: `${visualLabel(message, ref)}${mediaAllowed ? ` Snapshot: ${JSON.stringify(ref)}` : ''}`,
+  auxiliaryVisionAvailable: boolean,
+): string {
+  const visionCall = {
+    name: 'vision_analyze',
+    arguments: {
+      snapshot: ref,
+      page: ref.pages[0],
+      question: 'Describe the relevant visual evidence.',
+    },
   };
+  const visionAdvice = auxiliaryVisionAvailable
+    ? `Use the configured vision tool with this durable read reference; choose one original page per call: ${JSON.stringify(visionCall)}`
+    : `Use extracted text, or discover whether another permitted vision-capable tool supports read snapshots; otherwise report the limitation. Durable read reference: ${JSON.stringify(visionCall.arguments)}`;
+  return mediaAllowed
+    ? `Visual content not sent to this model. ${visionAdvice} Do not retry visual input to this same model or search for provider credentials.`
+    : 'Visual content not sent: visual-data delivery is disabled by policy. Use extracted text only; do not send these pixels to another model.';
 }
 
-/** Count only the visual representation this route can actually send. */
+/** Count the existing text handoff, without reserving pixels this route cannot send. */
 export function estimateVisualMessageTokens(
   messages: ChatMessage[],
   routing: { providerMethod?: string; tools?: ToolDefinition[] } = {},
@@ -99,27 +94,23 @@ export function estimateVisualMessageTokens(
 ): number {
   if (!textOnly(routing.providerMethod))
     return estimateMessageTokens(messages, cache);
-  const guidance = textGuidance(
+  const auxiliaryVisionAvailable =
     routing.tools?.some((tool) => tool.function.name === 'vision_analyze') ??
-      false,
-  );
+    false;
   return messages.reduce((total, message) => {
     if (!message.visualAttachments?.length)
       return total + estimateChatMessageTokens(message, cache);
     const { visualAttachments, ...plain } = message;
-    // Conservative: charge a header per message even when a batch shares one.
     return (
       total +
       estimateChatMessageTokens(plain) +
       estimateMessageTokens([
         {
           role: 'user',
-          content: [
-            guidance,
-            ...validateVisualAttachments(visualAttachments).map((ref) =>
-              textReference(message, ref),
-            ),
-          ],
+          content: validateVisualAttachments(visualAttachments).map((ref) => ({
+            type: 'text',
+            text: `${visualLabel(message, ref)} ${textStatus(ref, auxiliaryVisionAvailable)}`,
+          })),
         },
       ])
     );
@@ -135,14 +126,7 @@ async function materialize(
   let toolMedia: ChatContentPart[] = [];
   let bytes = 0;
   const flush = () => {
-    if (toolMedia.length)
-      result.push({
-        role: 'user',
-        content:
-          mode === 'text'
-            ? [textGuidance(auxiliaryVisionAvailable), ...toolMedia]
-            : toolMedia,
-      });
+    if (toolMedia.length) result.push({ role: 'user', content: toolMedia });
     toolMedia = [];
   };
   for (const message of messages) {
@@ -156,58 +140,56 @@ async function materialize(
       throw new Error('Visual attachments require a user or tool message');
     const parts: ChatContentPart[] = [];
     for (const ref of validateVisualAttachments(visualAttachments)) {
-      if (mode === 'text') {
-        parts.push(textReference(message, ref));
-        continue;
-      }
       const label = visualLabel(message, ref);
-      let status: string;
-      try {
-        const snapshot = await loadVisualSnapshot(WORKSPACE_STATE_ROOT, ref);
-        const size =
-          mode === 'native' && snapshot.pdf
-            ? snapshot.pdf.length
-            : snapshot.images.reduce((sum, image) => sum + image.length, 0);
-        if (bytes + size > VISUAL_SNAPSHOT_MAX_BYTES) {
-          status =
-            'Visual request budget exceeded; read fewer pages. Only extracted text is available.';
-        } else if (mode === 'native' && snapshot.pdf) {
-          bytes += size;
-          parts.push(
-            { type: 'text', text: label },
-            {
-              type: 'file',
-              file: {
-                filename: `pages-${ref.pages.join('-')}.pdf`,
-                file_data: `data:application/pdf;base64,${snapshot.pdf}`,
-              },
-            },
-          );
-          continue;
-        } else if (snapshot.images.length === (ref.pages.length || 1)) {
-          bytes += size;
-          parts.push({ type: 'text', text: label });
-          snapshot.images.forEach((image, index) => {
+      let status = textStatus(ref, auxiliaryVisionAvailable);
+      if (mode !== 'text') {
+        try {
+          const snapshot = await loadVisualSnapshot(WORKSPACE_STATE_ROOT, ref);
+          const size =
+            mode === 'native' && snapshot.pdf
+              ? snapshot.pdf.length
+              : snapshot.images.reduce((sum, image) => sum + image.length, 0);
+          if (bytes + size > VISUAL_SNAPSHOT_MAX_BYTES) {
+            status =
+              'Visual request budget exceeded; read fewer pages. Only extracted text is available.';
+          } else if (mode === 'native' && snapshot.pdf) {
+            bytes += size;
             parts.push(
+              { type: 'text', text: label },
               {
-                type: 'text',
-                text: ref.pages.length
-                  ? `Original page ${ref.pages[index]}`
-                  : 'Image content',
-              },
-              {
-                type: 'image_url',
-                image_url: { url: `data:image/png;base64,${image}` },
+                type: 'file',
+                file: {
+                  filename: `pages-${ref.pages.join('-')}.pdf`,
+                  file_data: `data:application/pdf;base64,${snapshot.pdf}`,
+                },
               },
             );
-          });
-          continue;
-        } else
+            continue;
+          } else if (snapshot.images.length === (ref.pages.length || 1)) {
+            bytes += size;
+            parts.push({ type: 'text', text: label });
+            snapshot.images.forEach((image, index) => {
+              parts.push(
+                {
+                  type: 'text',
+                  text: ref.pages.length
+                    ? `Original page ${ref.pages[index]}`
+                    : 'Image content',
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/png;base64,${image}` },
+                },
+              );
+            });
+            continue;
+          } else
+            status =
+              'Page rendering unavailable; only extracted text is available.';
+        } catch {
           status =
-            'Page rendering unavailable; only extracted text is available.';
-      } catch {
-        status =
-          'Visual snapshot missing or invalid; re-read the original file. Visual content is unavailable.';
+            'Visual snapshot missing or invalid; re-read the original file. Visual content is unavailable.';
+        }
       }
       parts.push({ type: 'text', text: `${label} ${status}` });
     }
@@ -217,11 +199,7 @@ async function materialize(
     } else
       result.push({
         ...plain,
-        content: [
-          ...asParts(message.content),
-          ...(mode === 'text' ? [textGuidance(auxiliaryVisionAvailable)] : []),
-          ...parts,
-        ],
+        content: [...asParts(message.content), ...parts],
       });
   }
   flush();

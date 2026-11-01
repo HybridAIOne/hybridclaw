@@ -1490,6 +1490,7 @@ async function processRequestInner(
         history,
         sessionId,
         contextWindowTokens: guardContextWindow,
+        promptOverheadTokens,
         taskModels,
         tools: availableTools,
         tokenUsage,

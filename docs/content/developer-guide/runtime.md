@@ -895,9 +895,9 @@ The existing workspace and approval checks apply to every read.
 The context guard measures pressure without rewriting tool results. It includes
 tool schemas and estimates visuals according to the active delivery route. A
 text-only route counts the text handoff and durable snapshot references rather
-than reserving image tokens for pixels it will not send. Batched text handoffs
-share their instructions while retaining each call ID, snapshot, and page list;
-this does not change visual-data permissions or available tools.
+than reserving image tokens for pixels it will not send. Handoff wording, call
+IDs, snapshots, page lists, visual-data permissions, and available tools are
+unchanged.
 
 In-loop compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
@@ -907,6 +907,10 @@ replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
 summaries that do not shrink the region never authorize dropping messages.
+If the protected history plus tool schemas and summary allowance cannot fit,
+the loop keeps the newest complete exchange and allows older parallel batches
+into the summary region. This avoids repeatedly summarizing small setup messages
+while the large results remain protected. Calls and results still stay together.
 If compaction cannot progress, including when the newest exchange leaves no
 compactable middle, the loop saves oversized tool results and reduces their
 inline excerpts to fit the active context budget. Call/result pairing and full

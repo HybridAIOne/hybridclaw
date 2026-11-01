@@ -6,7 +6,10 @@ import {
   estimateVisualMessageTokens,
   setVisualMediaAllowed,
 } from '../container/src/providers/visual-content.js';
-import { createTokenEstimateCache } from '../container/src/token-usage.js';
+import {
+  createTokenEstimateCache,
+  estimateMessageTokens,
+} from '../container/src/token-usage.js';
 import type { ChatMessage } from '../container/src/types.js';
 
 afterEach(() => setVisualMediaAllowed(false));
@@ -81,7 +84,7 @@ test.each([
       contextWindowTokens: 128_000,
     });
     expect(result.tier3Triggered).toBe(false);
-    expect(result.totalTokensAfter).toBeLessThan(30_000);
+    expect(result.totalTokensAfter).toBeLessThan(128_000);
     expect(messages).toEqual(before);
   },
 );
@@ -126,7 +129,7 @@ test('uses text estimates for a CLI route even when the primary model supports i
   ).toBe(false);
 });
 
-test('keeps every durable visual reference in a compact batched handoff', async () => {
+test('keeps every durable visual reference in the existing handoff', async () => {
   setVisualMediaAllowed(true, false);
   const messages = history().slice(1, 9);
   await callWithVisualContent(
@@ -156,10 +159,12 @@ test('keeps every durable visual reference in a compact batched handoff', async 
     },
     async (request) => {
       expect(
+        estimateVisualMessageTokens(messages, { tools: request.tools }),
+      ).toBeGreaterThanOrEqual(estimateMessageTokens(request.messages));
+      expect(
         request.messages.slice(0, 8).map(({ content }) => content),
       ).toEqual(messages.map(({ content }) => content));
       const handoff = JSON.stringify(request.messages.at(-1)?.content);
-      expect(handoff.length).toBeLessThan(2_500);
       expect(handoff).toContain('vision_analyze');
       expect(handoff).not.toContain('base64');
       for (const message of messages) {

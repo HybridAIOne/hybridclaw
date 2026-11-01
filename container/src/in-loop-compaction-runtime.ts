@@ -57,6 +57,7 @@ export async function compactInLoopWithModel(params: {
   sessionId: string;
   history: ChatMessage[];
   contextWindowTokens?: number;
+  promptOverheadTokens?: number;
   taskModels?: TaskModelPolicies;
   fallbackContext: AuxiliaryTaskContext;
   tools: ToolDefinition[];
@@ -91,6 +92,7 @@ export async function compactInLoopWithModel(params: {
   return compactInLoop({
     history: params.history,
     contextWindowTokens: params.contextWindowTokens,
+    promptOverheadTokens: params.promptOverheadTokens,
     archive: createInLoopCompactionArchive(params.sessionId),
     estimateTokens: (messages) =>
       estimateVisualMessageTokens(messages, {

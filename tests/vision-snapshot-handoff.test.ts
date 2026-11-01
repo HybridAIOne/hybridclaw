@@ -125,17 +125,14 @@ test('a text-only primary gets an actionable durable reference for its configure
         : [],
     )
     .join('\n');
-  const reference = text.match(
-    /\{"id":"[a-f0-9]{64}","pages":\[[\d,]*\]\}/,
-  )?.[0];
-  expect(reference).toBeDefined();
-  const snapshot = JSON.parse(reference!);
-  expect(snapshot).toEqual(ref);
-  expect(text).toContain('vision_analyze');
+  const start = text.indexOf('{"name":"vision_analyze"');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const handoff = JSON.parse(text.slice(start, text.lastIndexOf('}') + 1));
+  expect(handoff.arguments.snapshot).toEqual(ref);
   expect(JSON.stringify(sent)).not.toContain('base64');
   const result = await tools.executeToolWithMetadata(
-    'vision_analyze',
-    JSON.stringify({ snapshot, page: 7, question: 'Inspect the selected page.' }),
+    handoff.name,
+    JSON.stringify({ ...handoff.arguments, page: 7 }),
   );
   expect(result.isError).toBe(false);
   expect(fetch).toHaveBeenCalledTimes(1);
