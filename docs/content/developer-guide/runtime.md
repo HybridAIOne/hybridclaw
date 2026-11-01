@@ -905,8 +905,14 @@ returns a matching excerpt and its character offset; use `char_offset` to
 continue searching. These reads return at most 2,000 excerpt characters.
 The existing workspace and approval checks apply to every read.
 
-The context guard measures pressure without rewriting tool results. In-loop
-compaction sends every selected message intact to the compression model,
+The context guard measures pressure without rewriting tool results. It includes
+tool schemas and estimates visuals according to the active delivery route. A
+text-only route counts the text handoff and durable snapshot references rather
+than reserving image tokens for pixels it will not send. Handoff wording, call
+IDs, snapshots, page lists, visual-data permissions, and available tools are
+unchanged.
+
+In-loop compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
 interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
@@ -914,6 +920,10 @@ replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
 summaries that do not shrink the region never authorize dropping messages.
+If the protected history plus tool schemas and summary allowance cannot fit,
+the loop keeps the newest complete exchange and allows older parallel batches
+into the summary region. This avoids repeatedly summarizing small setup messages
+while the large results remain protected. Calls and results still stay together.
 If compaction cannot progress, including when the newest exchange leaves no
 compactable middle, the loop saves oversized tool results and reduces their
 inline excerpts to fit the active context budget. Call/result pairing and full
@@ -927,10 +937,15 @@ after an accepted loop request, not after a summary. Compaction stops immediatel
 when it cannot produce a smaller archived replacement.
 
 The compression model needs enough context for the complete selected region,
-its historical tool schemas, and the summary output budget. It falls back to
-the active model when no compression override is configured. For long tasks,
-configure `auxiliaryModels.compression` with sufficient capacity; a larger
-window than the active model helps recover even when that model overflows.
+its historical tool schemas, and the summary output budget. If the candidate
+region does not fit, compaction selects the largest fitting prefix ending at a
+complete tool exchange and leaves the remaining messages in live context. It
+never splits parallel calls from their results or truncates selected messages.
+Generation reserves the configured allowance, or half the window for a small
+compression model. The model falls back to the active model when no compression
+override is configured. A single exchange too large to summarize still uses
+the saved-result recovery described above; an unsuccessful recovery fails
+explicitly rather than discarding evidence.
 An input rejected as too large reports `summary_context_overflow`; the loop
 then attempts the disk-backed result recovery described above before reporting
 context exhaustion. Archives contain conversation and tool data that the agent

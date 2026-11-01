@@ -84,6 +84,7 @@ import {
   summarizeHybridAICompletionForDebug,
   withHybridAICorrelationHeaders,
 } from './providers/shared.js';
+import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
@@ -118,7 +119,6 @@ import {
   accumulateApiUsage,
   createTokenEstimateCache,
   createTokenUsageStats,
-  estimateMessageTokens,
   estimateTextTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -710,7 +710,7 @@ function buildContextOverflowOutput(params: {
   effectiveUserPrompt: string;
 }): ContainerOutput {
   const overflowMessage =
-    'Context window exhausted inside the container tool loop after repeated in-loop compaction attempts. Compact or reset the session and retry.';
+    'Context window exhausted: compaction and saved-result recovery could not make enough room. Reduce the current request or use a model with a larger context window.';
   if (params.latestFinalAssistantText) {
     return {
       status: 'success',
@@ -1482,12 +1482,15 @@ async function processRequestInner(
       promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
+      providerMethod,
+      tools,
     });
     if (guardResult.tier3Triggered) {
       const compacted = await compactInLoopWithModel({
         history,
         sessionId,
         contextWindowTokens: guardContextWindow,
+        promptOverheadTokens,
         taskModels,
         tools: availableTools,
         tokenUsage,
@@ -1531,7 +1534,11 @@ async function processRequestInner(
     }
 
     const estimatedPromptTokensForCall =
-      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
+      estimateVisualMessageTokens(
+        history,
+        { providerMethod, tools },
+        tokenEstimateCache,
+      ) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
