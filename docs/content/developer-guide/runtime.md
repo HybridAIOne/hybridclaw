@@ -954,6 +954,9 @@ enough for the file. PDF and image inspection use the existing local-file tools.
 Oversized HTTP responses are cancelled without saving a partial artifact. The
 artifact error reports the limit and declared or received size so the caller can
 choose an explicit bound for a retry; the gateway does not raise it automatically.
+The outbound `timeoutMs` deadline remains active through response-body reading,
+so a server that sends headers and then stalls cannot leave a download waiting
+indefinitely. A timed-out download does not save a partial artifact.
 
 When a fetch body or extracted text reaches its size limit, the tool identifies
 the source as incomplete before the returned content. This warning also applies

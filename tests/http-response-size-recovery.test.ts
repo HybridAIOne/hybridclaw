@@ -152,3 +152,110 @@ test('raising the response limit cannot bypass the private-network guard', async
   ).rejects.toThrow(/SSRF/);
   expect(fetch).not.toHaveBeenCalled();
 });
+
+test.each([false, true])(
+  'the deadline includes a stalled response body (artifact: %s)',
+  async (artifact) => {
+    let signal: AbortSignal | undefined;
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let fetched: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      fetched = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        const response = new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+              controller.enqueue(new Uint8Array([65]));
+              signal?.addEventListener(
+                'abort',
+                () => controller.error(signal?.reason),
+                { once: true },
+              );
+            },
+          }),
+        );
+        fetched?.();
+        return response;
+      }),
+    );
+    vi.useFakeTimers();
+    const outcome = request({
+      timeoutMs: 20,
+      ...(artifact ? { responseArtifact: {} } : {}),
+    }).then(
+      (result) => result,
+      (error: unknown) => error,
+    );
+    try {
+      await ready;
+      await vi.advanceTimersByTimeAsync(20);
+      expect(signal?.aborted).toBe(true);
+      expect(await outcome).toMatchObject({ name: 'AbortError' });
+      const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+      expect(
+        fs.existsSync(
+          path.join(agentWorkspaceDir('main'), HTTP_RESPONSE_ARTIFACT_DIR),
+        ),
+      ).toBe(false);
+    } finally {
+      if (!signal?.aborted) stream?.close();
+      await outcome;
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each([
+  'complete',
+  'fetch-failure',
+  'body-failure',
+  'size-rejection',
+  'suppressed',
+  'redirect',
+])('clears the deadline after %s', async (mode) => {
+  let signal: AbortSignal | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url, init: RequestInit) => {
+      signal = init.signal ?? undefined;
+      if (mode === 'fetch-failure') throw new Error('upstream unavailable');
+      if (mode === 'body-failure')
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error('body unavailable'));
+            },
+          }),
+        );
+      if (mode === 'redirect')
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://example.com/redirect' },
+        });
+      return new Response('payload', { headers: { 'content-length': '7' } });
+    }),
+  );
+  vi.useFakeTimers();
+  try {
+    const pending = request({
+      timeoutMs: 20,
+      ...(mode === 'size-rejection'
+        ? { maxResponseBytes: 1, responseArtifact: {} }
+        : {}),
+      ...(mode === 'suppressed' ? { suppressResponseBody: true } : {}),
+    });
+    if (mode === 'complete' || mode === 'suppressed')
+      expect(await pending).toMatchObject({ status: 200 });
+    else await expect(pending).rejects.toThrow();
+    expect(signal).toBeDefined();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(signal?.aborted).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
