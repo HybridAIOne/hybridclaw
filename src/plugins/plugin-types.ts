@@ -763,6 +763,11 @@ export interface HybridClawPluginApi {
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
   getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
+  /**
+   * A request without `provider` whose `model` has a `provider/` prefix is
+   * pinned to that provider, so a failure throws instead of falling back to
+   * another provider. A bare model id or no model keeps automatic fallback.
+   */
   callAuxiliaryModel(
     request: PluginAuxiliaryModelRequest,
   ): Promise<PluginAuxiliaryModelResult>;

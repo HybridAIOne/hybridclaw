@@ -1,3 +1,7 @@
+import {
+  latestMessageByRole,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 import { resolveMempalacePluginConfig } from './config.js';
 import {
   cleanSearchText,
@@ -9,23 +13,12 @@ import { writeTurnExport } from './session-export.js';
 
 const MAX_SEARCH_QUERY_CHARS = 800;
 
-function truncateText(value, maxChars) {
-  const normalized = String(value || '').trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
-
 function normalizeSearchQuery(value) {
   const normalized = String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
   if (normalized.length < 3) return '';
-  if (normalized.length <= MAX_SEARCH_QUERY_CHARS) {
-    return normalized;
-  }
-  return `${normalized
-    .slice(0, Math.max(0, MAX_SEARCH_QUERY_CHARS - 1))
-    .trimEnd()}…`;
+  return truncateText(normalized, MAX_SEARCH_QUERY_CHARS);
 }
 
 function stripMatchingQuotes(value) {
@@ -47,26 +40,6 @@ function normalizeManualCommandArgs(args) {
   }
   const query = stripMatchingQuotes(args.slice(1).join(' '));
   return query ? ['search', query] : ['search'];
-}
-
-function getLatestUserQuery(recentMessages) {
-  let latestMessage = null;
-  for (const message of recentMessages) {
-    if (String(message?.role || '').toLowerCase() !== 'user') continue;
-    if (!latestMessage) {
-      latestMessage = message;
-      continue;
-    }
-    const currentTime = Date.parse(String(message.created_at || ''));
-    const latestTime = Date.parse(String(latestMessage.created_at || ''));
-    if (
-      (Number.isFinite(currentTime) ? currentTime : Number.NEGATIVE_INFINITY) >=
-      (Number.isFinite(latestTime) ? latestTime : Number.NEGATIVE_INFINITY)
-    ) {
-      latestMessage = message;
-    }
-  }
-  return normalizeSearchQuery(latestMessage?.content);
 }
 
 function buildSearchArgs(query, config) {
@@ -315,7 +288,9 @@ async function buildPromptContext(api, config, recentMessages) {
     }
   }
 
-  const query = config.searchEnabled ? getLatestUserQuery(recentMessages) : '';
+  const query = config.searchEnabled
+    ? normalizeSearchQuery(latestMessageByRole(recentMessages, 'user')?.content)
+    : '';
   if (query) {
     const searchText = cleanSearchText(
       await runMempalaceCommandText(buildSearchArgs(query, config), config, {

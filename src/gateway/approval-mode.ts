@@ -1,9 +1,10 @@
 /**
- * Session approval mode — the stored `ask | auto | full` choice and the
+ * Session approval mode — the stored human choice and the
  * effective mode a turn runs with.
  *
- * A running `/fullauto` loop always runs in `full`; otherwise the stored mode
- * applies. Only a human command changes it, and every change is audited.
+ * An explicit learning choice survives `/fullauto`; other full-auto turns
+ * run in `full`. Human commands and authorized admin edits change it; every
+ * change is audited.
  * NOT the approval pipeline (`container/src/approval-policy.ts` applies the
  * mode) and NOT `/approve`, which answers a single pending request.
  */
@@ -27,8 +28,12 @@ import type {
   GatewayCommandResult,
 } from './gateway-types.js';
 
-export function resolveSessionApprovalMode(session: Session): ApprovalMode {
-  if (isFullAutoEnabled(session)) return 'full';
+export function resolveSessionApprovalMode(
+  session: Session,
+  autoApproveTools = false,
+): ApprovalMode {
+  if (session.approval_mode === 'learning') return 'learning';
+  if (autoApproveTools || isFullAutoEnabled(session)) return 'full';
   return isApprovalMode(session.approval_mode)
     ? session.approval_mode
     : DEFAULT_APPROVAL_MODE;
@@ -37,7 +42,11 @@ export function resolveSessionApprovalMode(session: Session): ApprovalMode {
 function describeMode(session: Session, mode: ApprovalMode): string {
   const { label, description } = APPROVAL_MODE_PRESENTATION[mode];
   const lines = [`Current: ${mode} (${label})`, description];
-  if (isFullAutoEnabled(session) && session.approval_mode !== 'full') {
+  if (
+    isFullAutoEnabled(session) &&
+    session.approval_mode !== 'full' &&
+    mode !== 'learning'
+  ) {
     lines.push(
       'Full-auto is running, so approvals stay in full access until `/fullauto off`.',
     );
@@ -81,6 +90,18 @@ export function handleApprovalsCommand(params: {
   if (!isApprovalMode(next)) {
     return { kind: 'error', title: 'Usage', text: usage };
   }
+  const updated = setSessionApprovalMode(session, next, {
+    userId: req.userId ?? null,
+    channelId: req.channelId,
+  });
+  return modeResult(updated, json);
+}
+
+export function setSessionApprovalMode(
+  session: Session,
+  next: ApprovalMode,
+  audit: { userId?: string | null; channelId: string; actor?: string | null },
+): Session {
   const previous = session.approval_mode;
   if (previous !== next) {
     updateSessionApprovalMode(session.id, next);
@@ -91,11 +112,11 @@ export function handleApprovalsCommand(params: {
         type: 'approval.mode_changed',
         from: previous,
         to: next,
-        user_id: req.userId ?? null,
-        channel_id: req.channelId,
+        user_id: audit.userId ?? null,
+        channel_id: audit.channelId,
+        ...(audit.actor ? { actor: audit.actor } : {}),
       },
     });
   }
-  const updated: Session = { ...session, approval_mode: next };
-  return modeResult(updated, json);
+  return { ...session, approval_mode: next };
 }

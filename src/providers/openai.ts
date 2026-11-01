@@ -6,6 +6,7 @@ import {
 } from '../config/config.js';
 import { resolveStaticModelCatalogMetadata } from './model-metadata.js';
 import { readProviderApiKey } from './provider-api-key-utils.js';
+import { providerModelPrefix } from './provider-ids.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -14,8 +15,8 @@ import type {
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
 
-export const OPENAI_MODEL_PREFIX = 'openai/';
-export const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
+export const OPENAI_MODEL_PREFIX = providerModelPrefix('openai');
+export const OPENAI_CODEX_MODEL_PREFIX = providerModelPrefix('openai-codex');
 
 export const isOpenAIModel = createModelMatcher(OPENAI_MODEL_PREFIX);
 export const isOpenAICodexModel = createModelMatcher(OPENAI_CODEX_MODEL_PREFIX);

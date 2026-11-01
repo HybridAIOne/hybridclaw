@@ -24,8 +24,8 @@ import type {
 import type { MediaContextItem } from '../types/container.js';
 import { createMediaHostPathResolver } from './media-host-path.js';
 
-// Resolved from the install root: the gateway image runs an esbuild bundle in
-// dist/, where pdf-reader's own module-relative default points outside /app.
+// Resolved from the install root: the gateway runs an esbuild bundle in dist/,
+// where pdf-reader's own module-relative default points outside /app.
 const PDF_RUNTIME_URL = pathToFileURL(
   resolveInstallPath('skills', 'pdf', 'scripts', '_pdf_runtime.mjs'),
 ).href;
@@ -125,6 +125,7 @@ function detectPdfReferences(prompt: string): string[] {
 export async function injectPdfContextMessages(params: {
   messages: ChatMessage[];
   workspaceRoot: string;
+  stateRoot?: string;
   media?: MediaContextItem[];
   visualMediaAllowed?: boolean;
 }): Promise<ChatMessage[]> {
@@ -175,7 +176,9 @@ export async function injectPdfContextMessages(params: {
         render: params.visualMediaAllowed ? 'always' : 'never',
         maxChars: PDF_PREVIEW_MAX_CHARS,
         runtimeUrl: PDF_RUNTIME_URL,
-        workspaceRoot: params.visualMediaAllowed ? workspaceRoot : undefined,
+        workspaceRoot: params.visualMediaAllowed
+          ? params.stateRoot || workspaceRoot
+          : undefined,
         outputDir,
       });
       visualAttachments.push(...(attachments || []));

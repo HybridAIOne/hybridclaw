@@ -1,6 +1,4 @@
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+import { readString } from '@hybridaione/hybridclaw/plugin-sdk';
 
 function buildMissingDependencyError(error) {
   const message =
@@ -21,7 +19,7 @@ let mem0ModulePromise = null;
 
 async function loadMem0Module() {
   if (!mem0ModulePromise) {
-    if (!normalizeString(process.env.MEM0_TELEMETRY)) {
+    if (!readString(process.env.MEM0_TELEMETRY)) {
       process.env.MEM0_TELEMETRY = 'false';
     }
     mem0ModulePromise = import('mem0ai').catch((error) => {

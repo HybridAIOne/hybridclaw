@@ -341,7 +341,7 @@ function refreshLegacyDefaultBootstrapIfNeeded(params: {
   }
 }
 
-function stripMarkdownSection(content: string, heading: string): string {
+export function stripMarkdownSection(content: string, heading: string): string {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const targetHeading = `## ${heading}`;
   const startIndex = lines.findIndex((line) => line.trim() === targetHeading);

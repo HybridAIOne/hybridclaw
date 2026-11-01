@@ -1,4 +1,7 @@
-import { normalizeString, truncateText } from './utils.js';
+import {
+  toTrimmedString,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 function normalizeBaseUrl(value) {
   const normalized = String(value || '').trim();
@@ -8,11 +11,11 @@ function normalizeBaseUrl(value) {
 }
 
 function encodePathSegment(value) {
-  return encodeURIComponent(normalizeString(value));
+  return encodeURIComponent(toTrimmedString(value));
 }
 
 function sanitizeIdentifier(value, fallback) {
-  let normalized = normalizeString(value).replace(/[^a-zA-Z0-9_-]+/g, '-');
+  let normalized = toTrimmedString(value).replace(/[^a-zA-Z0-9_-]+/g, '-');
   let start = 0;
   let end = normalized.length;
   while (normalized[start] === '-') start += 1;
@@ -34,12 +37,12 @@ export function sanitizeHonchoSessionId(sessionId) {
 }
 
 function normalizeMessageTimestamp(value) {
-  const normalized = normalizeString(value);
+  const normalized = toTrimmedString(value);
   return normalized || undefined;
 }
 
 function chunkMessageContent(content, limit) {
-  const normalized = normalizeString(content);
+  const normalized = toTrimmedString(content);
   if (!normalized) return [];
   if (!limit || normalized.length <= limit) return [normalized];
 
@@ -81,11 +84,11 @@ function normalizeChatResponse(value) {
   if (typeof value === 'string') return value.trim();
   if (!value || typeof value !== 'object') return '';
   return (
-    normalizeString(value.answer) ||
-    normalizeString(value.output) ||
-    normalizeString(value.result) ||
-    normalizeString(value.content) ||
-    normalizeString(value.response) ||
+    toTrimmedString(value.answer) ||
+    toTrimmedString(value.output) ||
+    toTrimmedString(value.result) ||
+    toTrimmedString(value.content) ||
+    toTrimmedString(value.response) ||
     ''
   );
 }
@@ -224,16 +227,16 @@ export class HonchoClient {
       await this.ensurePeer(userPeerId, {
         source: 'hybridclaw',
         kind: 'user',
-        hybridclaw_user_id: normalizeString(params.userId),
-        display_name: normalizeString(this.config.peerName) || undefined,
+        hybridclaw_user_id: toTrimmedString(params.userId),
+        display_name: toTrimmedString(this.config.peerName) || undefined,
       });
       await this.ensurePeer(agentPeerId, {
         source: 'hybridclaw',
         kind: 'agent',
-        hybridclaw_agent_id: normalizeString(params.agentId),
+        hybridclaw_agent_id: toTrimmedString(params.agentId),
         display_name:
-          normalizeString(this.config.aiPeer) ||
-          normalizeString(params.agentId) ||
+          toTrimmedString(this.config.aiPeer) ||
+          toTrimmedString(params.agentId) ||
           undefined,
       });
       await this.ensureSession(honchoSessionId);
@@ -266,7 +269,7 @@ export class HonchoClient {
       await this.ensureConversation(params);
     const payload = [];
     for (const message of params.messages) {
-      const role = normalizeString(message?.role).toLowerCase();
+      const role = toTrimmedString(message?.role).toLowerCase();
       if (role !== 'user' && role !== 'assistant') continue;
       const peerId = role === 'assistant' ? agentPeerId : userPeerId;
       const chunks = chunkMessageContent(
@@ -321,10 +324,10 @@ export class HonchoClient {
         query: {
           tokens: this.config.contextTokens,
           summary: params.includeSummary ? 'true' : undefined,
-          search_query: normalizeString(params.searchQuery) || undefined,
-          peer_target: normalizeString(params.peerTargetId) || undefined,
+          search_query: toTrimmedString(params.searchQuery) || undefined,
+          peer_target: toTrimmedString(params.peerTargetId) || undefined,
           peer_perspective:
-            normalizeString(params.peerPerspectiveId) || undefined,
+            toTrimmedString(params.peerPerspectiveId) || undefined,
           limit_to_session: params.limitToSession ? 'true' : undefined,
         },
       },
@@ -332,16 +335,16 @@ export class HonchoClient {
   }
 
   async getPeerRepresentation(params) {
-    const peerId = normalizeString(params.peerId);
+    const peerId = toTrimmedString(params.peerId);
     if (!peerId) return { representation: '', peer_card: [] };
     return await this.request(
       'POST',
       `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/peers/${encodePathSegment(peerId)}/representation`,
       {
         body: {
-          query: normalizeString(params.query) || undefined,
-          target: normalizeString(params.targetPeerId) || undefined,
-          session_id: normalizeString(params.honchoSessionId) || undefined,
+          query: toTrimmedString(params.query) || undefined,
+          target: toTrimmedString(params.targetPeerId) || undefined,
+          session_id: toTrimmedString(params.honchoSessionId) || undefined,
         },
       },
     );
@@ -355,8 +358,8 @@ export class HonchoClient {
         body: {
           query: truncateText(params.query, this.config.dialecticMaxInputChars),
           reasoning_level: params.reasoningLevel,
-          target: normalizeString(params.targetPeerId) || undefined,
-          session_id: normalizeString(params.honchoSessionId) || undefined,
+          target: toTrimmedString(params.targetPeerId) || undefined,
+          session_id: toTrimmedString(params.honchoSessionId) || undefined,
         },
       },
     );
@@ -372,7 +375,7 @@ export class HonchoClient {
       return 0;
     }
     const conclusions = params.conclusions
-      .map((content) => normalizeString(content))
+      .map((content) => toTrimmedString(content))
       .filter(Boolean)
       .map((content) => ({
         content,
@@ -422,5 +425,5 @@ export class HonchoClient {
 export function formatHonchoLabel(peerId, userPeerId, agentPeerId) {
   if (peerId === userPeerId) return 'user';
   if (peerId === agentPeerId) return 'assistant';
-  return normalizeString(peerId) || 'peer';
+  return toTrimmedString(peerId) || 'peer';
 }

@@ -1,7 +1,14 @@
+/**
+ * Routed provider calls share response handling without changing model policy.
+ * Vision returns a complete textual analysis or an error; a token-limited
+ * fragment must never be presented as a successful full analysis.
+ * Context overhead includes schemas even when the API accepts them outside messages.
+ */
 import { getProviderContextError } from '../../shared/provider-context.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
+import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -34,12 +41,12 @@ import {
   callOpenAIResponsesProvider,
   callOpenAIResponsesProviderStream,
 } from './openai-codex.js';
-import { isOpenAICompatRuntimeProvider } from './provider-ids.js';
+import { isOpenAICompatProviderId } from './provider-ids.js';
 import {
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
-  type RuntimeProvider,
+  type RuntimeProviderId,
 } from './shared.js';
 
 const DEFAULT_VISION_INSTRUCTIONS =
@@ -47,7 +54,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
 
 export interface RoutedModelContext {
   sessionId?: string;
-  provider: RuntimeProvider | undefined;
+  provider: RuntimeProviderId | undefined;
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;
@@ -138,7 +145,7 @@ export async function callProviderModel(
   if (args.provider === 'ollama') {
     return callOllamaProvider(args);
   }
-  if (isOpenAICompatRuntimeProvider(args.provider)) {
+  if (isOpenAICompatProviderId(args.provider)) {
     return callLocalOpenAICompatProvider(args);
   }
   return callHybridAIProvider(args);
@@ -159,7 +166,7 @@ export async function callProviderModelStream(
   if (args.provider === 'ollama') {
     return callOllamaProviderStream(args);
   }
-  if (isOpenAICompatRuntimeProvider(args.provider)) {
+  if (isOpenAICompatProviderId(args.provider)) {
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
@@ -168,13 +175,19 @@ export async function callProviderModelStream(
 export function estimateRoutedPromptOverheadTokens(
   params: RoutedPromptOverheadParams,
 ): number {
-  if (!isOpenAICompatRuntimeProvider(params.provider)) return 0;
-  return estimateLocalOpenAICompatPromptOverheadTokens({
-    provider: params.provider,
-    model: params.model,
-    tools: params.tools,
-    modelBehavior: params.modelBehavior,
-  });
+  const schemas = params.tools?.length
+    ? estimateTextTokens(JSON.stringify(params.tools))
+    : 0;
+  if (!isOpenAICompatProviderId(params.provider)) return schemas;
+  return Math.max(
+    schemas,
+    estimateLocalOpenAICompatPromptOverheadTokens({
+      provider: params.provider,
+      model: params.model,
+      tools: params.tools,
+      modelBehavior: params.modelBehavior,
+    }),
+  );
 }
 
 export async function callRoutedModel(
@@ -225,21 +238,21 @@ export async function callRoutedModelStream(
 }
 
 function normalizeVisionBaseUrl(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
   baseUrl: string,
 ): string {
   const normalized = baseUrl.trim().replace(/\/+$/g, '');
   if (provider === 'ollama') {
     return normalized.replace(/\/v1$/i, '');
   }
-  if (isOpenAICompatRuntimeProvider(provider)) {
+  if (isOpenAICompatProviderId(provider)) {
     return /\/v1$/i.test(normalized) ? normalized : `${normalized}/v1`;
   }
   return normalized;
 }
 
 function shouldStreamVisionRequest(
-  provider: RuntimeProvider | undefined,
+  provider: RuntimeProviderId | undefined,
 ): boolean {
   return (
     provider === undefined ||
@@ -320,6 +333,11 @@ export async function callVisionProviderModel(
       })
     : await callRoutedModel(request);
 
+  if (response.choices[0]?.finish_reason === 'length') {
+    throw new Error(
+      'vision API reached its output limit; analysis is incomplete. Increase auxiliaryModels.vision.maxTokens for a longer analysis.',
+    );
+  }
   const analysis = extractResponseTextContent(
     response.choices[0]?.message?.content,
   );

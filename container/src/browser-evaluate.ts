@@ -7,6 +7,7 @@
  * while a secret typed into the page is still there (until the URL changes).
  * NOT a sandbox for untrusted code: the approval policy decides whether the
  * call runs at all, and browser-tools.ts keeps private hosts out of reach.
+ * Failed expressions stay failed; recovery guidance never replays page code.
  */
 import { currentBrowserPage } from './browser-checkout.js';
 import type { ToolDefinition } from './types.js';
@@ -15,6 +16,9 @@ export const BROWSER_EVALUATE_TOOL = 'browser_evaluate';
 
 // The snapshot's cap: one evaluate never costs more context than a snapshot.
 const MAX_INLINE_CHARS = 48_000;
+
+const DOM_LOOKUP_GUIDANCE =
+  'Use the current page snapshot or inspect the DOM to verify your target. Snapshot roles such as button do not guarantee a <button> tag. Check querySelector/find results before accessing properties, report a missing match explicitly, and stop ancestor traversal when parentElement is null.';
 
 export interface BrowserEvaluateDeps {
   /** Runs the browser tool in this chat's session; its JSON output. */
@@ -40,7 +44,14 @@ export async function runBrowserEvaluate(
     }),
   ) as Record<string, unknown>;
   if (output.success !== true) {
-    throw new Error(String(output.error || 'evaluation failed'));
+    const error = String(output.error || 'evaluation failed');
+    const missingValue =
+      /TypeError: Cannot read properties of (?:null|undefined)\b/.test(error);
+    throw new Error(
+      missingValue
+        ? `${error}\nA lookup or ancestor traversal may have reached a missing value. ${DOM_LOOKUP_GUIDANCE} Use browser_snapshot if needed. Before retrying, check for effects the failed script may already have performed.`
+        : error,
+    );
   }
   const { result } = output;
   const savePath = String(args.path || '').trim();
@@ -74,7 +85,8 @@ export const BROWSER_EVALUATE_TOOL_DEFINITION: ToolDefinition = {
   function: {
     name: BROWSER_EVALUATE_TOOL,
     description:
-      "Run a JavaScript expression in the current page and return its value as JSON. Promises are awaited, so `fetch('/api/items').then(r => r.json())` calls the page's own API with its cookies. For several statements use `(async () => { ...; return value; })()`. Use it to read lists, tables, or data from a rendered page in one call, and pass `path` to save a large result to a workspace file. It can change the page like a click can.",
+      "Run a JavaScript expression in the current page and return its value as JSON. Promises are awaited, so `fetch('/api/items').then(r => r.json())` calls the page's own API with its cookies. For several statements use `(async () => { ...; return value; })()`. Use it to read lists, tables, or data from a rendered page in one call, and pass `path` to save a large result to a workspace file. It can change the page like a click can. " +
+      DOM_LOOKUP_GUIDANCE,
     parameters: {
       type: 'object',
       properties: {

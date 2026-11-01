@@ -29,8 +29,16 @@ function agentWorkspace(): string {
   write(root, 'MEMORY.md', '- Main knows the dentist is on Friday.\n');
   write(root, 'memory/2026-10-01.md', '- Main note about the garden.\n');
   write(root, `scopes/${SCOPE}/MEMORY.md`, '- Work: the quarterly report.\n');
-  write(root, `scopes/${SCOPE}/memory/2026-10-02.md`, '- Work note: invoice.\n');
-  write(root, `scopes/${OTHER_SCOPE}/MEMORY.md`, '- Family: the school trip.\n');
+  write(
+    root,
+    `scopes/${SCOPE}/memory/2026-10-02.md`,
+    '- Work note: invoice.\n',
+  );
+  write(
+    root,
+    `scopes/${OTHER_SCOPE}/MEMORY.md`,
+    '- Family: the school trip.\n',
+  );
   write(
     root,
     '.session-transcripts/web_main.jsonl',
@@ -91,6 +99,40 @@ test("the main chat's session_search covers every scope's transcripts", async ()
   ]);
 });
 
+test.each([false, true])(
+  'session_search stays in owner state with a separate execution directory (scoped=%s)',
+  async (scoped) => {
+    const root = agentWorkspace();
+    const owner = scoped ? path.join(root, 'scopes', SCOPE) : root;
+    const task = makeTempDir();
+    write(
+      task,
+      '.session-transcripts/task.jsonl',
+      transcript('task-decoy', 'Unrelated fence.'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_STATE_ROOT', owner);
+    vi.stubEnv('HYBRIDCLAW_AGENT_ALLOWED_ROOTS', JSON.stringify([owner]));
+    const { executeTool } = await loadTools(task);
+    const result = await executeTool(
+      'session_search',
+      JSON.stringify({ query: 'fence', limit: 5 }),
+    );
+    expect(searchedSessions(result)).toEqual(
+      scoped ? ['ios-work'] : ['ios-family', 'ios-work', 'main-a'],
+    );
+    const rows = JSON.parse(result).results as Array<{
+      transcript_path: string;
+    }>;
+    for (const row of rows) {
+      expect(path.isAbsolute(row.transcript_path)).toBe(true);
+      expect(path.relative(owner, row.transcript_path).startsWith('..')).toBe(
+        false,
+      );
+      expect(fs.existsSync(row.transcript_path)).toBe(true);
+    }
+  },
+);
+
 test('a scoped chat searches only its own scope', async () => {
   const root = agentWorkspace();
   // A scoped chat's worker has the scope's directory as its workspace.
@@ -118,10 +160,10 @@ test('a scoped chat searches only its own scope', async () => {
 });
 
 test('blocked tool patterns keep every connector service but the allowed ones out', async () => {
-  const { compileBlockedTools } = await import(
-    '../container/src/blocked-tools.js'
+  const { compileToolPatterns } = await import(
+    '../container/shared/tool-patterns.js'
   );
-  const isBlocked = compileBlockedTools([
+  const isBlocked = compileToolPatterns([
     'device_data',
     'hybridai__*__*',
     '!hybridai__dm__*',
@@ -138,5 +180,5 @@ test('blocked tool patterns keep every connector service but the allowed ones ou
   expect(isBlocked('github__create_issue')).toBe(false);
   expect(isBlocked('read')).toBe(false);
   // An exemption never lifts an exact block.
-  expect(compileBlockedTools(['read', '!read'])('read')).toBe(true);
+  expect(compileToolPatterns(['read', '!read'])('read')).toBe(true);
 });

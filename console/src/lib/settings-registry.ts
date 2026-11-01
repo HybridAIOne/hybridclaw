@@ -1,3 +1,5 @@
+import { GATEWAY_MODEL_PROVIDER_KEYS } from '../../../src/gateway/model-provider-keys';
+import { isLocalBackendType } from '../../../src/providers/provider-ids';
 import type { AdminConfig } from '../api/types';
 import {
   GENERATED_SETTINGS_REGISTRY,
@@ -29,6 +31,13 @@ export interface SettingsRegistrySection {
   entries: ReadonlyArray<SettingsRegistryEntry>;
 }
 
+// Top-level config sections of the model providers; local backends share
+// `local`.
+const PROVIDER_CONFIG_SECTIONS = [
+  ...GATEWAY_MODEL_PROVIDER_KEYS.filter((key) => !isLocalBackendType(key)),
+  'local',
+];
+
 const PROVIDERS_OWNER: AdminConfigSectionOwner = {
   label: 'Providers',
   to: '/admin/models',
@@ -43,23 +52,9 @@ const SECTION_OWNERS: Readonly<
   tools: { label: 'Plugins & Tools', to: '/admin/extensions?tab=tools' },
   plugins: { label: 'Plugins & Tools', to: '/admin/extensions?tab=plugins' },
   deployment: { label: 'Gateway', to: '/admin/gateway' },
-  hybridai: PROVIDERS_OWNER,
-  codex: PROVIDERS_OWNER,
-  openai: PROVIDERS_OWNER,
-  anthropic: PROVIDERS_OWNER,
-  openrouter: PROVIDERS_OWNER,
-  mistral: PROVIDERS_OWNER,
-  huggingface: PROVIDERS_OWNER,
-  gemini: PROVIDERS_OWNER,
-  deepseek: PROVIDERS_OWNER,
-  xai: PROVIDERS_OWNER,
-  zai: PROVIDERS_OWNER,
-  kimi: PROVIDERS_OWNER,
-  minimax: PROVIDERS_OWNER,
-  dashscope: PROVIDERS_OWNER,
-  xiaomi: PROVIDERS_OWNER,
-  kilo: PROVIDERS_OWNER,
-  local: PROVIDERS_OWNER,
+  ...Object.fromEntries(
+    PROVIDER_CONFIG_SECTIONS.map((section) => [section, PROVIDERS_OWNER]),
+  ),
   auxiliaryModels: PROVIDERS_OWNER,
   routing: { label: 'Routing', to: '/admin/model-routing' },
 };
@@ -96,23 +91,7 @@ const SECTION_ORDER = [
   'channelInstructions',
   ...Object.values(CHANNEL_CONFIG_SECTIONS),
   'speech',
-  'hybridai',
-  'codex',
-  'openai',
-  'anthropic',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'local',
+  ...PROVIDER_CONFIG_SECTIONS,
   'auxiliaryModels',
   'routing',
   'mcpServers',

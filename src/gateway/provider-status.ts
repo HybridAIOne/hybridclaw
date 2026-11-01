@@ -12,6 +12,7 @@ import { getDiscoveredMistralModelNames } from '../providers/mistral-discovery.j
 import { readOpenAIAPIKey } from '../providers/openai.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import { getDiscoveredOpenRouterModelNames } from '../providers/openrouter-discovery.js';
+import { OPENAI_COMPAT_REMOTE_PROVIDER_IDS } from '../providers/provider-ids.js';
 import { dedupeStrings } from '../utils/normalized-strings.js';
 import {
   buildGatewayHybridAIProviderEntry,
@@ -182,22 +183,7 @@ export async function getGatewayAdminProviderStatus(
       }),
     ).map(([name, value]) => [name, { ...value }]),
   ) as NonNullable<GatewayStatus['providerHealth']>;
-  const remoteOpenAiCompatKeys = [
-    'openai',
-    'openrouter',
-    'mistral',
-    'huggingface',
-    'gemini',
-    'deepseek',
-    'xai',
-    'zai',
-    'kimi',
-    'minimax',
-    'dashscope',
-    'xiaomi',
-    'kilo',
-  ] as const;
-  for (const key of remoteOpenAiCompatKeys) {
+  for (const key of ['openai', ...OPENAI_COMPAT_REMOTE_PROVIDER_IDS] as const) {
     if (providerStatus[key]) continue;
     const diagnostic = diagnoseProviderForModels(key, providerStatus);
     providerStatus[key] = {

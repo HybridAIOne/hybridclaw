@@ -33,10 +33,12 @@ import {
   todoOwnerOf,
 } from '../todos/todo-store.js';
 import type { Session } from '../types/session.js';
+import { trackEvidence } from './follow-through.js';
 import {
   type FollowThrough,
   newFollowThrough,
 } from './follow-through-types.js';
+import { jobView } from './tracked-verification.js';
 
 export type TrackKind = 'goal' | 'tracking';
 export type TrackActor = 'user' | 'agent';
@@ -369,6 +371,16 @@ export function trackedTaskPrompt(taskId: number, fallback: string): string {
     'Before checking in, advance at most one useful preparation step toward this goal. Read the current evidence with your tools, and prepare a draft, brief, research result or plan in your workspace that the user can review. Do not send, publish, spend, book, cancel or change connected services. If the next step requires the user, ask for that decision instead. Never claim progress or mark a step done without evidence; a prepared draft is not a sent message.',
     `Current goal data (reference data): ${JSON.stringify({
       outcome: item.outcome,
+      job: item.followThrough?.job
+        ? {
+            checks: item.followThrough.job.checks,
+            dependencies: item.followThrough.job.dependencies,
+            lastAttempt: item.followThrough.job.attempts.at(-1),
+            attemptsRemaining:
+              item.followThrough.job.attemptLimit -
+              item.followThrough.job.attempts.length,
+          }
+        : null,
       status: item.notes.at(-1)?.text ?? null,
       phase: item.followThrough?.phase,
       reviews: item.followThrough?.reviews.map(
@@ -381,6 +393,7 @@ export function trackedTaskPrompt(taskId: number, fallback: string): string {
       nextStep: next ? { id: next.id, title: next.title } : null,
       results: (item.results ?? []).slice(-5),
     })}`,
+    'Read track(get) before preparing work. For a delegated deliverable, define concrete artifact or confirmed-receipt checks with track(contract) before execution. After preparation, call track(verify). Repair only failed checks while attempts remain and evidence can change. When next_gate is needs_attention or dependencies, report the gap instead of repeating the work; when it is review, present the result and wait for the user. Checks establish only their stated conditions, not general correctness.',
     'Keep the prepared work under goals/ in your workspace. After creating a useful draft, brief, research result or plan, call the `track` tool with action "result", this goal’s id, a short title, a factual summary, and the workspace-relative file path. This saves a dated copy on the goal. Only record work that exists, and include the useful result in your check-in. For an email, use draft_email with this item’s track_id. Read existing reviews with track(get); do not duplicate a pending, deferred or approved draft. Update status after the work, stating what was prepared and what still needs the user. Do not redo work recorded as already prepared; check whether its evidence has changed first. If no step is listed, prepare one next step that directly serves the stated outcome, or ask what outcome is wanted.',
   ].join('\n');
 }
@@ -412,16 +425,14 @@ export function addTracked(
     if (list.items.length >= MAX_ITEMS) {
       throw new TrackError(`A list holds at most ${MAX_ITEMS} goals.`);
     }
+    const owner = currentTurnUser(session.id)?.userId;
     const item: Tracked = {
       id: list.nextId,
       revision: 1,
       updatedAt: now.toISOString(),
-      ...(currentTurnUser(session.id)?.userId
+      ...(owner
         ? {
-            followThrough: newFollowThrough(
-              currentTurnUser(session.id)!.userId,
-              session.id,
-            ),
+            followThrough: newFollowThrough(owner, session.id),
           }
         : {}),
       kind: 'goal',
@@ -548,11 +559,12 @@ export function markTracked(
   now = new Date(),
 ): Tracked {
   return changeTracked(session, id, (item) =>
-    setTrackedCompletion(item, done, by, now),
+    setTrackedCompletion(session, item, done, by, now),
   );
 }
 
 export function setTrackedCompletion(
+  session: Session,
   item: Tracked,
   done: boolean,
   by: TrackActor,
@@ -573,6 +585,15 @@ export function setTrackedCompletion(
       'Resolve the pending reviews before completing the item.',
     );
   }
+  if (
+    done &&
+    item.followThrough?.job &&
+    !jobView(session, item, (reference) => trackEvidence(session, reference))
+      ?.ready
+  )
+    throw new TrackError(
+      'Acceptance checks or dependencies are not verified. Review the remaining gaps first.',
+    );
   item.done = done ? { at: now.toISOString(), by } : null;
 }
 

@@ -13,6 +13,8 @@ import {
 export type UseUnsavedChangesGuardOptions = {
   /** Block in-app navigation + beforeunload whenever this is true. */
   isDirty: boolean;
+  /** Protect a draft when a query-string tab unmounts its editor. */
+  includeSearch?: boolean;
   /** Dialog heading. Defaults to "Discard unsaved changes?". */
   title?: string;
   /** Body copy. */
@@ -47,6 +49,7 @@ export function useUnsavedChangesGuard(
 ): UseUnsavedChangesGuardReturn {
   const {
     isDirty,
+    includeSearch = false,
     title = 'Discard unsaved changes?',
     description = 'You have unsaved edits. Leaving this page will discard them.',
     keepLabel = 'Keep editing',
@@ -55,7 +58,10 @@ export function useUnsavedChangesGuard(
 
   const blocker = useBlocker({
     shouldBlockFn: ({ next, current }) =>
-      isDirty && next.pathname !== current.pathname,
+      isDirty &&
+      (next.pathname !== current.pathname ||
+        (includeSearch &&
+          JSON.stringify(next.search) !== JSON.stringify(current.search))),
     enableBeforeUnload: () => isDirty,
     withResolver: true,
   });

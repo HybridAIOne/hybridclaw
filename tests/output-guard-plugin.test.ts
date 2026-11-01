@@ -547,7 +547,7 @@ test('output guard rewrites non-compliant text via the configured rewriter', asy
   expect(auxiliary.callAuxiliaryModel).toHaveBeenCalledTimes(2);
   expect(auxiliary.callAuxiliaryModel).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      provider: 'auto',
+      provider: undefined,
       model: undefined,
     }),
   );

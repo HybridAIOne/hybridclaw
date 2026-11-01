@@ -14,6 +14,20 @@ For shared browser and local config surfaces, also see
 [Admin Console](./admin-console.md), [Local Config And Secrets](./local-config-and-secrets.md),
 and [Policies And Allowlists](./policies-and-allowlists.md).
 
+## Approving an action
+
+When an action needs permission, Teams shows the action, why confirmation is
+needed, and the available numbered replies. Reply `1` to allow the action once
+or `5` to deny it. Choices `2`, `3`, and `4` appear only when the action permits
+trust for the chat session, this assistant, or all assistants respectively.
+Protected actions offer only a one-time approval or denial.
+
+The message describes the concrete action in ordinary words. Shell commands
+include a short description supplied by the assistant in your language; that
+description does not influence the permission checks. Commands and technical
+diagnostics are hidden until you reply `0` for details (or send `/approve view`).
+Reply before the displayed deadline; without approval, the action does not run.
+
 ## Step 1: Create the Entra app registration
 
 1. Open the

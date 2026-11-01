@@ -221,6 +221,7 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import { WIDGET_MIME_TYPE } from './app-widgets.js';
 import { approvalAnswerText, parseApprovalAnswer } from './approval-answer.js';
+import { handleApprovalSettingsAdmin } from './approval-settings-admin.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -528,6 +529,7 @@ import {
   evaluateConfiguredRouting,
   isJevAvailable,
 } from './routing-evaluator.js';
+import { handleSafetyRulesAdmin } from './safety-rules-admin.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -2055,6 +2057,7 @@ async function resolveApiChatSlashCommandResult(
     });
     if (guarded) return guarded;
     const result = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId: chatRequest.sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -2124,6 +2127,7 @@ async function resolveApiChatSlashCommandResult(
     }
 
     const gatewayCommandResult = await handleGatewayCommand({
+      operatorId: chatRequest.operatorId,
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -3494,6 +3498,7 @@ async function handleApiChat(
   }
   const channelId = body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -4143,6 +4148,7 @@ async function handleApiCommand(
   req: IncomingMessage,
   res: ServerResponse,
   authContext: ResolvedAuthContext,
+  operatorId: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -4165,6 +4171,7 @@ async function handleApiCommand(
   }
 
   const commandRequest: GatewayCommandRequest = {
+    operatorId: operatorId ?? undefined,
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
@@ -11229,6 +11236,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminAudit(res, url);
             return;
           }
+          if (pathname === '/api/admin/approval-settings') {
+            await handleApprovalSettingsAdmin(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
+          if (pathname === '/api/admin/safety-rules') {
+            await handleSafetyRulesAdmin(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
           if (pathname === '/api/admin/approvals' && method === 'GET') {
             handleApiAdminApprovals(res, url);
             return;
@@ -11516,7 +11539,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
-            await handleApiCommand(req, res, authContext);
+            await handleApiCommand(req, res, authContext, operatorId);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {

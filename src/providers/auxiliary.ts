@@ -9,7 +9,7 @@ import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '../../container/shared/server-sent-events.js';
-import type { GatewayModelProviderKey } from '../gateway/model-provider-keys.js';
+import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
@@ -38,13 +38,13 @@ import {
   stripProviderPrefix,
 } from './model-names.js';
 import {
+  inferProviderFromModelPrefix,
   isLocalBackendType,
   isOpenAICompatProviderId,
   type RuntimeProviderId,
 } from './provider-ids.js';
 import {
   type AuxiliaryTask,
-  detectRuntimeProviderPrefix,
   isAuxiliaryTaskDisabled,
   normalizeAuxiliaryProviderModel,
   normalizeMaxTokens,
@@ -425,7 +425,7 @@ async function resolveExplicitTextCallContext(
     maxTokens: params.maxTokens,
     expectedProvider:
       providerSelection === 'auto'
-        ? detectRuntimeProviderPrefix(model)
+        ? inferProviderFromModelPrefix(model)
         : providerSelection,
   });
 }
@@ -514,10 +514,6 @@ async function resolveRemoteFallbackContexts(params: {
   return contexts;
 }
 
-function providerStatusKey(provider: RuntimeProvider): GatewayModelProviderKey {
-  return provider === 'openai-codex' ? 'codex' : provider;
-}
-
 async function getFallbackProviderStatus() {
   const now = Date.now();
   if (
@@ -535,7 +531,7 @@ async function isFallbackProviderHealthy(
   provider: RuntimeProvider,
 ): Promise<boolean> {
   const status = await getFallbackProviderStatus();
-  return status[providerStatusKey(provider)]?.reachable === true;
+  return status[toGatewayModelProviderKey(provider)]?.reachable === true;
 }
 
 async function resolveSessionFallbackContext(params: {
@@ -613,7 +609,7 @@ function resolveLocalProviderForModel(
 ): RuntimeProvider | undefined {
   const trimmed = model?.trim() ?? '';
   if (!trimmed) return undefined;
-  const explicitProvider = detectRuntimeProviderPrefix(trimmed);
+  const explicitProvider = inferProviderFromModelPrefix(trimmed);
   if (explicitProvider) {
     return isLocalBackendType(explicitProvider) ? explicitProvider : undefined;
   }
@@ -647,7 +643,7 @@ function resolveLocalCandidateProvider(
   model: string,
   expectedProvider?: RuntimeProvider,
 ): RuntimeProvider | undefined {
-  const explicitProvider = detectRuntimeProviderPrefix(model);
+  const explicitProvider = inferProviderFromModelPrefix(model);
   if (explicitProvider) {
     return isLocalBackendType(explicitProvider) ? explicitProvider : undefined;
   }
@@ -695,7 +691,7 @@ async function collectLocalFallbackCandidates(params: {
     if (!trimmed) return;
     const provider = resolveLocalCandidateProvider(trimmed, expectedProvider);
     if (!provider) return;
-    const explicitProvider = detectRuntimeProviderPrefix(trimmed);
+    const explicitProvider = inferProviderFromModelPrefix(trimmed);
     const normalized = !explicitProvider
       ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
       : trimmed;
@@ -728,7 +724,7 @@ async function resolveLocalFallbackContext(params: {
     try {
       const providerHint =
         candidate.expectedProvider ??
-        detectRuntimeProviderPrefix(candidate.model);
+        inferProviderFromModelPrefix(candidate.model);
       if (
         providerHint &&
         isLocalBackendType(providerHint) &&
@@ -782,7 +778,7 @@ async function resolveLocalFallbackContexts(params: {
     try {
       const providerHint =
         candidate.expectedProvider ??
-        detectRuntimeProviderPrefix(candidate.model);
+        inferProviderFromModelPrefix(candidate.model);
       if (
         providerHint &&
         isLocalBackendType(providerHint) &&

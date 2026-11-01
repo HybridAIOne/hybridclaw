@@ -2,6 +2,187 @@
 
 ## Unreleased
 
+## [0.42.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.0) - 2026-10-31
+
+### Added
+
+- **Learning approval mode**: Opt-in Learning runs actions while recording the
+  approvals they would normally require, including protected approvals. Review
+  flagged actions and outcomes in the admin audit view. This mode executes real
+  actions; enabled safety blocks, explicit denials, authentication and sandbox
+  restrictions still apply (#2113).
+- **Admin security controls**: Configure the approval default for new
+  conversations and change individual conversation modes under **Security →
+  Approvals & firewall**. Inspect, disable or restore built-in safety blocks
+  alongside network policy, with audited changes and stale-edit protection.
+  Existing conversations retain their selected mode; Auto and all safety
+  blocks remain the shipped defaults (#2114, #2117).
+
+### Changed
+
+- **Self-contained routines and task guidance**: Routine definitions retain
+  agreed sources, output format and notification rules. Follow-up work carries
+  task constraints, preserves source records and identifies incomplete findings;
+  repository publication guidance calls for content and outgoing-history review
+  (#2071, #2072, #2078, #2086, #2087).
+- **WhatsApp compatibility**: Retain the adapter and SDK host type required
+  by the published WhatsApp v0.1.1 plugin; removal is deferred to v0.43.
+- **Observability cursor isolation**: Removed the expired fallback to bot/agent
+  stream cursors. Export resumes only from the current node's persisted cursor.
+
+### Fixed
+
+- **File preservation**: New writes cannot silently replace existing files.
+  Intentional replacement requires a complete prior read and matching expected
+  contents; stale writes fail without changing the file. Unresolved conflicts
+  identify affected files and block shell mutation workarounds while permitting
+  read-only diagnostics. Saved malformed JSON produces an advisory syntax
+  warning (#2080, #2090, #2091, #2108, #2115).
+- **Interrupted turns and context recovery**: Durable checkpoints retain
+  messages and completed tool outcomes, flag uncertain side effects and avoid
+  automatically repeating actions. Large tool results remain searchable on
+  disk; short conversations can recover from oversized results. Compaction
+  honors summary budgets, reserves reasoning tokens separately and keeps
+  maintenance separate from bounded recovery retries (#2081, #2082, #2084, #2102).
+- **Useful approval recovery**: Unconditionally blocked shell commands do not
+  request futile approvals. Assistants can continue permitted work after
+  omitting blocked optional steps, and Teams retains answers to approval
+  questions. Protected approvals explain their one-time requirement and
+  summaries preserve case-sensitive arguments. API clients receive explicit
+  approval-blocked results (#2085, #2089, #2107, #2112).
+- **Reliable web retrieval**: Preserve URL case in cache keys, leading page
+  context and usable absolute links. Reject binary or incomplete bodies from
+  text retrieval. Oversized HTTP downloads release streams and report sizes
+  for an explicit bounded retry; downloaded artifacts resolve correctly from
+  separate worker directories (#2095–#2098, #2109, #2110, #2116).
+- **Vision and helper models**: Text-only models can use permitted vision
+  helpers and durable PDF/image snapshots. Confidentiality settings still
+  control pixel delivery. Image-routing rejection falls back to text, disabled
+  helper policies stay disabled, configured output budgets survive worker IPC
+  and token-limited vision results report incompleteness (#2074, #2092, #2093,
+  #2103, #2105).
+- **Delegation and workspace ownership**: Resolve waiting delegation against
+  the execution session, isolate each child's callback identity and model,
+  retain scope through nested callbacks and resolve skills from their owning
+  workspace. Stored tool replay preserves code callbacks (#2094, #2099–#2101,
+  #2104).
+- **Final output checks**: Agent guidance calls for parsing structured
+  deliverables after the final edit and reporting validation limits. Browser
+  script failures explain recovery when page elements are missing (#2106,
+  #2111).
+
+### Upgrade Notes
+
+- Custom callers replacing an existing file with `write` must first read the
+  complete file, then pass `overwrite: true` and `expected_content` containing
+  those exact contents, including trailing newlines. After a stale-write error,
+  read again and reconsider the replacement. Use `edit` for targeted changes.
+- Learning is not a dry run: it bypasses approval prompts, including protected
+  prompts, and records observations instead. Select it only for conversations
+  where that execution behavior is intended.
+- Installations that have not exported since node-keyed observability cursors
+  were introduced may resend retained audit history once. Existing node-keyed
+  cursors continue normally; local audit records are preserved.
+
+## [0.41.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.5) - 2026-10-29
+
+### Fixed
+
+- **Readable Teams approvals**: Permission requests explain the planned step
+  in ordinary language, with shell-action descriptions requested in the user's
+  language. Requests show only available approval choices and the actual
+  deadline; commands and technical diagnostics are available with `0` or
+  `/approve view` (#2070).
+- **Approval description isolation**: Model-authored descriptions stay separate
+  from policy checks, trust fingerprints, saved executable calls and tool audit
+  records. Viewing details preserves the pending request and its existing
+  user/session access checks. Protected actions retain one-time approval (#2070).
+
+## [0.41.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.4) - 2026-10-28
+
+### Added
+
+- **Tracked-work checks and repairs**: Prepared work can be checked against
+  explicit file, text, JSON-field and confirmed-action conditions. Checks,
+  dependencies and timestamped repair history stay with the tracked item.
+  One initial check permits two repair attempts; further attempts need the
+  user's decision. Passing checks requests review, and the user still
+  confirms the outcome (#2068).
+
+### Fixed
+
+- **Stale verification results**: Changed files or objectives invalidate a
+  previous pass, and incomplete dependencies block completion. Agents cannot
+  weaken checks after verification starts or reset the repair limit (#2068).
+- **Evidence-based goal completion**: Standing-goal evaluation uses recorded
+  tool and artifact evidence instead of treating completion phrases or
+  counting shortcuts as proof of success (#2068).
+
+## [0.41.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.3) - 2026-10-28
+
+### Fixed
+
+- **Phone overview access**: Overview loads for the owner's phone and refreshes
+  normally. Session and linked evidence access use the authenticated operator,
+  while account IDs retain ownership of tracked items and work (#2069).
+- **Shared review continuity**: Foreground turns and scheduled draft delivery
+  retain the originating operator so linked evidence and reviews remain
+  accessible. Other operators and forged identity fields remain denied (#2069).
+
+## [0.41.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.2) - 2026-10-27
+
+### Added
+
+- **Draft approval answers**: Compatible email approval cards can keep a
+  proposed email as a mailbox draft, including the user's edits, in the same
+  turn. Choosing draft cancels the pending send; sending still requires its
+  own approval, and unavailable draft support is reported.
+- **Agent tool patterns**: Tool allowlists accept `*` patterns such as
+  `hybridai__github_api__*` to allow one connector's tools. Caller restrictions
+  and globally disabled tools continue to apply.
+
+### Changed
+
+- **Relevant chat ideas**: Suggestions draw on the agent's own skills, enabled
+  MCP servers, and tools used in the requesting user's recent chats. Seeded
+  persona files and onboarding state stay out of the profile.
+- **Bundled gateway**: Source, npm, and desktop builds use the bundled gateway
+  at `dist/cli.js`. Public plugin SDK imports remain unchanged. Rebuilds retain
+  earlier chunks for running processes; release packaging cleans them first.
+- **Plugin SDK helpers**: Plugin authors can reuse bounded CLI execution,
+  environment filtering, path resolution, and text and transcript helpers.
+
+### Fixed
+
+- **Phone data on first contact**: App turns can access shared calendar,
+  reminders, health, and contacts from the first message after connecting,
+  without waiting for a second turn. User and scope restrictions still apply.
+- **Large MCP servers**: Tools load in server listing order up to the schema
+  budget; only the remaining tools are deferred to the catalog.
+- **Media readiness and recovery**: Agents receive media-provider configuration
+  readiness and guidance to try useful alternatives after tool failures,
+  without bypassing approval decisions or access restrictions.
+- **Bot-started approvals**: Discord bot and webhook turns deny steps that
+  require human approval when no escalation target exists, instead of posting
+  an unanswerable card. Configured escalation targets remain available.
+- **Provider consistency**: Model filters include every provider, TUI and
+  console labels identify the selected provider correctly, and the console
+  supports MLX configuration.
+- **Activity attribution**: Audit forwarding identifies the executing agent
+  for app conversations instead of falling back to the default agent.
+- **Memory plugin paths and retrieval**: qmd and gbrain expand `~` to the OS
+  home directory. HybridAI knowledge retrieval selects the newest user
+  message even when conversation history arrives out of order.
+
+### Upgrade Notes
+
+- If qmd or gbrain paths relied on `~` resolving under the HybridClaw data
+  directory, replace them with explicit paths to that directory before
+  upgrading. `~` resolves to the OS home directory.
+- Custom scripts importing internal nested `dist/` modules must use supported
+  public entrypoints or source modules from a development checkout. The CLI
+  remains at `dist/cli.js`; plugin SDK imports are unchanged.
+
 ## [0.41.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.1) - 2026-10-25
 
 ### Added

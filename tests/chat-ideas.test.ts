@@ -84,6 +84,35 @@ test('grounds ideas in the agent persona and only the requesting user chats', as
   expect(prompt).not.toContain('bootstrap-marker');
 });
 
+test('leaves seeded templates and USER.md setup sections out of the profile', async () => {
+  setupHome();
+  const fixture = await loadFixture(JSON.stringify({ ideas: [IDEA] }));
+  const { readWorkspaceTemplate } = await import(
+    '../src/workspace-templates.ts'
+  );
+  const workspace = fixture.agentWorkspaceDir('main');
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, 'IDENTITY.md'),
+    readWorkspaceTemplate('IDENTITY.md'),
+  );
+  fs.writeFileSync(
+    path.join(workspace, 'USER.md'),
+    readWorkspaceTemplate('USER.md').replace(
+      '- **Name:**',
+      '- **Name:** name-marker',
+    ),
+  );
+
+  await fixture.generateChatIdeas({ userId: 'user_a' });
+
+  const prompt = lastPrompt(fixture.callAuxiliaryModelMock);
+  expect(prompt).toContain('name-marker');
+  expect(prompt).not.toContain('IDENTITY.md');
+  expect(prompt).not.toContain('Helpful Links');
+  expect(prompt).not.toContain('Welcome Message');
+});
+
 test("grounds ideas in the agent's own skills and only the requesting user's tool use", async () => {
   setupHome();
   const fixture = await loadFixture(JSON.stringify({ ideas: [IDEA] }));

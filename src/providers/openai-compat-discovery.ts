@@ -1,14 +1,3 @@
-import {
-  DASHSCOPE_ENABLED,
-  DEEPSEEK_ENABLED,
-  GEMINI_ENABLED,
-  KILO_ENABLED,
-  KIMI_ENABLED,
-  MINIMAX_ENABLED,
-  XAI_ENABLED,
-  XIAOMI_ENABLED,
-  ZAI_ENABLED,
-} from '../config/config.js';
 import { logger } from '../logger.js';
 import {
   type DiscoveryError,
@@ -17,6 +6,7 @@ import {
 import { getDiscoveredHuggingFaceModelNames } from './huggingface-discovery.js';
 import { getDiscoveredMistralModelNames } from './mistral-discovery.js';
 import {
+  LEGACY_CUSTOM_PROVIDERS,
   OPENAI_COMPAT_REMOTE_PROVIDERS,
   type OpenAICompatRemoteProviderDef,
 } from './openai-compat-remote.js';
@@ -31,32 +21,6 @@ import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 const OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS = 5_000;
 const OPENAI_COMPAT_DISCOVERY_PATH = '/models';
 const XAI_LANGUAGE_MODELS_DISCOVERY_PATH = '/language-models';
-
-const DISCOVERY_URL_OVERRIDES: Partial<Record<RuntimeProviderId, string>> = {};
-
-const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
-  gemini: () => GEMINI_ENABLED,
-  deepseek: () => DEEPSEEK_ENABLED,
-  xai: () => XAI_ENABLED,
-  zai: () => ZAI_ENABLED,
-  kimi: () => KIMI_ENABLED,
-  minimax: () => MINIMAX_ENABLED,
-  dashscope: () => DASHSCOPE_ENABLED,
-  xiaomi: () => XIAOMI_ENABLED,
-  kilo: () => KILO_ENABLED,
-  hybridai: undefined,
-  openai: undefined,
-  'openai-codex': undefined,
-  anthropic: undefined,
-  openrouter: undefined,
-  mistral: undefined,
-  huggingface: undefined,
-  ollama: undefined,
-  lmstudio: undefined,
-  llamacpp: undefined,
-  vllm: undefined,
-  mlx: undefined,
-};
 
 function readModelEntries(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
@@ -121,11 +85,6 @@ export function createOpenAICompatDiscoveryStore(
   let lastError: DiscoveryError | null = null;
 
   function resolveDiscoveryUrl(): string {
-    const override = DISCOVERY_URL_OVERRIDES[def.id];
-    if (override) {
-      if (/^https?:\/\//i.test(override)) return override;
-      return `${normalizeBaseUrl(def.readBaseUrl())}${override}`;
-    }
     if (def.id === 'xai') {
       return `${normalizeBaseUrl(def.readBaseUrl())}${XAI_LANGUAGE_MODELS_DISCOVERY_PATH}`;
     }
@@ -238,9 +197,8 @@ function buildStoreRegistry(): ReadonlyMap<
 > {
   const map = new Map<RuntimeProviderId, OpenAICompatDiscoveryStore>();
   for (const def of OPENAI_COMPAT_REMOTE_PROVIDERS) {
-    const readEnabled = ENABLED_BY_ID[def.id];
-    if (!readEnabled) continue;
-    map.set(def.id, createOpenAICompatDiscoveryStore(def, readEnabled));
+    if (LEGACY_CUSTOM_PROVIDERS.has(def.id)) continue;
+    map.set(def.id, createOpenAICompatDiscoveryStore(def, def.readEnabled));
   }
   return map;
 }

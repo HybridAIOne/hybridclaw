@@ -1,4 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  fromGatewayModelProviderKey,
+  GATEWAY_MODEL_PROVIDER_KEYS,
+  type GatewayModelProviderKey,
+} from '../../../src/gateway/model-provider-keys';
+import { isLocalBackendType } from '../../../src/providers/provider-ids';
+import {
+  PROVIDER_META,
+  type ProviderMeta,
+} from '../../../src/providers/provider-meta';
 import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
@@ -37,168 +47,34 @@ interface ProviderDescriptor {
   };
 }
 
-const PROVIDERS: ReadonlyArray<ProviderDescriptor> = [
-  {
-    id: 'hybridai',
-    label: 'HybridAI',
-    sectionPath: 'hybridai',
-    baseUrlPath: 'hybridai.baseUrl',
-    secretName: 'HYBRIDAI_API_KEY',
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    sectionPath: 'codex',
-    baseUrlPath: 'codex.baseUrl',
-  },
-  {
-    id: 'openai',
-    label: 'OpenAI',
-    sectionPath: 'openai',
-    enabledPath: 'openai.enabled',
-    baseUrlPath: 'openai.baseUrl',
-    secretName: 'OPENAI_API_KEY',
-  },
-  {
-    id: 'anthropic',
-    label: 'Anthropic',
-    sectionPath: 'anthropic',
-    enabledPath: 'anthropic.enabled',
-    baseUrlPath: 'anthropic.baseUrl',
-    secretName: 'ANTHROPIC_API_KEY',
-    select: {
-      path: 'anthropic.method',
-      label: 'Authentication method',
-      options: ['api-key', 'claude-cli'],
-    },
-  },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    sectionPath: 'openrouter',
-    enabledPath: 'openrouter.enabled',
-    baseUrlPath: 'openrouter.baseUrl',
-    secretName: 'OPENROUTER_API_KEY',
-  },
-  {
-    id: 'mistral',
-    label: 'Mistral',
-    sectionPath: 'mistral',
-    enabledPath: 'mistral.enabled',
-    baseUrlPath: 'mistral.baseUrl',
-    secretName: 'MISTRAL_API_KEY',
-  },
-  {
-    id: 'huggingface',
-    label: 'Hugging Face',
-    sectionPath: 'huggingface',
-    enabledPath: 'huggingface.enabled',
-    baseUrlPath: 'huggingface.baseUrl',
-    secretName: 'HF_TOKEN',
-  },
-  {
-    id: 'gemini',
-    label: 'Gemini',
-    sectionPath: 'gemini',
-    enabledPath: 'gemini.enabled',
-    baseUrlPath: 'gemini.baseUrl',
-    secretName: 'GEMINI_API_KEY',
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    sectionPath: 'deepseek',
-    enabledPath: 'deepseek.enabled',
-    baseUrlPath: 'deepseek.baseUrl',
-    secretName: 'DEEPSEEK_API_KEY',
-  },
-  {
-    id: 'xai',
-    label: 'xAI',
-    sectionPath: 'xai',
-    enabledPath: 'xai.enabled',
-    baseUrlPath: 'xai.baseUrl',
-    secretName: 'XAI_API_KEY',
-  },
-  {
-    id: 'zai',
-    label: 'Z.AI',
-    sectionPath: 'zai',
-    enabledPath: 'zai.enabled',
-    baseUrlPath: 'zai.baseUrl',
-    secretName: 'ZAI_API_KEY',
-  },
-  {
-    id: 'kimi',
-    label: 'Kimi',
-    sectionPath: 'kimi',
-    enabledPath: 'kimi.enabled',
-    baseUrlPath: 'kimi.baseUrl',
-    secretName: 'KIMI_API_KEY',
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    sectionPath: 'minimax',
-    enabledPath: 'minimax.enabled',
-    baseUrlPath: 'minimax.baseUrl',
-    secretName: 'MINIMAX_API_KEY',
-  },
-  {
-    id: 'dashscope',
-    label: 'DashScope',
-    sectionPath: 'dashscope',
-    enabledPath: 'dashscope.enabled',
-    baseUrlPath: 'dashscope.baseUrl',
-    secretName: 'DASHSCOPE_API_KEY',
-  },
-  {
-    id: 'xiaomi',
-    label: 'Xiaomi',
-    sectionPath: 'xiaomi',
-    enabledPath: 'xiaomi.enabled',
-    baseUrlPath: 'xiaomi.baseUrl',
-    secretName: 'XIAOMI_API_KEY',
-  },
-  {
-    id: 'kilo',
-    label: 'Kilo Code',
-    sectionPath: 'kilo',
-    enabledPath: 'kilo.enabled',
-    baseUrlPath: 'kilo.baseUrl',
-    secretName: 'KILO_API_KEY',
-  },
-  {
-    id: 'ollama',
-    label: 'Ollama',
-    sectionPath: 'local.backends.ollama',
-    enabledPath: 'local.backends.ollama.enabled',
-    baseUrlPath: 'local.backends.ollama.baseUrl',
-  },
-  {
-    id: 'lmstudio',
-    label: 'LM Studio',
-    sectionPath: 'local.backends.lmstudio',
-    enabledPath: 'local.backends.lmstudio.enabled',
-    baseUrlPath: 'local.backends.lmstudio.baseUrl',
-  },
-  {
-    id: 'llamacpp',
-    label: 'llama.cpp',
-    sectionPath: 'local.backends.llamacpp',
-    enabledPath: 'local.backends.llamacpp.enabled',
-    baseUrlPath: 'local.backends.llamacpp.baseUrl',
-  },
-  {
-    id: 'vllm',
-    label: 'vLLM',
-    sectionPath: 'local.backends.vllm',
-    enabledPath: 'local.backends.vllm.enabled',
-    baseUrlPath: 'local.backends.vllm.baseUrl',
-    secretName: 'VLLM_API_KEY',
-    secretPath: 'local.backends.vllm.apiKey',
-  },
-];
+function describeProvider(key: GatewayModelProviderKey): ProviderDescriptor {
+  const id = fromGatewayModelProviderKey(key);
+  const meta: ProviderMeta = PROVIDER_META[id];
+  const sectionPath = isLocalBackendType(id) ? `local.backends.${id}` : key;
+  return {
+    id: key,
+    label: meta.label,
+    sectionPath,
+    ...(id === 'hybridai' || id === 'openai-codex'
+      ? {}
+      : { enabledPath: `${sectionPath}.enabled` }),
+    baseUrlPath: `${sectionPath}.baseUrl`,
+    ...(meta.secretKey ? { secretName: meta.secretKey } : {}),
+    ...(id === 'vllm' ? { secretPath: `${sectionPath}.apiKey` } : {}),
+    ...(id === 'anthropic'
+      ? {
+          select: {
+            path: 'anthropic.method',
+            label: 'Authentication method',
+            options: ['api-key', 'claude-cli'],
+          },
+        }
+      : {}),
+  };
+}
+
+const PROVIDERS: ReadonlyArray<ProviderDescriptor> =
+  GATEWAY_MODEL_PROVIDER_KEYS.map(describeProvider);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

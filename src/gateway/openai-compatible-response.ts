@@ -1,6 +1,12 @@
+/**
+ * OpenAI response encoding preserves the gateway's structured stop conditions.
+ * Unlike approval policy, this only reports pending approvals; it grants none
+ * and excludes raw arguments and review content from the protocol extension.
+ */
 import type { ServerResponse } from 'node:http';
 import type { ToolCall } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { GatewayChatResult } from './gateway-types.js';
 
 function sendJson(
   res: ServerResponse,
@@ -276,4 +282,25 @@ export function sendOpenAICompatibleStreamError(
   });
   writeOpenAICompatibleStreamChunk(res, '[DONE]');
   res.end();
+}
+
+export function buildOpenAICompatibleExecutionExtensions(
+  result: Pick<GatewayChatResult, 'pendingApproval' | 'delegation'>,
+): Record<string, unknown> | undefined {
+  const approval = result.pendingApproval;
+  if (!approval && !result.delegation) return undefined;
+  return {
+    hybridclaw: {
+      ...(result.delegation ? { delegation: result.delegation } : {}),
+      ...(approval
+        ? {
+            pendingApproval: {
+              approvalId: approval.approvalId,
+              ...(approval.toolName ? { toolName: approval.toolName } : {}),
+              expiresAt: approval.expiresAt,
+            },
+          }
+        : {}),
+    },
+  };
 }

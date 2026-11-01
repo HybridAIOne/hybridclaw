@@ -17,7 +17,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
-import { isRecord } from './utils.js';
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const APPLICATION_JWT_TTL_SECONDS = 900;
 // 300s (owner call, 2026-08-06): max accepted webhook JWT age; pairs with the

@@ -1,3 +1,4 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 /**
  * Vonage Voice REST client (outbound call creation, live-call NCCO transfer).
  *
@@ -11,7 +12,6 @@
  */
 
 import { mintVonageApplicationJwt } from './jwt.js';
-import { isRecord } from './utils.js';
 
 const VONAGE_DEFAULT_API_BASE_URL = 'https://api.nexmo.com';
 function toVonageNumber(e164) {

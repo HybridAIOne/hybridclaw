@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-# Runs on the build host's own architecture: tsc and vite emit
+# Runs on the build host's own architecture: esbuild and vite emit
 # platform-independent JS, and compiling it under QEMU for arm64 took ~13 of
 # the ~17 minutes of a main build (2026-10-01). Install scripts are skipped
 # because nothing here loads a native addon; those come from `deps` below.
@@ -17,7 +17,6 @@ RUN npm --prefix container ci --ignore-scripts
 
 COPY . .
 RUN npm run build:console
-RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
 RUN node scripts/bundle-gateway.mjs
 RUN npm --prefix container run build
 
@@ -153,9 +152,8 @@ COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
 # The image uses the gateway bundle for every CLI consumer, including the
-# package bin and embedded terminal, which both resolve dist/cli.js. Do not
-# ship plain tsc output: its relative imports still need container/shared.
-COPY --link --from=builder /app/bundle ./dist
+# package bin and embedded terminal, which both resolve dist/cli.js.
+COPY --link --from=builder /app/dist ./dist
 COPY --link --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode)

@@ -320,7 +320,9 @@ saved revision history directly.
 - `agents.list[].skills` and `agents.list[].tools` restrict which skills that
   agent may load and which tools it may call. Omit either key to leave the
   agent unrestricted, including for skills and tools installed later; an empty
-  array means none. A configured tool allowlist is intersected with the
+  array means none. A tool entry with `*` matches every tool it fits:
+  `hybridai__github_api__*` offers the GitHub connector and no other. A
+  configured tool allowlist is intersected with the
   caller's allowlist, so it can only narrow a turn's toolset, and globally
   disabled tools (`tools.disabled`) stay off regardless. Edit both from
   `/admin/agents?tab=configure` or `hybridclaw agent config`.
@@ -335,6 +337,14 @@ saved revision history directly.
   agent (user, scheduled, goal, and full-auto) and pauses its active goals
   until the next UTC billing month or until the cap is raised. A turn already
   running when the cap is crossed finishes.
+- `auxiliaryModels.<task>.maxTokens` limits that task's output across providers,
+  independently of the model's advertised output capacity. A positive configured
+  limit also applies when the task uses the session model. Vision defaults to
+  8,192 output tokens when no positive limit is configured; set
+  `auxiliaryModels.vision.maxTokens` for longer OCR or image analyses. This does
+  not change the primary conversation's output budget. A vision response cut
+  off by its output limit is reported as incomplete rather than a successful
+  full analysis.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";

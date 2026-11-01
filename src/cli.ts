@@ -1920,7 +1920,7 @@ export function isDirectExecution(
   }
 }
 
-if (isDirectExecution()) {
+export function runCli(): void {
   main().catch((err) => {
     if (isMissingRequiredEnvVarError(err)) {
       printMissingEnvVarError(err.message, err.envVar);
@@ -1943,3 +1943,5 @@ if (isDirectExecution()) {
     process.exit(1);
   });
 }
+
+if (isDirectExecution()) runCli();

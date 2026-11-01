@@ -1,5 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  latestMessageByRole,
+  toTrimmedString,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 import { dynamicReasoningLevel, resolveHonchoSessionKey } from './config.js';
 import {
   buildAgentPeerId,
@@ -13,35 +18,20 @@ import {
   loadPersistedState,
   savePersistedState,
 } from './runtime-state.js';
-import { normalizeString, truncateText } from './utils.js';
 
 const SESSION_HISTORY_BACKFILL_LIMIT = 500;
 
 function latestUserQuery(messages) {
-  let latest = null;
-  for (const message of messages || []) {
-    if (normalizeString(message?.role).toLowerCase() !== 'user') continue;
-    if (!latest) {
-      latest = message;
-      continue;
-    }
-    const currentTime = Date.parse(String(message.created_at || ''));
-    const latestTime = Date.parse(String(latest.created_at || ''));
-    if (
-      (Number.isFinite(currentTime) ? currentTime : Number.NEGATIVE_INFINITY) >=
-      (Number.isFinite(latestTime) ? latestTime : Number.NEGATIVE_INFINITY)
-    ) {
-      latest = message;
-    }
-  }
-  const content = normalizeString(latest?.content);
+  const content = toTrimmedString(
+    latestMessageByRole(messages, 'user')?.content,
+  );
   return content.length >= 3 ? content : '';
 }
 
 function formatPeerCard(card) {
   if (!Array.isArray(card) || card.length === 0) return '';
   return card
-    .map((entry) => normalizeString(entry))
+    .map((entry) => toTrimmedString(entry))
     .filter(Boolean)
     .map((entry) => `- ${entry}`)
     .join('\n');
@@ -57,7 +47,7 @@ function formatRecentMessages(result, ids) {
         ids.userPeerId,
         ids.agentPeerId,
       );
-      return `${label}: ${normalizeString(message.content)}`;
+      return `${label}: ${toTrimmedString(message.content)}`;
     })
     .filter(Boolean)
     .join('\n');
@@ -66,15 +56,15 @@ function formatRecentMessages(result, ids) {
 function formatPromptContext(payload, config) {
   const sections = ['# Honcho Memory Context'];
 
-  const userRepresentation = normalizeString(
+  const userRepresentation = toTrimmedString(
     payload?.user?.peer_representation,
   );
   const userCard = formatPeerCard(payload?.user?.peer_card);
-  const summary = normalizeString(payload?.user?.summary?.content);
-  const aiRepresentation = normalizeString(payload?.ai?.peer_representation);
+  const summary = toTrimmedString(payload?.user?.summary?.content);
+  const aiRepresentation = toTrimmedString(payload?.ai?.peer_representation);
   const aiCard = formatPeerCard(payload?.ai?.peer_card);
   const recentMessages = formatRecentMessages(payload?.user, payload?.ids);
-  const dialectic = normalizeString(payload?.dialectic);
+  const dialectic = toTrimmedString(payload?.dialectic);
 
   if (config.includeSummary && summary) {
     sections.push('## Summary', summary);
@@ -103,7 +93,7 @@ function formatPromptContext(payload, config) {
 }
 
 function normalizeConclusionText(value) {
-  return normalizeString(
+  return toTrimmedString(
     String(value || '')
       .replace(/\*\*/g, '')
       .replace(/`/g, '')
@@ -113,20 +103,20 @@ function normalizeConclusionText(value) {
 }
 
 function collectUserProfileConclusions(context) {
-  if (normalizeString(context?.memoryFilePath) !== 'USER.md') return [];
+  if (toTrimmedString(context?.memoryFilePath) !== 'USER.md') return [];
 
-  const action = normalizeString(context?.action).toLowerCase();
+  const action = toTrimmedString(context?.action).toLowerCase();
   let raw = '';
   if (action === 'append' || action === 'write') {
-    raw = normalizeString(context?.content);
+    raw = toTrimmedString(context?.content);
   } else if (action === 'replace') {
-    raw = normalizeString(context?.newText);
+    raw = toTrimmedString(context?.newText);
   }
   if (!raw) return [];
 
   const lineConclusions = [];
   for (const line of raw.split(/\r?\n/u)) {
-    const trimmed = normalizeString(line);
+    const trimmed = toTrimmedString(line);
     if (!trimmed || trimmed.startsWith('#')) continue;
     if (/^[-*]\s+/u.test(trimmed) || /^\d+\.\s+/u.test(trimmed)) {
       const conclusion = normalizeConclusionText(trimmed);
@@ -171,7 +161,7 @@ function filterMirrorableMessages(messages, options = {}) {
       : Number.POSITIVE_INFINITY;
   return (messages || [])
     .filter((message) => {
-      const role = normalizeString(message?.role).toLowerCase();
+      const role = toTrimmedString(message?.role).toLowerCase();
       if (role !== 'user' && role !== 'assistant') return false;
       const id = numericMessageId(message);
       if (id <= afterId) return false;
@@ -396,7 +386,7 @@ export class HonchoRuntime {
   }
 
   async backfillStoredSessionHistory(sessionContext, options = {}) {
-    const platformSessionId = normalizeString(
+    const platformSessionId = toTrimmedString(
       sessionContext?.platformSessionId,
     );
     if (!platformSessionId) return;
@@ -678,29 +668,29 @@ export class HonchoRuntime {
   }
 
   resolveSessionContext(params) {
-    const platformSessionId = normalizeString(params.sessionId);
+    const platformSessionId = toTrimmedString(params.sessionId);
     const cachedContext = platformSessionId
       ? this.sessionContexts.get(platformSessionId)
       : null;
     const sessionInfo = this.api.getSessionInfo(platformSessionId);
     const userId =
-      normalizeString(params.userId) ||
-      normalizeString(sessionInfo.userId) ||
-      normalizeString(cachedContext?.userId) ||
+      toTrimmedString(params.userId) ||
+      toTrimmedString(sessionInfo.userId) ||
+      toTrimmedString(cachedContext?.userId) ||
       'anonymous';
     const agentId =
-      normalizeString(params.agentId) ||
-      normalizeString(sessionInfo.agentId) ||
-      normalizeString(cachedContext?.agentId) ||
+      toTrimmedString(params.agentId) ||
+      toTrimmedString(sessionInfo.agentId) ||
+      toTrimmedString(cachedContext?.agentId) ||
       'main';
     const workspacePath =
-      normalizeString(sessionInfo.workspacePath) ||
-      normalizeString(cachedContext?.workspacePath) ||
+      toTrimmedString(sessionInfo.workspacePath) ||
+      toTrimmedString(cachedContext?.workspacePath) ||
       this.api.runtime.cwd;
     const sessionRoot =
-      normalizeString(params.workspacePath) ||
-      normalizeString(cachedContext?.sessionRoot) ||
-      normalizeString(sessionInfo.workspaceRoot) ||
+      toTrimmedString(params.workspacePath) ||
+      toTrimmedString(cachedContext?.sessionRoot) ||
+      toTrimmedString(sessionInfo.workspaceRoot) ||
       this.api.runtime.cwd;
     const honchoSessionId = sanitizeHonchoSessionId(
       resolveHonchoSessionKey({
@@ -745,7 +735,7 @@ export class HonchoRuntime {
     if (options.prewarm) {
       await this.schedulePrefetch(
         sessionContext,
-        normalizeString(options.query) || 'What should I know about this user?',
+        toTrimmedString(options.query) || 'What should I know about this user?',
         { force: true },
       );
     }
@@ -804,7 +794,7 @@ export class HonchoRuntime {
       }
       const filePath = path.join(workspacePath, file.name);
       if (!fs.existsSync(filePath)) continue;
-      const content = normalizeString(fs.readFileSync(filePath, 'utf-8'));
+      const content = toTrimmedString(fs.readFileSync(filePath, 'utf-8'));
       if (!content) continue;
       await this.client.syncMessages({
         honchoSessionId: sessionContext.honchoSessionId,

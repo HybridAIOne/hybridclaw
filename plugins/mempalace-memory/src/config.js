@@ -1,9 +1,8 @@
-import os from 'node:os';
 import path from 'node:path';
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+import {
+  readString,
+  resolvePluginPath,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -12,35 +11,25 @@ function normalizeValidatedInteger(value, key) {
   return Math.trunc(value);
 }
 
-function resolveRuntimePath(value, runtime) {
-  const normalized = normalizeString(value);
-  if (!normalized) return '';
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  if (path.isAbsolute(normalized)) return normalized;
-  return path.resolve(runtime.cwd, normalized);
-}
-
 export function resolveMempalacePluginConfig(pluginConfig, runtime) {
   const workingDirectory =
-    resolveRuntimePath(pluginConfig?.workingDirectory, runtime) || runtime.cwd;
+    resolvePluginPath(pluginConfig?.workingDirectory, runtime.cwd) ||
+    runtime.cwd;
   return Object.freeze({
-    command: normalizeString(pluginConfig?.command) || 'mempalace',
+    command: readString(pluginConfig?.command) || 'mempalace',
     workingDirectory,
-    palacePath: resolveRuntimePath(pluginConfig?.palacePath, runtime) || '',
-    mcpServerName: normalizeString(pluginConfig?.mcpServerName) || 'mempalace',
+    palacePath: resolvePluginPath(pluginConfig?.palacePath, runtime.cwd) || '',
+    mcpServerName: readString(pluginConfig?.mcpServerName) || 'mempalace',
     sessionExportDir:
-      resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||
+      resolvePluginPath(pluginConfig?.sessionExportDir, runtime.cwd) ||
       path.resolve(runtime.cwd, '.hybridclaw', 'mempalace-turns'),
     wakeUpEnabled: pluginConfig?.wakeUpEnabled !== false,
-    wakeUpWing: normalizeString(pluginConfig?.wakeUpWing),
+    wakeUpWing: readString(pluginConfig?.wakeUpWing),
     searchEnabled: pluginConfig?.searchEnabled !== false,
-    searchWing: normalizeString(pluginConfig?.searchWing),
-    searchRoom: normalizeString(pluginConfig?.searchRoom),
-    updateWing: normalizeString(pluginConfig?.updateWing),
-    updateAgent: normalizeString(pluginConfig?.updateAgent) || 'hybridclaw',
+    searchWing: readString(pluginConfig?.searchWing),
+    searchRoom: readString(pluginConfig?.searchRoom),
+    updateWing: readString(pluginConfig?.updateWing),
+    updateAgent: readString(pluginConfig?.updateAgent) || 'hybridclaw',
     saveEveryMessages: normalizeValidatedInteger(
       pluginConfig?.saveEveryMessages,
       'saveEveryMessages',

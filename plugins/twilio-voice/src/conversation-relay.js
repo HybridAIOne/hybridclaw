@@ -1,3 +1,4 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 /**
  * Twilio ConversationRelay wire protocol: Twilio does speech recognition and
  * TTS, and this socket carries text turns only, never audio.
@@ -7,7 +8,7 @@
  * keeps one token in hand so the final `text` frame can carry `last: true`,
  * and serializes writes so tokens never interleave.
  */
-import { isRecord, rawDataToString } from './utils.js';
+import { rawDataToString } from './utils.js';
 
 function str(value) {
   return typeof value === 'string' ? value : '';

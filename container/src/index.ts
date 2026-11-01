@@ -2,26 +2,29 @@
  * Agent loop keeps request schemas stable while concrete actions pass policy.
  * Local wrappers resolve before approval; rejected batches never execute.
  * Full tool exchanges and surviving model context are retained separately;
- * durable storage lives in the gateway or mounted workspace. Instructions and
+ * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 
 import './node-version-guard.js';
 
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
+import { CONTEXT_GUARD_DEFAULTS } from '../shared/context-guard-config.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
+import { compileToolPatterns } from '../shared/tool-patterns.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
 import {
   setApprovalEmailSender,
   setUserMailContext,
 } from './approval-review.js';
+import { prepareApprovalToolCalls } from './approval-tool-call.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
-import { compileBlockedTools } from './blocked-tools.js';
 import { boostApprovalOutput, dropPendingBoost } from './boost-offers.js';
 import {
   BROWSER_CACHE_DIRS,
@@ -81,13 +84,16 @@ import {
   summarizeHybridAICompletionForDebug,
   withHybridAICorrelationHeaders,
 } from './providers/shared.js';
+import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
+import { configureSafetyRules } from './safety-rules.js';
 import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
@@ -113,7 +119,6 @@ import {
   accumulateApiUsage,
   createTokenEstimateCache,
   createTokenUsageStats,
-  estimateMessageTokens,
   estimateTextTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -126,7 +131,6 @@ import {
 import {
   type ApprovalPrelude,
   approvalRuntime,
-  buildApprovalDeniedToolExecution,
   buildApprovalRequiredToolExecution,
   buildPendingApproval,
   createToolApprovalResolver,
@@ -146,6 +150,7 @@ import {
   resolveToolCountLimit,
   toolCountLimitFailure,
 } from './tool-count-limit.js';
+import { canReplanAfterDenial, handleToolDenial } from './tool-denial.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -705,7 +710,7 @@ function buildContextOverflowOutput(params: {
   effectiveUserPrompt: string;
 }): ContainerOutput {
   const overflowMessage =
-    'Context window exhausted inside the container tool loop after repeated in-loop compaction attempts. Compact or reset the session and retry.';
+    'Context window exhausted: compaction and saved-result recovery could not make enough room. Reduce the current request or use a model with a larger context window.';
   if (params.latestFinalAssistantText) {
     return {
       status: 'success',
@@ -738,6 +743,9 @@ async function executePreparedToolCall(
   toolCatalog?: ToolCatalog,
 ): Promise<CompletedToolCallExecution> {
   const { call, approval } = prepared;
+  const turnToolHistory = activeTurnToolHistory;
+  if (!turnToolHistory)
+    throw new Error('Tool execution requires an active turn.');
   const toolName = call.function.name;
   const argsJson = call.function.arguments;
   const toolStart = Date.now();
@@ -768,7 +776,10 @@ async function executePreparedToolCall(
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
-          () => executeToolWithMetadata(toolName, argsJson, prepared.boost),
+          () =>
+            turnToolHistory.checkpointExecution(call.id, () =>
+              executeToolWithMetadata(toolName, argsJson, prepared.boost),
+            ),
           emitStreamActivity,
         )));
   const toolDuration = Date.now() - toolStart;
@@ -825,6 +836,7 @@ async function executePreparedToolCall(
       approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
+      approvalObservation: approval.approvalObservation,
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
@@ -1096,7 +1108,13 @@ interface ProcessRequestParams {
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
-  const turnToolHistory = new TurnToolHistory(params.sessionId, WORKSPACE_ROOT);
+  const turnToolHistory = new TurnToolHistory(
+    params.sessionId,
+    WORKSPACE_STATE_ROOT,
+    WORKSPACE_ROOT,
+    inFlightInput?.runId || inFlightInput?.requestId || randomUUID(),
+  );
+  if (turnToolHistory.recovered) return turnToolHistory.recovered;
   activeTurnToolHistory = turnToolHistory;
   const output = await processRequestInner(params, turnToolHistory).finally(
     () => {
@@ -1260,7 +1278,7 @@ async function processRequestInner(
   let latestFinalAssistantText: string | null = null;
   // The reply written before a steering note, kept as the reply's start.
   let steeredReplyPrefix = '';
-  let compactionRetries = 0;
+  let consecutiveContextErrors = 0;
   // Drops below any estimate the provider rejects as too long.
   let guardContextWindow = contextWindow;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1279,7 +1297,10 @@ async function processRequestInner(
     thinkingFormat,
     tools,
   });
-  const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const maxContextGuardRetries = Math.max(
+    0,
+    contextGuard?.maxRetries ?? CONTEXT_GUARD_DEFAULTS.maxRetries,
+  );
   const recordToolResult = (message: ChatMessage) =>
     turnToolHistory.recordResult(message);
   // Where the turn would end: notes the user sent meanwhile go to the model,
@@ -1461,33 +1482,34 @@ async function processRequestInner(
       promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
+      providerMethod,
+      tools,
     });
     if (guardResult.tier3Triggered) {
-      const compacted =
-        compactionRetries < maxContextGuardRetries
-          ? await compactInLoopWithModel({
-              history,
-              sessionId,
-              contextWindowTokens: guardContextWindow,
-              taskModels,
-              tools: availableTools,
-              tokenUsage,
-              fallbackContext: {
-                provider,
-                providerMethod,
-                baseUrl,
-                apiKey,
-                model,
-                chatbotId,
-                requestHeaders,
-                isLocal,
-                contextWindow,
-                modelBehavior,
-                thinkingFormat,
-              },
-            })
-          : null;
-      if (!compacted?.changed) {
+      const compacted = await compactInLoopWithModel({
+        history,
+        sessionId,
+        contextWindowTokens: guardContextWindow,
+        promptOverheadTokens,
+        taskModels,
+        tools: availableTools,
+        tokenUsage,
+        fallbackContext: {
+          provider,
+          providerMethod,
+          baseUrl,
+          apiKey,
+          model,
+          chatbotId,
+          requestHeaders,
+          isLocal,
+          contextWindow,
+          modelBehavior,
+          thinkingFormat,
+        },
+      });
+      if (!compacted.changed) {
+        if (turnToolHistory.boundContext(history, guardContextWindow)) continue;
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,
@@ -1505,15 +1527,18 @@ async function processRequestInner(
       }
       history = compacted.history;
       turnToolHistory.retain(history);
-      compactionRetries += 1;
       console.error(
-        `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
+        `[context] in-loop compaction compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
       );
       continue;
     }
 
     const estimatedPromptTokensForCall =
-      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
+      estimateVisualMessageTokens(
+        history,
+        { providerMethod, tools },
+        tokenEstimateCache,
+      ) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
@@ -1557,16 +1582,16 @@ async function processRequestInner(
     } catch (err) {
       if (
         contextGuard?.enabled !== false &&
-        compactionRetries < maxContextGuardRetries &&
+        consecutiveContextErrors < maxContextGuardRetries &&
         isContextWindowExceededError(err)
       ) {
         // The estimate undercounted this prompt: budget the guard below it so
         // the next pass shrinks history. 0.9 (2026-09-26 call): any factor
         // under 1 forces progress; parsing providers' token counts deferred.
         guardContextWindow = Math.floor(estimatedPromptTokensForCall * 0.9);
-        compactionRetries += 1;
+        consecutiveContextErrors += 1;
         console.error(
-          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${compactionRetries}`,
+          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${consecutiveContextErrors}`,
         );
         continue;
       }
@@ -1590,6 +1615,8 @@ async function processRequestInner(
       return failed;
     }
 
+    // Only an accepted loop request resets recovery; summaries are maintenance.
+    consecutiveContextErrors = 0;
     accumulateApiUsage(tokenUsage, response);
 
     const choice = response.choices[0];
@@ -1673,6 +1700,8 @@ async function processRequestInner(
         invalidToolCallError = `Tool is not available in this request: ${unavailable.function.name}`;
       }
     }
+    const approvalCalls = prepareApprovalToolCalls(toolCalls);
+    toolCalls = approvalCalls.calls;
     const correction =
       catalogCorrection ??
       (malformedToolCallError &&
@@ -2100,7 +2129,7 @@ async function processRequestInner(
           history,
           unrunCalls: toolCalls.slice(callIndex),
           recordResult: recordToolResult,
-          closeIfEmpty: true,
+          closeIfEmpty: !canReplanAfterDenial(approval, toolExecutions),
         });
         if (steered) break;
       }
@@ -2112,6 +2141,7 @@ async function processRequestInner(
           prompt,
           toolName,
           call.function.arguments,
+          approvalCalls.descriptions.get(call),
         );
         emitApprovalProgress(pendingApproval);
         toolExecutions.push(
@@ -2142,31 +2172,19 @@ async function processRequestInner(
       }
 
       if (approval.decision === 'denied') {
-        const denialText = `Approval denied: ${approval.reason}`;
-        toolExecutions.push(
-          buildApprovalDeniedToolExecution({
-            toolName,
-            argsJson: call.function.arguments,
-            denialText,
-            approval,
-          }),
-        );
-        const denied: ContainerOutput = {
-          status: 'success',
-          result: denialText,
-          toolsUsed: [...new Set(toolsUsed)],
-          outputPresentation: statusOutputPresentation(true),
-          ...(artifacts.length > 0 ? { artifacts } : {}),
+        const denied = await handleToolDenial({
+          approval,
+          unrunCalls: toolCalls.slice(callIndex),
+          history,
+          recordResult: recordToolResult,
           toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
+          toolsUsed,
+          artifacts,
+          tokenUsage,
           effectiveUserPrompt,
-        };
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: denied.status,
-          toolsUsed: denied.toolsUsed,
         });
-        return denied;
+        if (denied) return denied;
+        break;
       }
 
       const completed = await executePreparedToolCall(
@@ -2262,11 +2280,11 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   const dynamicPluginTools = getPluginToolDefinitions();
   let tools = [...TOOL_DEFINITIONS, ...dynamicPluginTools, ...mcpTools];
   if (input.allowedTools) {
-    const allowed = new Set(input.allowedTools);
-    tools = tools.filter((tool) => allowed.has(tool.function.name));
+    const isAllowed = compileToolPatterns(input.allowedTools);
+    tools = tools.filter((tool) => isAllowed(tool.function.name));
   }
   if (Array.isArray(input.blockedTools) && input.blockedTools.length > 0) {
-    const isBlocked = compileBlockedTools(input.blockedTools);
+    const isBlocked = compileToolPatterns(input.blockedTools);
     tools = tools.filter((tool) => !isBlocked(tool.function.name));
   }
   tools = adjustInboxCleanupTools(tools);
@@ -2407,6 +2425,7 @@ async function main(): Promise<void> {
     firstInput.media,
     firstInput.readableMediaPaths,
     firstInput.visualMediaAllowed,
+    firstInput.primaryModelSupportsVisualMedia,
   );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -2426,9 +2445,11 @@ async function main(): Promise<void> {
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
   const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
+  configureSafetyRules(firstInput.disabledSafetyRules);
   approvalRuntime.setApprovalMode({
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
+    approvalUserIsBot: firstInput.approvalUserIsBot,
   });
 
   let firstOutput: ContainerOutput;
@@ -2582,6 +2603,7 @@ async function main(): Promise<void> {
       input.media,
       input.readableMediaPaths,
       input.visualMediaAllowed,
+      input.primaryModelSupportsVisualMedia,
     );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,
@@ -2594,9 +2616,11 @@ async function main(): Promise<void> {
       media: input.media,
       audioTranscriptsPrepended: input.audioTranscriptsPrepended,
     });
+    configureSafetyRules(input.disabledSafetyRules);
     approvalRuntime.setApprovalMode({
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
+      approvalUserIsBot: input.approvalUserIsBot,
     });
     const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;

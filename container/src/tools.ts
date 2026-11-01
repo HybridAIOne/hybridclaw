@@ -1,7 +1,8 @@
 /**
  * Tool implementations execute only after the agent loop's permission checks.
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
- * Run limits reserve attempts before dispatch; this never grants action approval.
+ * Run limits reserve attempts before dispatch; pixel analysis also requires the
+ * gateway's visual-data permission. This never grants action approval.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -34,11 +35,13 @@ import {
   type BashProcessResult,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
+import { guardCommand } from './bash-safety.js';
 import {
   isPersistentBashStateEnabled,
   runBash,
   setPersistentBashStateEnabled as setBashSessionStateEnabled,
 } from './bash-session.js';
+import { bashToolDefinition } from './bash-tool-definition.js';
 import {
   currentBrowserPage,
   pauseBrowserFramesUntilNavigation,
@@ -67,10 +70,12 @@ import {
   type FileReferenceExpansion,
   prepareToolArguments,
 } from './file-reference.js';
+import { resolveFileWriteConflict } from './file-write-conflicts.js';
 import {
   type GatewayJsonResponse,
   postGatewayJson,
 } from './gateway-json-post.js';
+import { resolveHttpArtifactReadPath } from './http-artifact-read-path.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import {
   type AuxiliaryRuntimeContext,
@@ -87,15 +92,18 @@ import {
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
 import {
   CALL_USER_TOOL_DEFINITION,
@@ -114,6 +122,8 @@ import {
   ESTIMATE_COST_TOOL_DEFINITION,
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
+import { fileSyntaxFeedback } from './tools/file-syntax-feedback.js';
+import { runFileWrite, WRITE_TOOL_DEFINITION } from './tools/file-write.js';
 import {
   INBOX_CLEANUP_TOOL,
   INBOX_CLEANUP_TOOL_DEFINITION,
@@ -160,40 +170,14 @@ import type {
   ToolDefinition,
   ToolRunResult,
 } from './types.js';
+import {
+  analyzeVisualSnapshot,
+  VISION_ANALYZE_TOOL_DEFINITION,
+  VISION_IMAGE_MAX_BYTES,
+} from './vision-snapshot.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 export { resetPersistentBashSessions } from './bash-session.js';
-
-const DENY_PATTERNS: RegExp[] = [
-  /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
-  /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
-  /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/, // format command at segment start (Windows)
-  /\bdd\s+if=/, // raw disk I/O
-  /:\(\)\s*\{.*\};\s*:/, // fork bomb :(){ :|:& };:
-  /\|\s*(sh|bash|zsh)\b/, // pipe to shell
-  /;\s*rm\s+-[rf]/, // chained rm after semicolon
-  /&&\s*rm\s+-[rf]/, // chained rm after &&
-  /\|\|\s*rm\s+-[rf]/, // chained rm after ||
-  /\bcurl\b.*\|\s*(sh|bash)/, // curl | sh
-  /\bwget\b.*\|\s*(sh|bash)/, // wget | sh
-  /\beval\b/, // eval execution
-  /\bsource\s+.*\.sh\b/, // source shell scripts
-  /\bpkill\b/, // process killing
-  /\bkillall\b/, // process killing
-  /\bkill\s+-9\b/, // force kill
-  /\b(shutdown|reboot|poweroff)\b/, // system power control
-  />\s*\/dev\/sd[a-z]\b/, // write to block devices
-];
-
-function guardCommand(command: string): string | null {
-  const lower = command.toLowerCase();
-  for (const pattern of DENY_PATTERNS) {
-    if (pattern.test(lower)) {
-      return 'Command blocked by safety guard (dangerous pattern detected)';
-    }
-  }
-  return null;
-}
 
 // Heartbeat has no user-facing conversation for scheduled output.
 const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['heartbeat']);
@@ -378,7 +362,6 @@ let memoryTimezoneCache: {
   value: string | undefined;
 } | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
-const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
 const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
   new Set(
@@ -789,10 +772,11 @@ export function setMediaContext(
   media?: MediaContextItem[],
   readableMediaPaths: string[] = [],
   visualMediaAllowed = false,
+  primaryModelSupportsVisualMedia = true,
 ): void {
   currentMediaContext = Array.isArray(media) ? media : [];
   setReadableMediaPaths(readableMediaPaths);
-  setVisualMediaAllowed(visualMediaAllowed);
+  setVisualMediaAllowed(visualMediaAllowed, primaryModelSupportsVisualMedia);
 }
 
 function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
@@ -1921,6 +1905,8 @@ function normalizeVisionLocalPath(rawPath: string): string | null {
   if (!trimmed) return null;
   const normalized = extractArtifactUrlLocalPath(trimmed) || trimmed;
 
+  const artifactPath = resolveHttpArtifactReadPath(normalized);
+  if (artifactPath) return artifactPath;
   const workspacePath = resolveWorkspacePath(normalized);
   if (workspacePath) return workspacePath;
 
@@ -2094,6 +2080,10 @@ async function runVisionAnalyze(
   runtimeContext: AuxiliaryRuntimeContext,
   toolName = 'vision_analyze',
 ): Promise<string> {
+  if (!runtimeContext.visualMediaAllowed)
+    return failTool(
+      'Error: Visual analysis is disabled by visual-data delivery policy.',
+    );
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
 
@@ -2105,6 +2095,17 @@ async function runVisionAnalyze(
     readStringValue(args.fallback_url) ||
     readStringValue(args.fallbackUrl) ||
     readStringValue(args.original_url);
+  if (args.snapshot !== undefined) {
+    if (imageRef || fallbackUrl)
+      return failTool('Error: Choose image_url or snapshot, not both.');
+    return analyzeVisualSnapshot(
+      { snapshot: args.snapshot, page: args.page, question },
+      runtimeContext,
+      toolName,
+    );
+  }
+  if (args.page !== undefined)
+    return failTool('Error: page requires a snapshot reference.');
   if (!imageRef) return failTool('Error: image_url is required');
 
   const candidates = [imageRef, fallbackUrl].filter((value): value is string =>
@@ -2636,7 +2637,9 @@ function summarizeSessionCandidate(
 
   return {
     session_id: candidate.sessionId,
-    transcript_path: path.relative(WORKSPACE_ROOT, candidate.filePath),
+    transcript_path: isWithinRoot(candidate.filePath, WORKSPACE_ROOT)
+      ? path.relative(WORKSPACE_ROOT, candidate.filePath)
+      : candidate.filePath,
     match_count: candidate.matchIndexes.length,
     first_message_at: firstTs,
     last_message_at: lastTs,
@@ -3000,6 +3003,7 @@ async function executeToolInternal(
         } else {
           const filePath =
             resolveSessionMediaReadPath(args.path, currentMediaContext) ||
+            resolveHttpArtifactReadPath(args.path) ||
             safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
@@ -3007,6 +3011,8 @@ async function executeToolInternal(
           if (document) return document;
           content = fs.readFileSync(filePath, 'utf-8');
         }
+        const excerpt = readTextExcerpt(content, args);
+        if (excerpt !== undefined) return excerpt;
         const lines = content.split('\n');
         const totalFileLines = lines.length;
 
@@ -3072,8 +3078,14 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      writeWorkspaceFile(args.path, args.contents);
-      return `Wrote ${args.contents.length} bytes to ${args.path}`;
+      return runFileWrite(
+        args,
+        TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
+        TASK_SANDBOX_FS_ENABLED
+          ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
+          : undefined,
+        currentSessionId,
+      );
     }
 
     case SHOW_WIDGET_TOOL: {
@@ -3161,7 +3173,8 @@ async function executeToolInternal(
         if (TASK_SANDBOX_FS_ENABLED) {
           writeTempFileToTaskSandbox(filePath, sandboxPath);
         }
-        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
+        resolveFileWriteConflict(currentSessionId, args.path);
+        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
       } finally {
         if (tempDirToCleanup) {
           fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
@@ -3518,7 +3531,9 @@ async function executeToolInternal(
             : undefined;
         if (filePath) {
           const resolvedFilePath =
-            resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
+            resolveHttpArtifactReadPath(filePath) ||
+            resolveWorkspacePath(filePath) ||
+            resolveMediaPath(filePath);
           if (!resolvedFilePath) {
             return failTool(
               `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`,
@@ -3806,12 +3821,14 @@ async function executeToolInternal(
       const includeCurrent = args.include_current === true;
       const roleFilter = parseRoleFilter(args.role_filter);
 
-      // The main chat's workspace holds the scopes' transcripts too.
+      // The owning agent's state holds the scopes' transcripts too.
+      const statePath = (relative: string) =>
+        safeJoin(path.join(WORKSPACE_STATE_ROOT, relative));
       const transcriptDirs = [
         SESSION_TRANSCRIPTS_DIR,
-        ...scopeTranscriptDirs(safeJoin, SESSION_TRANSCRIPTS_DIR),
+        ...scopeTranscriptDirs(statePath, SESSION_TRANSCRIPTS_DIR),
       ]
-        .map((dir) => safeJoin(dir))
+        .map(statePath)
         .filter((dir) => fs.existsSync(dir));
       if (transcriptDirs.length === 0) {
         return JSON.stringify(
@@ -3936,6 +3953,8 @@ async function executeToolInternal(
       const header = result.title ? `# ${result.title}\n\n` : '';
       const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
       const lines = [meta];
+      if (result.truncated)
+        lines.push('Source content was truncated; this result is incomplete.');
       if (result.escalationHint === 'bot_blocked') {
         lines.push(
           'Escalation hint: bot_blocked (access denied or a challenge; browser rendering may not resolve it).',
@@ -4375,30 +4394,7 @@ export async function executeTool(
   return result.output;
 }
 
-const BASH_TOOL_DEFINITION: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'bash',
-    description: buildBashToolDescription(),
-    parameters: {
-      type: 'object',
-      properties: {
-        command: { type: 'string', description: 'Shell command to execute' },
-        timeoutMs: {
-          type: 'number',
-          description:
-            'Optional command timeout in milliseconds (default 240000, max 900000)',
-        },
-        timeoutSeconds: {
-          type: 'number',
-          description:
-            'Optional command timeout in seconds (used when timeoutMs is omitted)',
-        },
-      },
-      required: ['command'],
-    },
-  },
-};
+const BASH_TOOL_DEFINITION = bashToolDefinition(buildBashToolDescription());
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
@@ -4417,12 +4413,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are delivered visually, never as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools; no separate vision call or cleanup is needed.`,
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are prepared for visual delivery, never decoded as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools. Dispatch reports whether the selected model received pixels and offers a durable reference for permitted vision analysis when needed. Temporary-file cleanup is handled by read.`,
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
           ...PDF_READ_PARAMETERS,
+          ...TEXT_READ_PARAMETERS,
           offset: {
             type: 'number',
             description:
@@ -4438,22 +4435,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'write',
-      description:
-        'Write contents to a file on disk, overwriting if it exists. Use this for creating new code/program files instead of shell heredocs or code-only replies.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to write' },
-          contents: { type: 'string', description: 'Content to write' },
-        },
-        required: ['path', 'contents'],
-      },
-    },
-  },
+  WRITE_TOOL_DEFINITION,
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
   SHOW_DASHBOARD_DEFINITION,
@@ -4867,7 +4849,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_fetch',
       description:
-        'Fetch a URL via plain HTTP GET and extract readable content (HTML to markdown/text). No JavaScript execution, no clicks, no form interaction. Use for static read-only retrieval: articles, docs, wikis, READMEs, API JSON/text endpoints, and direct files/PDFs. Avoid for SPAs (React/Vue/Angular/Next client routes), auth/login-gated pages, dashboards/web apps, bot/challenge flows, or content loaded after render via XHR/fetch. Cost: typically ~10-100x cheaper/faster than browser tools. Default to web_fetch for read-only retrieval, then escalate to browser_navigate when output is empty/boilerplate, JavaScript-required, SPA shell-only, or bot-blocked. YouTube video links return title, channel, and description.',
+        'Fetch a URL via plain HTTP GET and extract readable content (HTML to markdown/text). No JavaScript execution, no clicks, no form interaction. Use for static read-only retrieval: articles, docs, wikis, READMEs, API JSON/text endpoints, and direct text files. For binary files/PDFs, use http_request with responseArtifact (if offered), then inspect the saved artifact with read or an appropriate skill. Avoid for SPAs (React/Vue/Angular/Next client routes), auth/login-gated pages, dashboards/web apps, bot/challenge flows, or content loaded after render via XHR/fetch. Cost: typically ~10-100x cheaper/faster than browser tools. Default to web_fetch for read-only retrieval, then escalate to browser_navigate when output is empty/boilerplate, JavaScript-required, SPA shell-only, or bot-blocked. YouTube video links return title, channel, and description.',
       parameters: {
         type: 'object',
         properties: {
@@ -5216,36 +5198,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'vision_analyze',
-      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          image_url: {
-            type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
-          },
-          question: {
-            type: 'string',
-            description: 'Question to ask about the image.',
-          },
-          fallback_url: {
-            type: 'string',
-            description:
-              'Optional fallback Discord CDN URL if the local image path cannot be read.',
-          },
-          original_url: {
-            type: 'string',
-            description: 'Optional original URL alias for fallback_url.',
-          },
-        },
-        required: ['image_url', 'question'],
-      },
-    },
-  },
+  VISION_ANALYZE_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

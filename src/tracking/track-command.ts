@@ -224,7 +224,12 @@ export function handleTrackCommand(
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
-  const endUser = beginTurnUser(session.id, req.userId);
+  const endUser = beginTurnUser(
+    session.id,
+    req.userId,
+    undefined,
+    req.operatorId,
+  );
   try {
     return runCommand(req, session);
   } catch (error) {
@@ -267,6 +272,8 @@ const TOOL_ACTIONS: Record<
     return 'The tracked item can receive this draft.';
   },
   get: runFollowThroughTool,
+  contract: runFollowThroughTool,
+  verify: runFollowThroughTool,
   state: runFollowThroughTool,
   link: runFollowThroughTool,
   list: (session) => {

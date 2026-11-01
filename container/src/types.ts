@@ -1,4 +1,7 @@
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type {
+  ApprovalMode,
+  ApprovalObservation,
+} from '../shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -6,6 +9,7 @@ import type {
 import type { ApprovalRule } from '../shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
+import type { RuntimeProviderId } from '../shared/provider-ids.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
@@ -156,19 +160,7 @@ export interface PluginRuntimeToolDefinition {
 }
 
 export interface TaskModelPolicy {
-  provider?:
-    | 'hybridai'
-    | 'openai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | 'mlx';
+  provider?: RuntimeProviderId;
   providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -239,19 +231,7 @@ export interface ContainerInput
    */
   ipcAuthSecret?: string;
   baseUrl: string;
-  provider?:
-    | 'hybridai'
-    | 'openai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | 'mlx';
+  provider?: RuntimeProviderId;
   providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
@@ -266,6 +246,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
@@ -350,6 +331,7 @@ export function normalizeEscalationTarget(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;

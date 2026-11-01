@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
-
+import { NON_HYBRID_PROVIDER_IDS } from '../src/providers/provider-ids.js';
+import { PROVIDER_META } from '../src/providers/provider-meta.js';
 import { renderTuiStartupBanner } from '../src/tui-banner.js';
 
 const palette = {
@@ -369,4 +370,25 @@ test('applies the configured monochrome ramp to the large wordmark', () => {
   );
   expect(lines.some((line) => line.includes('\x1b[90mpdf,\x1b[0m'))).toBe(true);
   expect(lines.at(-1)).toContain('\x1b[90mPowered by HybridAI');
+});
+
+test.each(NON_HYBRID_PROVIDER_IDS)('labels %s models with their provider', (id) => {
+  const lines = renderTuiStartupBanner({
+    columns: 160,
+    info: {
+      currentModel: `${id}/example-model`,
+      defaultModel: `${id}/example-model`,
+      sandboxMode: 'container',
+      gatewayBaseUrl: 'http://127.0.0.1:3000',
+      hybridAIBaseUrl: 'https://api.hybridai.com',
+      chatbotId: '',
+      version: '0.8.0',
+      skillCategories: [],
+    },
+    palette,
+  }).map(stripAnsi);
+
+  expect(lines).toContainEqual(
+    expect.stringContaining(`(${PROVIDER_META[id].label})`),
+  );
 });

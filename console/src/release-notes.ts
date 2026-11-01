@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.1',
+  version: '0.42.0',
   highlights: [
-    'Shared HybridAI knowledge and wikis',
-    'Optional nightly wiki maintenance',
-    'Cleaner reminders and working event triggers',
-    'Requires Node 22.23.4 or later in Node 22',
+    'Learning mode with approval audit flags',
+    'Admin approval defaults and safety controls',
+    'Safer file writes and interrupted-turn recovery',
+    'More reliable web, vision and delegation',
   ],
 } as const;
 

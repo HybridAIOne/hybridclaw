@@ -1,7 +1,10 @@
 import {
-  runByteRoverCommandText,
-  truncateByteRoverText,
-} from './byterover-process.js';
+  latestMessageByRole,
+  normalizeText,
+  toTrimmedString,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+import { runByteRoverCommandText } from './byterover-process.js';
 import { resolveByteRoverPluginConfig } from './config.js';
 
 const MIN_QUERY_CHARS = 10;
@@ -12,29 +15,14 @@ const MAX_TURN_MESSAGE_CHARS = 2000;
 const MAX_COMPACTION_MESSAGE_CHARS = 500;
 const MAX_COMPACTION_MESSAGES = 10;
 
-function normalizeString(value) {
-  return String(value || '').trim();
-}
-
-function collapseWhitespace(value) {
-  return normalizeString(value).replace(/\s+/g, ' ');
-}
-
 function normalizeSearchQuery(value) {
-  const normalized = collapseWhitespace(value);
+  const normalized = toTrimmedString(value).replace(/\s+/g, ' ');
   if (normalized.length < MIN_QUERY_CHARS) return '';
-  if (normalized.length <= MAX_QUERY_CHARS) return normalized;
-  return `${normalized.slice(0, Math.max(0, MAX_QUERY_CHARS - 1)).trimEnd()}…`;
-}
-
-function truncateForCurate(value, maxChars) {
-  const normalized = normalizeString(value);
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+  return truncateText(normalized, MAX_QUERY_CHARS);
 }
 
 function stripMatchingQuotes(value) {
-  const normalized = normalizeString(value);
+  const normalized = toTrimmedString(value);
   if (normalized.length < 2) return normalized;
   const first = normalized[0];
   const last = normalized.at(-1);
@@ -44,29 +32,9 @@ function stripMatchingQuotes(value) {
   return normalized;
 }
 
-function getLatestMessageByRole(messages, role) {
-  let latestMessage = null;
-  for (const message of messages || []) {
-    if (String(message?.role || '').toLowerCase() !== role) continue;
-    if (!latestMessage) {
-      latestMessage = message;
-      continue;
-    }
-    const currentTime = Date.parse(String(message.created_at || ''));
-    const latestTime = Date.parse(String(latestMessage.created_at || ''));
-    if (
-      (Number.isFinite(currentTime) ? currentTime : Number.NEGATIVE_INFINITY) >=
-      (Number.isFinite(latestTime) ? latestTime : Number.NEGATIVE_INFINITY)
-    ) {
-      latestMessage = message;
-    }
-  }
-  return latestMessage;
-}
-
 function getLatestUserQuery(recentMessages) {
   return normalizeSearchQuery(
-    getLatestMessageByRole(recentMessages, 'user')?.content,
+    latestMessageByRole(recentMessages, 'user')?.content,
   );
 }
 
@@ -86,10 +54,10 @@ function describeMemoryFile(memoryFilePath) {
 
 function resolveMirroredMemoryContent(context) {
   if (context.action === 'append' || context.action === 'write') {
-    return normalizeString(context.content);
+    return toTrimmedString(context.content);
   }
   if (context.action === 'replace') {
-    return normalizeString(context.newText);
+    return toTrimmedString(context.newText);
   }
   return '';
 }
@@ -101,17 +69,15 @@ function buildMemoryWriteCurateContent(context) {
 }
 
 function buildTurnCurateContent(messages) {
-  const userMessage = getLatestMessageByRole(messages, 'user');
-  const assistantMessage = getLatestMessageByRole(messages, 'assistant');
-  const userContent = normalizeString(userMessage?.content);
+  const userMessage = latestMessageByRole(messages, 'user');
+  const assistantMessage = latestMessageByRole(messages, 'assistant');
+  const userContent = toTrimmedString(userMessage?.content);
   if (userContent.length < MIN_QUERY_CHARS) return '';
-  const assistantContent = normalizeString(assistantMessage?.content);
-  const lines = [
-    `User: ${truncateForCurate(userContent, MAX_TURN_MESSAGE_CHARS)}`,
-  ];
+  const assistantContent = toTrimmedString(assistantMessage?.content);
+  const lines = [`User: ${truncateText(userContent, MAX_TURN_MESSAGE_CHARS)}`];
   if (assistantContent) {
     lines.push(
-      `Assistant: ${truncateForCurate(assistantContent, MAX_TURN_MESSAGE_CHARS)}`,
+      `Assistant: ${truncateText(assistantContent, MAX_TURN_MESSAGE_CHARS)}`,
     );
   }
   return lines.join('\n');
@@ -119,23 +85,23 @@ function buildTurnCurateContent(messages) {
 
 function buildCompactionCurateContent(summary, olderMessages) {
   const sections = ['[Pre-compaction context]'];
-  const normalizedSummary = normalizeString(summary);
+  const normalizedSummary = toTrimmedString(summary);
   if (normalizedSummary) {
     sections.push('');
     sections.push('Summary:');
-    sections.push(truncateForCurate(normalizedSummary, 1500));
+    sections.push(truncateText(normalizedSummary, 1500));
   }
 
   const excerpts = (olderMessages || [])
     .filter((message) => {
       const role = String(message?.role || '').toLowerCase();
       if (role !== 'user' && role !== 'assistant') return false;
-      return normalizeString(message?.content).length > 0;
+      return toTrimmedString(message?.content).length > 0;
     })
     .slice(-MAX_COMPACTION_MESSAGES)
     .map((message) => {
       const role = String(message.role || '').toLowerCase();
-      const content = truncateForCurate(
+      const content = truncateText(
         message.content,
         MAX_COMPACTION_MESSAGE_CHARS,
       );
@@ -169,7 +135,7 @@ function normalizeManualCommandArgs(args) {
 }
 
 function timeoutForCommand(command, config) {
-  const normalized = normalizeString(command).toLowerCase();
+  const normalized = toTrimmedString(command).toLowerCase();
   if (normalized === 'status' || normalized === 'query') {
     return config.queryTimeoutMs;
   }
@@ -206,7 +172,7 @@ function createByteRoverRuntime(api, config) {
   let queue = Promise.resolve();
 
   function getApiKey() {
-    return normalizeString(api.getCredential('BRV_API_KEY'));
+    return toTrimmedString(api.getCredential('BRV_API_KEY'));
   }
 
   async function runQuery(query, maxChars = MAX_TOOL_RESULT_CHARS) {
@@ -227,7 +193,7 @@ function createByteRoverRuntime(api, config) {
 
   function enqueueCurate(params) {
     const { reason, sessionId, content } = params;
-    if (!normalizeString(content)) {
+    if (!toTrimmedString(content)) {
       return queue.catch(() => undefined);
     }
     const task = queue
@@ -240,7 +206,7 @@ function createByteRoverRuntime(api, config) {
               reason,
               sessionId,
               workingDirectory: config.workingDirectory,
-              output: truncateByteRoverText(output, 240),
+              output: truncateText(normalizeText(output), 240),
             },
             'ByteRover curate completed',
           );
@@ -274,7 +240,7 @@ function createByteRoverRuntime(api, config) {
             {
               command: config.command,
               workingDirectory: config.workingDirectory,
-              output: truncateByteRoverText(output, 240),
+              output: truncateText(normalizeText(output), 240),
             },
             'ByteRover startup health-check passed',
           );
@@ -299,16 +265,18 @@ function createByteRoverRuntime(api, config) {
       if (!query) return null;
       try {
         const output = await runQuery(query, config.maxInjectedChars);
-        if (normalizeString(output).length < MIN_RESULT_CHARS) {
+        if (toTrimmedString(output).length < MIN_RESULT_CHARS) {
           return null;
         }
-        return truncateByteRoverText(
-          [
-            'ByteRover recalled context for the latest user message:',
-            `Query: ${query}`,
-            '',
-            output,
-          ].join('\n'),
+        return truncateText(
+          normalizeText(
+            [
+              'ByteRover recalled context for the latest user message:',
+              `Query: ${query}`,
+              '',
+              output,
+            ].join('\n'),
+          ),
           config.maxInjectedChars,
         );
       } catch (error) {
@@ -380,7 +348,7 @@ function createByteRoverRuntime(api, config) {
       }
       try {
         const output = await runQuery(query);
-        if (normalizeString(output).length < MIN_RESULT_CHARS) {
+        if (toTrimmedString(output).length < MIN_RESULT_CHARS) {
           return 'No relevant ByteRover memories found.';
         }
         return output;
@@ -389,7 +357,7 @@ function createByteRoverRuntime(api, config) {
       }
     },
     async handleToolCurate(args) {
-      const content = normalizeString(args?.content);
+      const content = toTrimmedString(args?.content);
       if (!content) {
         return 'Error: content is required.';
       }

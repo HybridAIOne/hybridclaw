@@ -31,7 +31,7 @@ slotted between built-in anchors, for example between `stakes` and
 15. `red_promotable` promotes repeat-approved promotable red actions to yellow.
 16. `red_full_auto` lets full-auto mode promote non-pinned red actions to yellow, unless they require explicit approval or are on the never-approve list.
 17. `red_queue` denies new approval requests when the pending queue is full.
-18. `red_prompt` creates or reuses a pending approval request.
+18. `red_prompt` creates or reuses a pending approval request. When another bot or a webhook started the turn and the agent has no escalation target, it denies instead, because no person could answer the card.
 19. `yellow_full_auto` allows full-auto mode to approve eligible yellow actions.
 20. `yellow_execution_promotion` promotes repeated non-sticky yellow actions to green, or marks first yellow execution as implicit.
 21. `green_fallback` returns the final evaluation for all non-terminal paths.

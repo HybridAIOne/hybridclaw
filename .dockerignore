@@ -5,6 +5,7 @@
 
 # Build artifacts (rebuilt inside container)
 dist/
+# compat: remove after v0.42 — stale bundle/ from builds before dist/ held the bundle
 bundle/
 container/dist/
 console/dist/

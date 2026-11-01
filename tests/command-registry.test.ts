@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
+import { GATEWAY_MODEL_PROVIDER_KEYS } from '../src/gateway/model-provider-keys.js';
 
 async function importCommandRegistry() {
   return import('../src/command-registry.js');
@@ -96,6 +97,29 @@ test('registers plugin as a slash/text command', async () => {
       }),
     ]),
   );
+});
+
+test('offers every provider and `local` as a /model list filter', async () => {
+  const { buildCanonicalSlashCommandDefinitions } =
+    await importCommandRegistry();
+  const list = buildCanonicalSlashCommandDefinitions([])
+    .find((definition) => definition.name === 'model')
+    ?.options?.find(
+      (option) => option.kind === 'subcommand' && option.name === 'list',
+    );
+  const provider =
+    list?.kind === 'subcommand'
+      ? list.options?.find((option) => option.name === 'provider')
+      : undefined;
+  const values =
+    provider?.kind === 'string'
+      ? provider.choices?.map((choice) => choice.value)
+      : [];
+
+  expect(values).toEqual(
+    expect.arrayContaining([...GATEWAY_MODEL_PROVIDER_KEYS, 'local']),
+  );
+  expect(values).toHaveLength(GATEWAY_MODEL_PROVIDER_KEYS.length + 1);
 });
 
 test('registers second-opinion slash options and maps them to command flags', async () => {

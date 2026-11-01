@@ -8,9 +8,15 @@
  * the shared pinned-path matcher. NOT a sandbox: a path hidden in a variable,
  * interpreter code, or a symlink escapes the check.
  */
+import path from 'node:path';
 import type { ClassifiedAction } from './approval-policy.js';
 import { matchesPathPattern } from './pinned-paths.js';
-import { toWorkspaceRelativePath } from './runtime-paths.js';
+import {
+  isWithinRoot,
+  resolveWorkspacePath,
+  toWorkspaceRelativePath,
+  WORKSPACE_STATE_ROOT,
+} from './runtime-paths.js';
 
 // Security fix, 2026-09-26: the agent's own tools change these only with a
 // human. Moving the files out of the agent's reach, which would also stop
@@ -27,7 +33,11 @@ const APPROVAL_STATE_WRITERS = new Set(['write', 'edit', 'delete', 'bash']);
 // Relative, `/workspace/...`, and host-absolute paths name the same file, so
 // the candidate is matched as a normalized workspace-relative path.
 export function matchesApprovalStatePath(candidatePath: string): boolean {
-  const relativePath = toWorkspaceRelativePath(candidatePath);
+  const resolved = resolveWorkspacePath(candidatePath);
+  const relativePath =
+    resolved && isWithinRoot(resolved, WORKSPACE_STATE_ROOT)
+      ? path.relative(WORKSPACE_STATE_ROOT, resolved).replaceAll(path.sep, '/')
+      : toWorkspaceRelativePath(candidatePath);
   return (
     relativePath !== null &&
     APPROVAL_STATE_PATH_PATTERNS.some((pattern) =>

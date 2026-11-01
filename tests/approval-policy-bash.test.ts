@@ -537,7 +537,7 @@ approval:
     ['/opt/tools/bin/convert in.png out.jpg > log.txt', 'bash:write-op'],
     ['bash /opt/tools/setup.sh > log.txt', 'bash:script'],
     // `2>&1` and `>&2` duplicate a descriptor and write no file.
-    ['ls -la /opt/data/report.png 2>&1 || echo missing', 'bash:other'],
+    ['ls -la /opt/data/report.png 2>&1 || echo missing', 'bash:read-only'],
     ['node scripts/fetch.cjs --path /api/v2/items/42.jpg 2>&1', 'bash:other'],
     ['cd /opt/data && npx some-tool check 2>&1', 'bash:other'],
     ['grep -c key /opt/data/app.log >&2', 'bash:read-only'],

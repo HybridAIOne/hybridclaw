@@ -62,7 +62,10 @@ import {
   normalizeBots,
   normalizeHybridAIAccountChatbotId,
 } from './providers/hybridai-bots.js';
-import { isLocalBackendType } from './providers/provider-ids.js';
+import {
+  isLocalBackendType,
+  type RuntimeProviderId,
+} from './providers/provider-ids.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -84,17 +87,22 @@ interface ApiKeyValidationResult {
   error?: string;
 }
 
+// The providers the onboarding menu offers.
+type OnboardingAuthProvider = Extract<
+  RuntimeProviderId,
+  | 'hybridai'
+  | 'anthropic'
+  | 'openai-codex'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+>;
+
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
   requireCredentials?: boolean;
-  preferredAuth?:
-    | 'hybridai'
-    | 'anthropic'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface';
+  preferredAuth?: OnboardingAuthProvider;
 }
 
 function agentSourceLabel(sourceKind: 'openclaw' | 'hermes'): string {
@@ -635,15 +643,7 @@ async function chooseDefaultBot(
 async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
-): Promise<
-  | 'hybridai'
-  | 'anthropic'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'skip'
-> {
+): Promise<OnboardingAuthProvider | 'skip'> {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
     currentProvider === 'anthropic'

@@ -84,7 +84,9 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'docs/agents.html',
     // Admin console
     'console/dist/index.html',
-    // Container runtime
+    // Gateway and container runtime bundles
+    'dist/cli.js',
+    'dist/plugin-sdk.js',
     'container/dist/index.js',
     'container/tools/package.json',
     // Agent templates and skills
@@ -108,6 +110,36 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
       { encoding: 'utf-8', timeout: 10_000 },
     ).trim();
     expect(result).toBe('exists');
+  });
+
+  test('the image runs only dist bundles without shared source or a second gateway tree', () => {
+    const result = execFileSync(
+      'docker',
+      [
+        'exec',
+        CONTAINER_NAME,
+        'node',
+        '--input-type=module',
+        '-e',
+        `
+      import fs from 'node:fs';
+      console.log(JSON.stringify({
+        shared: fs.existsSync('/app/container/shared'),
+        source: fs.existsSync('/app/src'),
+        bundle: fs.existsSync('/app/bundle'),
+        nestedJs: fs.readdirSync('/app/dist', { recursive: true })
+          .filter((name) => name.endsWith('.js') && name.includes('/')),
+      }));
+    `,
+      ],
+      { encoding: 'utf8', timeout: 10_000 },
+    );
+    expect(JSON.parse(result)).toEqual({
+      shared: false,
+      source: false,
+      bundle: false,
+      nestedJs: [],
+    });
   });
 
   // ── Native module checks ────────────────────────────────────────────

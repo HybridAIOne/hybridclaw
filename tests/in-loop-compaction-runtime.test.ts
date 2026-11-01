@@ -5,23 +5,18 @@ import { createTokenUsageStats } from '../container/src/token-usage.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
-const runtime = vi.hoisted(() => ({ workspace: '' }));
-vi.mock('../container/src/runtime-paths.js', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('../container/src/runtime-paths.js')
-  >()),
-  get WORKSPACE_ROOT() {
-    return runtime.workspace;
-  },
-}));
+const runtime = { workspace: '' };
 const makeTempDir = useTempDir();
 useCleanMocks({
   resetModules: true,
   restoreAllMocks: true,
   unstubAllGlobals: true,
+  unstubAllEnvs: true,
 });
 beforeEach(() => {
   runtime.workspace = makeTempDir('hc-compaction-runtime-');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', runtime.workspace);
+  vi.stubEnv('HYBRIDCLAW_AGENT_STATE_ROOT', '');
 });
 
 const readTool: ToolDefinition = {

@@ -1,3 +1,5 @@
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
+
 /**
  * NCCO construction and Vonage voice webhook payload parsing.
  *
@@ -9,7 +11,6 @@
  * NOT the conversation engine — deciding *what* to say and when to transfer
  * a live call onto one of these NCCOs is vonage-manager/runtime territory.
  */
-import { isRecord } from './utils.js';
 
 const TALK_TEXT_LIMIT = 1_500;
 // 30s/45s (owner call, 2026-08-06): reply turns give the caller 30s to start

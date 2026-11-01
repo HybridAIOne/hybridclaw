@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 import {
-  isRecord,
   normalizeBaseUrl,
   ProviderRequestError,
   readCredentialValue,

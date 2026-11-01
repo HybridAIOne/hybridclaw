@@ -1,6 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -25,33 +24,13 @@ function resolveAppVersion(): string {
   const envVersion = process.env.npm_package_version;
   if (envVersion?.trim()) return envVersion.trim();
 
-  const modulePath = fileURLToPath(import.meta.url);
-  const probePaths = [
-    path.join(path.dirname(modulePath), '..', '..', 'package.json'),
-  ];
-  const moduleVersion = readVersionFromPackageJson(probePaths[0]);
-  if (moduleVersion) return moduleVersion;
-
-  const entryPath = process.argv[1];
-  if (entryPath) {
-    const entryPackagePath = path.join(
-      path.dirname(path.resolve(entryPath)),
-      '..',
-      'package.json',
-    );
-    probePaths.push(entryPackagePath);
-    const entryVersion = readVersionFromPackageJson(entryPackagePath);
-    if (entryVersion) return entryVersion;
-  }
-
-  const cwdPackagePath = path.join(process.cwd(), 'package.json');
-  probePaths.push(cwdPackagePath);
-  const cwdVersion = readVersionFromPackageJson(cwdPackagePath);
-  if (cwdVersion) return cwdVersion;
+  const packageJsonPath = resolveInstallPath('package.json');
+  const version = readVersionFromPackageJson(packageJsonPath);
+  if (version) return version;
 
   logger.warn(
-    { probePaths: Array.from(new Set(probePaths)) },
-    'Unable to resolve app version from package.json probes; falling back to 0.0.0',
+    { packageJsonPath },
+    'Unable to resolve app version from package.json; falling back to 0.0.0',
   );
   return '0.0.0';
 }

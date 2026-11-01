@@ -6,6 +6,7 @@
 export interface TurnUser {
   userId: string;
   maxDeviceAgeMs?: number;
+  operatorId?: string;
 }
 const users = new Map<string, Map<symbol, TurnUser | undefined>>();
 export function currentTurnUser(sessionId: string): TurnUser | undefined {
@@ -13,9 +14,16 @@ export function currentTurnUser(sessionId: string): TurnUser | undefined {
   if (!grants?.size) return undefined;
   let userId: string | undefined;
   let maxDeviceAgeMs: number | undefined;
+  let operatorId: string | undefined;
   for (const grant of grants.values()) {
-    if (!grant || (userId && userId !== grant.userId)) return undefined;
+    if (
+      !grant ||
+      (userId && userId !== grant.userId) ||
+      (operatorId && grant.operatorId && operatorId !== grant.operatorId)
+    )
+      return undefined;
     userId = grant.userId;
+    operatorId ??= grant.operatorId;
     if (grant.maxDeviceAgeMs !== undefined) {
       maxDeviceAgeMs = Math.min(
         maxDeviceAgeMs ?? Infinity,
@@ -23,16 +31,19 @@ export function currentTurnUser(sessionId: string): TurnUser | undefined {
       );
     }
   }
-  return userId ? { userId, maxDeviceAgeMs } : undefined;
+  return userId ? { userId, maxDeviceAgeMs, operatorId } : undefined;
 }
 export function beginTurnUser(
   sessionId: string,
   userId: string | null | undefined,
   maxDeviceAgeMs?: number,
+  operatorId?: string,
 ): () => void {
   const id = userId?.trim();
   const grant =
-    id && id.length <= 200 ? { userId: id, maxDeviceAgeMs } : undefined;
+    id && id.length <= 200
+      ? { userId: id, maxDeviceAgeMs, operatorId }
+      : undefined;
   const key = Symbol();
   const grants = users.get(sessionId) ?? new Map();
   grants.set(key, grant);

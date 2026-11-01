@@ -29,6 +29,7 @@ import { getAgentMainSession } from '../memory/agent-main-session.js';
 import { getRecentMessages, getSessionById } from '../memory/db.js';
 import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { inferProviderFromModelPrefix } from '../providers/provider-ids.js';
 import type { AIProvider } from '../providers/types.js';
 import { registerLocalClassifier } from '../routing/local-classifiers.js';
 import {
@@ -316,6 +317,8 @@ export function createPluginApi(params: {
     callAuxiliaryModel(request: PluginAuxiliaryModelRequest) {
       return callAuxiliaryModel({
         ...request,
+        provider:
+          request.provider ?? inferProviderFromModelPrefix(request.model ?? ''),
         task: request.task || 'skills_hub',
       });
     },

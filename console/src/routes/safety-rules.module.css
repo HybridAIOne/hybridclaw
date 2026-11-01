@@ -1,0 +1,50 @@
+/*
+ * Safety rules stay readable with long patterns and narrow viewports.
+ * Presentation only; enabled state and permission checks belong to the API.
+ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.intro {
+  display: grid;
+  gap: 8px;
+}
+.intro p {
+  margin: 0;
+}
+.ruleHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rules {
+  display: grid;
+  gap: 12px;
+}
+.content {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.content p {
+  margin: 0;
+}
+.scope {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.pattern {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 0.8125rem;
+}

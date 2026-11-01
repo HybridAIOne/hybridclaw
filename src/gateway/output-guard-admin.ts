@@ -8,6 +8,7 @@ import {
 import { listRuntimeConfigRevisions } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { inferProviderFromModelPrefix } from '../providers/provider-ids.js';
 import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
@@ -28,27 +29,6 @@ const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'] as const;
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'] as const;
 const OUTPUT_GUARD_REVISION_ROUTE = 'api.admin.output-guard.profile';
 const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 300_000;
-const MODEL_PROVIDER_PREFIXES = [
-  'openai-codex',
-  'anthropic',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-] as const;
 const MAX_PROFILE_LIST_ITEMS = 200;
 const MAX_PREVIEW_SAMPLE_CHARS = 50_000;
 const PREVIEW_SCORE = {
@@ -62,18 +42,6 @@ const PREVIEW_SCORE = {
 type OutputGuardModelSource = (typeof SUPPORTED_MODEL_SOURCES)[number];
 
 type OutputGuardFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
-
-function inferModelProvider(
-  model: string | undefined,
-): (typeof MODEL_PROVIDER_PREFIXES)[number] | undefined {
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return undefined;
-  return MODEL_PROVIDER_PREFIXES.find((provider) =>
-    normalized.startsWith(`${provider}/`),
-  );
-}
 
 interface OutputGuardModelClientConfig {
   provider: OutputGuardModelSource;
@@ -494,18 +462,13 @@ async function callClassifierModel(
       : client.provider === 'model'
         ? client.model
         : undefined;
-  const provider =
-    client.provider === 'auxiliary'
-      ? undefined
-      : (inferModelProvider(model) ??
-        (client.provider === 'default' ? 'auto' : undefined));
   const result = await callAuxiliaryModel({
     task: 'skills_hub',
+    provider: inferProviderFromModelPrefix(model ?? ''),
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    provider,
     model,
     fallbackModel,
     fallbackEnableRag: false,

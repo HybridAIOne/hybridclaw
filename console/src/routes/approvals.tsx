@@ -357,6 +357,13 @@ export function ApprovalsPage() {
         }
       />
 
+      <p>
+        <a href="/admin/audit?q=type%3Aapproval.observed">
+          Review learning flags
+        </a>
+        {' — '}Actions allowed in learning mode, with their normal approval
+        decision and recorded outcome.
+      </p>
       <div className="metric-grid">
         <MetricCard
           label="Pending approvals"

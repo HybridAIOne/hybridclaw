@@ -7,6 +7,8 @@
     }
   },
   "security": {
+    "defaultApprovalMode": "auto",
+    "disabledSafetyRules": [],
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
     "trustModelVersion": "",

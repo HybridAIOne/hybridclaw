@@ -197,10 +197,7 @@ test('getGatewayStatus includes build/runtime diagnostics', async () => {
           process.cwd(),
           'src/gateway/gateway-http-proxy.ts',
         ),
-        buildPath: path.join(
-          process.cwd(),
-          'dist/gateway/gateway-http-proxy.js',
-        ),
+        buildPath: path.join(process.cwd(), 'dist/cli.js'),
         status: expect.stringMatching(
           /^(ok|source_newer|missing_source|missing_build)$/,
         ),
@@ -4371,7 +4368,9 @@ test('model info shows global, agent, and session scopes', async () => {
   });
   vi.resetModules();
 
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getOrCreateSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
   const { upsertRegisteredAgent } = await import(
     '../src/agents/agent-registry.ts'
   );
@@ -4385,12 +4384,11 @@ test('model info shows global, agent, and session scopes', async () => {
     model: 'gpt-5-mini',
   });
 
-  await handleGatewayCommand({
-    sessionId: 'session-model-scopes',
-    guildId: null,
-    channelId: 'channel-model-scopes',
-    args: ['agent', 'switch', 'research'],
-  });
+  // Switching a fresh agent starts onboarding in the background. This fixture
+  // only needs an agent-scoped session, without work leaking into later tests.
+  getOrCreateSession(
+    'session-model-scopes', null, 'channel-model-scopes', 'research',
+  );
   await handleGatewayCommand({
     sessionId: 'session-model-scopes',
     guildId: null,

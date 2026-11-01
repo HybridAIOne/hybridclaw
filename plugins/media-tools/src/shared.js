@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
-export function isRecord(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '@hybridaione/hybridclaw/plugin-sdk';
 
 export function readStringValue(value) {
   if (typeof value !== 'string') return null;

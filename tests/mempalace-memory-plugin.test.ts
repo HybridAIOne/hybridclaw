@@ -7,6 +7,7 @@ import { expect, test } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
+
 const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {

@@ -14,6 +14,15 @@ import {
 import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import {
+  isLocalBackendType,
+  RUNTIME_PROVIDER_IDS,
+} from '../providers/provider-ids.js';
+import {
+  type ApiKeyProviderId,
+  PROVIDER_META,
+  type ProviderMeta,
+} from '../providers/provider-meta.js';
+import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
@@ -23,6 +32,7 @@ import {
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
+  DEFAULT_RUNTIME_CONFIG,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   getRuntimeConfigSourceSnapshot,
@@ -35,51 +45,28 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export type {
-  AIProviderId as ModelProvider,
   ResolvedModelRuntimeCredentials,
+  RuntimeProviderId as ModelProvider,
 } from '../providers/types.js';
 
 bootstrapRuntimeSecrets();
 ensureRuntimeConfigFile();
 
+function missingCredentialMessage(envVar: string): string {
+  const provider = RUNTIME_PROVIDER_IDS.find(
+    (id) =>
+      !isLocalBackendType(id) &&
+      (PROVIDER_META[id] as ProviderMeta).secretKey === envVar,
+  );
+  if (!provider) return `Required credential is not configured: ${envVar}.`;
+  const login =
+    provider === 'anthropic' ? 'anthropic --method api-key' : provider;
+  return `${PROVIDER_META[provider].label} provider is not configured. Use \`/auth login ${login}\` in the TUI, or switch to a model from another configured provider.`;
+}
+
 export class MissingRequiredEnvVarError extends Error {
   constructor(public readonly envVar: string) {
-    const messageByEnvVar: Record<string, string> = {
-      HYBRIDAI_API_KEY:
-        'HybridAI provider is not configured. Use `/auth login hybridai` in the TUI, or switch to a model from another configured provider.',
-      OPENROUTER_API_KEY:
-        'OpenRouter provider is not configured. Use `/auth login openrouter` in the TUI, or switch to a model from another configured provider.',
-      OPENAI_API_KEY:
-        'OpenAI API provider is not configured. Use `/auth login openai` in the TUI, or switch to a model from another configured provider.',
-      MISTRAL_API_KEY:
-        'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
-      HF_TOKEN:
-        'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
-      ANTHROPIC_API_KEY:
-        'Anthropic provider is not configured. Use `/auth login anthropic --method api-key` in the TUI, or switch to a model from another configured provider.',
-      GEMINI_API_KEY:
-        'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
-      DEEPSEEK_API_KEY:
-        'DeepSeek provider is not configured. Use `/auth login deepseek` in the TUI, or switch to a model from another configured provider.',
-      XAI_API_KEY:
-        'xAI provider is not configured. Use `/auth login xai` in the TUI, or switch to a model from another configured provider.',
-      ZAI_API_KEY:
-        'Z.AI / GLM provider is not configured. Use `/auth login zai` in the TUI, or switch to a model from another configured provider.',
-      KIMI_API_KEY:
-        'Kimi / Moonshot provider is not configured. Use `/auth login kimi` in the TUI, or switch to a model from another configured provider.',
-      MINIMAX_API_KEY:
-        'MiniMax provider is not configured. Use `/auth login minimax` in the TUI, or switch to a model from another configured provider.',
-      DASHSCOPE_API_KEY:
-        'DashScope / Qwen provider is not configured. Use `/auth login dashscope` in the TUI, or switch to a model from another configured provider.',
-      XIAOMI_API_KEY:
-        'Xiaomi / MiMo provider is not configured. Use `/auth login xiaomi` in the TUI, or switch to a model from another configured provider.',
-      KILO_API_KEY:
-        'Kilo Code provider is not configured. Use `/auth login kilo` in the TUI, or switch to a model from another configured provider.',
-    };
-    super(
-      messageByEnvVar[envVar] ||
-        `Required credential is not configured: ${envVar}.`,
-    );
+    super(missingCredentialMessage(envVar));
     this.name = 'MissingRequiredEnvVarError';
   }
 }
@@ -87,7 +74,7 @@ export class MissingRequiredEnvVarError extends Error {
 export { APP_VERSION } from './app-version.js';
 
 function readRuntimeSecretValue(
-  envKeys: string[],
+  envKeys: readonly string[],
   storedKey: RuntimeSecretKey,
   storedSecrets: Record<string, string>,
 ): string {
@@ -105,6 +92,14 @@ function readRuntimeSecretValue(
     if (value) return value;
   }
   return '';
+}
+
+function readProviderSecretValue(
+  provider: ApiKeyProviderId,
+  storedSecrets: Record<string, string>,
+): string {
+  const { envVars, secretKey } = PROVIDER_META[provider];
+  return readRuntimeSecretValue(envVars, secretKey, storedSecrets);
 }
 
 function syncRuntimeSecretExports(): void {
@@ -162,86 +157,26 @@ function syncRuntimeSecretExports(): void {
     'SLACK_APP_TOKEN',
     storedSecrets,
   );
-  HYBRIDAI_API_KEY = readRuntimeSecretValue(
-    ['HYBRIDAI_API_KEY'],
-    'HYBRIDAI_API_KEY',
-    storedSecrets,
-  );
-  OPENAI_API_KEY = readRuntimeSecretValue(
-    ['OPENAI_API_KEY'],
-    'OPENAI_API_KEY',
-    storedSecrets,
-  );
+  HYBRIDAI_API_KEY = readProviderSecretValue('hybridai', storedSecrets);
+  OPENAI_API_KEY = readProviderSecretValue('openai', storedSecrets);
   BFL_API_KEY = readRuntimeSecretValue(
     ['BFL_API_KEY', 'BLACK_FOREST_LABS_API_KEY'],
     'BFL_API_KEY',
     storedSecrets,
   );
-  OPENROUTER_API_KEY = readRuntimeSecretValue(
-    ['OPENROUTER_API_KEY'],
-    'OPENROUTER_API_KEY',
-    storedSecrets,
-  );
-  MISTRAL_API_KEY = readRuntimeSecretValue(
-    ['MISTRAL_API_KEY'],
-    'MISTRAL_API_KEY',
-    storedSecrets,
-  );
-  ANTHROPIC_API_KEY = readRuntimeSecretValue(
-    ['ANTHROPIC_API_KEY'],
-    'ANTHROPIC_API_KEY',
-    storedSecrets,
-  );
-  HUGGINGFACE_API_KEY = readRuntimeSecretValue(
-    ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
-    'HF_TOKEN',
-    storedSecrets,
-  );
-  GEMINI_API_KEY = readRuntimeSecretValue(
-    ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-    'GEMINI_API_KEY',
-    storedSecrets,
-  );
-  DEEPSEEK_API_KEY = readRuntimeSecretValue(
-    ['DEEPSEEK_API_KEY'],
-    'DEEPSEEK_API_KEY',
-    storedSecrets,
-  );
-  XAI_API_KEY = readRuntimeSecretValue(
-    ['XAI_API_KEY'],
-    'XAI_API_KEY',
-    storedSecrets,
-  );
-  ZAI_API_KEY = readRuntimeSecretValue(
-    ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
-    'ZAI_API_KEY',
-    storedSecrets,
-  );
-  KIMI_API_KEY = readRuntimeSecretValue(
-    ['KIMI_API_KEY'],
-    'KIMI_API_KEY',
-    storedSecrets,
-  );
-  MINIMAX_API_KEY = readRuntimeSecretValue(
-    ['MINIMAX_API_KEY'],
-    'MINIMAX_API_KEY',
-    storedSecrets,
-  );
-  DASHSCOPE_API_KEY = readRuntimeSecretValue(
-    ['DASHSCOPE_API_KEY'],
-    'DASHSCOPE_API_KEY',
-    storedSecrets,
-  );
-  XIAOMI_API_KEY = readRuntimeSecretValue(
-    ['XIAOMI_API_KEY'],
-    'XIAOMI_API_KEY',
-    storedSecrets,
-  );
-  KILO_API_KEY = readRuntimeSecretValue(
-    ['KILOCODE_API_KEY', 'KILO_API_KEY'],
-    'KILO_API_KEY',
-    storedSecrets,
-  );
+  OPENROUTER_API_KEY = readProviderSecretValue('openrouter', storedSecrets);
+  MISTRAL_API_KEY = readProviderSecretValue('mistral', storedSecrets);
+  ANTHROPIC_API_KEY = readProviderSecretValue('anthropic', storedSecrets);
+  HUGGINGFACE_API_KEY = readProviderSecretValue('huggingface', storedSecrets);
+  GEMINI_API_KEY = readProviderSecretValue('gemini', storedSecrets);
+  DEEPSEEK_API_KEY = readProviderSecretValue('deepseek', storedSecrets);
+  XAI_API_KEY = readProviderSecretValue('xai', storedSecrets);
+  ZAI_API_KEY = readProviderSecretValue('zai', storedSecrets);
+  KIMI_API_KEY = readProviderSecretValue('kimi', storedSecrets);
+  MINIMAX_API_KEY = readProviderSecretValue('minimax', storedSecrets);
+  DASHSCOPE_API_KEY = readProviderSecretValue('dashscope', storedSecrets);
+  XIAOMI_API_KEY = readProviderSecretValue('xiaomi', storedSecrets);
+  KILO_API_KEY = readProviderSecretValue('kilo', storedSecrets);
   BRAVE_API_KEY = readRuntimeSecretValue(
     ['BRAVE_API_KEY'],
     'BRAVE_API_KEY',
@@ -417,7 +352,7 @@ export let EMAIL_ALLOW_FROM: string[] = [];
 export let EMAIL_TEXT_CHUNK_LIMIT = 50_000;
 export let EMAIL_MEDIA_MAX_MB = 20;
 
-export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
+export let HYBRIDAI_BASE_URL = DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl;
 export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_ONBOARDING_MODEL = '';
 export let HYBRIDAI_CHATBOT_ID = '';
@@ -425,53 +360,55 @@ export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = false;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 export let OPENAI_ENABLED = false;
-export let OPENAI_BASE_URL = 'https://api.openai.com/v1';
+export let OPENAI_BASE_URL = DEFAULT_RUNTIME_CONFIG.openai.baseUrl;
 export let ANTHROPIC_ENABLED = false;
-export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+export let ANTHROPIC_BASE_URL = DEFAULT_RUNTIME_CONFIG.anthropic.baseUrl;
 export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
 export let OPENROUTER_ENABLED = false;
-export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+export let OPENROUTER_BASE_URL = DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl;
 export let MISTRAL_ENABLED = false;
-export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+export let MISTRAL_BASE_URL = DEFAULT_RUNTIME_CONFIG.mistral.baseUrl;
 export let HUGGINGFACE_ENABLED = false;
-export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
+export let HUGGINGFACE_BASE_URL = DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl;
 export let GEMINI_ENABLED = false;
-export let GEMINI_BASE_URL =
-  'https://generativelanguage.googleapis.com/v1beta/openai';
+export let GEMINI_BASE_URL = DEFAULT_RUNTIME_CONFIG.gemini.baseUrl;
 export let DEEPSEEK_ENABLED = false;
-export let DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+export let DEEPSEEK_BASE_URL = DEFAULT_RUNTIME_CONFIG.deepseek.baseUrl;
 export let XAI_ENABLED = false;
-export let XAI_BASE_URL = 'https://api.x.ai/v1';
+export let XAI_BASE_URL = DEFAULT_RUNTIME_CONFIG.xai.baseUrl;
 export let ZAI_ENABLED = false;
-export let ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+export let ZAI_BASE_URL = DEFAULT_RUNTIME_CONFIG.zai.baseUrl;
 export let KIMI_ENABLED = false;
-export let KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
+export let KIMI_BASE_URL = DEFAULT_RUNTIME_CONFIG.kimi.baseUrl;
 export let MINIMAX_ENABLED = false;
-export let MINIMAX_BASE_URL = 'https://api.minimax.io/v1';
+export let MINIMAX_BASE_URL = DEFAULT_RUNTIME_CONFIG.minimax.baseUrl;
 export let DASHSCOPE_ENABLED = false;
-export let DASHSCOPE_BASE_URL =
-  'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+export let DASHSCOPE_BASE_URL = DEFAULT_RUNTIME_CONFIG.dashscope.baseUrl;
 export let XIAOMI_ENABLED = false;
-export let XIAOMI_BASE_URL = 'https://api.xiaomimimo.com/v1';
+export let XIAOMI_BASE_URL = DEFAULT_RUNTIME_CONFIG.xiaomi.baseUrl;
 export let KILO_ENABLED = false;
-export let KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
+export let KILO_BASE_URL = DEFAULT_RUNTIME_CONFIG.kilo.baseUrl;
 export let LOCAL_OLLAMA_ENABLED = false;
-export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+export let LOCAL_OLLAMA_BASE_URL =
+  DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl;
 export let LOCAL_OLLAMA_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['ollama']['modelBehavior']
   | undefined;
 export let LOCAL_LMSTUDIO_ENABLED = false;
-export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_LMSTUDIO_BASE_URL =
+  DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl;
 export let LOCAL_LMSTUDIO_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['lmstudio']['modelBehavior']
   | undefined;
 export let LOCAL_LLAMACPP_ENABLED = false;
-export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
+export let LOCAL_LLAMACPP_BASE_URL =
+  DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl;
 export let LOCAL_LLAMACPP_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['llamacpp']['modelBehavior']
   | undefined;
 export let LOCAL_VLLM_ENABLED = false;
-export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
+export let LOCAL_VLLM_BASE_URL =
+  DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
 export let LOCAL_VLLM_API_KEY = '';
 export let LOCAL_VLLM_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['vllm']['modelBehavior']

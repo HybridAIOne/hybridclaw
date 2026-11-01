@@ -1,8 +1,5 @@
+import { toTrimmedString } from '@hybridaione/hybridclaw/plugin-sdk';
 import { extractMemoryText } from './mem0-client.js';
-
-function normalizeString(value) {
-  return String(value || '').trim();
-}
 
 function normalizeToolTopK(value, maximum) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -40,12 +37,12 @@ function formatMemoryList(title, entries, options = {}) {
 function buildToolMemoryResult(entries) {
   return entries
     .map((entry) => ({
-      id: normalizeString(entry?.id),
+      id: toTrimmedString(entry?.id),
       memory: extractMemoryText(entry),
       score: typeof entry?.score === 'number' ? entry.score : undefined,
       categories: Array.isArray(entry?.categories) ? entry.categories : [],
-      user_id: normalizeString(entry?.user_id),
-      agent_id: normalizeString(entry?.agent_id),
+      user_id: toTrimmedString(entry?.user_id),
+      agent_id: toTrimmedString(entry?.agent_id),
     }))
     .filter((entry) => entry.memory);
 }
@@ -57,9 +54,9 @@ export class Mem0Controls {
 
   async handleCommand(args, context) {
     const normalizedArgs = (args || [])
-      .map((arg) => normalizeString(arg))
+      .map((arg) => toTrimmedString(arg))
       .filter(Boolean);
-    const subcommand = normalizeString(
+    const subcommand = toTrimmedString(
       normalizedArgs[0] || 'status',
     ).toLowerCase();
     try {
@@ -74,7 +71,7 @@ export class Mem0Controls {
         );
       }
       if (subcommand === 'search') {
-        const query = normalizeString(normalizedArgs.slice(1).join(' '));
+        const query = toTrimmedString(normalizedArgs.slice(1).join(' '));
         if (!query) return 'Usage: /mem0 search <query>';
         const result = await this.runtime.search(
           context.sessionId,
@@ -86,7 +83,7 @@ export class Mem0Controls {
         });
       }
       if (subcommand === 'conclude') {
-        const conclusion = normalizeString(normalizedArgs.slice(1).join(' '));
+        const conclusion = toTrimmedString(normalizedArgs.slice(1).join(' '));
         if (!conclusion) return 'Usage: /mem0 conclude <fact>';
         const result = await this.runtime.storeConclusion(
           context.sessionId,
@@ -129,7 +126,7 @@ export class Mem0Controls {
   }
 
   async handleToolSearch(args, context) {
-    const query = normalizeString(args.query);
+    const query = toTrimmedString(args.query);
     if (!query) {
       return JSON.stringify(
         {
@@ -157,7 +154,7 @@ export class Mem0Controls {
   }
 
   async handleToolConclude(args, context) {
-    const conclusion = normalizeString(args.conclusion);
+    const conclusion = toTrimmedString(args.conclusion);
     if (!conclusion) {
       return JSON.stringify(
         {

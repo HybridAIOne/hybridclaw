@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../components/toast';
-import { blockerStateMock, mockRouterBlocker } from '../test-utils';
+import { blockerStateMock } from '../test-utils';
 import { useUnsavedChangesGuard } from './use-unsaved-changes-guard';
 
-vi.mock('@tanstack/react-router', () => mockRouterBlocker());
+const { useBlockerMock } = vi.hoisted(() => ({ useBlockerMock: vi.fn() }));
+vi.mock('@tanstack/react-router', () => ({ useBlocker: useBlockerMock }));
 
 beforeEach(() => {
+  useBlockerMock.mockImplementation(() => blockerStateMock);
   blockerStateMock.status = 'idle';
   blockerStateMock.proceed = vi.fn();
   blockerStateMock.reset = vi.fn();
@@ -15,11 +17,17 @@ beforeEach(() => {
 function Harness({
   isDirty,
   description,
+  includeSearch,
 }: {
   isDirty: boolean;
   description?: string;
+  includeSearch?: boolean;
 }) {
-  const { dialog } = useUnsavedChangesGuard({ isDirty, description });
+  const { dialog } = useUnsavedChangesGuard({
+    isDirty,
+    description,
+    includeSearch,
+  });
   return <ToastProvider>{dialog}</ToastProvider>;
 }
 
@@ -53,3 +61,26 @@ describe('useUnsavedChangesGuard', () => {
     expect(screen.getByText('Custom warning.')).toBeTruthy();
   });
 });
+
+it.each([
+  [true, true, true],
+  [true, false, false],
+  [false, true, false],
+])(
+  'protects same-page tab drafts only when requested (dirty=%s, includeSearch=%s)',
+  (isDirty, includeSearch, expected) => {
+    render(<Harness isDirty={isDirty} includeSearch={includeSearch} />);
+    const options = useBlockerMock.mock.calls.at(-1)?.[0] as {
+      shouldBlockFn: (input: {
+        current: { pathname: string; search: object };
+        next: { pathname: string; search: object };
+      }) => boolean;
+    };
+    expect(
+      options.shouldBlockFn({
+        current: { pathname: '/admin/security', search: { tab: 'approvals' } },
+        next: { pathname: '/admin/security', search: { tab: 'safety' } },
+      }),
+    ).toBe(expected);
+  },
+);

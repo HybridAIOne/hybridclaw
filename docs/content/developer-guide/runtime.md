@@ -81,7 +81,11 @@ The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline
 `container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds and npm packages retain their existing build layout.
+`tsc` output. Source builds, npm packages, and desktop packages also run the
+gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+keeps earlier content-hashed chunks so a gateway already running from the
+checkout can still load its own lazily; `npm run clean` removes them, and
+`prepack` cleans before packaging.
 `tests/gateway-bundle-runtime.integration.test.ts` builds an isolated image
 layout and checks gateway startup, CLI loading, plugin SDK identity, and the
 embedded terminal when node-pty is available, without requiring Docker.
@@ -115,7 +119,87 @@ it records the resulting memory content so dream's own rewrite does not trigger
 another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
+Private tool-history replay preserves short, nonliteral Python sorting
+callbacks such as `key=ranker.get` and `key=lambda item: item.score`. Public
+logs and exports keep strict credential masking; quoted key values, URL
+credentials and structured authentication fields remain redacted in replay.
+
 ## Worker State
+
+Host workers keep managed state in their owning agent's workspace, or the scope's
+workspace for scoped chats. An execution workspace override changes tool paths
+and the shell's working directory without moving bootstrap files, approval
+stores, session state, visual snapshots or spilled tool results into task output.
+The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
+Docker workers continue to use their mounted workspace for both purposes.
+Transcript and compaction archive references use absolute paths when their files
+live outside the execution workspace, so the read tool can still resolve them.
+
+HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
+against the worker state root, independently of its execution directory. Reads,
+vision analysis and attachment validation use the same resolver. The alias
+rejects traversal, links and roots outside the existing allowlist; it grants no
+write access and never searches another state directory or project cache.
+
+Visual reads retain content-addressed snapshots in the owning state directory.
+When the primary model cannot receive pixels, dispatch offers the existing
+`vision_analyze` tool a durable `snapshot` reference. For a PDF, `page` selects one
+original page per call; a standalone image needs no page number. The helper uses
+the configured vision policy and requires visual-data delivery permission.
+It validates snapshot ownership, selection, integrity and the existing image
+size limit. Temporary render files can be removed before analysis, and a
+replacement worker can use the same reference. Missing or changed evidence
+requires reading the original file again.
+
+For isolated host evaluations, an operator can set
+`HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
+OpenAI-compatible requests with an explicit eval profile use it. The directory
+must be separate from the agent workspace, including through symlinks. HTTP
+clients cannot select this path. The agent retains its default bootstrap and
+skills, and the execution workspace fence remains enabled. Changing this setting
+requires a new eval session; it is not a way to alter an active worker's roots.
+
+### Interrupted Turns
+
+Before worker dispatch, the gateway commits the user message and an unfinished
+assistant placeholder to SQLite. Normal completion replaces those provisional
+rows and removes the pending marker in one transaction. After a gateway restart,
+the next turn recovers that session's checkpoint before building model context.
+
+Workers write `turn-checkpoint.json` in the protected session state directory
+under `.hybridclaw-runtime/sessions/<session-key>/`. The checkpoint records model
+tool requests before execution, execution starts before invoking tools, and each
+completed result immediately, including individual results in concurrent batches.
+Large completed results retain a bounded excerpt and their durable full-result path,
+so recovery preserves evidence without restoring oversized model context.
+The last complete assistant message is retained too. Once a run has proposed tools,
+a killed worker's replacement returns its evidence for the same run ID without
+calling the model or tools. Runs with no proposed tools remain safe to retry.
+A new run starts a fresh checkpoint; recovered exchanges are conversation context,
+never executable instructions or approval grants.
+
+A started call without a saved result has an **unknown outcome**: its side effects
+may already have occurred. Recovery marks it explicitly and asks for external-state
+verification before retrying. A proposed call that never started is marked **not
+executed**. Recovery after interruption never applies queued gateway side effects;
+authoritative error replies retain their results and queued effects. Missing or
+corrupt journals retain the gateway's uncertainty placeholder;
+unreadable journals refuse worker replay. Recovery readers reject links and enforce
+the configured IPC output size limit. These atomic checkpoints cover abrupt process
+termination, not power-loss durability or exactly-once execution of external APIs.
+
+Risk boundary: checkpoint persistence must succeed before a tool starts. A crash
+between an external effect and its result checkpoint cannot prove success or failure,
+so recovery must never automatically repeat that call. The protected state remains
+subject to the existing approval-state guard; it confers no execution authority.
+
+Large tool results live in `.tool-results/` in the owning state workspace.
+Their file paths travel with bounded model excerpts, so a replacement worker
+can read or search the complete text without restoring it into model context.
+
+The shell-denial replan budget uses the current request's tool execution records.
+It grants one replan per request, not per session; it does not persist across
+requests or authorize execution after worker replacement.
 
 Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
 maximum execution attempts. The worker reserves each attempt synchronously
@@ -131,12 +215,42 @@ A replacement worker reloads them; switching sessions clears the prior session's
 grants. These files use the existing pinned approval-state protections.
 
 
+Rejected `write` preconditions persist canonical file paths in
+`.hybridclaw-runtime/sessions/<session-key>/file-write-conflicts.json`.
+Until a checked write or edit succeeds for that file, non-green or write-intent
+Bash calls and deletion of that file or its parent require one-time approval,
+including in full-auto and evaluation sessions. This deliberately fences opaque
+scripts as well as direct redirects; unrelated shell mutations may also pause.
+Read-only diagnostics, including an `echo` fallback after a read-only command,
+and writing a separate deliverable remain available. File redirections and
+opaque script execution still require approval while a conflict is unresolved.
+Recovery diagnostics list the unresolved paths; writing a separate file leaves
+the script-execution restriction in place. A checked mutation resolves only its
+own path. Replacement workers reload the conflicts. Corrupt or unreadable guard
+state and persistence errors fail closed; these records contain paths, never file contents.
+The existing pinned approval-state rules protect this directory.
+
+File-delivery guidance asks the agent to parse structured data and check the
+requested structure after its final edit. This read-only QA is part of completing
+the requested deliverable; optional builds, tests and generated-code execution
+still require a request. This is model guidance, not automatic format enforcement
+by the text-editing tools, and existing command permissions continue to apply.
+
 ### Auxiliary Model Routing
+
+Model discovery retries on the next lookup if its initial request fails. An
+empty error fallback is not cached as a successful catalog, so a temporary
+startup outage does not hide model capabilities for the catalog's cache lifetime.
+Concurrent lookups share one request; populated catalogs keep their existing
+stale-cache and background-refresh behavior.
 
 Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
 Tool calls capture routing and header snapshots before calling auxiliary models.
+Disabled auxiliary tasks carry an explicit denial through worker IPC. Their
+calls stop before provider fallback or network access; primary conversation
+routing remains a separate setting.
 This state lives in worker memory and is rebuilt when a worker is replaced.
 
 ### Browser Live Frames
@@ -197,6 +311,7 @@ agent archives skip and `reset yes` removes with the workspace.
 
 | State | Lives in | When the worker exits |
 | --- | --- | --- |
+| Safety-rule configuration | Gateway runtime config; authenticated snapshot on every worker input | Rebuilt each turn; absent settings restore all guards |
 | Conversation, session settings, usage, audit trail | Gateway SQLite and data dir | Kept |
 | Agent files, memory, transcripts, artifacts | Workspace | Kept |
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
@@ -389,6 +504,48 @@ The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
+The gateway (`dist/cli.js`) and the agent runtime (`container/dist/index.js`)
+are esbuild bundles, so stack traces name bundle chunks by default. The npm
+package and the Docker image ship source maps beside them (desktop packages
+strip them), but they are off because they slow startup; run with
+`NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
+
+## Approval Explanations
+
+Pinned-sensitive approval explanations identify policy pinning and the one-time
+approval requirement, including for read-only operations. An unclassified shell
+command is described as unclassified rather than asserted to mutate state.
+The same reason is retained in the pending approval and returned evaluation;
+this wording does not alter approval tiers or grant access.
+
+## Tool Recovery
+
+The system prompt distinguishes a failed method from a blocked task. It uses
+current capability readiness, directs the model to investigate inconclusive
+results and try materially different permitted methods, and bounds recovery by
+useful progress and the remaining execution budget. Missing configuration does
+not grant permission to obtain credentials or broaden access. Runtime blocks
+and denied approvals must never be bypassed. Unread source content must not be
+replaced with invented findings. Recovery may repair dependencies but must not
+manufacture or replace authoritative messages, events, records or source
+fixtures. Missing local files do not establish that a running service has no
+data. Cached or exported data supports only its demonstrated scope and
+freshness; reports must distinguish supported partial findings from complete
+coverage and identify inaccessible sources. These are model instructions,
+not runtime validation of arbitrary business data or connector coverage.
+
+`tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
+`tests/media-tools-readiness.test.ts` checks configuration snapshots and their
+agreement with provider selection. The opt-in scripted model checks in
+`tests/safety-guardrails.live.test.ts` cover recovery, completion after a
+successful fallback, and preservation of denial boundaries; enable them with
+`HYBRIDCLAW_RUN_LIVE_SAFETY=1`. By default they use the configured runtime
+model and its provider transport and credentials, with retrieval disabled and
+only synthetic scenarios. Proposed tools are inspected, never executed. To use
+an explicit OpenAI-compatible endpoint instead, set both
+`HYBRIDCLAW_LIVE_SAFETY_BASE_URL` and `HYBRIDCLAW_LIVE_SAFETY_MODEL` (plus
+`HYBRIDCLAW_LIVE_SAFETY_API_KEY` when required).
+
 ## Prompt Context Assembly
 
 HybridClaw separates the static system prompt from per-turn dynamic context.
@@ -577,6 +734,12 @@ callbacks act only for that scope's chats. Scoped chats do not use the warm
 pool. The main chat's `memory` search and `session_search` also read
 `scopes/*/`.
 
+Delegated children inherit the scope workspace, connector limits and runtime
+token at every nesting level. While a child is running, its exact gateway-issued
+ID can make a waiting delegation callback for that scope. This identity grants
+no other session routes and expires when the call finishes, including failures.
+Deleting the scope refuses further callbacks and nested execution.
+
 ## Persistent Browser Profiles
 
 HybridClaw can reuse a real logged-in browser session for later automation:
@@ -644,8 +807,38 @@ config changes can change exposure on the next request, invalidating cached
 tool prefixes; a failed replacement never grants the old connection new trust.
 Routine lookups use
 available tools directly; skill discovery is for requested skills or specialized
-workflows. Tools that accept multiple identifiers should fetch independent
-items in one request within the tool's limits.
+workflows. An applicable listed skill is read before its first operation,
+including when a workbook or document is an input to a broader task. Workspace
+discovery uses scoped `glob`, `grep`, and `read` calls. Independent reads stay in
+separate tool calls so a shell approval gate cannot hold up an unrelated read.
+This is planning guidance, not an approval exemption: required approvals still
+pause execution, and recursive shell searches that can reach pinned files
+still require approval. Tools that accept multiple identifiers should fetch
+independent items in one request within the tool's limits.
+
+Shell safety hard blocks run before approval resolution and again at execution.
+They cannot be overridden by a user approval, so prohibited commands produce a
+denial without creating a pending approval. The first such denial in a request
+returns to the model once to plan work that omits prohibited effects. Remaining
+calls in that batch are marked unexecuted; every new call still faces the same
+policy. A second shell hard block ends the turn, as do other policy denials.
+Pending human approvals still pause execution.
+
+The eval block checks parsed shell words and nested shell commands, so an `eval`
+directory inside a simple path does not block unrelated tools. Executables named
+`eval` and eval text in inline code remain blocked. Heredoc input retains the
+conservative text check; other safety matchers and normal approval policy still
+apply.
+
+Generation and verification run separately from necessary cleanup. Agents leave
+disposable scratch files alone unless cleanup was requested or is needed for the
+result; ordinary housekeeping does not delay delivery or turn success into a
+failure message.
+Approval clarification replies retain their text in Teams alongside the existing
+choices and expiry; asking a question neither grants consent nor extends expiry.
+The hard-block patterns are unchanged and commands are never rewritten or split
+by this check. Clarification text is escaped for display and cannot alter the
+stored executable call, allowed scopes, or permission decision.
 
 MCP calls are serial barriers by default. Operators can declare trusted read
 behavior under a server's `toolBehavior` configuration:
@@ -699,33 +892,103 @@ Descriptions shorten before names are omitted, and `skills_list` retains the
 complete directory. Always-on skill bodies keep their separate 10,000-character
 budget. System prompt and tool schemas stay stable throughout a request.
 
-The model receives complete tool results, and stored exchanges replay complete
-results. Large results cross IPC as file references, restored by the gateway;
-this transport threshold does not shorten model input. Whole-context compaction
-and model context-window recovery still apply to the combined conversation.
-The context guard measures pressure without rewriting tool results. In-loop
-compaction sends every selected message intact to the compression model,
+Tool results above 16,000 characters are saved in full under
+`.tool-results/<session>/<tool-call>.txt` in the owning state workspace. Model
+input and replay receive an 8,000-character head/tail excerpt plus the saved
+path. Full evidence still crosses IPC by reference and is restored for audit
+and transcript storage. Results remain available until workspace reset; worker
+replacement and compaction do not remove them.
+
+Use `read` with `path`, `char_offset` (zero-based), and `max_chars` to page
+through saved text, including single-line JSON. `read` with a literal `query`
+returns a matching excerpt and its character offset; use `char_offset` to
+continue searching. These reads return at most 2,000 excerpt characters.
+The existing workspace and approval checks apply to every read.
+
+The context guard measures pressure without rewriting tool results. It includes
+tool schemas and estimates visuals according to the active delivery route. A
+text-only route counts the text handoff and durable snapshot references rather
+than reserving image tokens for pixels it will not send. Handoff wording, call
+IDs, snapshots, page lists, visual-data permissions, and available tools are
+unchanged.
+
+In-loop compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
 interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
 replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
-summaries that do not shrink the region leave history unchanged; there is no
-heuristic fallback or character-based transcript cutoff. Each rejected attempt
-logs a distinct reason without logging response text or error payloads.
+summaries that do not shrink the region never authorize dropping messages.
+If the protected history plus tool schemas and summary allowance cannot fit,
+the loop keeps the newest complete exchange and allows older parallel batches
+into the summary region. This avoids repeatedly summarizing small setup messages
+while the large results remain protected. Calls and results still stay together.
+If compaction cannot progress, including when the newest exchange leaves no
+compactable middle, the loop saves oversized tool results and reduces their
+inline excerpts to fit the active context budget. Call/result pairing and full
+on-disk evidence remain intact. A failed result-file write leaves the original
+result in context; the loop reports exhaustion if it still cannot fit. Each
+rejected attempt logs a distinct reason without logging response text or error payloads.
+
+Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
+That limit bounds consecutive provider context-window recovery retries and resets
+after an accepted loop request, not after a summary. Compaction stops immediately
+when it cannot produce a smaller archived replacement.
 
 The compression model needs enough context for the complete selected region,
-its historical tool schemas, and the summary output budget. It falls back to
-the active model when no compression override is configured. For long tasks,
-configure `auxiliaryModels.compression` with sufficient capacity; a larger
-window than the active model helps recover even when that model overflows.
-An input rejected as too large reports `summary_context_overflow` and ends the
-turn without replacing history. Archives contain conversation and tool data
-that the agent can read; private file permissions protect against other host
+its historical tool schemas, and the summary output budget. If the candidate
+region does not fit, compaction selects the largest fitting prefix ending at a
+complete tool exchange and leaves the remaining messages in live context. It
+never splits parallel calls from their results or truncates selected messages.
+Generation reserves the configured allowance, or half the window for a small
+compression model. The model falls back to the active model when no compression
+override is configured. A single exchange too large to summarize still uses
+the saved-result recovery described above; an unsuccessful recovery fails
+explicitly rather than discarding evidence.
+An input rejected as too large reports `summary_context_overflow`; the loop
+then attempts the disk-backed result recovery described above before reporting
+context exhaustion. Archives contain conversation and tool data that the agent
+can read; private file permissions protect against other host
 users, and workspace reset removes them.
+The concise summary target is separate from the generation allowance, which
+includes a reasoning model's thinking tokens. Compression defaults to 8,192
+generation tokens, bounded by the model's output capacity and estimated input
+headroom; `auxiliaryModels.compression.maxTokens` overrides that allowance.
+The summary target stays at up to 1,024 tokens. A truncated generation still
+cannot replace the original evidence.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
-remove it from custom configuration. There is no replacement per-result limit.
+remove it from custom configuration. Inline tool-result bounds are fixed
+runtime limits rather than configuration.
+
+`web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
+binary responses fail with a download continuation instead of entering model
+context as text. If available, `http_request` with `responseArtifact` saves the
+file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
+enough for the file. PDF and image inspection use the existing local-file tools.
+Oversized HTTP responses are cancelled without saving a partial artifact. The
+artifact error reports the limit and declared or received size so the caller can
+choose an explicit bound for a retry; the gateway does not raise it automatically.
+The outbound `timeoutMs` deadline remains active through response-body reading,
+so a server that sends headers and then stalls cannot leave a download waiting
+indefinitely. A timed-out download does not save a partial artifact.
+
+When a fetch body or extracted text reaches its size limit, the tool identifies
+the source as incomplete before the returned content. This warning also applies
+to cached results and auxiliary summaries. A saved tool-result file contains the
+retained extraction, not any source content discarded at the fetch limit.
+
+When Readability omits context outside its selected article, `web_fetch` retains
+an explicitly labeled leading excerpt from a main HTML landmark. It excludes
+navigation, sidebars, scripts and explicitly hidden markup; the existing output cap still
+applies. This preserves supplied page status and dates without interpreting them
+or promising a complete page rendering. Context already in the article is omitted.
+Extraction-failure hints assess the article itself, excluding that added context.
+
+Short section headings grouped with inline links or controls retain their heading
+structure during article extraction. Their original attributes remain in place,
+so hidden groups and navigation remain eligible for exclusion. This preserves
+section boundaries without adding site-specific extraction rules.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
@@ -790,9 +1053,13 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
 - source table: local `audit_events`, ordered by `id`
 - stream identity: the install's node id (`identity/instance-id.json` in the
   data dir), sent as `node_id` when the ingest token is requested
-- agent: each batch carries one `agent_id`, taken from its events' session
-  keys; events outside an agent session go to the default agent
-- persisted cursor: `observability_offsets`
+- agent: each batch carries one `agent_id`, taken from the run's durable
+  `session.start.executingAgentId`. All events in that session/run use this
+  identity, including app-generated session IDs and delayed uploads after an
+  agent switch. Records without a captured execution identity retain the
+  session-key/default-agent fallback; already exported history is not rewritten.
+- persisted cursor: `observability_offsets`, keyed by ingest URL and node ID;
+  cursors from other nodes and retired bot/agent keys are never reused
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`
 
@@ -1030,6 +1297,28 @@ Container-side sandboxed tool families:
 - web extraction: `web_fetch`
 - optional browser automation: `browser_*`
 
+`write` creates files exclusively by default. To replace an existing text file,
+read its complete contents and pass `overwrite: true` and `expected_content`
+containing those exact contents, including trailing newlines. A missing file or
+content mismatch rejects the replacement without changing the target. Empty
+files require `expected_content: ""`. After a stale-write error, read again and
+reconsider the change instead of retrying with the old contents. Use `edit` for
+targeted substitutions.
+
+Successful `write` and `edit` calls check JSON syntax for `.json` files up to
+256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested
+bytes remain saved, including intentionally invalid test fixtures. Larger JSON
+files report that the automatic check was skipped. This checks syntax only,
+not schemas or correctness, and does not apply to shell writes or other formats.
+
+Publication is atomic, and cooperative `.lock` directories serialize `write`
+checks and replacements across workers, including task sandboxes. These checks
+use current disk state and survive worker replacement. A crashed writer's lock
+fails closed until removed after verifying no writer is active. External editors,
+`bash`, `edit`, and generated-artifact tools do not participate in this protocol;
+a change they make during the check/publication window can still race a write.
+These controls supplement existing path and approval checks.
+
 Prompt and runtime internals:
 
 - session compaction with pre-compaction memory flush: complete instructions
@@ -1048,6 +1337,12 @@ Prompt and runtime internals:
   result; with `background: true` the parent turn ends and a later
   `delegate:results` turn wakes the parent with the reports, hidden from
   history views
+- Waiting delegation resolves an execution worker to its unique active
+  conversation owner. Released, aborted or ambiguous worker aliases cannot
+  identify a parent; no durable alias session is created.
+- Each live delegated child has its own exact callback identity and model.
+  Nested calls inherit that child's model unless the caller or configured
+  delegate model selects another; a completed child's context is released.
 
 ## PDF reading
 
@@ -1089,8 +1384,13 @@ media paths are scoped to the session, never the entire media cache. Snapshot
 loads accept hashes rather than paths, reject symlinks, validate size and verify
 content integrity. Parsing uses the bundled, lazily loaded PDF skill runtime.
 Document text and visuals remain untrusted user data. Confidential text redaction
-disables binary PDF/image delivery, including historical snapshots, because text
-redaction cannot sanitize document bytes or pixels. Rendering or delivery alone
+disables binary PDF/image delivery, including historical snapshots and auxiliary
+file/browser vision calls, because text redaction cannot sanitize document bytes
+or pixels. The gateway sends visual-data permission independently of the primary
+model's image capability. A text-only primary can use an otherwise permitted,
+configured auxiliary vision model; a confidentiality block cannot be bypassed by
+switching models. Both flags and tool-call permission snapshots are rebuilt from
+each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
 `read` searches PDF text with `query` (literal text, up to 256 characters),

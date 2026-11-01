@@ -4,23 +4,38 @@
  * fields: label, login defaults, secret key, and env var names.
  *
  * The CLI login/logout flows and the shared status lines (`auth-status.ts`)
- * read this table. NOT the provider runtime (`openai-compat-remote.ts`), and
- * NOT the target-name table (`auth-targets.ts`).
+ * read this table. Labels, keys, and defaults come from `PROVIDER_META`; only
+ * the base-URL suffix the login flow enforces is defined here. NOT the
+ * provider runtime (`openai-compat-remote.ts`), and NOT the target-name table
+ * (`auth-targets.ts`).
  */
+import type { OpenAICompatRemoteProviderId } from '../providers/provider-ids.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
+
+// OpenRouter, Mistral, and Hugging Face keep their own login flows.
+type DedicatedLoginProviderId = 'openrouter' | 'mistral' | 'huggingface';
+
+const BASE_URL_SUFFIX_BY_ID = {
+  openai: '/v1',
+  gemini: '/openai',
+  deepseek: '/v1',
+  xai: '/v1',
+  zai: '/v4',
+  kimi: '/v1',
+  minimax: '/v1',
+  dashscope: '/v1',
+  xiaomi: '/v1',
+  kilo: '/api/gateway',
+} as const satisfies Record<
+  'openai' | Exclude<OpenAICompatRemoteProviderId, DedicatedLoginProviderId>,
+  string
+>;
+
+export type GenericProviderId = keyof typeof BASE_URL_SUFFIX_BY_ID;
 
 export interface GenericProviderAuthDef {
   /** Provider ID used in CLI and config. */
-  id:
-    | 'openai'
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo';
+  id: GenericProviderId;
   /** Human-readable label shown in status/error output. */
   label: string;
   /** Default model used when none is specified. */
@@ -34,111 +49,25 @@ export interface GenericProviderAuthDef {
   /** Canonical secret key name used for encrypted storage. */
   secretKey: string;
   /** All env var names checked for this provider (order matters). */
-  envVarNames: string[];
+  envVarNames: readonly string[];
 }
 
-export const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
-  {
-    id: 'openai',
-    label: 'OpenAI API',
-    defaultModel: 'openai/gpt-5.6-sol',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'OPENAI_API_KEY',
-    envVarNames: ['OPENAI_API_KEY'],
-  },
-  {
-    id: 'gemini',
-    label: 'Google Gemini',
-    defaultModel: 'gemini/gemini-2.5-pro',
-    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    baseUrlSuffixPattern: /\/openai$/i,
-    baseUrlSuffix: '/openai',
-    secretKey: 'GEMINI_API_KEY',
-    envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    defaultModel: 'deepseek/deepseek-chat',
-    defaultBaseUrl: 'https://api.deepseek.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'DEEPSEEK_API_KEY',
-    envVarNames: ['DEEPSEEK_API_KEY'],
-  },
-  {
-    id: 'xai',
-    label: 'xAI',
-    defaultModel: 'xai/grok-3',
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'XAI_API_KEY',
-    envVarNames: ['XAI_API_KEY'],
-  },
-  {
-    id: 'zai',
-    label: 'Z.AI / GLM',
-    defaultModel: 'zai/glm-5.1',
-    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
-    baseUrlSuffixPattern: /\/v4$/i,
-    baseUrlSuffix: '/v4',
-    secretKey: 'ZAI_API_KEY',
-    envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
-  },
-  {
-    id: 'kimi',
-    label: 'Kimi / Moonshot',
-    defaultModel: 'kimi/kimi-k2.5',
-    defaultBaseUrl: 'https://api.moonshot.ai/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'KIMI_API_KEY',
-    envVarNames: ['KIMI_API_KEY'],
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    defaultModel: 'minimax/MiniMax-M2',
-    defaultBaseUrl: 'https://api.minimax.io/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'MINIMAX_API_KEY',
-    envVarNames: ['MINIMAX_API_KEY'],
-  },
-  {
-    id: 'dashscope',
-    label: 'DashScope / Qwen',
-    defaultModel: 'dashscope/qwen3-coder-plus',
-    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'DASHSCOPE_API_KEY',
-    envVarNames: ['DASHSCOPE_API_KEY'],
-  },
-  {
-    id: 'xiaomi',
-    label: 'Xiaomi MiMo',
-    defaultModel: 'xiaomi/MiMo-7B-RL',
-    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'XIAOMI_API_KEY',
-    envVarNames: ['XIAOMI_API_KEY'],
-  },
-  {
-    id: 'kilo',
-    label: 'Kilo Code',
-    defaultModel: 'kilo/anthropic/claude-sonnet-4.6',
-    defaultBaseUrl: 'https://api.kilo.ai/api/gateway',
-    baseUrlSuffixPattern: /\/api\/gateway$/i,
-    baseUrlSuffix: '/api/gateway',
-    secretKey: 'KILO_API_KEY',
-    envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
-  },
-] as const;
+export const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = (
+  Object.keys(BASE_URL_SUFFIX_BY_ID) as GenericProviderId[]
+).map((id) => {
+  const meta = PROVIDER_META[id];
+  const baseUrlSuffix = BASE_URL_SUFFIX_BY_ID[id];
+  return {
+    id,
+    label: meta.label,
+    defaultModel: meta.defaultModels[0],
+    defaultBaseUrl: meta.defaultBaseUrl,
+    baseUrlSuffixPattern: new RegExp(`${baseUrlSuffix}$`, 'i'),
+    baseUrlSuffix,
+    secretKey: meta.secretKey,
+    envVarNames: meta.envVars,
+  };
+});
 
 const GENERIC_PROVIDER_BY_ID = new Map(
   GENERIC_PROVIDER_AUTH_DEFS.map((def) => [def.id, def]),
@@ -147,5 +76,5 @@ const GENERIC_PROVIDER_BY_ID = new Map(
 export function findGenericProviderDef(
   id: string,
 ): GenericProviderAuthDef | undefined {
-  return GENERIC_PROVIDER_BY_ID.get(id as GenericProviderAuthDef['id']);
+  return GENERIC_PROVIDER_BY_ID.get(id as GenericProviderId);
 }

@@ -13,6 +13,7 @@ import {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
@@ -615,7 +616,7 @@ function applyOpenClawProviderConfig(
       if (
         baseUrl &&
         (overwrite ||
-          draft.openrouter.baseUrl === 'https://openrouter.ai/api/v1')
+          draft.openrouter.baseUrl === PROVIDER_META.openrouter.defaultBaseUrl)
       ) {
         draft.openrouter.baseUrl = baseUrl;
       }
@@ -627,7 +628,8 @@ function applyOpenClawProviderConfig(
       draft.mistral.enabled = true;
       if (
         baseUrl &&
-        (overwrite || draft.mistral.baseUrl === 'https://api.mistral.ai/v1')
+        (overwrite ||
+          draft.mistral.baseUrl === PROVIDER_META.mistral.defaultBaseUrl)
       ) {
         draft.mistral.baseUrl = baseUrl;
       }
@@ -640,7 +642,8 @@ function applyOpenClawProviderConfig(
       if (
         baseUrl &&
         (overwrite ||
-          draft.huggingface.baseUrl === 'https://router.huggingface.co/v1')
+          draft.huggingface.baseUrl ===
+            PROVIDER_META.huggingface.defaultBaseUrl)
       ) {
         draft.huggingface.baseUrl = baseUrl;
       }

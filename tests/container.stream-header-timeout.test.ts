@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { RuntimeProvider } from '../container/src/providers/provider-ids.js';
+import type { RuntimeProviderId } from '../container/src/providers/provider-ids.js';
 import { callProviderModelStream } from '../container/src/providers/router.js';
 import {
   type NormalizedStreamCallArgs,
@@ -7,7 +7,7 @@ import {
 } from '../container/src/providers/shared.js';
 
 function streamArgs(
-  provider: RuntimeProvider,
+  provider: RuntimeProviderId,
   isLocal: boolean,
 ): NormalizedStreamCallArgs {
   return {
@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe('streaming response header timeout', () => {
-  test.each<RuntimeProvider>([
+  test.each<RuntimeProviderId>([
     'hybridai',
     'anthropic',
     'openai',
@@ -104,7 +104,7 @@ describe('streaming response header timeout', () => {
     });
   });
 
-  test.each<RuntimeProvider>(['ollama', 'lmstudio', 'llamacpp', 'vllm'])(
+  test.each<RuntimeProviderId>(['ollama', 'lmstudio', 'llamacpp', 'vllm'])(
     'local %s keeps the transport timeout for model load and prefill',
     async (provider) => {
       const fetchMock = vi.fn(

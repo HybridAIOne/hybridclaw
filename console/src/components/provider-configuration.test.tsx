@@ -30,6 +30,11 @@ function makeConfig(): AdminConfig {
       baseUrl: 'https://api.openai.com/v1',
       models: ['openai/gpt-5'],
     },
+    local: {
+      backends: {
+        mlx: { enabled: false, baseUrl: 'http://127.0.0.1:8080/v1' },
+      },
+    },
   } as unknown as AdminConfig;
 }
 
@@ -69,15 +74,15 @@ describe('ProviderConfiguration', () => {
       />,
     );
 
-    expect(await screen.findByText('OpenAI')).toBeTruthy();
+    expect(await screen.findByText('OpenAI API')).toBeTruthy();
     expect(screen.getByText('OPENAI_API_KEY')).toBeTruthy();
     expect(await screen.findByText('Available')).toBeTruthy();
     expect(
       screen.queryByRole('combobox', { name: 'API key credential' }),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Enable OpenAI' }));
-    fireEvent.change(screen.getByLabelText('OpenAI base URL'), {
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable OpenAI API' }));
+    fireEvent.change(screen.getByLabelText('OpenAI API base URL'), {
       target: { value: 'https://gateway.example/v1' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save providers' }));
@@ -90,6 +95,33 @@ describe('ProviderConfiguration', () => {
           enabled: true,
           baseUrl: 'https://gateway.example/v1',
         }),
+      }),
+    );
+  });
+
+  it('configures MLX like the other local backends', async () => {
+    renderWithProviders(
+      <ProviderConfiguration
+        providerId="mlx"
+        status={{ kind: 'local', reachable: false, modelCount: 0 }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Enable MLX' }));
+    fireEvent.change(screen.getByLabelText('MLX base URL'), {
+      target: { value: 'http://127.0.0.1:9090/v1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save providers' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({
+        local: {
+          backends: {
+            mlx: { enabled: true, baseUrl: 'http://127.0.0.1:9090/v1' },
+          },
+        },
       }),
     );
   });

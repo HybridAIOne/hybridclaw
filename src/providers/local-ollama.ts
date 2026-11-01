@@ -14,6 +14,7 @@ import {
   resolveOllamaApiBase,
 } from './local-discovery.js';
 import { stripProviderPrefix } from './model-names.js';
+import { providerModelPrefix } from './provider-ids.js';
 import { normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -21,7 +22,7 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-const OLLAMA_MODEL_PREFIX = 'ollama/';
+const OLLAMA_MODEL_PREFIX = providerModelPrefix('ollama');
 
 function normalizeOllamaModelName(model: string): string {
   return stripProviderPrefix(model, 'ollama');

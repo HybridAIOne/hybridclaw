@@ -62,6 +62,12 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(output.toolExecutions).toEqual([expect.objectContaining({ name: 'tool_catalog', blocked: true, isError: true })]);
     expect(requests[1].messages.at(-1)?.content).toContain('not available in this request');
   });
+  test('an allowlist pattern offers one connector service and no other', async () => {
+    const tool = (name: string) => ({ name, description: 'synthetic connector', parameters: { type: 'object' as const, properties: {}, required: [] } });
+    const pluginTools = ['hybridai__github_api__list_issues', 'hybridai__google_workspace__gmail_search', 'sentry__search_errors'].map(tool);
+    const { requests } = await harness([{ role: 'assistant', content: 'Done.' }], { localToolMode: 'full', pluginTools, allowedTools: ['read', 'hybridai__github_api__*', 'sentry__*'] });
+    expect(requests[0].tools.map((t) => t.function.name)).toEqual(['hybridai__github_api__list_issues', 'read', 'sentry__search_errors']);
+  });
   test('denies a catalog call in full mode, where no catalog is exposed', async () => {
     const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { localToolMode: 'full', blockedTools: ['read'] });
     expect(output.status).toBe('error'); expect(output.error).toContain('not available');
@@ -72,14 +78,25 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(output.toolExecutions?.[0]).toMatchObject({ name: 'write', blocked: true, isError: true, blockedReason: expect.stringContaining('binary Office/PDF') });
     expect(fs.existsSync(path.join(dir, 'bad.pdf'))).toBe(false);
   });
-  test('presents approval for the real destructive action', async () => {
-    const { output, followup, requests } = await harness([catalog('call', 'bash', { command: 'rm -rf scratch' })]);
+  test('presents approval for a protected underlying action', async () => {
+    const { output, followup, requests } = await harness([catalog('call', 'bash', { command: 'cat .env' })]);
     expect(output.pendingApproval).toMatchObject({ toolName: 'bash', approvalTier: 'red' });
     expect(output.toolExecutions?.[0]).toMatchObject({ name: 'bash', blocked: true, approvalDecision: 'required' });
     expect(output.toolsUsed).toEqual([]);
     const replay = await followup({ messages: [{ role: 'user', content: 'yes' }], blockedTools: ['bash'] });
     expect(replay.error).toContain('no longer available');
     expect(requests).toHaveLength(1);
+  });
+  test('blocks an unconditional shell rule through the catalog before approval and permits replanning', async () => {
+    const { output, requests, dir } = await harness([
+      catalog('call', 'bash', { command: 'rm -rf notes.txt' }),
+      catalog('call', 'read', { path: 'notes.txt' }),
+    ]);
+    expect(output.pendingApproval).toBeUndefined();
+    expect(output.toolExecutions?.[0]).toMatchObject({ name: 'bash', blocked: true, approvalDecision: 'denied' });
+    expect(output.toolExecutions?.[1]).toMatchObject({ name: 'read', isError: false, result: expect.stringContaining('synthetic tool result') });
+    expect(fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8')).toBe('synthetic tool result');
+    expect(requests).toHaveLength(3);
   });
 });
 

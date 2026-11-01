@@ -1,10 +1,15 @@
 /**
- * Auxiliary task policies resolve provider defaults, not execution tier choices.
+ * Auxiliary policies resolve defaults and keep task budgets separate from model capacity.
+ * Disabled policies remain explicit across the worker boundary, preventing fallback.
  * Routing classification has its own task identity and explicit model; Skills Hub
  * settings cannot enable, disable or redirect that classifier.
  */
 
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
+import {
+  DEFAULT_COMPRESSION_MAX_TOKENS,
+  DEFAULT_VISION_MAX_TOKENS,
+  resolveProviderRequestMaxTokens,
+} from '../../container/shared/request-max-tokens.js';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,
@@ -28,8 +33,10 @@ import {
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
 import {
+  inferProviderFromModelPrefix,
   isLocalBackendType,
   isRuntimeProviderId,
+  providerModelPrefix,
   type RuntimeProviderId,
 } from './provider-ids.js';
 
@@ -48,30 +55,6 @@ const AUXILIARY_TASKS = Object.keys(
 ) as AuxiliaryTask[];
 
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
-const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
-  hybridai: '',
-  openai: 'openai/',
-  'openai-codex': 'openai-codex/',
-  anthropic: 'anthropic/',
-  openrouter: 'openrouter/',
-  mistral: 'mistral/',
-  huggingface: 'huggingface/',
-  gemini: 'gemini/',
-  deepseek: 'deepseek/',
-  xai: 'xai/',
-  zai: 'zai/',
-  kimi: 'kimi/',
-  minimax: 'minimax/',
-  dashscope: 'dashscope/',
-  xiaomi: 'xiaomi/',
-  kilo: 'kilo/',
-  ollama: 'ollama/',
-  lmstudio: 'lmstudio/',
-  llamacpp: 'llamacpp/',
-  vllm: 'vllm/',
-  mlx: 'mlx/',
-};
-
 export function normalizeMaxTokens(value: unknown): number | undefined {
   return parsePositiveInteger(value) ?? undefined;
 }
@@ -148,19 +131,6 @@ function getSelectedTaskModel(task: AuxiliaryTask): string {
   return getConfiguredTaskSelection(task).model.trim();
 }
 
-export function detectRuntimeProviderPrefix(
-  model: string,
-): RuntimeProvider | undefined {
-  const normalized = model.trim().toLowerCase();
-  if (!normalized) return undefined;
-  for (const [provider, prefix] of Object.entries(
-    RUNTIME_PROVIDER_PREFIXES,
-  ) as Array<[RuntimeProvider, string]>) {
-    if (prefix && normalized.startsWith(prefix)) return provider;
-  }
-  return undefined;
-}
-
 function selectFirstNonEmpty(values: string[]): string | undefined {
   return values.find((value) => value.trim())?.trim();
 }
@@ -173,9 +143,7 @@ export function resolveDefaultAuxiliaryModelForProvider(
   provider: RuntimeProvider,
 ): string | undefined {
   const config = getRuntimeConfig();
-  const discoveredModels = getAvailableModelList(
-    provider === 'openai-codex' ? 'codex' : provider,
-  );
+  const discoveredModels = getAvailableModelList(provider);
 
   if (provider === 'hybridai') {
     return selectFirstNonEmpty([...discoveredModels, 'gpt-4.1-mini']);
@@ -221,7 +189,7 @@ export function normalizeAuxiliaryProviderModel(params: {
     return resolveDefaultAuxiliaryModelForProvider(params.provider) || '';
   }
 
-  const explicitPrefix = detectRuntimeProviderPrefix(trimmed);
+  const explicitPrefix = inferProviderFromModelPrefix(trimmed);
   if (params.provider === 'hybridai') {
     if (explicitPrefix) {
       throw new Error(
@@ -232,7 +200,7 @@ export function normalizeAuxiliaryProviderModel(params: {
   }
 
   if (params.provider === 'openrouter' && explicitPrefix !== 'openrouter') {
-    return `${RUNTIME_PROVIDER_PREFIXES.openrouter}${trimmed}`;
+    return `${providerModelPrefix('openrouter')}${trimmed}`;
   }
 
   if (
@@ -248,7 +216,7 @@ export function normalizeAuxiliaryProviderModel(params: {
     );
   }
   if (explicitPrefix === params.provider) return trimmed;
-  return `${RUNTIME_PROVIDER_PREFIXES[params.provider]}${trimmed}`;
+  return `${providerModelPrefix(params.provider)}${trimmed}`;
 }
 
 export async function resolveTaskModelPolicy(
@@ -265,8 +233,16 @@ export async function resolveTaskModelPolicy(
   const configured = getConfiguredTaskSelection(task);
   const providerSelection = getSelectedTaskProvider(task);
   let rawModel = getSelectedTaskModel(task);
-  const maxTokens = normalizeMaxTokens(configured.maxTokens);
-  if (providerSelection === 'disabled') return undefined;
+  const maxTokens =
+    normalizeMaxTokens(configured.maxTokens) ??
+    (task === 'vision'
+      ? DEFAULT_VISION_MAX_TOKENS
+      : task === 'compression'
+        ? DEFAULT_COMPRESSION_MAX_TOKENS
+        : undefined);
+  if (providerSelection === 'disabled') {
+    return { model: '', error: `${task} auxiliary model is disabled.` };
+  }
 
   if (providerSelection === 'auto' && !rawModel) {
     const routing = getRuntimeConfig().routing;
@@ -324,10 +300,16 @@ export async function resolveTaskModelPolicy(
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
-              maxTokens: resolveProviderRequestMaxTokens({
-                model: fallback,
-                discoveredMaxTokens: resolved.maxTokens,
-              }),
+              maxTokens:
+                maxTokens !== undefined
+                  ? Math.min(
+                      maxTokens,
+                      normalizeMaxTokens(resolved.maxTokens) ?? maxTokens,
+                    )
+                  : resolveProviderRequestMaxTokens({
+                      model: fallback,
+                      discoveredMaxTokens: resolved.maxTokens,
+                    }),
             };
           } catch (err) {
             logger.warn(
@@ -335,7 +317,7 @@ export async function resolveTaskModelPolicy(
               'Failed to resolve vision fallback model credentials',
             );
             return {
-              provider: detectRuntimeProviderPrefix(fallback),
+              provider: inferProviderFromModelPrefix(fallback),
               model: fallback,
               maxTokens,
               error:
@@ -353,7 +335,7 @@ export async function resolveTaskModelPolicy(
             'Session model lacks vision support and no capable fallback model is available',
           );
           return {
-            provider: detectRuntimeProviderPrefix(params.sessionModel),
+            provider: inferProviderFromModelPrefix(params.sessionModel),
             model: params.sessionModel,
             maxTokens,
             error:
@@ -363,7 +345,8 @@ export async function resolveTaskModelPolicy(
         }
       }
     }
-    return undefined;
+    if (!maxTokens || !params.sessionModel) return undefined;
+    rawModel = params.sessionModel;
   }
 
   const model =
@@ -384,7 +367,7 @@ export async function resolveTaskModelPolicy(
 
   const expectedProvider =
     providerSelection === 'auto'
-      ? detectRuntimeProviderPrefix(model)
+      ? inferProviderFromModelPrefix(model)
       : providerSelection;
 
   try {
@@ -411,10 +394,16 @@ export async function resolveTaskModelPolicy(
       thinkingFormat: resolved.thinkingFormat,
       model: resolved.model || model,
       chatbotId: resolved.chatbotId,
-      maxTokens: resolveProviderRequestMaxTokens({
-        model,
-        discoveredMaxTokens: resolved.maxTokens,
-      }),
+      maxTokens:
+        maxTokens !== undefined
+          ? Math.min(
+              maxTokens,
+              normalizeMaxTokens(resolved.maxTokens) ?? maxTokens,
+            )
+          : resolveProviderRequestMaxTokens({
+              model,
+              discoveredMaxTokens: resolved.maxTokens,
+            }),
     };
   } catch (err) {
     logger.warn(

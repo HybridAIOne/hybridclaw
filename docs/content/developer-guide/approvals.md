@@ -69,6 +69,37 @@ notification settings and destructive metadata keep their normal approval
 requirements. `ask` mode still asks. This is a narrow tool-contract rule, not a
 change to the meaning of `openWorldHint` for other tools.
 
+## Action descriptions and sandboxing
+
+The `bash` tool accepts a `description` for the assistant to explain the concrete
+action in the user's language. The pending approval uses this display text as
+its intent; the command and classifier diagnostics remain in the full review.
+The tool-call preparation step separates the description once, before
+classification, hooks, pending-call storage, execution, and tool audit records.
+It leaves the provider's original message in model history untouched. Approval
+replays use only the saved executable arguments. The worker's `fingerprint`
+rule hashes the tool name, action key, normalized command preview, and executable
+arguments; the gateway does not calculate another approval fingerprint.
+Changing the description therefore cannot grant trust or change risk. Without
+a description the pending approval retains the original policy intent and its
+concrete target; Teams keeps any embedded command behind the details view.
+
+Container isolation and approvals protect different boundaries. The working
+folder is mounted read/write and its changes survive the container, so a
+sandboxed action can still delete work or change files used by later tasks.
+Ordinary file copies inside the workspace are yellow and do not require an
+explicit approval in default `auto` mode. Protected files, configured pinned
+rules, writes outside the workspace, and `ask` mode can still require approval.
+
+Teams initially shows the action description and available choices. Reply `0`
+or send `/approve view` to inspect the full stored review; viewing it does not
+approve, execute, or withdraw the pending action.
+Descriptions are untrusted model-authored explanations and can be inaccurate.
+Teams renders them as plain text, with Markdown and links neutralized. Hiding
+technical commands until requested improves readability but does not verify the
+explanation; protected actions retain the policy warning and one-time-only
+approval. Use the details view to review a sensitive action before deciding.
+
 ## What Approvals Actually Cover
 
 Two different mechanisms are involved:
@@ -173,20 +204,39 @@ Two important transitions:
 
 Each session has an approval mode. It changes how many of the tiers above stop
 for a human. Pick it from the chip next to the model in the web chat composer,
-or with `/approvals mode [ask|auto|full]` on any surface.
+or with `/approvals mode [ask|auto|full|learning]` on any surface.
 
 | Mode | Label | Green | Yellow | Red |
 | --- | --- | --- | --- | --- |
 | `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
 | `auto` (default) | Auto | Runs | Runs | Prompts |
 | `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+| `learning` | Learning | Runs | Records the normal notice and runs without waiting | Records the normal approval requirement and runs, including pinned actions; unconditional denials remain enforced |
 
 - The mode is stored per session. A new chat and `/reset` start at `auto`;
   an automatic idle-expiry reset keeps the mode.
-- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- A running `/fullauto` loop uses `full` unless the session explicitly selects `learning`.
 - Trust you already granted (`yes for session`, `agent`, or `all`) still
   applies in `ask`.
 - Every mode change is written to the audit log as `approval.mode_changed`.
+
+Learning is an opt-in observation mode, not a dry run: actions execute. It
+evaluates the normal `auto` policy but suppresses its prompts and implicit waits.
+It does not create pending approvals, record human consent, grant durable trust,
+or train approval promotion from observed actions. Returning to `auto` restores
+normal prompting. Older pending calls are not automatically answered or replayed.
+Unconditional shell blocks, explicit policy denials, authentication, sandbox
+limits, and remote providers' own consent requirements remain enforced. Credit
+purchase confirmations are separate from tool approval policy.
+
+In `/admin/approvals`, choose **Review learning flags**, or use **Learning flags**
+in the audit view. These `approval.observed` events carry the tool call ID,
+normal decision, reason, tier, pinned status, redacted arguments, and actual
+outcome. `succeeded`, `error`, and `blocked` distinguish permission to proceed
+from execution success. Events use the ordinary durable audit and observability
+ingestion path; remote visibility requires observability ingestion to be enabled.
+The action reference below describes enforcement modes; learning observes their
+approval requirements while preserving unconditional denials.
 
 ## Action Reference
 
@@ -769,3 +819,51 @@ IPC and resumes the saved call without a second interpretation. A broker failure
 keeps execution blocked. Host API-token requests without a human chat identity
 cannot supply natural-language consent. The calendar rule does not override a
 platform broker's own approval requirement.
+
+
+## Configuring unconditional safety blocks
+
+Open **Admin → Security → Safety blocks** (`/admin/safety-rules`) to see the
+installed shell and file-content rules, their patterns, explanations, and enabled
+states. Toggle individual rules, then choose **Save changes**. **Enable all rules**
+restores the default selection; save it to apply. The page links to the audit
+history of changes. A stale edit is rejected so it cannot overwrite another
+operator's update; choose **Reload** to review the current settings.
+
+The setting is gateway-wide, stored as `security.disabledSafetyRules` in the
+runtime config, and requires `admin.config.write`. Missing settings keep every
+rule enabled. Invalid IDs are rejected. Workers receive a fresh snapshot through
+authenticated input each turn, including when they are reused. An in-flight turn
+finishes with its existing snapshot. No gateway restart is needed.
+
+An enabled rule blocks even in learning mode and cannot be overridden by a normal
+approval. Disabling a rule removes only that rule: overlapping patterns may still
+block the same action, and normal approval requirements remain. This screen
+configures built-in pattern guards; it does not change authentication, sandbox
+limits, network policy, or tool argument validation. Patterns are fixed in the
+installed catalog; these controls enable or disable them without accepting
+arbitrary regular expressions.
+
+### Admin approval modes and firewall
+
+Open **/admin → Security → Approvals & firewall** (`/admin/security`).
+The **Approval modes** tab provides **Default for new conversations**: select
+**Learning**, then **Save default**. It applies to subsequently created
+conversations and an explicit settings reset. Existing conversations keep their
+stored choice; forks and ordinary resets preserve it. The default is **Auto**.
+
+To change an existing conversation, choose it under **Existing conversation**,
+select **Learning**, then **Save conversation mode**. This uses the same stored
+choice as `/approvals mode learning`. Changes apply on the next turn and do not
+answer pending approvals. Full-auto's effective mode is shown separately when
+it overrides the saved choice; explicit Learning remains effective in full-auto.
+
+The **Safety blocks** tab lists and configures the unconditional shell/file
+rules. **Network policy** retains the existing agent policies and pending
+approvals. **Review learning flags** opens the audit log for `approval.observed`.
+
+The new-conversation default is stored as `security.defaultApprovalMode` in
+`config.json`. Admin reads require `admin.approvals.read`, and mode edits require
+`admin.policy.write`. Saved changes are audited; stale edits are rejected so an
+operator must reload before overwriting a newer choice. Enabled hard guards
+remain enforced in all modes.

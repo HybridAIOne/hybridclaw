@@ -15,7 +15,7 @@ useCleanMocks({
 
 test.each([
   { confidential: true, known: true, vision: true, allowed: false },
-  { confidential: false, known: true, vision: false, allowed: false },
+  { confidential: false, known: true, vision: false, allowed: true },
   { confidential: false, known: true, vision: true, allowed: true },
   { confidential: false, known: false, vision: false, allowed: true },
 ])(
@@ -52,7 +52,9 @@ test.each([
       messages: [{ role: 'user', content: 'Hello' }],
       // A caller cannot override the gateway confidentiality decision.
       visualMediaAllowed: !allowed,
+      primaryModelSupportsVisualMedia: !(vision || !known),
     });
     expect(exec.mock.calls[0][0].visualMediaAllowed).toBe(allowed);
+    expect(exec.mock.calls[0][0].primaryModelSupportsVisualMedia).toBe(vision || !known);
   },
 );

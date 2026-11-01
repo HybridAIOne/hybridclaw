@@ -57,6 +57,7 @@ import {
 } from '../channels/channel-plugin-catalog.js';
 import { requireChannelTransport } from '../channels/channel-transport.js';
 import {
+  DEFAULT_RUNTIME_CONFIG,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
@@ -77,7 +78,9 @@ import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   isLocalBackendType,
   LOCAL_BACKEND_IDS,
+  type OpenAICompatRemoteProviderId,
 } from '../providers/provider-ids.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   readStoredRuntimeSecret,
@@ -429,7 +432,7 @@ function normalizeOpenRouterModelId(rawModelId: string): string {
 
 function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://openrouter.ai/api/v1',
+    PROVIDER_META.openrouter.defaultBaseUrl,
     /\/api\/v1$/i,
     '/api/v1',
     rawBaseUrl,
@@ -442,7 +445,7 @@ function normalizeMistralModelId(rawModelId: string): string {
 
 function normalizeMistralBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://api.mistral.ai/v1',
+    PROVIDER_META.mistral.defaultBaseUrl,
     /\/v1$/i,
     '/v1',
     rawBaseUrl,
@@ -455,7 +458,7 @@ function normalizeHuggingFaceModelId(rawModelId: string): string {
 
 function normalizeHuggingFaceBaseUrl(rawBaseUrl: string): string {
   return normalizeProviderBaseUrl(
-    'https://router.huggingface.co/v1',
+    PROVIDER_META.huggingface.defaultBaseUrl,
     /\/v1$/i,
     '/v1',
     rawBaseUrl,
@@ -555,7 +558,7 @@ async function resolveAnthropicApiKey(
 
 async function resolveGenericProviderApiKey(
   providerLabel: string,
-  envVarNames: string[],
+  envVarNames: readonly string[],
   explicitApiKey: string | undefined,
 ): Promise<string> {
   const configuredApiKey =
@@ -577,20 +580,7 @@ async function resolveGenericProviderApiKey(
 
 interface RouterProviderConfigFlowOptions {
   args: string[];
-  providerId:
-    | 'openai'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo';
+  providerId: 'openai' | OpenAICompatRemoteProviderId;
   providerLabel: string;
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
   getCurrentProviderConfig: () => { baseUrl: string };
@@ -657,7 +647,7 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'openrouter',
-    providerLabel: 'OpenRouter',
+    providerLabel: PROVIDER_META.openrouter.label,
     parseArgs: parseOpenRouterLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().openrouter,
     defaultModel: 'openrouter/anthropic/claude-sonnet-4',
@@ -681,7 +671,7 @@ async function configureMistral(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'mistral',
-    providerLabel: 'Mistral',
+    providerLabel: PROVIDER_META.mistral.label,
     parseArgs: parseOpenRouterLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().mistral,
     defaultModel: 'mistral/mistral-large-latest',
@@ -705,7 +695,7 @@ async function configureHuggingFace(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
     providerId: 'huggingface',
-    providerLabel: 'Hugging Face',
+    providerLabel: PROVIDER_META.huggingface.label,
     parseArgs: parseHuggingFaceLoginArgs,
     getCurrentProviderConfig: () => getRuntimeConfig().huggingface,
     defaultModel: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
@@ -1701,7 +1691,7 @@ async function configureMicrosoft365Auth(args: string[]): Promise<void> {
 function clearGenericProviderCredentials(
   providerLabel: string,
   secretKey: string,
-  envVarNames: string[],
+  envVarNames: readonly string[],
 ): void {
   const filePath = saveRuntimeSecrets({ [secretKey]: null });
   console.log(`Cleared ${providerLabel} credentials in ${filePath}.`);
@@ -1939,13 +1929,7 @@ function normalizeLocalBaseUrl(
   rawBaseUrl: string,
 ): string {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) {
-    if (backend === 'ollama') return 'http://127.0.0.1:11434';
-    if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
-    if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
-    if (backend === 'mlx') return 'http://127.0.0.1:8321/v1';
-    return 'http://127.0.0.1:8000/v1';
-  }
+  if (!trimmed) return DEFAULT_RUNTIME_CONFIG.local.backends[backend].baseUrl;
   if (backend === 'ollama') {
     return trimmed.replace(/\/v1$/i, '');
   }

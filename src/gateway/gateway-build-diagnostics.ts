@@ -34,12 +34,12 @@ const GATEWAY_BUILD_FILE_PAIRS: Array<{
   {
     name: 'gateway-service',
     sourcePath: 'src/gateway/gateway-service.ts',
-    buildPath: 'dist/gateway/gateway-service.js',
+    buildPath: 'dist/cli.js',
   },
   {
     name: 'gateway-http-proxy',
     sourcePath: 'src/gateway/gateway-http-proxy.ts',
-    buildPath: 'dist/gateway/gateway-http-proxy.js',
+    buildPath: 'dist/cli.js',
   },
   {
     name: 'container-tools',

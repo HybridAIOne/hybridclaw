@@ -1,8 +1,13 @@
 // Fresh, serial gateway turns measure user-visible latency, including startup.
 // Correctness is assessed from the returned source-backed answer, not tool count.
 import { randomUUID } from 'node:crypto';
-import { readStoredRuntimeSecret } from '../../dist/security/runtime-secrets.js';
+import { register } from 'tsx/esm/api';
 import { summarize } from './report.mjs';
+
+register();
+const { readStoredRuntimeSecret } = await import(
+  '../../src/security/runtime-secrets.ts'
+);
 
 const runs = Number(process.argv[2] || 10);
 if (!Number.isSafeInteger(runs) || runs < 1 || runs > 100) {

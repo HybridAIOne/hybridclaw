@@ -88,6 +88,7 @@ export async function startDiscordIntegration(): Promise<boolean> {
                   media,
                   source: 'discord',
                   allowSilentReply: context.replyOptional,
+                  approvalUserIsBot: context.requesterIsBot,
                   onTextDelta: (delta) => {
                     const filteredDelta = streamFilter.push(delta);
                     if (!filteredDelta) return;

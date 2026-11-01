@@ -74,45 +74,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test('continuation prompt is a user-turn snapshot and does not replace system prompt', () => {
-  expect(buildGoalInitialPrompt('finish the report')).toBe('finish the report');
-  expect(buildGoalContinuationPrompt({ goalText: 'finish the report' })).toBe(
-    [
-      '[Continuing toward your standing goal]',
-      'Goal: finish the report',
-      '',
-      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
-    ].join('\n'),
-  );
-});
-
-test('continuation prompt stays stable and does not inject progress hints', () => {
-  expect(buildGoalContinuationPrompt({ goalText: 'count from 1 to 4' })).toBe(
-    [
-      '[Continuing toward your standing goal]',
-      'Goal: count from 1 to 4',
-      '',
-      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
-    ].join('\n'),
-  );
-});
-
-test('continuation prompt carries evaluator reason as next-turn guidance', () => {
-  expect(
-    buildGoalContinuationPrompt({
-      goalText: 'all auth tests pass',
-      reason: 'npm test still reports one failing auth case',
-    }),
-  ).toBe(
-    [
-      '[Continuing toward your standing goal]',
-      'Goal: all auth tests pass',
-      '',
-      'Evaluator says the condition is not met yet: npm test still reports one failing auth case',
-      '',
-      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
-    ].join('\n'),
-  );
+test('continuation preserves the objective and evaluator feedback as user-turn context', () => {
+  const goal = 'Prepare a report.';
+  const reason = 'A required source is missing.';
+  expect(buildGoalInitialPrompt(goal)).toBe(goal);
+  const prompt = buildGoalContinuationPrompt({ goalText: goal, reason });
+  expect(prompt).toContain(goal);
+  expect(prompt).toContain(reason);
+  expect(buildGoalContinuationPrompt({ goalText: goal })).not.toContain(reason);
 });
 
 test('set can schedule the raw goal text as the first supervised turn', () => {
@@ -475,4 +444,47 @@ test('budget hard-stop hook pauses active goals for R5.3 integration', () => {
   const goal = getThreadGoal(session.main_session_key);
   expect(goal?.status).toBe('paused');
   expect(goal?.pausedReason).toBe('agent budget hard-stop');
+});
+
+test('independent goal evaluation receives bounded recorded failures separately from completion prose', async () => {
+  const session = makeSession('execution-evidence');
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'Prepare the report and verify it.',
+    maxTurns: 1,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+  await maybeContinueGoalAfterTurn({
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: null,
+    },
+    result: {
+      status: 'success',
+      result: 'Goal complete.',
+      toolsUsed: ['check'],
+      toolExecutions: [
+        {
+          name: 'check',
+          arguments: '{}',
+          result: 'A required field is missing.' + 'x'.repeat(2000),
+          isError: true,
+          durationMs: 1,
+        },
+      ],
+    },
+  });
+  const request = vi.mocked(judgeGoalCompletion).mock.calls.at(-1)?.[0];
+  const evidence = JSON.parse(request?.executionEvidence ?? '{}');
+  expect(request?.assistantResponse).toBe('Goal complete.');
+  expect(evidence.tools[0]).toMatchObject({
+    name: 'check',
+    failed: true,
+    truncated: true,
+  });
+  expect(evidence.tools[0].result.length).toBeLessThanOrEqual(1000);
 });

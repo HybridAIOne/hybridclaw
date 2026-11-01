@@ -597,6 +597,23 @@ export function listStructuredAuditEntries(params?: {
   });
 }
 
+// Resolve from the durable run start, never the session's mutable current agent.
+export function getAuditRunAgentId(
+  sessionId: string,
+  runId: string,
+): string | null {
+  const row = queryOne<{ payload: string }, [string, string]>(
+    getAuditDatabase(),
+    `SELECT payload FROM audit_events
+     WHERE session_id = ? AND run_id = ? AND event_type = 'session.start'
+     ORDER BY seq ASC LIMIT 1`,
+    sessionId,
+    runId,
+  );
+  const agentId = row && readPayloadObject(row.payload).executingAgentId;
+  return typeof agentId === 'string' ? agentId.trim() || null : null;
+}
+
 export function getStructuredAuditAfterId(
   afterId: number,
   limit = 200,

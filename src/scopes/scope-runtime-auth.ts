@@ -6,12 +6,15 @@
  * name a session of that scope; one that names none is accepted only on
  * routes that act on no chat's data, and the user-wide notes and memory
  * plugin tools are refused outright (fail closed).
+ * Only a live child's exact identity can authorize a delegation callback;
+ * its inherited scope grants no other session routes and expires with the call.
  *
  * NOT the tool list (`scope-connectors.ts`), which decides what the model is
  * offered; this decides what the gateway does for a scope's worker.
  */
 import type { IncomingMessage } from 'node:http';
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
+import { getActiveDelegationChildContext } from '../gateway/delegation-child-context.js';
 import { BROWSER_SIGN_IN_LOOKUP_PATH } from '../gateway/gateway-browser-sign-ins.js';
 import { readJsonBody } from '../gateway/gateway-http-utils.js';
 import { isDatabaseInitialized } from '../memory/database.js';
@@ -19,7 +22,7 @@ import { getSessionById } from '../memory/sessions.js';
 import { NOTES_RUNTIME_PATH } from '../security/admin-rbac.js';
 import { deriveScopeRuntimeToken } from '../security/agent-runtime-token.js';
 import { isRecord } from '../utils/type-guards.js';
-import { listAllScopeKeys } from './scope-store.js';
+import { getScope, listAllScopeKeys } from './scope-store.js';
 
 export interface RuntimeScope {
   agentId: string;
@@ -78,9 +81,16 @@ export async function scopedRuntimeRequestError(params: {
   }
   for (const sessionId of sessionIds) {
     const session = getSessionById(sessionId);
+    const childScope =
+      !session && params.pathname === '/api/delegate'
+        ? getActiveDelegationChildContext(sessionId)?.runtimeScope
+        : undefined;
     if (
-      session?.scope !== params.scope.scopeId ||
-      session.agent_id !== params.scope.agentId
+      (session ? session.scope : childScope?.scopeId) !==
+        params.scope.scopeId ||
+      (session ? session.agent_id : childScope?.agentId) !==
+        params.scope.agentId ||
+      (childScope && !getScope(childScope.agentId, childScope.scopeId))
     ) {
       return 'A scoped chat acts only for chats of its scope.';
     }

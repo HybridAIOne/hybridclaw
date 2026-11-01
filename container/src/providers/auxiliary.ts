@@ -1,5 +1,13 @@
+/**
+ * Auxiliary calls retain their configured output budgets across provider routing.
+ * Unlike the primary conversation router, vision gets a bounded default rather
+ * than the provider's maximum output allowance; no model selection changes here.
+ */
 import { getProviderContextError } from '../../shared/provider-context.js';
-import { resolveProviderRequestMaxTokens } from '../../shared/request-max-tokens.js';
+import {
+  DEFAULT_VISION_MAX_TOKENS,
+  resolveProviderRequestMaxTokens,
+} from '../../shared/request-max-tokens.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -166,7 +174,10 @@ export async function callAuxiliaryModel(
       model: context.model,
       discoveredMaxTokens: context.maxTokens,
     });
-    const maxTokens = normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens;
+    const maxTokens =
+      normalizeMaxTokens(params.maxTokens) ??
+      normalizeMaxTokens(context.maxTokens) ??
+      providerMaxTokens;
     const response = await callRoutedModel({
       provider: context.provider,
       providerMethod: context.providerMethod,
@@ -200,10 +211,8 @@ export async function callAuxiliaryModel(
   }
 
   try {
-    const maxTokens = resolveProviderRequestMaxTokens({
-      model: context.model,
-      discoveredMaxTokens: context.maxTokens,
-    });
+    const maxTokens =
+      normalizeMaxTokens(context.maxTokens) ?? DEFAULT_VISION_MAX_TOKENS;
     return await callVisionProviderModel({
       provider: context.provider,
       providerMethod: context.providerMethod,

@@ -2,7 +2,9 @@
  * Durable follow-through attached to the existing tracked item.
  * References name evidence, never grant access; review decisions never send mail.
  */
+
 import type { EmailDraft } from '../../container/shared/email-draft.js';
+import type { JobContract } from './tracked-verification.js';
 
 export const TRACK_PHASES = [
   'in_progress',
@@ -30,6 +32,7 @@ export interface FollowThrough {
   origin_session_id: string;
   phase: TrackPhase;
   references: TrackReference[];
+  job?: JobContract;
   reviews: TrackReview[];
   // A retry returns current state without repeating the original decision.
   requests: { id: string; fingerprint: string }[];

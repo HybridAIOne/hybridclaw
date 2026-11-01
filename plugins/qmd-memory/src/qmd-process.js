@@ -1,4 +1,13 @@
-import { spawn } from 'node:child_process';
+import {
+  appendTruncationNotice,
+  isRecord,
+  latestMessageByRole,
+  normalizeText,
+  readFiniteNumber,
+  readString,
+  runBoundedCli,
+  truncateText,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'according',
@@ -28,292 +37,46 @@ const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'why',
 ]);
 
-const MIN_CAPTURE_BYTES = 32_768;
-const CAPTURE_BYTES_PER_INJECTED_CHAR = 2;
 const MIN_PASSTHROUGH_TIMEOUT_MS = 15 * 60 * 1000;
-const QMD_TIMEOUT_KILL_GRACE_MS = 250;
-const QMD_ENV_ALLOWLIST = [
-  'PATH',
-  'HOME',
-  'TMPDIR',
-  'XDG_CACHE_HOME',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE',
-];
-const QMD_WINDOWS_ENV_ALLOWLIST = [
-  'APPDATA',
-  'ComSpec',
-  'LOCALAPPDATA',
-  'PATHEXT',
-  'SystemRoot',
-  'TEMP',
-  'TMP',
-  'USERPROFILE',
-];
-
-function isRecord(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function collapseTextWhitespace(value) {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
-function truncate(value, maxChars) {
-  const normalized = collapseTextWhitespace(value);
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
-
-function firstNonEmptyString(...values) {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return '';
-}
-
-function toFiniteNumber(value) {
-  const numeric =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseFloat(value)
-        : Number.NaN;
-  return Number.isFinite(numeric) ? numeric : undefined;
-}
+const COLLAPSE_SPACES = { collapseSpaces: true };
 
 function normalizeResultItem(item) {
   const source = isRecord(item) ? item : {};
-  const resultPath = firstNonEmptyString(
-    source.displayPath,
-    source.path,
-    source.file,
-  );
+  const resultPath =
+    readString(source.displayPath) ||
+    readString(source.path) ||
+    readString(source.file);
   return {
-    title: firstNonEmptyString(source.title, resultPath) || 'Untitled result',
+    title: readString(source.title) || resultPath || 'Untitled result',
     path: resultPath,
-    snippet: firstNonEmptyString(source.snippet),
-    context: firstNonEmptyString(source.context, source.collection),
-    score: toFiniteNumber(source.score),
+    snippet: readString(source.snippet),
+    context: readString(source.context) || readString(source.collection),
+    score: readFiniteNumber(source.score),
   };
 }
 
-function resolveCaptureLimitBytes(config) {
-  const configuredBudget =
-    typeof config?.maxInjectedChars === 'number' &&
-    Number.isFinite(config.maxInjectedChars)
-      ? Math.max(0, Math.trunc(config.maxInjectedChars)) *
-        CAPTURE_BYTES_PER_INJECTED_CHAR
-      : 0;
-  return Math.max(MIN_CAPTURE_BYTES, configuredBudget);
-}
-
-function createOutputCollector(maxBytes) {
-  return {
-    maxBytes,
-    totalBytes: 0,
-    truncated: false,
-    chunks: [],
-  };
-}
-
-function appendOutputChunk(collector, chunk) {
-  const buffer = Buffer.isBuffer(chunk)
-    ? chunk
-    : Buffer.from(String(chunk), 'utf-8');
-  const remaining = collector.maxBytes - collector.totalBytes;
-  if (remaining <= 0) {
-    collector.truncated = true;
-    return;
-  }
-
-  if (buffer.length <= remaining) {
-    collector.totalBytes += buffer.length;
-    collector.chunks.push(buffer);
-    return;
-  }
-
-  collector.totalBytes += remaining;
-  collector.chunks.push(buffer.subarray(0, remaining));
-  collector.truncated = true;
-}
-
-function readCollectedOutput(collector) {
-  if (collector.chunks.length === 0) return '';
-  return Buffer.concat(collector.chunks).toString('utf-8');
-}
-
-function appendTruncationNotice(text, label) {
-  const normalized = collapseTextWhitespace(text);
-  const notice = `[QMD ${label} truncated]`;
-  return normalized ? `${normalized}\n\n${notice}` : notice;
-}
-
-function buildQmdProcessEnv() {
-  const env = {};
-  const allowlist =
-    process.platform === 'win32'
-      ? [...QMD_ENV_ALLOWLIST, ...QMD_WINDOWS_ENV_ALLOWLIST]
-      : QMD_ENV_ALLOWLIST;
-
-  for (const key of allowlist) {
-    const value = process.env[key];
-    if (typeof value === 'string' && value.length > 0) {
-      env[key] = value;
-    }
-  }
-
-  return env;
-}
-
-export async function runQmd(args, config) {
-  const timeoutMs = config.timeoutMs;
-  return await runQmdWithOptions(args, config, { timeoutMs });
-}
-
-async function runQmdWithOptions(args, config, options) {
-  const timeoutMs =
-    options && Object.hasOwn(options, 'timeoutMs')
-      ? options.timeoutMs
-      : config.timeoutMs;
-  return await new Promise((resolve) => {
-    const captureLimitBytes = resolveCaptureLimitBytes(config);
-    const child = spawn(config.command, args, {
-      cwd: config.workingDirectory,
-      env: buildQmdProcessEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutCollector = createOutputCollector(captureLimitBytes);
-    const stderrCollector = createOutputCollector(captureLimitBytes);
-    let settled = false;
-    let timedOut = false;
-    let killTimer = null;
-
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(killTimer);
-      resolve({
-        ...result,
-        stdout: readCollectedOutput(stdoutCollector),
-        stderr: readCollectedOutput(stderrCollector),
-        stdoutTruncated: stdoutCollector.truncated,
-        stderrTruncated: stderrCollector.truncated,
-      });
-    };
-
-    const timer =
-      typeof timeoutMs === 'number' &&
-      Number.isFinite(timeoutMs) &&
-      timeoutMs > 0
-        ? setTimeout(() => {
-            timedOut = true;
-            child.kill('SIGTERM');
-            killTimer = setTimeout(() => {
-              if (!settled) {
-                child.kill('SIGKILL');
-              }
-            }, QMD_TIMEOUT_KILL_GRACE_MS);
-          }, timeoutMs)
-        : null;
-
-    child.stdout?.on('data', (chunk) => {
-      appendOutputChunk(stdoutCollector, chunk);
-    });
-
-    child.stderr?.on('data', (chunk) => {
-      appendOutputChunk(stderrCollector, chunk);
-    });
-
-    child.on('error', (error) => {
-      finish({ ok: false, error });
-    });
-
-    child.on('close', (code, signal) => {
-      if (timedOut) {
-        finish({
-          ok: false,
-          error: new Error(`QMD timed out after ${timeoutMs}ms.`),
-        });
-        return;
-      }
-      if (signal) {
-        finish({
-          ok: false,
-          error: new Error(`QMD terminated with signal ${signal}.`),
-        });
-        return;
-      }
-      if (code !== 0) {
-        const stderrText = readCollectedOutput(stderrCollector);
-        finish({
-          ok: false,
-          error: new Error(
-            stderrCollector.truncated
-              ? appendTruncationNotice(
-                  stderrText || `QMD exited with code ${code}.`,
-                  'stderr',
-                )
-              : collapseTextWhitespace(stderrText) ||
-                  `QMD exited with code ${code}.`,
-          ),
-        });
-        return;
-      }
-      finish({ ok: true });
-    });
+export async function runQmd(args, config, timeoutMs = config.timeoutMs) {
+  return await runBoundedCli({
+    command: config.command,
+    args,
+    cwd: config.workingDirectory,
+    timeoutMs,
+    maxChars: config.maxInjectedChars,
+    label: 'QMD',
   });
 }
 
 function deriveQueryFromRecentMessages(recentMessages) {
-  let latestContent = '';
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
-  let latestId = Number.NEGATIVE_INFINITY;
-  let latestIndex = Number.NEGATIVE_INFINITY;
-
-  for (let index = 0; index < recentMessages.length; index += 1) {
-    const message = recentMessages[index];
-    if (!message || String(message.role || '').toLowerCase() !== 'user') {
-      continue;
-    }
-
-    const content = truncate(message.content, 1000);
-    if (content.length < 3) continue;
-
-    const parsedTimestamp = Date.parse(String(message.created_at || ''));
-    const timestamp = Number.isFinite(parsedTimestamp)
-      ? parsedTimestamp
-      : Number.NEGATIVE_INFINITY;
-    const parsedId = Number(message.id);
-    const numericId = Number.isFinite(parsedId)
-      ? parsedId
-      : Number.NEGATIVE_INFINITY;
-
-    if (
-      timestamp > latestTimestamp ||
-      (timestamp === latestTimestamp && numericId > latestId) ||
-      (timestamp === latestTimestamp &&
-        numericId === latestId &&
-        index > latestIndex)
-    ) {
-      latestContent = content;
-      latestTimestamp = timestamp;
-      latestId = numericId;
-      latestIndex = index;
-    }
-  }
-
-  return latestContent;
+  const questions = recentMessages.filter(
+    (message) => normalizeText(message?.content, COLLAPSE_SPACES).length >= 3,
+  );
+  return truncateText(
+    normalizeText(
+      latestMessageByRole(questions, 'user')?.content,
+      COLLAPSE_SPACES,
+    ),
+    1000,
+  );
 }
 
 function deriveFallbackSearchQuery(query) {
@@ -379,17 +142,11 @@ function formatResultBlock(result, config) {
     .filter(Boolean)
     .join(' ');
 
+  const fit = (text) =>
+    truncateText(normalizeText(text, COLLAPSE_SPACES), config.maxSnippetChars);
   const lines = [titleLine];
-  if (result.context) {
-    lines.push(
-      `  Context: ${truncate(result.context, config.maxSnippetChars)}`,
-    );
-  }
-  if (result.snippet) {
-    lines.push(
-      `  Snippet: ${truncate(result.snippet, config.maxSnippetChars)}`,
-    );
-  }
+  if (result.context) lines.push(`  Context: ${fit(result.context)}`);
+  if (result.snippet) lines.push(`  Snippet: ${fit(result.snippet)}`);
   return lines.join('\n');
 }
 
@@ -409,10 +166,11 @@ function formatPromptContext(userQuery, searchQuery, results, config) {
 
   // Always include the top hit, truncating it if needed. Apply the budget check
   // only to additional results.
-  let output = `${header}\n\n${truncate(
+  const topBlock = normalizeText(
     formatResultBlock(results[0], config),
-    firstBlockBudget,
-  )}`;
+    COLLAPSE_SPACES,
+  );
+  let output = `${header}\n\n${truncateText(topBlock, firstBlockBudget)}`;
 
   for (const result of results.slice(1)) {
     const block = `\n\n${formatResultBlock(result, config)}`;
@@ -428,7 +186,7 @@ function formatPromptContext(userQuery, searchQuery, results, config) {
 function summarizeTopResultPaths(results) {
   return results
     .slice(0, 3)
-    .map((result) => firstNonEmptyString(result.path, result.title))
+    .map((result) => readString(result.path) || readString(result.title))
     .filter(Boolean);
 }
 
@@ -482,8 +240,11 @@ export async function buildQmdStatusText(config) {
 
   const statusText =
     result.stdoutTruncated || result.stderrTruncated
-      ? appendTruncationNotice(result.stdout, 'output')
-      : collapseTextWhitespace(result.stdout);
+      ? appendTruncationNotice(
+          normalizeText(result.stdout, COLLAPSE_SPACES),
+          'QMD output',
+        )
+      : normalizeText(result.stdout, COLLAPSE_SPACES);
   return [
     `Command: ${config.command}`,
     `Working directory: ${config.workingDirectory}`,
@@ -499,17 +260,22 @@ export async function buildQmdStatusText(config) {
 }
 
 export async function runQmdCommandText(args, config) {
-  const result = await runQmdWithOptions(args, config, {
-    timeoutMs: Math.max(config.timeoutMs, MIN_PASSTHROUGH_TIMEOUT_MS),
-  });
+  const result = await runQmd(
+    args,
+    config,
+    Math.max(config.timeoutMs, MIN_PASSTHROUGH_TIMEOUT_MS),
+  );
   if (!result.ok) {
     throw result.error;
   }
 
   const output =
     result.stdoutTruncated || result.stderrTruncated
-      ? appendTruncationNotice(result.stdout || result.stderr, 'output')
-      : collapseTextWhitespace(result.stdout) ||
-        collapseTextWhitespace(result.stderr);
+      ? appendTruncationNotice(
+          normalizeText(result.stdout || result.stderr, COLLAPSE_SPACES),
+          'QMD output',
+        )
+      : normalizeText(result.stdout, COLLAPSE_SPACES) ||
+        normalizeText(result.stderr, COLLAPSE_SPACES);
   return output || 'QMD command completed with no output.';
 }
