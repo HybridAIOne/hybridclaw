@@ -1340,6 +1340,11 @@ Prompt and runtime internals:
 - Waiting delegation resolves an execution worker to its unique active
   conversation owner. Released, aborted or ambiguous worker aliases cannot
   identify a parent; no durable alias session is created.
+- Waiting and queued children inherit the trusted parent execution workspace,
+  including nested children; task roots are never taken from tool arguments.
+  Scope workspaces and restrictions take precedence. Conflicting roots for an
+  active worker alias fail closed. These contexts live on the gateway and are
+  released with their request or child; worker restarts cannot change them.
 - Each live delegated child has its own exact callback identity and model.
   Nested calls inherit that child's model unless the caller or configured
   delegate model selects another; a completed child's context is released.

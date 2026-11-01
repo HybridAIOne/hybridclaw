@@ -1,8 +1,9 @@
 /**
  * Each live delegated child owns its callback context under its exact ID.
- * Scope and routing exist only while that child's agent call is running, unlike the
+ * Workspace, scope and routing exist only while that child's agent call is running, unlike the
  * durable parent session; sibling prefixes and finished children never match.
  */
+import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
 
 export interface DelegationChildContext {
@@ -12,6 +13,7 @@ export interface DelegationChildContext {
   agentId: string;
   model: string;
   runtimeScope?: RuntimeScope;
+  workspaceOverrides?: WorkspaceOverrides;
 }
 
 const activeChildren = new Map<string, Readonly<DelegationChildContext>>();

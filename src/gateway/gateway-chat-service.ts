@@ -1001,6 +1001,7 @@ async function handleGatewayMessageInner(
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
+    workspaceOverrides: req,
     abortSignal: req.abortSignal,
     steerInbox,
   });
@@ -2695,6 +2696,10 @@ async function handleGatewayMessageInner(
             enableRag,
             agentId,
             parentModel: model,
+            workspaceOverrides: {
+              workspacePathOverride,
+              workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+            },
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
             runParentTurn: ({ content, onTextDelta }) =>
@@ -2712,6 +2717,8 @@ async function handleGatewayMessageInner(
                 onTextDelta,
                 onProactiveMessage: req.onProactiveMessage,
                 source: DELEGATION_RESULTS_SOURCE,
+                workspacePathOverride,
+                workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
               }),
             publicId: req.delegationPublicId,
             ackText: ackText || '',
