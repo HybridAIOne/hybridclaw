@@ -238,6 +238,12 @@ by the text-editing tools, and existing command permissions continue to apply.
 
 ### Auxiliary Model Routing
 
+Model discovery retries on the next lookup if its initial request fails. An
+empty error fallback is not cached as a successful catalog, so a temporary
+startup outage does not hide model capabilities for the catalog's cache lifetime.
+Concurrent lookups share one request; populated catalogs keep their existing
+stale-cache and background-refresh behavior.
+
 Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
@@ -817,6 +823,13 @@ returns to the model once to plan work that omits prohibited effects. Remaining
 calls in that batch are marked unexecuted; every new call still faces the same
 policy. A second shell hard block ends the turn, as do other policy denials.
 Pending human approvals still pause execution.
+
+The eval block checks parsed shell words and nested shell commands, so an `eval`
+directory inside a simple path does not block unrelated tools. Executables named
+`eval` and eval text in inline code remain blocked. Heredoc input retains the
+conservative text check; other safety matchers and normal approval policy still
+apply.
+
 Generation and verification run separately from necessary cleanup. Agents leave
 disposable scratch files alone unless cleanup was requested or is needed for the
 result; ordinary housekeeping does not delay delivery or turn success into a
@@ -957,6 +970,14 @@ enough for the file. PDF and image inspection use the existing local-file tools.
 Oversized HTTP responses are cancelled without saving a partial artifact. The
 artifact error reports the limit and declared or received size so the caller can
 choose an explicit bound for a retry; the gateway does not raise it automatically.
+The outbound `timeoutMs` deadline remains active through response-body reading,
+so a server that sends headers and then stalls cannot leave a download waiting
+indefinitely. A timed-out download does not save a partial artifact.
+
+When a fetch body or extracted text reaches its size limit, the tool identifies
+the source as incomplete before the returned content. This warning also applies
+to cached results and auxiliary summaries. A saved tool-result file contains the
+retained extraction, not any source content discarded at the fetch limit.
 
 When Readability omits context outside its selected article, `web_fetch` retains
 an explicitly labeled leading excerpt from a main HTML landmark. It excludes
@@ -964,6 +985,11 @@ navigation, sidebars, scripts and explicitly hidden markup; the existing output 
 applies. This preserves supplied page status and dates without interpreting them
 or promising a complete page rendering. Context already in the article is omitted.
 Extraction-failure hints assess the article itself, excluding that added context.
+
+Short section headings grouped with inline links or controls retain their heading
+structure during article extraction. Their original attributes remain in place,
+so hidden groups and navigation remain eligible for exclusion. This preserves
+section boundaries without adding site-specific extraction rules.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser

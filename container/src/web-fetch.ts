@@ -1,7 +1,7 @@
 /**
  * Fetch public text within one timeout and the existing SSRF boundary.
  * Body read failures propagate; only explicit size limits allow partial output.
- * Leading main-page context survives article extraction within a bounded excerpt.
+ * Short heading groups retain structure; leading main-page context is bounded.
  * Extraction hints distinguish visible challenges from browser-only pages.
  * Unlike browser navigation, this tool never executes page JavaScript.
  */
@@ -350,6 +350,25 @@ async function extractReadableContent(
         0,
         PAGE_CONTEXT_MAX_CHARS,
       );
+    }
+
+    // Short headings beside inline controls look like link-heavy boilerplate to
+    // Readability's div cleanup. Preserve their structure and visibility metadata.
+    for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+      const group = heading.parentElement;
+      if (
+        group?.tagName !== 'DIV' ||
+        ![...group.children].every(
+          (child) => child === heading || child.matches('a,span,small,button'),
+        )
+      )
+        continue;
+      const header = document.createElement('header');
+      for (const attribute of group.attributes) {
+        header.setAttribute(attribute.name, attribute.value);
+      }
+      header.append(...group.childNodes);
+      group.replaceWith(header);
     }
 
     const reader = new Readability(document, { charThreshold: 0 });
