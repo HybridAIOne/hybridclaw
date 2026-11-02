@@ -2,7 +2,7 @@
  * Rejected file-write preconditions fence alternate mutation routes for a session.
  * Unlike write's byte comparison, this preserves the rejection across workers;
  * only a successful checked file mutation or a one-time approval can proceed.
- * Recovery diagnostics name the unresolved paths from that same store.
+ * The failed write and later approvals share recovery diagnostics from that store.
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
 import type { ClassifiedAction } from './approval-policy.js';
@@ -19,13 +19,18 @@ function targetKey(target: string): string {
   return resolveCanonicalPath(resolveWorkspacePath(target) ?? target);
 }
 
+function recoveryReason(): string {
+  return `a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts])}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`;
+}
+
 export function recordFileWriteConflict(
   sessionId: string,
   target: string,
-): void {
-  if (!sessionId) return;
+): string | undefined {
+  if (!sessionId) return undefined;
   conflicts.bindSession(sessionId);
   conflicts.add(targetKey(target));
+  return recoveryReason();
 }
 
 export function resolveFileWriteConflict(
@@ -62,6 +67,6 @@ export function guardFileWriteConflict(
     actionKey: `file-write-conflict:${action.actionKey}`,
     promotableRed: false,
     explicitApprovalRequired: true,
-    reason: `a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts])}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`,
+    reason: recoveryReason(),
   };
 }

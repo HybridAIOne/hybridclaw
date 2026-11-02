@@ -224,7 +224,8 @@ scripts as well as direct redirects; unrelated shell mutations may also pause.
 Read-only diagnostics, including an `echo` fallback after a read-only command,
 and writing a separate deliverable remain available. File redirections and
 opaque script execution still require approval while a conflict is unresolved.
-Recovery diagnostics list the unresolved paths; writing a separate file leaves
+The failed write immediately reports recovery diagnostics from the same store
+used by subsequent approval decisions. They list the unresolved paths; writing a separate file leaves
 the script-execution restriction in place. A checked mutation resolves only its
 own path. Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
