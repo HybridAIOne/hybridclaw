@@ -74,6 +74,39 @@ test('the real dispatcher allows diagnostic fallback before a separate deliverab
   );
 }, 20000);
 
+test('the first rejected write exposes recovery and a checked replacement restores shell execution', async () => {
+  const original = 'Original work\n';
+  let step = 0;
+  const run = await runAgent(async (body) => {
+    const last = body.messages.at(-1);
+    switch (step++) {
+      case 0:
+        return call('create', 'write', { path: 'report.md', contents: 'Revised\n' });
+      case 1:
+        expect(last).toMatchObject({ role: 'tool', tool_call_id: 'create' });
+        expect(last?.content).toContain('report.md');
+        expect(last?.content).toContain('one-time approval');
+        expect(last?.content).not.toContain(original);
+        return call('inspect', 'read', { path: 'report.md' });
+      case 2:
+        expect(last).toMatchObject({ role: 'tool', tool_call_id: 'inspect' });
+        expect(last?.content).toContain('Original work');
+        return call('replace', 'write', {
+          path: 'report.md', contents: 'Revised\n', overwrite: true,
+          expected_content: original,
+        });
+      case 3:
+        return call('continue', 'bash', { command: "printf completed > completion.txt" });
+      default:
+        return { role: 'assistant', content: 'Completed.' };
+    }
+  }, { approvalMode: 'full' }, { 'report.md': original });
+  expect(run.output.pendingApproval).toBeUndefined();
+  expect(run.output.status).toBe('success');
+  expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Revised\n');
+  expect(fs.readFileSync(path.join(run.dir, 'completion.txt'), 'utf8')).toBe('completed');
+}, 20000);
+
 test('one-time approval still executes a fenced script and a later run needs a new approval', async () => {
   const command = 'bash ./generate.sh';
   const replies: Array<Record<string, unknown>> = [

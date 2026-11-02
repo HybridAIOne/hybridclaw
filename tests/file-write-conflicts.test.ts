@@ -42,6 +42,42 @@ async function worker(sessionId = 'session-a') {
   };
 }
 
+test.each(['local', 'sandbox'])(
+  'a %s write failure reports its mutation fence before another tool is called',
+  async (mode) => {
+    const runtime = await worker();
+    const { runFileWrite } = await import('../container/src/tools/file-write.js');
+    let failure: unknown;
+    try {
+      runFileWrite(
+        { path: 'report.md', contents: 'Replacement' },
+        (file) => path.join(workspace, file),
+        mode === 'sandbox'
+          ? {
+              container: 'fixture',
+              run: () => ({ status: 1, stdout: '', stderr: 'Existing file' }),
+            }
+          : undefined,
+        'session-a',
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    const [, recovery] = (failure as Error).message.split('\n');
+    expect(recovery).toBeTruthy();
+    const guarded = runtime.call('bash', { command: 'python3 generated.py' });
+    expect(guarded).toMatchObject({ pinned: true, decision: 'required' });
+    expect(guarded.reason).toContain(recovery);
+    expect((failure as Error).message).toContain(
+      JSON.stringify(path.join(fs.realpathSync(workspace), 'report.md')),
+    );
+    expect(fs.readFileSync(path.join(workspace, 'report.md'), 'utf8')).toBe(
+      'Original work\n',
+    );
+  },
+);
+
 test.each([
   "cat > report.md <<'EOF'\nReplacement\nEOF",
   'printf replacement > report.md',

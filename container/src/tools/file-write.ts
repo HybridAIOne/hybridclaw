@@ -1,6 +1,7 @@
 /**
  * File writes create exclusively unless an explicit replacement matches current bytes.
  * Unlike approval policy, this checks file state; it grants no path access or approval.
+ * Failures report any persistent mutation fence together with the original error.
  * Cooperative locks serialize tool writers, not external editors or shell commands.
  */
 import fs from 'node:fs';
@@ -159,7 +160,13 @@ export function runFileWrite(
       }
     }
   } catch (error) {
-    recordFileWriteConflict(sessionId, args.path);
+    const recovery = recordFileWriteConflict(sessionId, args.path);
+    if (recovery) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${recovery}`,
+        { cause: error },
+      );
+    }
     throw error;
   }
   resolveFileWriteConflict(sessionId, args.path);
