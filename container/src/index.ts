@@ -45,6 +45,7 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
+import { setFileWriteGuardSession } from './file-write-conflicts.js';
 import { compactInLoopWithModel } from './in-loop-compaction-runtime.js';
 import {
   setIpcAuthSecret,
@@ -2388,6 +2389,10 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  setFileWriteGuardSession(
+    firstInput.sessionId,
+    firstInput.fileWriteGuardSessionId,
+  );
   setToolCallLimits(firstInput);
   approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
@@ -2563,6 +2568,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    setFileWriteGuardSession(input.sessionId, input.fileWriteGuardSessionId);
     setToolCallLimits(input);
     approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);

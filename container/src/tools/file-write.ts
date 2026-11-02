@@ -67,7 +67,7 @@ else
   ln -T -- "$stage/content" "$target" || { echo 'File already exists or cannot be created; use a separate path for a new deliverable, or checked replacement.' >&2; exit 1; }
 fi`;
 
-export function runFileWrite(
+export async function runFileWrite(
   args: Record<string, unknown>,
   resolvePath: (userPath: string) => string | null,
   sandbox?: {
@@ -80,7 +80,7 @@ export function runFileWrite(
     };
   },
   sessionId = '',
-): string {
+): Promise<string> {
   if (
     typeof args.path !== 'string' ||
     !args.path.trim() ||
@@ -160,7 +160,7 @@ export function runFileWrite(
       }
     }
   } catch (error) {
-    const recovery = recordFileWriteConflict(sessionId, args.path);
+    const recovery = await recordFileWriteConflict(sessionId, args.path);
     if (recovery) {
       throw new Error(
         `${error instanceof Error ? error.message : String(error)}\n${recovery}`,
@@ -169,6 +169,6 @@ export function runFileWrite(
     }
     throw error;
   }
-  resolveFileWriteConflict(sessionId, args.path);
+  await resolveFileWriteConflict(sessionId, args.path);
   return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}${fileSyntaxFeedback(args.path, args.contents)}`;
 }

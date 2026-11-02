@@ -269,6 +269,8 @@ export async function runDelegationTaskWithRetry(
     abortSignal,
   } = input;
   const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  const fileWriteGuardSessionId =
+    input.fileWriteGuardSessionId ?? parentSessionId;
   // A scoped chat's subagents work in its scope, with its limits.
   const parentScope =
     getActiveDelegationChildContext(parentSessionId)?.runtimeScope;
@@ -338,6 +340,7 @@ export async function runDelegationTaskWithRetry(
         sessionId,
         {
           channelId,
+          fileWriteGuardSessionId,
           chatbotId,
           enableRag,
           agentId,
@@ -348,6 +351,7 @@ export async function runDelegationTaskWithRetry(
         () =>
           runAgent({
             sessionId,
+            fileWriteGuardSessionId,
             messages: requestMessages,
             chatbotId,
             enableRag,

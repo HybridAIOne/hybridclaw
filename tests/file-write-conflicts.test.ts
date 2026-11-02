@@ -49,7 +49,7 @@ test.each(['local', 'sandbox'])(
     const { runFileWrite } = await import('../container/src/tools/file-write.js');
     let failure: unknown;
     try {
-      runFileWrite(
+      await runFileWrite(
         { path: 'report.md', contents: 'Replacement' },
         (file) => path.join(workspace, file),
         mode === 'sandbox'
@@ -95,9 +95,9 @@ test.each([
   'sh -c "printf replacement > report.md"',
 ])('a failed write cannot silently recover with %s', async (command) => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('bash', { command })).toMatchObject({
     tier: 'red',
     pinned: true,
@@ -110,16 +110,16 @@ test.each([
 
 test('read-only diagnostics and a new deliverable stay available', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('bash', { command: 'ls -l report.md' })).toMatchObject({
     pinned: false,
     decision: 'auto',
   });
-  expect(
+  await expect(
     runtime.write({ path: 'report-new.md', contents: 'New work' }),
-  ).toContain('Wrote');
+  ).resolves.toContain('Wrote');
   expect(
     runtime.call('bash', { command: 'printf replacement > report.md' }),
   ).toMatchObject({ pinned: true, decision: 'required' });
@@ -127,18 +127,18 @@ test('read-only diagnostics and a new deliverable stay available', async () => {
 
 test('a checked replacement resolves its conflict and restores normal shell policy', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
-  expect(() =>
+  ).rejects.toThrow();
+  await expect(
     runtime.write({
       path: 'report.md',
       contents: 'replacement',
       overwrite: true,
       expected_content: 'wrong',
     }),
-  ).toThrow(/Stale/);
-  runtime.write({
+  ).rejects.toThrow(/Stale/);
+  await runtime.write({
     path: 'report.md',
     contents: 'Revised',
     overwrite: true,
@@ -151,9 +151,9 @@ test('a checked replacement resolves its conflict and restores normal shell poli
 
 test('the conflict survives worker replacement and is isolated by session', async () => {
   const first = await worker();
-  expect(() =>
+  await expect(
     first.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   vi.resetModules();
   const restarted = await worker();
   expect(
@@ -167,9 +167,9 @@ test('the conflict survives worker replacement and is isolated by session', asyn
 
 test('deleting the conflicted file also requires one-time approval', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('delete', { path: 'report.md' })).toMatchObject({
     pinned: true,
     decision: 'required',
@@ -179,9 +179,9 @@ test('deleting the conflicted file also requires one-time approval', async () =>
 
 test('corrupt required state fails closed instead of forgetting the conflict', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   const { sessionStatePath } = await import(
     '../container/src/session-state.js'
   );
@@ -200,7 +200,7 @@ test('corrupt required state fails closed instead of forgetting the conflict', a
 test('sandbox write failures fence the same session', async () => {
   const runtime = await worker();
   const { runFileWrite } = await import('../container/src/tools/file-write.js');
-  expect(() =>
+  await expect(
     runFileWrite(
       { path: 'report.md', contents: 'replacement' },
       () => '/workspace/report.md',
@@ -210,7 +210,7 @@ test('sandbox write failures fence the same session', async () => {
       },
       'session-a',
     ),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('bash', { command: 'cat > report.md' })).toMatchObject({
     pinned: true,
     decision: 'required',
@@ -219,9 +219,9 @@ test('sandbox write failures fence the same session', async () => {
 
 test('a session approval permits only one execution of a conflicted shell action', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   const args = { command: 'printf replacement > report.md' };
   const blocked = runtime.call('bash', args);
   expect(blocked.requestId).toBeDefined();
@@ -256,9 +256,9 @@ test('deleting a parent or a symlink alias cannot bypass a recorded conflict', a
     path.join(workspace, 'nested/report.md'),
     path.join(workspace, 'alias.md'),
   );
-  expect(() =>
+  await expect(
     runtime.write({ path: 'alias.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('delete', { path: 'nested' })).toMatchObject({
     pinned: true,
     decision: 'required',
@@ -271,13 +271,13 @@ test('deleting a parent or a symlink alias cannot bypass a recorded conflict', a
 
 test('a rejected replacement without expected bytes also fences alternate mutations', async () => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({
       path: 'report.md',
       contents: 'replacement',
       overwrite: true,
     }),
-  ).toThrow(/expected_content/);
+  ).rejects.toThrow(/expected_content/);
   expect(
     runtime.call('bash', { command: 'printf replacement > report.md' }),
   ).toMatchObject({ pinned: true, decision: 'required' });
@@ -289,9 +289,9 @@ test.each([
   'ls report.md >/dev/null 2>&1 || echo absent',
 ])('a rejected write still permits diagnostic fallback %s', async (command) => {
   const runtime = await worker();
-  expect(() =>
+  await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
-  ).toThrow();
+  ).rejects.toThrow();
   expect(runtime.call('bash', { command })).toMatchObject({
     tier: 'green',
     pinned: false,
@@ -315,9 +315,9 @@ test.each([
   'diagnostic-looking chains still fence mutations or scripts: %s',
   async (command) => {
     const runtime = await worker();
-    expect(() =>
+    await expect(
       runtime.write({ path: 'report.md', contents: 'replacement' }),
-    ).toThrow();
+    ).rejects.toThrow();
     expect(runtime.call('bash', { command })).toMatchObject({
       pinned: true,
       decision: 'required',
@@ -340,23 +340,23 @@ test('recovery diagnostics track every unresolved target across workers', async 
   fs.writeFileSync(path.join(workspace, 'notes.md'), 'Existing notes');
   const first = await worker();
   for (const file of ['report.md', 'notes.md']) {
-    expect(() => first.write({ path: file, contents: 'replacement' })).toThrow();
+    await expect(first.write({ path: file, contents: 'replacement' })).rejects.toThrow();
   }
   vi.resetModules();
   const restarted = await worker();
-  restarted.write({ path: 'draft.py', contents: 'print(1)' });
+  await restarted.write({ path: 'draft.py', contents: 'print(1)' });
   const call = () => restarted.call('bash', { command: 'python3 draft.py' });
   const pending = call();
   expect(pending).toMatchObject({ pinned: true, decision: 'required' });
   expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'report.md')));
   expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'notes.md')));
   expect(pending.reason).not.toContain(JSON.stringify(path.join(canonicalWorkspace, 'draft.py')));
-  restarted.write({ path: 'report.md', contents: 'Revised', overwrite: true, expected_content: 'Original work\n' });
+  await restarted.write({ path: 'report.md', contents: 'Revised', overwrite: true, expected_content: 'Original work\n' });
   const remaining = call();
   expect(remaining).toMatchObject({ pinned: true, decision: 'required' });
   expect(remaining.reason).not.toContain(JSON.stringify(path.join(canonicalWorkspace, 'report.md')));
   expect(remaining.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, 'notes.md')));
-  restarted.write({ path: 'notes.md', contents: 'Revised notes', overwrite: true, expected_content: 'Existing notes' });
+  await restarted.write({ path: 'notes.md', contents: 'Revised notes', overwrite: true, expected_content: 'Existing notes' });
   expect(call().pinned).toBe(false);
 });
 
@@ -365,7 +365,7 @@ test('a conflict path stays literal in approval diagnostics', async () => {
   const file = 'notes\narchive.md';
   fs.writeFileSync(path.join(workspace, file), 'existing');
   const runtime = await worker();
-  expect(() => runtime.write({ path: file, contents: 'replacement' })).toThrow();
+  await expect(runtime.write({ path: file, contents: 'replacement' })).rejects.toThrow();
   const pending = runtime.call('bash', { command: 'python3 generated.py' });
   expect(pending).toMatchObject({ pinned: true, decision: 'required' });
   expect(pending.reason).toContain(JSON.stringify(path.join(canonicalWorkspace, file)));

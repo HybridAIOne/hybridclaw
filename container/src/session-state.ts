@@ -8,11 +8,12 @@
  * `/reset`. Like `.session-transcripts/`, entries are not pruned. NOT the
  * gateway's session store (conversation and settings stay in SQLite), and
  * never a home for secrets or environment snapshots. One worker serves a
- * session at a time, so writes take no lock.
+ * session at a time. Delegation-shared stores use locked updates and fresh reads.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../shared/atomic-write.js';
+import { waitForMemoryFileLock } from '../shared/memory-file.js';
 import { sessionStatePath as workspaceSessionStatePath } from '../shared/turn-checkpoint.js';
 import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 
@@ -74,11 +75,11 @@ export class SessionStateSet extends Set<string> {
     super();
   }
 
-  bindSession(sessionId: string): void {
+  bindSession(sessionId: string, reload = false): void {
     const filePath = sessionId ? sessionStatePath(sessionId, this.name) : null;
     if (filePath === this.filePath) {
       if (this.failure) throw this.failure;
-      return;
+      if (!reload) return;
     }
     const values = filePath ? readValues(filePath, this.required) : [];
     this.filePath = filePath;
@@ -100,6 +101,32 @@ export class SessionStateSet extends Set<string> {
     const deleted = super.delete(value);
     if (deleted && this.filePath) this.persist(this.filePath);
     return deleted;
+  }
+
+  async updateLockedSession(
+    sessionId: string,
+    operation: 'add' | 'delete',
+    value: string,
+  ): Promise<void> {
+    this.bindSession(sessionId);
+    const filePath = sessionStatePath(sessionId, this.name);
+    let release: (() => void) | undefined;
+    try {
+      release = await waitForMemoryFileLock(filePath);
+      this.bindSession(sessionId, true);
+      this[operation](value);
+    } catch (error) {
+      if (this.required) {
+        this.failure = new Error(
+          'Required session guard state could not be updated',
+          { cause: error },
+        );
+        throw this.failure;
+      }
+      throw error;
+    } finally {
+      release?.();
+    }
   }
 
   private persist(filePath: string): void {

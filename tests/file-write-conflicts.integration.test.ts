@@ -18,6 +18,28 @@ function call(id: string, name: string, args: Record<string, unknown>) {
   };
 }
 
+test('authenticated worker inputs preserve a family conflict and allow checked recovery', async () => {
+  const replies = [
+    call('reject', 'write', { path: 'report.md', contents: 'Replacement' }),
+    call('child-shell', 'bash', { command: 'printf changed > report.md' }),
+    call('parent-shell', 'bash', { command: 'printf changed > report.md' }),
+    call('checked', 'write', { path: 'report.md', contents: 'Revised', overwrite: true, expected_content: 'Original\n' }),
+    call('restored', 'bash', { command: 'printf completed > completion.txt' }),
+    { role: 'assistant', content: 'Completed.' },
+  ];
+  const run = await runAgent(replies, { sessionId: 'child', fileWriteGuardSessionId: 'parent', approvalMode: 'full' }, { 'report.md': 'Original\n' });
+  expect(run.output.pendingApproval?.toolName).toBe('bash');
+  expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Original\n');
+  const parent = await run.followup({ sessionId: 'parent', fileWriteGuardSessionId: undefined, messages: [{ role: 'user', content: 'Continue.' }] });
+  expect(parent.pendingApproval?.toolName).toBe('bash');
+  expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Original\n');
+  const sibling = await run.followup({ sessionId: 'sibling', fileWriteGuardSessionId: 'parent', messages: [{ role: 'user', content: 'Apply a checked replacement.' }] });
+  expect(sibling.status).toBe('success');
+  expect(sibling.pendingApproval).toBeUndefined();
+  expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Revised');
+  expect(fs.readFileSync(path.join(run.dir, 'completion.txt'), 'utf8')).toBe('completed');
+}, 20000);
+
 test('the real dispatcher stops a shell overwrite after failed replacement preconditions', async () => {
   const run = await runAgent(
     [
