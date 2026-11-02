@@ -3,8 +3,17 @@
  * approval authority. Only the pending request's owner sees its live facts;
  * answering and validating the action stays in the existing approval flow.
  */
+import type { ApprovalReplyInterpretation } from '../../container/shared/approval-reply.js';
+import {
+  decideMessageApproval,
+  setMessageApproval,
+} from '../memory/message-approval.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
-import { getPendingApproval, setPendingApproval } from './pending-approvals.js';
+import {
+  clearPendingApproval,
+  getPendingApproval,
+  setPendingApproval,
+} from './pending-approvals.js';
 
 export async function rememberChatApproval(
   request: GatewayChatRequest,
@@ -13,6 +22,8 @@ export async function rememberChatApproval(
   const approval = result.pendingApproval;
   if (request.channelId !== 'web' || !approval) return;
   const sessionId = result.sessionId || request.sessionId;
+  if (result.assistantMessageId)
+    setMessageApproval(sessionId, result.assistantMessageId, approval);
   // A channel may already have registered the request with its notification cleanup.
   if (getPendingApproval(sessionId)?.approvalId === approval.approvalId) return;
   await setPendingApproval(sessionId, {
@@ -37,4 +48,29 @@ export function pendingChatApproval(sessionId: string, userId: string) {
   )
     return null;
   return { ...pending.approval, type: 'approval' as const };
+}
+
+export async function rememberChatApprovalDecision(
+  sessionId: string,
+  userId: string,
+  reply: ApprovalReplyInterpretation | undefined,
+): Promise<void> {
+  if (
+    !reply?.approvalId ||
+    (reply.decision !== 'approve' && reply.decision !== 'deny')
+  )
+    return;
+  const pending = getPendingApproval(sessionId);
+  if (
+    pending?.approvalId !== reply.approvalId ||
+    pending.userId !== userId ||
+    (pending.expiresAt <= Date.now() && !pending.resolvedAt)
+  )
+    return;
+  decideMessageApproval(
+    sessionId,
+    reply.approvalId,
+    reply.decision === 'approve' ? 'allowed' : 'denied',
+  );
+  await clearPendingApproval(sessionId);
 }

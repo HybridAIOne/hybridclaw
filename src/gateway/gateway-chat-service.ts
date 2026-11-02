@@ -170,6 +170,7 @@ import {
 } from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
+import { rememberChatApprovalDecision } from './chat-approval-review.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -2410,6 +2411,11 @@ async function handleGatewayMessageInner(
     }
     await rememberConnectorApproval(req, output);
     recordApprovalReply(req.sessionId, runId, output);
+    await rememberChatApprovalDecision(
+      req.sessionId,
+      req.userId,
+      output.approvalReply,
+    );
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
