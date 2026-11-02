@@ -15,9 +15,14 @@ For the onboarding acceptance document, see [TRUST_MODEL.md](./TRUST_MODEL.md).
 ### 1) Prompt-Level Guardrails
 
 Every system prompt carries a short `Runtime Safety Guardrails` block covering
-untrusted content, secret exfiltration, least privilege, and blocked or denied
-actions. The wording lives only in the safety prompt hook; this document is not
-injected into prompts.
+untrusted content, secret exfiltration, least privilege, TLS verification, and
+blocked or denied actions. The wording lives only in the safety prompt hook;
+this document is not injected into prompts.
+
+Transport guidance keeps certificate and hostname verification enabled in tool
+calls and generated scripts. Certificate failures require trust diagnosis or an
+explicit, scoped exception through the existing tool interface. This is model
+guidance, not inspection or enforcement of arbitrary script networking.
 
 `tests/safety-guardrails.live.test.ts` replays scripted agent turns against a
 live model to check these guardrails (opt-in via `HYBRIDCLAW_RUN_LIVE_SAFETY=1`).
