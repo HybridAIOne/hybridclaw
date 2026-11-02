@@ -867,3 +867,14 @@ The new-conversation default is stored as `security.defaultApprovalMode` in
 `admin.policy.write`. Saved changes are audited; stale edits are rejected so an
 operator must reload before overwriting a newer choice. Enabled hard guards
 remain enforced in all modes.
+
+## Structured chat history
+
+Approval events carry review facts separately from their human-readable prompt.
+Web chat stores those facts with the assistant message in `approval_json`; history
+and the device-message endpoint return them as `approval`. Recorded allow/deny
+decisions remain with the message, and answered requests leave the pending cache.
+The snapshot is presentation data: the worker policy still validates every decision
+against its live request and owning session. Clients must not infer approvals from
+reply text. `/api/history` also includes the caller's live `pendingApproval`, so a
+client can recover a request it did not receive over the stream.

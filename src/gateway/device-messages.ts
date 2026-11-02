@@ -70,6 +70,7 @@ export function handleDeviceMessageRoute(
     source: message.source ?? null,
     // The email the reply showed as a card; its text is in `content` too.
     ...(message.emailDraft ? { emailDraft: message.emailDraft } : {}),
+    ...(message.approval ? { approval: message.approval } : {}),
     ...(cost ? { cost } : {}),
     ...receiptOf(message.session_id, message.id),
     // SQLite stores UTC without a zone.
