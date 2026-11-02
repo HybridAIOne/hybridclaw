@@ -184,8 +184,8 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-// 41: built-in Twilio voice becomes the bundled twilio-voice plugin.
-export const CONFIG_VERSION = 41;
+// 42: audit keeps truncated tool results unless `full` is chosen again.
+export const CONFIG_VERSION = 42;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1431,7 +1431,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   audit: {
     toolResults: {
-      mode: 'full',
+      mode: 'truncate',
       maxChars: 4_000,
     },
   },
@@ -6943,11 +6943,13 @@ function normalizeRuntimeConfig(
     version: CONFIG_VERSION,
     audit: {
       toolResults: {
+        // Before v42 every config carried the then-default `full`.
         mode:
-          auditToolResultsMode === 'truncate' ||
-          auditToolResultsMode === 'truncated'
-            ? 'truncate'
-            : DEFAULT_RUNTIME_CONFIG.audit.toolResults.mode,
+          auditToolResultsMode === 'full' &&
+          sourceVersion !== null &&
+          sourceVersion >= 42
+            ? 'full'
+            : 'truncate',
         maxChars: normalizeInteger(
           rawAuditToolResults.maxChars,
           DEFAULT_RUNTIME_CONFIG.audit.toolResults.maxChars,

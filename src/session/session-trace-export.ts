@@ -949,13 +949,12 @@ function buildToolCallTraceEntries(
 function buildObservationTraceEntries(
   turn: TurnGroup,
   toolResultRows: StructuredAuditEntry[],
-  preferResultPreview: boolean,
 ): Array<Record<string, unknown>> {
   return toolResultRows.map((row) => {
     const payload = parseJsonObject(row.payload);
     const resultSummary =
       readString(payload, 'resultFull') ||
-      (preferResultPreview ? readString(payload, 'resultPreview') : null) ||
+      readString(payload, 'resultPreview') ||
       readString(payload, 'resultSummary') ||
       JSON.stringify(payload);
     return {
@@ -1154,7 +1153,6 @@ function buildTraceSteps(params: {
   messages: StoredMessage[];
   fallbackModel: string;
   systemPromptHashByRunId: Map<string, string>;
-  preferResultPreview?: boolean;
 }): {
   steps: Array<Record<string, unknown>>;
   agentStepIndexByRunId: Map<string, number>;
@@ -1206,7 +1204,6 @@ function buildTraceSteps(params: {
     const observations = buildObservationTraceEntries(
       turn,
       summary.toolResultRows,
-      params.preferResultPreview === true,
     );
     const systemPromptHash = params.systemPromptHashByRunId.get(turn.runId);
     const dynamicContext = readTurnDynamicContext(summary);
@@ -1549,7 +1546,6 @@ export async function exportSessionTraceAtifJsonl(params: {
             messages: params.messages,
             fallbackModel,
             systemPromptHashByRunId,
-            preferResultPreview: Boolean(params.selector),
           })
         : {
             steps: buildFallbackSteps(params.messages),

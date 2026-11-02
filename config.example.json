@@ -1,8 +1,8 @@
 {
-  "version": 41,
+  "version": 42,
   "audit": {
     "toolResults": {
-      "mode": "full",
+      "mode": "truncate",
       "maxChars": 4000
     }
   },
