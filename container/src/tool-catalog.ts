@@ -22,6 +22,9 @@ const MAX_SCHEMA_CHARS = 24_000;
 // trip per lookup and defer bulky direct definitions through the same catalog.
 // Large input schemas retain describe and the existing output budget.
 const MAX_INLINE_SCHEMA_CHARS = 2_000;
+// Engineering choice, 2026-11-03: describe loads one tool the model asked for,
+// and some MCP servers spell out their request format only in the description.
+const MAX_DESCRIBE_CHARS = 64_000;
 // Engineering choice, 2026-09-10: two catalog corrections per request.
 // Invalid actions, missing fields, lookups and unavailable targets may recover;
 // nothing in a rejected batch executes. The request fails once the budget is spent.
@@ -426,7 +429,7 @@ export class ToolCatalog {
           },
         },
       });
-      return output.length > MAX_SCHEMA_CHARS
+      return output.length > MAX_DESCRIBE_CHARS
         ? {
             output:
               'Error: This tool schema is too large for catalog discovery. Use a smaller tool or a model with a larger context.',

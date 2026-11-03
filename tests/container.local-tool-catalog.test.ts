@@ -66,7 +66,7 @@ describe('local tool catalog boundary', () => {
     expect(last.tools).toHaveLength(5); expect(last.nextOffset).toBeNull();
     const search = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'ITEM_24' }))!.output);
     expect(search.tools[0].name).toBe('mcp__item_24');
-    const huge = new ToolCatalog([tool('huge', 'x'.repeat(25_000))]);
+    const huge = new ToolCatalog([tool('huge', 'x'.repeat(70_000))]);
     expect(huge.discoveryResult(catalogCall({ action: 'describe', name: 'huge' }))?.isError).toBe(true);
   });
   test('respects disabling discovery and rejects a reserved name collision', () => {
