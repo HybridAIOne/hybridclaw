@@ -45,9 +45,24 @@ test('a replan does not bypass a protected-file approval', async () => {
 test('repeated hard blocks stop after one replan without executing the command', async () => {
   const worker = await run([
     { role: 'assistant', content: null, tool_calls: [call('first', 'bash', blockedCommand)] },
-    { role: 'assistant', content: null, tool_calls: [call('second', 'bash', blockedCommand)] },
+    { role: 'assistant', content: null, tool_calls: [
+      call('second', 'bash', blockedCommand),
+      call('unstarted', 'write', { path: 'unstarted.txt', contents: 'must not run' }),
+    ] },
     { role: 'assistant', content: 'Must not reach this response.' },
   ], {}, { 'rows.tmp.json': 'preserve me' });
+  const terminal = worker.output.toolExecutions?.at(-1);
+  expect(terminal?.result).toBe(worker.output.result);
+  for (const history of [worker.output.toolHistory, worker.output.toolHistoryForReplay]) {
+    const replies = history?.filter((message) => message.role === 'tool');
+    expect(replies?.filter((message) => message.tool_call_id === 'second')).toEqual([
+      expect.objectContaining({ content: terminal?.result, is_error: true }),
+    ]);
+    const sibling = replies?.find((message) => message.tool_call_id === 'unstarted');
+    expect(sibling?.is_error).toBe(true);
+    expect(sibling?.content).not.toBe(terminal?.result);
+  }
+  expect(fs.existsSync(path.join(worker.dir, 'unstarted.txt'))).toBe(false);
   expect(worker.requests).toHaveLength(2);
   expect(worker.output.pendingApproval).toBeUndefined();
   expect(worker.output.toolExecutions?.map((entry) => entry.approvalDecision)).toEqual(['denied', 'denied']);

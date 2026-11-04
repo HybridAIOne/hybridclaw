@@ -837,6 +837,9 @@ directory inside a simple path does not block unrelated tools. Executables named
 conservative text check; other safety matchers and normal approval policy still
 apply.
 
+When a denial ends the turn, the transcript and replay history retain the reason
+on the denied tool call. Later calls in the same batch are marked unexecuted.
+
 Generation and verification run separately from necessary cleanup. Agents leave
 disposable scratch files alone unless cleanup was requested or is needed for the
 result; ordinary housekeeping does not delay delivery or turn success into a
