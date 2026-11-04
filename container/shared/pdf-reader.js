@@ -18,8 +18,8 @@ export const PDF_PREVIEW_MAX_CHARS = 6_000;
 const SPARSE_PAGE_CHARS = 50;
 const RENDER_MAX_DIMENSION = 1600;
 
-function selectPages(selection) {
-  if (selection === undefined) return `1-${PDF_READ_MAX_PAGES}`;
+export function firstPdfPageBatch(selection) {
+  if (selection === undefined) return undefined;
   if (typeof selection !== 'string' || !selection.trim()) {
     throw new Error(
       'pages must be a nonempty page range such as "1-4" or "5,7"',
@@ -39,17 +39,28 @@ function selectPages(selection) {
     ) {
       throw new Error('PDF pages must be positive, ascending integers');
     }
-    if (last - first >= PDF_READ_MAX_PAGES)
-      throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
-    for (let page = first; page <= last; page += 1) selected.add(page);
-    if (selected.size > PDF_READ_MAX_PAGES)
-      throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
+    // One extra distinct page detects overflow without expanding a large range.
+    for (
+      let page = first;
+      page <= last && selected.size <= PDF_READ_MAX_PAGES;
+      page += 1
+    )
+      selected.add(page);
   }
-  return [...selected].sort((a, b) => a - b).join(',');
+  return {
+    pages: [...selected]
+      .slice(0, PDF_READ_MAX_PAGES)
+      .sort((a, b) => a - b)
+      .join(','),
+    hasMore: selected.size > PDF_READ_MAX_PAGES,
+  };
 }
 
 export async function readPdfPages(filePath, options = {}) {
-  const selection = selectPages(options.pages);
+  const batch = firstPdfPageBatch(options.pages);
+  if (batch?.hasMore)
+    throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
+  const selection = batch?.pages ?? `1-${PDF_READ_MAX_PAGES}`;
   const render = options.render ?? 'auto';
   if (!['auto', 'always', 'never'].includes(render))
     throw new Error('render must be auto, always, or never');

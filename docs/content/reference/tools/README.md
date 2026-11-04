@@ -103,5 +103,7 @@ Then make a separate call with the returned page numbers:
 `query` cannot be combined with `pages` or `render`. Search covers extracted text,
 so scans may need visual page inspection. PDF reads use page selections instead
 of text-file `offset` and `limit`. `render: "never"` requests extracted text only.
+For an oversized page selection, the error includes a `suggestedCall` for the
+first batch of requested pages, with any text-line arguments removed.
 Image reads deliver pixels to supported models; visual snapshots persist for
 replay after a worker restart.
