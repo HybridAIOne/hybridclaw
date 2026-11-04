@@ -832,7 +832,8 @@ policy. A second shell hard block ends the turn, as do other policy denials.
 Pending human approvals still pause execution.
 
 The eval block checks parsed shell words and nested shell commands, so an `eval`
-directory inside a simple path does not block unrelated tools. Executables named
+directory inside a simple path does not block unrelated tools. Command and script
+filenames may also start with `~/` or `$HOME/`. Executables named
 `eval` and eval text in inline code remain blocked. Heredoc input retains the
 conservative text check; other safety matchers and normal approval policy still
 apply.
