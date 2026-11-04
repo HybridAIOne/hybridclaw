@@ -35,6 +35,7 @@ import {
 } from './browser-take-over.js';
 import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import { IncompleteVisionAnalysisError } from './providers/incomplete-vision-error.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -3705,6 +3706,7 @@ async function runBrowserTool(
         return failure(`Unknown browser tool: ${name}`);
     }
   } catch (err) {
+    if (err instanceof IncompleteVisionAnalysisError) return err.output;
     return failure(err instanceof Error ? err.message : String(err));
   }
 }
