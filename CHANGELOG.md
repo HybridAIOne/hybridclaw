@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+## [0.42.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.1) - 2026-11-04
+
+### Added
+
+- **Outlook message reading**: The bundled `outlook-msg` skill extracts message
+  headers and bodies from `.msg` files and saves attachments, including those
+  inside embedded forwarded messages. Teams recognizes `.msg` uploads as
+  Outlook messages (#2077).
+
+### Changed
+
+- **Audit result privacy**: Tool-result audit events retain a redacted preview
+  of up to `audit.toolResults.maxChars` characters (4,000 by default), rather
+  than a full copy. Existing configurations migrate to `truncate` once; trace
+  exports from new turns follow the same setting (#2131).
+
+### Fixed
+
+- **PDF reads and rendering**: Load bundled character maps to recover encoded
+  text in PDF reads and searches. Isolate native page rendering so a drawing
+  crash cannot terminate the reader or discard extracted text; unavailable
+  images are reported. Oversized page selections suggest a retry for up to
+  four requested pages, including requests with text-line limits (#2133,
+  #2134, #2136).
+- **Approval history and receipts**: Restore structured approval cards after
+  reconnecting, retain answers and keep resolved requests out of pending
+  reviews. Reply receipts show failed reads even without a named target and
+  preserve distinct errors and approval outcomes (#2127, #2135).
+- **Delegated workspace and file protection**: Delegated workers inherit their
+  task workspace. Unresolved file-write conflicts remain enforced across
+  parent, child and sibling workers; failing writes explain checked recovery
+  before alternate mutations require approval (#2126, #2128, #2129).
+- **Context and model discovery**: Budget the content actually dispatched to
+  each model and compact older tool batches while retaining original evidence
+  and the newest complete exchange. Apply discovered visual capabilities from
+  the first turn and retry initial discovery after temporary failures (#2123,
+  #2124, #2125).
+- **Web retrieval**: Enforce HTTP timeouts through response-body reads, preserve
+  short section headings beside inline controls, exclude commented-out HTML
+  from extracted text and titles, and identify truncated sources in fetched
+  pages and summaries, including saved tool results (#2118–#2120, #2122).
+- **Shell and TLS safety**: Allow ordinary tools inside an `eval` directory
+  while retaining the eval execution block. Restrict the null-device workspace
+  fence exception to the exact `/dev/null` path. Recovery guidance preserves
+  TLS verification when diagnosing certificate failures (#2121, #2130, #2138).
+- **MCP tool discovery**: Describe deferred tools with responses up to 64,000
+  characters so tools with long request-format descriptions remain usable
+  (#2132).
+- **Audio transcription**: The media-tools plugin can transcribe audio using
+  existing HybridAI credentials without a separate speech-provider setup
+  (#2058).
+
+### Upgrade Notes
+
+- To retain full tool results in the audit trail, set
+  `"audit": { "toolResults": { "mode": "full" } }` in `config.json` after
+  upgrading. The one-time migration resets the previous `full` setting to
+  `truncate`; existing audit records are not rewritten.
+
 ## [0.42.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.0) - 2026-10-31
 
 ### Added
