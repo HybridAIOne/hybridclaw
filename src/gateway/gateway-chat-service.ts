@@ -791,11 +791,13 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
-  const addressed = resolveAgentAddressing({
-    content: req.content,
-    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
-    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
-  });
+  const addressed = req.dryRun
+    ? ({ kind: 'none', content: req.content } as const)
+    : resolveAgentAddressing({
+        content: req.content,
+        currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+        fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+      });
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -1668,7 +1670,7 @@ async function handleGatewayMessageInner(
     },
   });
   const onboardingAuditContext =
-    startupBootstrapFile === 'BOOTSTRAP.md'
+    startupBootstrapFile === 'BOOTSTRAP.md' && !req.dryRun
       ? {
           sessionId: req.sessionId,
           runId,

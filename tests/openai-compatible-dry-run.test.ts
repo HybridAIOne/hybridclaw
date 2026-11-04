@@ -12,6 +12,7 @@ vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-openai-dry-run-',
+  envVars: ['HYBRIDCLAW_LOG_REQUESTS'],
   cleanup: () => {
     runAgentMock.mockReset();
   },
@@ -66,6 +67,10 @@ function snapshotFiles(root: string): Record<string, string> {
   })) {
     if (!entry.isFile()) continue;
     const file = path.join(entry.parentPath, entry.name);
+    // Bundled skills are mirrored in on an agent's first turn: a cache.
+    if (file.includes(`${path.sep}workspace${path.sep}skills${path.sep}`)) {
+      continue;
+    }
     files[path.relative(root, file)] = createHash('sha256')
       .update(fs.readFileSync(file))
       .digest('hex');
@@ -73,11 +78,40 @@ function snapshotFiles(root: string): Record<string, string> {
   return files;
 }
 
-test('a dry run answers from the real agent and leaves only usage and audit behind', async () => {
-  setupHome();
+test.each([
+  {
+    profile: 'dry-run',
+    agentId: 'main',
+    ask: 'So when does order 42 ship?',
+    usedBefore: true,
+  },
+  // `@billing` would reroute the turn; a dry run keeps it on its agent.
+  {
+    profile: 'agent=support-desk,dry-run',
+    agentId: 'support-desk',
+    ask: '@billing So when does order 42 ship?',
+    usedBefore: true,
+  },
+  // An agent still in onboarding: a dry run does not start it.
+  {
+    profile: 'agent=support-desk,dry-run',
+    agentId: 'support-desk',
+    ask: 'So when does order 42 ship?',
+    usedBefore: false,
+  },
+])('a dry run ($profile, used before: $usedBefore) answers from the real agent and leaves only usage and audit behind', async ({
+  profile,
+  agentId,
+  ask: lastQuestion,
+  usedBefore,
+}) => {
+  setupHome({ HYBRIDCLAW_LOG_REQUESTS: '1' });
   const { initDatabase } = await import('../src/memory/db.js');
   const { withMemoryDatabase } = await import('../src/memory/database.js');
   const { ensureBootstrapFiles } = await import('../src/workspace.js');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.js'
+  );
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   const { flushTokenUsageBuffer } = await import(
@@ -106,7 +140,7 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
       estimatedTotalTokens: 128,
     },
   });
-  const ask = async (headers: Record<string, string>) => {
+  const ask = async (headers: Record<string, string>, question: string) => {
     const res = makeResponse();
     await handleOpenAICompatibleChatCompletions(
       makeRequest(
@@ -115,7 +149,7 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
           messages: [
             { role: 'user', content: 'When does order 42 ship?' },
             { role: 'assistant', content: 'Let me check.' },
-            { role: 'user', content: 'So when does order 42 ship?' },
+            { role: 'user', content: question },
           ],
         },
         headers,
@@ -124,8 +158,12 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
     );
     return res;
   };
-  ensureBootstrapFiles('main');
-  const workspace = agentWorkspaceDir('main');
+  for (const id of ['support-desk', 'billing']) {
+    upsertRegisteredAgent({ id, displayName: id });
+  }
+  for (const id of ['main', 'support-desk', 'billing']) ensureBootstrapFiles(id);
+  const workspace = agentWorkspaceDir(agentId);
+  const agentsRoot = path.dirname(path.dirname(workspace));
   fs.writeFileSync(path.join(workspace, 'MEMORY.md'), 'Orders ship Fridays.\n');
   fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
   fs.writeFileSync(
@@ -157,13 +195,17 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
           ]),
       );
     });
-  // A normal turn first, so the snapshot holds a used agent's history.
-  await ask({});
+  if (usedBefore) {
+    await ask(
+      { 'x-hybridclaw-eval-profile': `agent=${agentId}` },
+      'So when does order 42 ship?',
+    );
+  }
   const tablesBefore = snapshotTables();
-  const filesBefore = snapshotFiles(workspace);
+  const filesBefore = snapshotFiles(agentsRoot);
 
   runAgentMock.mockClear();
-  const res = await ask({ 'x-hybridclaw-eval-profile': 'dry-run' });
+  const res = await ask({ 'x-hybridclaw-eval-profile': profile }, lastQuestion);
 
   expect(res.statusCode).toBe(200);
   expect(JSON.parse(res.body).choices[0].message.content).toBe(
@@ -171,13 +213,14 @@ test('a dry run answers from the real agent and leaves only usage and audit behi
   );
   const agentRequest = runAgentMock.mock.calls[0][0];
   expect(agentRequest.dryRun).toBe(true);
+  expect(agentRequest.agentId).toBe(agentId);
   expect(agentRequest.approvalMode).toBe('auto');
   expect(JSON.stringify(agentRequest.messages)).toContain('Let me check.');
 
   await flushTokenUsageBuffer();
   await flushAuditTrail();
   expect(snapshotTables()).toEqual(tablesBefore);
-  expect(snapshotFiles(workspace)).toEqual(filesBefore);
+  expect(snapshotFiles(agentsRoot)).toEqual(filesBefore);
 
   const sessionId = res.headers['x-hybridclaw-session-id'];
   expect(

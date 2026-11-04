@@ -12,7 +12,10 @@ import fs from 'node:fs';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { withMemoryDatabase } from '../memory/database.js';
-import { removeSessionFiles } from './gateway-session-deletion.js';
+import {
+  deleteSessionSideRows,
+  removeSessionFiles,
+} from './gateway-session-deletion.js';
 import { OpenAICompatibleRequestError } from './openai-compatible-request.js';
 import { isDecisionModel } from './openai-decision.js';
 
@@ -68,6 +71,7 @@ export function discardDryRunSessions(
     )(),
   );
   for (const sessionId of new Set([...keys, ...rowIds])) {
+    deleteSessionSideRows(sessionId);
     removeSessionFiles(sessionId, agentId, null);
   }
 }

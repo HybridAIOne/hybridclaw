@@ -11,6 +11,7 @@ import { DATA_DIR } from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { deleteArchives } from '../memory/compaction-archive.js';
+import { withMemoryDatabase } from '../memory/database.js';
 import { deleteSessionData, sessionHasUserMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { ensurePluginManagerInitialized } from '../plugins/plugin-manager.js';
@@ -76,6 +77,22 @@ export async function deleteGatewayAdminSession(
   const result = deleteSessionData(resolvedSessionId);
   deleteWebNotificationSession(resolvedSessionId);
   return result;
+}
+
+/** Rows keyed by a session besides its messages, usage and audit. */
+export function deleteSessionSideRows(sessionId: string): void {
+  withMemoryDatabase((db) =>
+    db.transaction(() => {
+      for (const table of [
+        'request_log',
+        'response_ratings',
+        'session_branches',
+      ]) {
+        db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
+      }
+      db.prepare('DELETE FROM kv_store WHERE agent_id = ?').run(sessionId);
+    })(),
+  );
 }
 
 function safeName(value: string): string {

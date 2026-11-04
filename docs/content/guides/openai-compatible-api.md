@@ -148,6 +148,8 @@ what it leaves behind:
   a sent message, or anything that would need an approval, is refused, and the
   refusal goes back to the model as the tool's result, so the agent still
   answers. Tools are not auto-approved.
+- An `@agent` address in the message is not followed: the turn stays with the
+  profile's agent and the text reaches it as written.
 - The turn runs in a throwaway session that is deleted afterwards with its
   messages and files. It writes no transcript, compaction, memory flush, title
   or skill observation, starts no delegate runs, and calls no memory plugin.

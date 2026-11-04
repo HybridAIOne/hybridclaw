@@ -14,6 +14,7 @@ import { withMemoryDatabase } from '../memory/database.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
 import {
   deleteGatewayAdminSession,
+  deleteSessionSideRows,
   removeSessionFiles,
 } from './gateway-session-deletion.js';
 import { deleteWebNotificationSession } from './web-notification-store.js';
@@ -224,18 +225,7 @@ export async function deleteChat(
   );
   for (const row of rows) {
     await deleteGatewayAdminSession(row.id);
-    withMemoryDatabase((db) =>
-      db.transaction(() => {
-        for (const table of [
-          'request_log',
-          'response_ratings',
-          'session_branches',
-        ]) {
-          db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(row.id);
-        }
-        db.prepare('DELETE FROM kv_store WHERE agent_id = ?').run(row.id);
-      })(),
-    );
+    deleteSessionSideRows(row.id);
     removeSessionFiles(row.id, row.agent, row.scope);
   }
   for (const agent of new Set(rows.map((row) => row.agent))) {
