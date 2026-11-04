@@ -1,6 +1,6 @@
 /**
  * Denials never execute a call or grant consent. A first shell safety block
- * permits one replan that omits prohibited effects; all new calls face policy.
+ * permits one replan. A terminal denial keeps its reason on its own tool-call receipt.
  * Unlike approval-reply, this cannot resolve a pending human decision.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
@@ -83,6 +83,14 @@ export async function handleToolDenial(params: {
     }
     return null;
   }
+  params.history.push(
+    params.recordResult({
+      role: 'tool',
+      tool_call_id: call.id,
+      content: denialText,
+      is_error: true,
+    }),
+  );
   const output: ContainerOutput = {
     status: 'success',
     result: denialText,
