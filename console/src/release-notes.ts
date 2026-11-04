@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.42.0',
+  version: '0.42.1',
   highlights: [
-    'Learning mode with approval audit flags',
-    'Admin approval defaults and safety controls',
-    'Safer file writes and interrupted-turn recovery',
-    'More reliable web, vision and delegation',
+    'Safer PDF reads and rendering recovery',
+    'Approval history and delegated file protection',
+    'Redacted audit previews by default',
+    'Outlook messages and HybridAI transcription',
   ],
 } as const;
 
