@@ -3528,6 +3528,7 @@ export function recordSuccessfulTurn(opts: {
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  dryRun?: boolean;
   promptOverheadTokens?: number;
 }): {
   userMessageId: number;
@@ -3538,7 +3539,7 @@ export function recordSuccessfulTurn(opts: {
     assistantContent: opts.resultText,
   });
 
-  if (opts.replaceBuiltInMemory !== true) {
+  if (opts.replaceBuiltInMemory !== true && !opts.dryRun) {
     void maybeCompactSession({
       sessionId: opts.sessionId,
       agentId: opts.agentId,
@@ -3699,6 +3700,7 @@ export function recordErrorTurn(opts: {
   /** Present iff delegations were started; without it the turn says none were. */
   delegationAcknowledgement?: string | null;
   replaceBuiltInMemory?: boolean;
+  dryRun?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;

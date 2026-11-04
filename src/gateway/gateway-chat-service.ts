@@ -792,11 +792,13 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
-  const addressed = resolveAgentAddressing({
-    content: req.content,
-    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
-    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
-  });
+  const addressed = req.dryRun
+    ? ({ kind: 'none', content: req.content } as const)
+    : resolveAgentAddressing({
+        content: req.content,
+        currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+        fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+      });
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -1303,7 +1305,7 @@ async function handleGatewayMessageInner(
     });
   }
   const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
+  if (turnIndex === 1 && !req.dryRun) {
     if (pluginManager) {
       await pluginManager.notifySessionStart({
         sessionId: req.sessionId,
@@ -1328,7 +1330,7 @@ async function handleGatewayMessageInner(
       chatbotId,
       model,
       userContent,
-      isFirstTurn: turnIndex === 1 && !session.title,
+      isFirstTurn: turnIndex === 1 && !session.title && !req.dryRun,
     });
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
@@ -1408,6 +1410,7 @@ async function handleGatewayMessageInner(
         toolCallCount: 0,
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       startTitle(routingUserContent)?.persist();
       const result: GatewayChatResult = {
@@ -1665,10 +1668,11 @@ async function handleGatewayMessageInner(
       username: req.username,
       mediaCount: media.length,
       source,
+      ...(req.dryRun ? { dryRun: true } : {}),
     },
   });
   const onboardingAuditContext =
-    startupBootstrapFile === 'BOOTSTRAP.md'
+    startupBootstrapFile === 'BOOTSTRAP.md' && !req.dryRun
       ? {
           sessionId: req.sessionId,
           runId,
@@ -2027,6 +2031,7 @@ async function handleGatewayMessageInner(
         toolCallCount: 0,
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       const result: GatewayChatResult = {
         status: 'success',
@@ -2223,6 +2228,7 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        dryRun: req.dryRun,
         ...approvalReplyContext(req, userTurnContent),
         approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
@@ -2348,6 +2354,7 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        dryRun: req.dryRun,
         ...approvalReplyContext(req, userTurnContent),
         approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
@@ -2392,7 +2399,7 @@ async function handleGatewayMessageInner(
     const toolExecutions = output.toolExecutions || [];
     hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
-      bootstrapFile: startupBootstrapFile,
+      bootstrapFile: req.dryRun ? null : startupBootstrapFile,
       toolExecutions,
       turnSucceeded: output.status === 'success',
     });
@@ -2589,7 +2596,7 @@ async function handleGatewayMessageInner(
     })) {
       enqueueTokenUsage({ ...event, ...usageAttribution });
     }
-    if (observedSkillName) {
+    if (observedSkillName && !req.dryRun) {
       try {
         recordSkillExecution({
           skillName: observedSkillName,
@@ -2627,6 +2634,8 @@ async function handleGatewayMessageInner(
       ReturnType<typeof normalizeDelegationEffect>['plan']
     >[] = [];
     const sideEffectNotices: string[] = [];
+    // Delegate runs are ordinary turns, so a dry run starts none.
+    if (req.dryRun) delete output.sideEffects;
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -2784,6 +2793,7 @@ async function handleGatewayMessageInner(
             : observedToolCalls,
         delegationAcknowledgement,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       turnPersisted = true;
       recordAuditEvent({
@@ -2990,10 +3000,11 @@ async function handleGatewayMessageInner(
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      dryRun: req.dryRun,
       promptOverheadTokens,
     });
     turnPersisted = true;
-    if (shown.emailDraft) {
+    if (shown.emailDraft && !req.dryRun) {
       storeEmailDraft(
         req.sessionId,
         storedTurn.assistantMessageId,
@@ -3018,7 +3029,7 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
     });
-    if (memoryPluginManager) {
+    if (memoryPluginManager && !req.dryRun) {
       await memoryPluginManager.notifyMemoryWrites({
         sessionId: req.sessionId,
         agentId,
@@ -3040,7 +3051,7 @@ async function handleGatewayMessageInner(
           );
         });
     }
-    if (pluginManager) {
+    if (pluginManager && !req.dryRun) {
       void pluginManager
         .notifyAgentEnd({
           sessionId: req.sessionId,
@@ -3184,6 +3195,7 @@ async function handleGatewayMessageInner(
           tools: observedToolCalls,
           delegationAcknowledgement,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+          dryRun: req.dryRun,
         });
       } catch (storeErr) {
         logger.error(

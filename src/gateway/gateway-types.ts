@@ -322,6 +322,8 @@ export interface GatewayChatRequest
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';
   autoApproveTools?: boolean;
+  /** Tools only read and nothing outlives the session, which the caller discards. */
+  dryRun?: boolean;
   neverAutoApproveTools?: string[];
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
