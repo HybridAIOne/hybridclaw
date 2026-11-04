@@ -1228,6 +1228,7 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,

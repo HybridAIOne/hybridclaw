@@ -3078,7 +3078,7 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      return runFileWrite(
+      return await runFileWrite(
         args,
         TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
         TASK_SANDBOX_FS_ENABLED
@@ -3173,7 +3173,7 @@ async function executeToolInternal(
         if (TASK_SANDBOX_FS_ENABLED) {
           writeTempFileToTaskSandbox(filePath, sandboxPath);
         }
-        resolveFileWriteConflict(currentSessionId, args.path);
+        await resolveFileWriteConflict(currentSessionId, args.path);
         return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
       } finally {
         if (tempDirToCleanup) {

@@ -227,7 +227,13 @@ opaque script execution still require approval while a conflict is unresolved.
 The failed write immediately reports recovery diagnostics from the same store
 used by subsequent approval decisions. They list the unresolved paths; writing a separate file leaves
 the script-execution restriction in place. A checked mutation resolves only its
-own path. Replacement workers reload the conflicts. Corrupt or unreadable guard
+own path. The gateway binds delegated workers to their root worker's conflict
+store through authenticated input. Parents, children and siblings reload that
+store before each decision; unrelated conversations retain separate stores.
+Shared updates use the existing cooperative file lock, preserving concurrent
+additions and resolutions. An active or abandoned lock fails closed until its
+writer finishes or the operator removes a verified abandoned lock.
+Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
 

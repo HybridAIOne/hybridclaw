@@ -10,7 +10,7 @@ useCleanMocks({ unstubAllEnvs: true, resetModules: true });
 describe('local writes', () => {
   let root: string;
   let file: string;
-  let write: (args: Record<string, unknown>) => string;
+  let write: (args: Record<string, unknown>) => Promise<string>;
   beforeEach(() => {
     root = makeTempDir('guarded-write-');
     file = path.join(root, 'report.txt');
@@ -18,8 +18,8 @@ describe('local writes', () => {
       runFileWrite(args, (userPath) => path.join(root, userPath));
   });
 
-  test('creates nested files and rejects accidental replacement', () => {
-    expect(write({ path: 'nested/note.txt', contents: 'café\n' })).toContain(
+  test('creates nested files and rejects accidental replacement', async () => {
+    await expect(write({ path: 'nested/note.txt', contents: 'café\n' })).resolves.toContain(
       '6 bytes',
     );
     expect(fs.readFileSync(path.join(root, 'nested/note.txt'), 'utf8')).toBe(
@@ -27,9 +27,9 @@ describe('local writes', () => {
     );
     fs.writeFileSync(file, 'keep me');
     for (const overwrite of [undefined, false]) {
-      expect(() =>
+      await expect(
         write({ path: 'report.txt', contents: 'replacement', overwrite }),
-      ).toThrow(/already exists/);
+      ).rejects.toThrow(/already exists/);
       expect(fs.readFileSync(file, 'utf8')).toBe('keep me');
     }
   });
@@ -39,51 +39,51 @@ describe('local writes', () => {
     { overwrite: true },
     { overwrite: true, expected_content: null },
     { expected_content: 'original' },
-  ])('rejects invalid replacement arguments %j', (fields) => {
+  ])('rejects invalid replacement arguments %j', async (fields) => {
     fs.writeFileSync(file, 'original');
-    expect(() =>
+    await expect(
       write({ path: 'report.txt', contents: 'replacement', ...fields }),
-    ).toThrow();
+    ).rejects.toThrow();
     expect(fs.readFileSync(file, 'utf8')).toBe('original');
   });
 
   test.each(['', 'original\n', 'café\r\n\0data'])(
     'replaces intentionally with exact expected content %j',
-    (original) => {
+    async (original) => {
       fs.writeFileSync(file, original, { mode: 0o640 });
-      expect(
+      await expect(
         write({
           path: 'report.txt',
           contents: 'replacement',
           overwrite: true,
           expected_content: original,
         }),
-      ).toContain('Wrote');
+      ).resolves.toContain('Wrote');
       expect(fs.readFileSync(file, 'utf8')).toBe('replacement');
       expect(fs.statSync(file).mode & 0o777).toBe(0o640);
       expect(fs.readdirSync(root)).toEqual(['report.txt']);
     },
   );
 
-  test('rejects a stale read and permits a deliberate replacement after rereading', () => {
+  test('rejects a stale read and permits a deliberate replacement after rereading', async () => {
     fs.writeFileSync(file, 'first');
     const stale = fs.readFileSync(file, 'utf8');
-    write({
+    await write({
       path: 'report.txt',
       contents: 'second',
       overwrite: true,
       expected_content: stale,
     });
-    expect(() =>
+    await expect(
       write({
         path: 'report.txt',
         contents: 'third',
         overwrite: true,
         expected_content: stale,
       }),
-    ).toThrow(/Stale write/);
+    ).rejects.toThrow(/Stale write/);
     expect(fs.readFileSync(file, 'utf8')).toBe('second');
-    write({
+    await write({
       path: 'report.txt',
       contents: 'third',
       overwrite: true,
@@ -95,60 +95,60 @@ describe('local writes', () => {
 
   test.each(['original', 'original\r\n'])(
     'rejects whitespace-only stale content %j',
-    (expected_content) => {
+    async (expected_content) => {
       fs.writeFileSync(file, 'original\n');
-      expect(() =>
+      await expect(
         write({
           path: 'report.txt',
           contents: 'replacement',
           overwrite: true,
           expected_content,
         }),
-      ).toThrow(/Stale write/);
+      ).rejects.toThrow(/Stale write/);
       expect(fs.readFileSync(file, 'utf8')).toBe('original\n');
       expect(fs.readdirSync(root)).toEqual(['report.txt']);
     },
   );
 
-  test('does not recreate a deleted replacement target or treat missing as empty', () => {
-    expect(() =>
+  test('does not recreate a deleted replacement target or treat missing as empty', async () => {
+    await expect(
       write({
         path: 'report.txt',
         contents: 'replacement',
         overwrite: true,
         expected_content: '',
       }),
-    ).toThrow(/existing regular file/);
+    ).rejects.toThrow(/existing regular file/);
     expect(fs.readdirSync(root)).toEqual([]);
   });
 
-  test('fails closed on a competing or abandoned lock', () => {
+  test('fails closed on a competing or abandoned lock', async () => {
     fs.writeFileSync(file, 'original');
     fs.mkdirSync(`${file}.lock`);
-    expect(() =>
+    await expect(
       write({
         path: 'report.txt',
         contents: 'replacement',
         overwrite: true,
         expected_content: 'original',
       }),
-    ).toThrow(/locked/);
+    ).rejects.toThrow(/locked/);
     expect(fs.readFileSync(file, 'utf8')).toBe('original');
     expect(fs.existsSync(`${file}.lock`)).toBe(true);
   });
 
-  test('never follows a symlink replacement target', () => {
+  test('never follows a symlink replacement target', async () => {
     const real = path.join(root, 'real.txt');
     fs.writeFileSync(real, 'original');
     fs.symlinkSync(real, file);
-    expect(() =>
+    await expect(
       write({
         path: 'report.txt',
         contents: 'replacement',
         overwrite: true,
         expected_content: 'original',
       }),
-    ).toThrow(/existing regular file/);
+    ).rejects.toThrow(/existing regular file/);
     expect(fs.readFileSync(real, 'utf8')).toBe('original');
   });
 });

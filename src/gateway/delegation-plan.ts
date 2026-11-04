@@ -8,6 +8,7 @@
  * `gateway-delegation.ts` schedules plans and returns their results.
  */
 import { randomUUID } from 'node:crypto';
+import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { normalizeHybridAIModelForRuntime } from '../providers/model-names.js';
@@ -82,7 +83,7 @@ export interface DelegationStatusSnapshot {
   entries: DelegationStatusEntry[];
 }
 
-export interface DelegationTaskRunInput {
+export interface DelegationTaskRunInput extends FileWriteGuardContext {
   workspaceOverrides?: WorkspaceOverrides;
   parentSessionId: string;
   childDepth: number;

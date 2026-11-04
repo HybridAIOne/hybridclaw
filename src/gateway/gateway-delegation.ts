@@ -11,6 +11,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
 import { enqueueDelegation } from '../agent/delegation-manager.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { isSilentReply } from '../agent/silent-reply.js';
@@ -374,23 +375,25 @@ export type DelegationParentTurnRunner = (params: {
   Pick<GatewayChatResult, 'status' | 'result' | 'artifacts' | 'pendingApproval'>
 >;
 
-export function enqueueDelegationBatchFromSideEffects(params: {
-  plans: NormalizedDelegationPlan[];
-  workspaceOverrides?: WorkspaceOverrides;
-  parentSessionId: string;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  parentModel?: string;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  parentDepth: number;
-  runParentTurn: DelegationParentTurnRunner;
-  publicId?: string;
-  ackText?: string;
-}): { publicId: string } | null {
+export function enqueueDelegationBatchFromSideEffects(
+  params: FileWriteGuardContext & {
+    plans: NormalizedDelegationPlan[];
+    workspaceOverrides?: WorkspaceOverrides;
+    parentSessionId: string;
+    channelId: string;
+    chatbotId: string;
+    enableRag: boolean;
+    agentId: string;
+    parentModel?: string;
+    onProactiveMessage?: (
+      message: ProactiveMessagePayload,
+    ) => void | Promise<void>;
+    parentDepth: number;
+    runParentTurn: DelegationParentTurnRunner;
+    publicId?: string;
+    ackText?: string;
+  },
+): { publicId: string } | null {
   const {
     plans,
     parentSessionId,
@@ -451,6 +454,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
 
   const context: DelegationRunContext = {
     workspaceOverrides: params.workspaceOverrides,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId ?? parentSessionId,
     parentSessionId,
     childDepth,
     channelId,
@@ -655,6 +659,7 @@ export async function runDelegationNow(params: {
   const plans = [normalized.plan];
   const context: DelegationRunContext = {
     parentSessionId: sessionId,
+    fileWriteGuardSessionId: parent.fileWriteGuardSessionId ?? params.sessionId,
     workspaceOverrides:
       request?.workspaceOverrides ?? parent.workspaceOverrides,
     childDepth,

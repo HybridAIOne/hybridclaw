@@ -1,19 +1,41 @@
 /**
- * Rejected file-write preconditions fence alternate mutation routes for a session.
+ * Rejected file writes fence alternate mutations across a delegation family.
  * Unlike write's byte comparison, this preserves the rejection across workers;
  * only a successful checked file mutation or a one-time approval can proceed.
- * The failed write and later approvals share recovery diagnostics from that store.
+ * Trusted input selects the root session; workers reload and lock its shared store.
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
+import fs from 'node:fs';
 import type { ClassifiedAction } from './approval-policy.js';
 import {
   isWithinRoot,
   resolveCanonicalPath,
   resolveWorkspacePath,
 } from './runtime-paths.js';
-import { SessionStateSet } from './session-state.js';
+import { SessionStateSet, sessionStatePath } from './session-state.js';
 
-const conflicts = new SessionStateSet('file-write-conflicts.json', true);
+const STATE_NAME = 'file-write-conflicts.json';
+const conflicts = new SessionStateSet(STATE_NAME, true);
+let activeSession = '';
+let guardSession = '';
+
+export function setFileWriteGuardSession(
+  sessionId: string,
+  rootSessionId?: string,
+): void {
+  if (
+    rootSessionId !== undefined &&
+    (typeof rootSessionId !== 'string' || !rootSessionId.trim())
+  ) {
+    throw new Error('Invalid file-write guard session');
+  }
+  activeSession = sessionId;
+  guardSession = rootSessionId ?? sessionId;
+}
+
+function stateSession(sessionId: string): string {
+  return sessionId === activeSession ? guardSession : sessionId;
+}
 
 function targetKey(target: string): string {
   return resolveCanonicalPath(resolveWorkspacePath(target) ?? target);
@@ -23,23 +45,29 @@ function recoveryReason(): string {
   return `a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts])}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`;
 }
 
-export function recordFileWriteConflict(
+export async function recordFileWriteConflict(
   sessionId: string,
   target: string,
-): string | undefined {
+): Promise<string | undefined> {
   if (!sessionId) return undefined;
-  conflicts.bindSession(sessionId);
-  conflicts.add(targetKey(target));
+  await conflicts.updateLockedSession(
+    stateSession(sessionId),
+    'add',
+    targetKey(target),
+  );
   return recoveryReason();
 }
 
-export function resolveFileWriteConflict(
+export async function resolveFileWriteConflict(
   sessionId: string,
   target: string,
-): void {
+): Promise<void> {
   if (!sessionId) return;
-  conflicts.bindSession(sessionId);
-  conflicts.delete(targetKey(target));
+  await conflicts.updateLockedSession(
+    stateSession(sessionId),
+    'delete',
+    targetKey(target),
+  );
 }
 
 export function guardFileWriteConflict(
@@ -49,7 +77,13 @@ export function guardFileWriteConflict(
   action: ClassifiedAction,
 ): ClassifiedAction {
   if (!sessionId) return action;
-  conflicts.bindSession(sessionId);
+  const owner = stateSession(sessionId);
+  if (fs.existsSync(`${sessionStatePath(owner, STATE_NAME)}.lock`)) {
+    throw new Error(
+      'File-write guard state is locked; retry after its writer finishes',
+    );
+  }
+  conflicts.bindSession(owner, true);
   if (conflicts.size === 0) return action;
   const shellMutation =
     toolName === 'bash' && (action.tier !== 'green' || action.writeIntent);
