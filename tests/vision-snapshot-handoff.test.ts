@@ -304,3 +304,94 @@ test('a reference from another workspace grants no access', async () => {
   );
   expect(fetch).not.toHaveBeenCalled();
 });
+
+test.each(['file', 'snapshot', 'browser'] as const)(
+  'a truncated %s analysis retains visible observations as a failed tool result',
+  async (source) => {
+    const { root, ref, fetch, tools } = await fixture([], ['aW1hZ2U=']);
+    const visible = 'The chart has four labeled columns.';
+    const privateReasoning = 'internal reasoning marker';
+    if (source === 'browser') {
+      const { setBrowserGatewayContext } = await import(
+        '../container/src/browser-tools.js'
+      );
+      setBrowserGatewayContext(
+        'https://gateway.example.com',
+        'test-key',
+        'fixture',
+      );
+      fetch.mockResolvedValueOnce(
+        Response.json({ success: true, imageBase64: 'aW1hZ2U=' }),
+      );
+    }
+    fetch.mockResolvedValueOnce(
+      Response.json({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: [
+                { type: 'reasoning', text: privateReasoning },
+                { type: 'text', text: visible },
+              ],
+              reasoning_content: privateReasoning,
+            },
+            finish_reason: 'length',
+          },
+        ],
+      }),
+    );
+    const file = path.join(root, 'chart.png');
+    await fs.writeFile(file, 'image');
+    const input =
+      source === 'snapshot'
+        ? { snapshot: ref }
+        : {
+            image_url: file,
+            fallback_url:
+              'https://cdn.discordapp.com/attachments/1/2/chart.png',
+          };
+    const result =
+      source === 'browser'
+        ? await tools.executeToolWithMetadata(
+            'browser_vision',
+            JSON.stringify({ question: 'Describe the chart.' }),
+          )
+        : await tools.executeToolWithMetadata(
+            'vision_analyze',
+            JSON.stringify({ ...input, question: 'Describe the chart.' }),
+          );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.output)).toMatchObject({
+      success: false,
+      incomplete: true,
+      partial_analysis: visible,
+    });
+    expect(result.output).not.toContain(privateReasoning);
+    expect(fetch).toHaveBeenCalledTimes(source === 'browser' ? 2 : 1);
+  },
+);
+
+test('a reasoning-only capped vision response returns an error without partial analysis', async () => {
+  const { analyze, fetch } = await fixture([], ['aW1hZ2U=']);
+  fetch.mockResolvedValueOnce(
+    Response.json({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            reasoning_content: 'internal reasoning marker',
+          },
+          finish_reason: 'length',
+        },
+      ],
+    }),
+  );
+  const result = await analyze();
+  expect(result.isError).toBe(true);
+  const output = JSON.parse(result.output);
+  expect(output.incomplete).toBe(true);
+  expect(output).not.toHaveProperty('partial_analysis');
+  expect(result.output).not.toContain('internal reasoning marker');
+});

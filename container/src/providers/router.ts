@@ -26,6 +26,7 @@ import {
   callHybridAIProvider,
   callHybridAIProviderStream,
 } from './hybridai.js';
+import { IncompleteVisionAnalysisError } from './incomplete-vision-error.js';
 import {
   callOllamaProvider,
   callOllamaProviderStream,
@@ -333,14 +334,21 @@ export async function callVisionProviderModel(
       })
     : await callRoutedModel(request);
 
-  if (response.choices[0]?.finish_reason === 'length') {
-    throw new Error(
-      'vision API reached its output limit; analysis is incomplete. Increase auxiliaryModels.vision.maxTokens for a longer analysis.',
+  const choice = response.choices[0];
+  const content = choice?.message?.content;
+  if (choice?.finish_reason === 'length') {
+    const visible = Array.isArray(content)
+      ? content.filter(
+          (part) =>
+            typeof part === 'string' ||
+            ['text', 'output_text'].includes(part?.type),
+        )
+      : content;
+    throw new IncompleteVisionAnalysisError(
+      extractResponseTextContent(visible),
     );
   }
-  const analysis = extractResponseTextContent(
-    response.choices[0]?.message?.content,
-  );
+  const analysis = extractResponseTextContent(content);
   if (!analysis) {
     throw new Error('vision API returned empty analysis');
   }

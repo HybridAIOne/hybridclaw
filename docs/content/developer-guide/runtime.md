@@ -147,7 +147,11 @@ When the primary model cannot receive pixels, dispatch offers the existing
 original page per call; a standalone image needs no page number. The helper uses
 the configured vision policy and requires visual-data delivery permission.
 It validates snapshot ownership, selection, integrity and the existing image
-size limit. Temporary render files can be removed before analysis, and a
+size limit. When a vision response reaches its output limit, the tool reports
+a failure. Any visible observations returned before the cutoff appear in
+`partial_analysis` with `incomplete: true`.
+
+Temporary render files can be removed before analysis, and a
 replacement worker can use the same reference. Missing or changed evidence
 requires reading the original file again.
 

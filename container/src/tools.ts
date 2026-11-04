@@ -83,6 +83,7 @@ import {
 } from './model-context.js';
 import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import { IncompleteVisionAnalysisError } from './providers/incomplete-vision-error.js';
 import { setVisualMediaAllowed } from './providers/visual-content.js';
 import {
   resolveSessionMediaReadPath,
@@ -2138,6 +2139,7 @@ async function runVisionAnalyze(
         2,
       );
     } catch (err) {
+      if (err instanceof IncompleteVisionAnalysisError) throw err;
       const detail = err instanceof Error ? err.message : String(err);
       errors.push(`${candidate}: ${detail}`);
     }
@@ -4373,7 +4375,10 @@ export async function executeToolWithMetadata(
       output: appendFileReferenceReceipt(metadata.output, sentFiles),
     };
   } catch (err) {
-    if (err instanceof ToolExecutionFailure) {
+    if (
+      err instanceof ToolExecutionFailure ||
+      err instanceof IncompleteVisionAnalysisError
+    ) {
       return {
         output: err.output,
         isError: true,
