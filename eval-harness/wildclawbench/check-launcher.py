@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 def main():
@@ -23,7 +24,12 @@ def main():
     sys.stdin = io.StringIO(json.dumps({
         "model": "openrouter/z-ai/glm-5", "prompt": "Fixture prompt", "timeout_seconds": 90,
     }))
-    launcher.main()
+    # Warmup and the worker must see the same home-relative resources.
+    with tempfile.TemporaryDirectory(dir=Path.home()) as prepared:
+        marker = Path(prepared) / "resource"
+        marker.write_text("prepared")
+        os.environ["WCB_CHECK_HOME_RESOURCE"] = str(marker.relative_to(Path.home()))
+        launcher.main()
     root = Path(os.environ["HYBRIDCLAW_DATA_DIR"])
     state = root / "data/agents/main/workspace"
     assert not state.is_symlink()
