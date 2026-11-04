@@ -1039,12 +1039,18 @@ function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
 }
 
 function inferBashHttpMethod(command: string): string {
-  const explicit = command.match(/\b(?:-X|--request)\s+([A-Za-z]+)/i);
+  const explicit = command.match(
+    /(?:^|\s)(?:-X\s*|--request[\s=]+|--method[\s=]+)([A-Za-z]+)/,
+  );
   if (explicit?.[1]) return explicit[1].toUpperCase();
-  if (/\b(?:--data(?:-raw|-binary)?|-d|--form|-F)\b/i.test(command)) {
+  if (/(?:^|\s)(?:-T\S*|--upload-file(?:\s|=|$))/.test(command)) return 'PUT';
+  if (
+    /(?:^|\s)(?:-[dF]\S*|(?:--data[\w-]*|--form[\w-]*|--json|--post-data|--post-file|--body-data|--body-file)(?:\s|=|$))/.test(
+      command,
+    )
+  ) {
     return 'POST';
   }
-  if (/\bwget\b/i.test(command)) return 'GET';
   return 'GET';
 }
 
@@ -2849,7 +2855,9 @@ export class TrustedAgentApprovalRuntime {
       commandPreview: params.commandPreview,
       pathHints: [],
       hostHints,
-      writeIntent: false,
+      writeIntent: params.targets.some(
+        (target) => !isReadOnlyHttpMethod(target.method),
+      ),
       promotableRed: false,
       stickyYellow: true,
     };
@@ -2955,7 +2963,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.name ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -2972,7 +2980,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.title ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -2989,7 +2997,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.title ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -3133,7 +3141,7 @@ export class TrustedAgentApprovalRuntime {
           commandPreview: normalizePreview(rawPath || 'BOOTSTRAP.md'),
           pathHints: rawPath ? [rawPath] : ['BOOTSTRAP.md'],
           hostHints: [],
-          writeIntent: false,
+          writeIntent: true,
           promotableRed: false,
           stickyYellow: false,
         };
@@ -3425,7 +3433,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -3606,7 +3614,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
