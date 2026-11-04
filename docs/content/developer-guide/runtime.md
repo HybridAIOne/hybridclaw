@@ -1388,6 +1388,11 @@ pages, with a mapping back to original page numbers. For full-document tasks,
 read every relevant page batch. A page is not empty merely because extraction
 returned no text.
 
+A disposable process renders the selected page images. If native rendering
+segfaults on a batch, the reader retries each selected page once in a fresh
+process. If rendering still fails, the reader returns the extracted text,
+reports the missing images, and continues to serve subsequent reads.
+
 PDF page and standalone-image snapshots live in workspace `.visual-snapshots/`, addressed by SHA-256. Tool
 history stores validated references, not base64 payloads. Worker replacement
 and provider changes reconstruct the appropriate representation from these
