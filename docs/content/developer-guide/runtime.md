@@ -143,9 +143,8 @@ write access and never searches another state directory or project cache.
 
 Visual reads retain content-addressed snapshots in the owning state directory.
 When the primary model cannot receive pixels, dispatch offers the existing
-`vision_analyze` tool a durable `snapshot` reference. The reference contains its full `id` and
-the original `pages` array, which is empty for a standalone image. For a PDF, `page` selects one
-original page per call; a standalone image needs no page number. The helper uses
+`vision_analyze` tool a durable `snapshot` reference. For a standalone image, its full `id` is sufficient.
+For a PDF, include the original `pages` array and select one original `page` per call. The helper uses
 the configured vision policy and requires visual-data delivery permission.
 It validates snapshot ownership, selection, integrity and the existing image
 size limit. Temporary render files can be removed before analysis, and a

@@ -3,6 +3,7 @@
  * The caller enforces visual-data permission; the existing snapshot loader enforces
  * ownership, page selection and integrity. This never renders or reads arbitrary paths.
  */
+import { isRecord } from '../shared/primitive-values.js';
 import {
   loadVisualSnapshot,
   PDF_READ_MAX_PAGES,
@@ -42,10 +43,10 @@ export const VISION_ANALYZE_TOOL_DEFINITION: ToolDefinition = {
               items: { type: 'integer' },
               maxItems: PDF_READ_MAX_PAGES,
               description:
-                'Original PDF page numbers from the reference, or an empty array for a standalone image.',
+                'Include the original page numbers for PDFs. Omit or use an empty array for a standalone image.',
             },
           },
-          required: ['id', 'pages'],
+          required: ['id'],
         },
         page: {
           type: 'integer',
@@ -76,7 +77,13 @@ export async function analyzeVisualSnapshot(
   runtimeContext: AuxiliaryRuntimeContext,
   toolName: string,
 ): Promise<string> {
-  const [ref] = validateVisualAttachments([input.snapshot]);
+  // An omitted selection asserts a standalone image. The loader checks that
+  // assertion against the stored snapshot before any pixels reach the provider.
+  const [ref] = validateVisualAttachments([
+    isRecord(input.snapshot)
+      ? { pages: [], ...input.snapshot }
+      : input.snapshot,
+  ]);
   const page =
     input.page === undefined
       ? ref.pages.length === 1

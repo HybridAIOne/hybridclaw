@@ -34,7 +34,7 @@ export function validateVisualAttachments(value) {
       )
     )
       throw new Error(
-        'Invalid visual attachment reference. Copy the full id and pages array from the reference, including an empty pages array for a standalone image.',
+        'Invalid visual attachment reference. Copy the full id and the original pages array from the reference.',
       );
     return { id: item.id, pages: [...item.pages] };
   });
@@ -99,8 +99,11 @@ export async function loadVisualSnapshot(workspaceRoot, attachment) {
     if (bytes.length > VISUAL_SNAPSHOT_MAX_BYTES || digest(bytes) !== ref.id)
       throw new Error('Visual snapshot integrity check failed');
     const snapshot = JSON.parse(bytes.toString());
+    if (JSON.stringify(snapshot.pages) !== JSON.stringify(ref.pages))
+      throw new Error(
+        'Snapshot page selection does not match the saved reference. Copy its original pages array.',
+      );
     if (
-      JSON.stringify(snapshot.pages) !== JSON.stringify(ref.pages) ||
       typeof snapshot.pdf !== 'string' ||
       !Array.isArray(snapshot.images) ||
       (ref.pages.length === 0
