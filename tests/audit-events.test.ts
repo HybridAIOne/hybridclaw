@@ -1,4 +1,6 @@
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useTempDir } from './test-utils.js';
@@ -203,7 +205,7 @@ test('emits approval request and response events for pending red actions', async
   );
 });
 
-test('tool result audit stores a redacted truncated preview beyond the summary', async () => {
+test('tool result audit keeps a redacted preview and no full copy by default', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -247,20 +249,15 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
     payload.resultSummary.length,
   );
   expect(payload.resultPreview.length).toBeLessThanOrEqual(4003);
-  expect(payload.resultFull.length).toBeGreaterThan(5000);
+  expect(payload).not.toHaveProperty('resultFull');
   expect(payload.resultPreview).not.toContain(
     'sk-test-ABCDEFGHIJKLMNOP1234567890',
   );
-  expect(payload.resultFull).not.toContain(
-    'sk-test-ABCDEFGHIJKLMNOP1234567890',
-  );
   expect(payload.resultPreview).toContain('token=***REDACTED***');
-  expect(payload.resultFull).toContain('token=***REDACTED***');
   expect(payload.resultPreview).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
-  expect(payload.resultFull).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
 });
 
-test('tool result audit can truncate retained full results through runtime config', async () => {
+test('tool result audit keeps the full redacted result only in full mode', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -278,13 +275,12 @@ test('tool result audit can truncate retained full results through runtime confi
 
   initDatabase({ quiet: true });
   updateRuntimeConfig((draft) => {
-    draft.audit.toolResults.mode = 'truncate';
-    draft.audit.toolResults.maxChars = 128;
+    draft.audit.toolResults.mode = 'full';
   });
 
   emitToolExecutionAuditEvents({
-    sessionId: 'session-result-truncated',
-    runId: 'run-result-truncated',
+    sessionId: 'session-result-full',
+    runId: 'run-result-full',
     toolExecutions: [
       {
         name: 'bash',
@@ -298,15 +294,43 @@ test('tool result audit can truncate retained full results through runtime confi
 
   await flushAuditTrail();
   const result = getRecentStructuredAuditForSession(
-    'session-result-truncated',
+    'session-result-full',
     10,
   ).find((event) => event.event_type === 'tool.result');
   const payload = JSON.parse(result?.payload || '{}') as Record<string, string>;
-  expect(payload.resultFull.length).toBeLessThanOrEqual(131);
-  expect(payload.resultFull.endsWith('...')).toBe(true);
+  expect(payload.resultFull.length).toBeGreaterThan(5000);
   expect(payload.resultFull).not.toContain(
     'sk-test-ABCDEFGHIJKLMNOP1234567890',
   );
+});
+
+test.each([
+  { version: 41, mode: 'full', expected: 'truncate' },
+  { version: 42, mode: 'full', expected: 'full' },
+])('a v$version config with tool results "$mode" loads as "$expected"', async ({
+  version,
+  mode,
+  expected,
+}) => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  );
+  config.version = version;
+  config.audit.toolResults.mode = mode;
+  config.ops.dbPath = path.join(homeDir, '.hybridclaw', 'data', 'hybridclaw.db');
+  fs.writeFileSync(configPath, JSON.stringify(config));
+
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+
+  expect(getRuntimeConfig().audit.toolResults.mode).toBe(expected);
+  expect(
+    JSON.parse(fs.readFileSync(configPath, 'utf-8')).audit.toolResults.mode,
+  ).toBe(expected);
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {
