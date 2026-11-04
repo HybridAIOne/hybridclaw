@@ -33,7 +33,9 @@ export function validateVisualAttachments(value) {
           (i > 0 && page <= item.pages[i - 1]),
       )
     )
-      throw new Error('Invalid visual attachment reference');
+      throw new Error(
+        'Invalid visual attachment reference. Copy the full id and pages array from the reference, including an empty pages array for a standalone image.',
+      );
     return { id: item.id, pages: [...item.pages] };
   });
 }

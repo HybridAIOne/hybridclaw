@@ -5,6 +5,7 @@
  */
 import {
   loadVisualSnapshot,
+  PDF_READ_MAX_PAGES,
   validateVisualAttachments,
 } from '../shared/visual-snapshots.js';
 import type { AuxiliaryRuntimeContext } from './model-context.js';
@@ -33,10 +34,21 @@ export const VISION_ANALYZE_TOOL_DEFINITION: ToolDefinition = {
         snapshot: {
           type: 'object',
           description:
-            'Durable visual snapshot reference offered after read. Copy it unchanged; choose an original PDF page with page.',
+            'Copy the durable snapshot reference offered after read.',
+          properties: {
+            id: { type: 'string', description: 'The complete snapshot ID.' },
+            pages: {
+              type: 'array',
+              items: { type: 'integer' },
+              maxItems: PDF_READ_MAX_PAGES,
+              description:
+                'Original PDF page numbers from the reference, or an empty array for a standalone image.',
+            },
+          },
+          required: ['id', 'pages'],
         },
         page: {
-          type: 'number',
+          type: 'integer',
           description:
             'One original PDF page from the snapshot selection. Required for multi-page snapshots; omit for standalone images.',
         },

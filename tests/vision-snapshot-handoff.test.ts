@@ -106,6 +106,14 @@ test('a text-only primary gets an actionable durable reference for its configure
     },
     async (request) => {
       sent = request.messages;
+      const schema = request.tools?.find(
+        (tool) => tool.function.name === 'vision_analyze',
+      )?.function.parameters.properties.snapshot;
+      expect(schema?.required?.slice().sort()).toEqual(Object.keys(ref).sort());
+      expect(schema?.properties).toMatchObject({
+        id: { type: 'string' },
+        pages: { type: 'array', items: { type: 'integer' } },
+      });
       return {
         choices: [
           {
@@ -142,6 +150,14 @@ test('a text-only primary gets an actionable durable reference for its configure
     'data:image/png;base64,cGFnZS03',
   );
   expect(JSON.stringify(body.messages)).not.toContain('cGFnZS0z');
+});
+
+test('an incomplete image reference identifies the missing field without calling the provider', async () => {
+  const { ref, analyze, fetch } = await fixture([], ['aW1hZ2U=']);
+  const result = await analyze({ snapshot: { id: ref.id } });
+  expect(result.isError).toBe(true);
+  expect(result.output).toContain('pages');
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 test('an image snapshot remains usable after worker modules are replaced', async () => {
