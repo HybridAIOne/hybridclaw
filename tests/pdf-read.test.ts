@@ -102,6 +102,44 @@ describe('bounded PDF read', () => {
     await expect(readPdfPages(file, { runtimeUrl })).rejects.toThrow('50 MiB');
   });
 
+  test.each([
+    { pages: '2-6', lineArgs: { limit: 1 }, expected: [2, 3, 4, 5] },
+    { pages: '5-6', lineArgs: { limit: 20 }, expected: [5, 6] },
+    { pages: '6,2,2,4,3,5', lineArgs: { offset: 9 }, expected: [2, 3, 4, 6] },
+    { pages: '2-9999999999', lineArgs: {}, expected: [2, 3, 4, 5] },
+  ])('offers an executable first batch for $pages with $lineArgs', async ({
+    pages,
+    lineArgs,
+    expected,
+  }) => {
+    const { root } = await fixture();
+    await fs.symlink(path.resolve('skills'), path.join(root, 'skills'));
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', root);
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
+    );
+    const args = { path: 'document.pdf', pages, render: 'never', ...lineArgs };
+    const failed = await executeToolWithMetadata('read', JSON.stringify(args));
+    expect(failed.isError).toBe(true);
+    expect(failed.visualAttachments).toBeUndefined();
+    const { suggestedCall } = JSON.parse(failed.output);
+    expect(suggestedCall.name).toBe('read');
+    expect(suggestedCall.arguments).toEqual({
+      path: args.path,
+      pages: expected.join(','),
+      render: args.render,
+    });
+    const retry = await executeToolWithMetadata(
+      suggestedCall.name,
+      JSON.stringify(suggestedCall.arguments),
+    );
+    expect(retry.isError).toBe(false);
+    expect(JSON.parse(retry.output)).toMatchObject({
+      processedPages: expected,
+      omittedPages: 6 - expected.length,
+    });
+  });
+
   test('worker read uses the PDF branch and gateway attachment access is replaced each turn', async () => {
     const { root, file } = await fixture();
     const mediaRoot = tempDir();

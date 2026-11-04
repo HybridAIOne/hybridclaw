@@ -22,6 +22,12 @@ export interface PdfReadResult extends VisualAttachmentMessage {
 }
 export { PDF_READ_MAX_PAGES } from './visual-snapshots.js';
 export const PDF_PREVIEW_MAX_CHARS: number;
+export function firstPdfPageBatch(selection: unknown):
+  | {
+      pages: string;
+      hasMore: boolean;
+    }
+  | undefined;
 export function readPdfPages(
   filePath: string,
   options?: PdfReadOptions,
