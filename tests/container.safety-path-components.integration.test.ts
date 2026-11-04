@@ -5,47 +5,52 @@ import { useContainerAgentHarness } from './helpers/container-agent.js';
 
 const run = useContainerAgentHarness();
 
-test('the real worker can run an interpreter inside an eval directory with all safety rules enabled', async () => {
-  const worker = await run(
-    [
-      {
-        role: 'assistant',
-        content: null,
-        tool_calls: [
-          {
-            id: 'check-version',
-            type: 'function',
-            function: {
-              name: 'bash',
-              arguments: JSON.stringify({
-                command: './envs/eval/bin/node --version',
-              }),
+test.each([
+  './envs/eval/bin/node --version',
+  'source ~/envs/eval/bin/activate && ~/envs/eval/bin/node --version',
+])(
+  'the real worker can use an interpreter in an eval directory: %s',
+  async (command) => {
+    const worker = await run(
+      [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'check-version',
+              type: 'function',
+              function: {
+                name: 'bash',
+                arguments: JSON.stringify({ command }),
+              },
             },
-          },
-        ],
+          ],
+        },
+        { role: 'assistant', content: 'Version checked.' },
+      ],
+      { approvalMode: 'full' },
+      {},
+      {
+        prepare: async (dir) => {
+          const bin = path.join(dir, 'envs/eval/bin');
+          fs.mkdirSync(bin, { recursive: true });
+          fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+          fs.writeFileSync(path.join(bin, 'activate'), 'true\n');
+          return {};
+        },
       },
-      { role: 'assistant', content: 'Version checked.' },
-    ],
-    { approvalMode: 'full' },
-    {},
-    {
-      prepare: async (dir) => {
-        const bin = path.join(dir, 'envs/eval/bin');
-        fs.mkdirSync(bin, { recursive: true });
-        fs.symlinkSync(process.execPath, path.join(bin, 'node'));
-        return {};
-      },
-    },
-  );
-  expect(worker.output.status).toBe('success');
-  expect(worker.output.pendingApproval).toBeUndefined();
-  expect(worker.output.toolExecutions).toHaveLength(1);
-  expect(worker.output.toolExecutions?.[0]).toMatchObject({
-    name: 'bash',
-    isError: false,
-  });
-  expect(worker.output.toolExecutions?.[0].result).toMatch(/v\d+\.\d+\.\d+/);
-});
+    );
+    expect(worker.output.status).toBe('success');
+    expect(worker.output.pendingApproval).toBeUndefined();
+    expect(worker.output.toolExecutions).toHaveLength(1);
+    expect(worker.output.toolExecutions?.[0]).toMatchObject({
+      name: 'bash',
+      isError: false,
+    });
+    expect(worker.output.toolExecutions?.[0].result).toMatch(/v\d+\.\d+\.\d+/);
+  },
+);
 
 test('an escaped eval is denied by the real worker before it can write a file', async () => {
   const worker = await run(
