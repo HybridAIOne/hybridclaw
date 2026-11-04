@@ -3,7 +3,8 @@
  * taken from its tool calls, never from its words. A client shows it next to
  * the reply, so "done" in the text always stands beside what the runtime saw:
  * a send that failed, a page it could not read, an order it could not confirm,
- * or nothing sent or changed at all.
+ * or nothing sent or changed at all. Failed reads remain visible even when
+ * their tool has no URL, file or subject to display.
  *
  * The turn that just ended builds it from its own tool executions; a stored
  * reply from its run's audit rows (`turn.end` names the message). Both go
@@ -115,14 +116,17 @@ interface TurnCall extends RunCall {
 
 const EMAIL = /[\w.+%-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 
-// A target as the user may see it: no credentials, no addresses.
+// A target or failure as the user may see it: no credentials or addresses.
+function receiptText(value: string): string {
+  return redactCredentialSecrets(value, true)
+    .replace(EMAIL, '…')
+    .replace(/\*\*\*EMAIL_REDACTED\*\*\*/g, '…');
+}
+
 function targetOf(args: Record<string, unknown>): string | null {
   for (const key of TARGET_KEYS) {
     const value = short(args[key]);
-    if (!value) continue;
-    return redactCredentialSecrets(value, true)
-      .replace(EMAIL, '…')
-      .replace(/\*\*\*EMAIL_REDACTED\*\*\*/g, '…');
+    if (value) return receiptText(value);
   }
   return null;
 }
@@ -154,16 +158,24 @@ export function buildTurnReceipt(calls: TurnCall[]): TurnReceipt {
     const kind = kindOf(call);
     const target = targetOf(call.args);
     const service = serviceOf(call.tool);
-    // A read without a target, such as a scroll, says nothing on its own.
-    if (kind === 'read' && !target && (!service || service === 'browser'))
+    // A successful read without a target, such as a scroll, adds no detail.
+    if (
+      call.ok &&
+      kind === 'read' &&
+      !target &&
+      (!service || service === 'browser')
+    )
       continue;
+    const error = call.ok || !call.error ? null : receiptText(call.error);
     const previous = items.at(-1);
     if (
       kind === 'read' &&
       previous?.kind === 'read' &&
       previous.tool === call.tool &&
       previous.target === target &&
-      previous.ok === call.ok
+      previous.ok === call.ok &&
+      previous.blocked === call.blocked &&
+      previous.error === error
     ) {
       previous.count += 1;
       continue;
@@ -177,7 +189,7 @@ export function buildTurnReceipt(calls: TurnCall[]): TurnReceipt {
       count: 1,
       ok: call.ok,
       blocked: call.blocked,
-      error: call.ok ? null : call.error,
+      error,
       proof:
         call.ok && kind !== 'read' && needsProof(call.tool)
           ? proofFor(call.tool, call.index, ordered)
