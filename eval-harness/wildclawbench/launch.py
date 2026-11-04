@@ -48,12 +48,10 @@ def main():
         "ops": {"debugModelResponses": True},
     }
     (root / "config.json").write_text(json.dumps(config))
-    home = Path("/tmp/hybridclaw-home")
-    home.mkdir(mode=0o700)
     if Path("/tmp_workspace/skills").is_dir():
         config["skills"] = {"extraDirs": ["/tmp_workspace/skills"]}
         (root / "config.json").write_text(json.dumps(config))
-    env = dict(os.environ, HOME=str(home),
+    env = dict(os.environ,
                HYBRIDCLAW_EVAL_WORKSPACE_ROOT="/tmp_workspace", GATEWAY_API_TOKEN=token, WEB_API_TOKEN=token,
                HYBRIDCLAW_ACCEPT_TRUST="true",
                NODE_OPTIONS=(os.environ.get("NODE_OPTIONS", "") +
