@@ -3723,7 +3723,7 @@ export class TrustedAgentApprovalRuntime {
         (entry) =>
           !entry.startsWith('/') ||
           (!isWorkspacePath(entry) &&
-            !entry.startsWith('/dev/null') &&
+            entry !== '/dev/null' &&
             !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
