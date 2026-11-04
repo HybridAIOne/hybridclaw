@@ -628,6 +628,8 @@ approval:
     'node scripts/fetch.cjs >& /opt/data/log.txt',
     'echo x 2>&1 > /opt/data/out.txt',
     'echo x >| /opt/data/out.txt',
+    'printf x > /dev/null-backup',
+    'touch /dev/null-backup',
   ])('writes outside the workspace stay fenced: %j', (command) => {
     const evaluation = evaluateBash(command);
 
