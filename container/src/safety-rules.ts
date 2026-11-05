@@ -10,13 +10,37 @@ import {
   SAFETY_RULES,
   type SafetyRule,
 } from '../shared/safety-rules.js';
-import { scriptCommands, shellCommandsRun } from './bash-commands.js';
+import {
+  commandProgram,
+  HOME_VARIABLE_RE,
+  scriptCommands,
+  shellCommandsRun,
+} from './bash-commands.js';
+import { codeSource } from './bash-remote-code.js';
 
 let disabledRuleIds: string[] = [];
 export function configureSafetyRules(value: unknown): void {
   disabledRuleIds = [];
   disabledRuleIds = normalizeDisabledSafetyRules(value);
 }
+function evalCheckWords(words: string[]): string[] {
+  const command = commandProgram(words);
+  const source = codeSource({ words, ...command });
+  return words.map((word, i) => {
+    // Only a command or script filename can use home-path shorthand here.
+    // Keep home-prefixed inline code and opaque arguments visible to the rule.
+    const fileOperand =
+      i === command.start ||
+      (source && 'file' in source && source.file === word);
+    const literal = fileOperand
+      ? word.replace(HOME_VARIABLE_RE, '~').replace(/^~\//, '/')
+      : word;
+    return literal.includes('/') && /^[\w./*-]+$/.test(literal)
+      ? path.posix.basename(literal)
+      : word;
+  });
+}
+
 export function activeSafetyBlock(
   scope: SafetyRule['scope'],
   value: string,
@@ -25,12 +49,7 @@ export function activeSafetyBlock(
   const evalInput =
     scope === 'bash' && !value.includes('<<')
       ? shellCommandsRun(scriptCommands(value))
-          .flat()
-          .map((word) =>
-            word.includes('/') && /^[\w./*-]+$/.test(word)
-              ? path.posix.basename(word)
-              : word,
-          )
+          .flatMap(evalCheckWords)
           .join(' ')
       : value;
   const rule = SAFETY_RULES.find(

@@ -3,8 +3,10 @@
  * The caller enforces visual-data permission; the existing snapshot loader enforces
  * ownership, page selection and integrity. This never renders or reads arbitrary paths.
  */
+import { isRecord } from '../shared/primitive-values.js';
 import {
   loadVisualSnapshot,
+  PDF_READ_MAX_PAGES,
   validateVisualAttachments,
 } from '../shared/visual-snapshots.js';
 import type { AuxiliaryRuntimeContext } from './model-context.js';
@@ -33,10 +35,21 @@ export const VISION_ANALYZE_TOOL_DEFINITION: ToolDefinition = {
         snapshot: {
           type: 'object',
           description:
-            'Durable visual snapshot reference offered after read. Copy it unchanged; choose an original PDF page with page.',
+            'Copy the durable snapshot reference offered after read.',
+          properties: {
+            id: { type: 'string', description: 'The complete snapshot ID.' },
+            pages: {
+              type: 'array',
+              items: { type: 'integer' },
+              maxItems: PDF_READ_MAX_PAGES,
+              description:
+                'Include the original page numbers for PDFs. Omit or use an empty array for a standalone image.',
+            },
+          },
+          required: ['id'],
         },
         page: {
-          type: 'number',
+          type: 'integer',
           description:
             'One original PDF page from the snapshot selection. Required for multi-page snapshots; omit for standalone images.',
         },
@@ -64,7 +77,13 @@ export async function analyzeVisualSnapshot(
   runtimeContext: AuxiliaryRuntimeContext,
   toolName: string,
 ): Promise<string> {
-  const [ref] = validateVisualAttachments([input.snapshot]);
+  // An omitted selection asserts a standalone image. The loader checks that
+  // assertion against the stored snapshot before any pixels reach the provider.
+  const [ref] = validateVisualAttachments([
+    isRecord(input.snapshot)
+      ? { pages: [], ...input.snapshot }
+      : input.snapshot,
+  ]);
   const page =
     input.page === undefined
       ? ref.pages.length === 1

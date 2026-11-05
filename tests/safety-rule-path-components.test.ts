@@ -10,6 +10,11 @@ test.each([
   'ls /opt/envs/eval/bin/python*',
   'ls ./envs/eval/bin/',
   'env LANG=C /opt/envs/eval/bin/python --version',
+  '~/envs/eval/bin/python --version',
+  '"$HOME/envs/eval/bin/python" --version',
+  'source ~/envs/eval/bin/activate && python --version',
+  '. "${HOME}/envs/eval/bin/activate"',
+  'python3 ~/envs/eval/scripts/report.py',
 ])(
   'does not mistake a literal directory component for eval execution: %s',
   (command) => {
@@ -32,6 +37,10 @@ test.each([
   'node -e \'eval/*comment*/("code")\'',
   'node -e \'/*comment*/eval/*comment*/("code")\'',
   '/opt/bin/eval example',
+  '~/bin/eval example',
+  'source ~/envs/eval/bin/activate && eval "$COMMAND"',
+  "python3 -c '~/envs/eval/code'",
+  "sh -c '~/envs/bin/eval example'",
   '/opt/envs/eval/bin/python -c \'eval("code")\'',
   'node <<\'EOF\'\n/*comment*/eval/*comment*/("code")\nEOF',
   'node <<<\'/*comment*/eval/*comment*/("code")\'',
@@ -43,4 +52,10 @@ test('path normalization does not disable other hard blocks', () => {
   expect(
     guardCommand('/opt/envs/eval/bin/python --version && rm -rf scratch'),
   ).toContain('recursive-delete');
+});
+
+test('a home-relative script is still subject to the source-script block', () => {
+  expect(guardCommand('source ~/envs/eval/setup.sh')).toContain(
+    'source-script',
+  );
 });

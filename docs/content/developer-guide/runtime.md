@@ -143,11 +143,15 @@ write access and never searches another state directory or project cache.
 
 Visual reads retain content-addressed snapshots in the owning state directory.
 When the primary model cannot receive pixels, dispatch offers the existing
-`vision_analyze` tool a durable `snapshot` reference. For a PDF, `page` selects one
-original page per call; a standalone image needs no page number. The helper uses
+`vision_analyze` tool a durable `snapshot` reference. For a standalone image, its full `id` is sufficient.
+For a PDF, include the original `pages` array and select one original `page` per call. The helper uses
 the configured vision policy and requires visual-data delivery permission.
 It validates snapshot ownership, selection, integrity and the existing image
-size limit. Temporary render files can be removed before analysis, and a
+size limit. When a vision response reaches its output limit, the tool reports
+a failure. Any visible observations returned before the cutoff appear in
+`partial_analysis` with `incomplete: true`.
+
+Temporary render files can be removed before analysis, and a
 replacement worker can use the same reference. Missing or changed evidence
 requires reading the original file again.
 
@@ -832,10 +836,14 @@ policy. A second shell hard block ends the turn, as do other policy denials.
 Pending human approvals still pause execution.
 
 The eval block checks parsed shell words and nested shell commands, so an `eval`
-directory inside a simple path does not block unrelated tools. Executables named
+directory inside a simple path does not block unrelated tools. Command and script
+filenames may also start with `~/` or `$HOME/`. Executables named
 `eval` and eval text in inline code remain blocked. Heredoc input retains the
 conservative text check; other safety matchers and normal approval policy still
 apply.
+
+When a denial ends the turn, the transcript and replay history retain the reason
+on the denied tool call. Later calls in the same batch are marked unexecuted.
 
 Generation and verification run separately from necessary cleanup. Agents leave
 disposable scratch files alone unless cleanup was requested or is needed for the
