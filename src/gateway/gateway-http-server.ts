@@ -11669,7 +11669,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {
-            await handleApiShellEnv(res, hasGatewayApiAuth(req));
+            await handleApiShellEnv(res, hasGatewayApiAuth(req), runtimeScope);
             return;
           }
           if (
