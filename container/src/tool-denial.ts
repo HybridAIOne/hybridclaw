@@ -1,6 +1,7 @@
 /**
- * Denials never execute a call or grant consent. A first shell safety block
- * permits one replan. A terminal denial keeps its reason on its own tool-call receipt.
+ * Denials never execute a call or grant consent. A first shell safety or
+ * unpinned network block permits one replan; new calls still face policy.
+ * Terminal denials retain their reason on the denied tool-call receipt.
  * Unlike approval-reply, this cannot resolve a pending human decision.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
@@ -22,14 +23,13 @@ export function canReplanAfterDenial(
   approval: ToolApprovalEvaluation,
   executions: ToolExecution[],
 ): boolean {
-  // One replan (Codex choice, 2026-10-31, following the owner's autonomy
-  // request): omit optional blocked work; repeated policy negotiation deferred.
+  // One replan per turn (Codex choice, 2026-11-04): an optional network probe
+  // must not end permitted work. Repeated policy negotiation remains terminal.
   return (
     approval.decision === 'denied' &&
-    approval.actionKey === BASH_SAFETY_ACTION_KEY &&
-    !executions.some(
-      (entry) => entry.approvalActionKey === BASH_SAFETY_ACTION_KEY,
-    )
+    (approval.actionKey === BASH_SAFETY_ACTION_KEY ||
+      (!approval.pinned && approval.actionKey.startsWith('network:'))) &&
+    !executions.some((entry) => entry.approvalDecision === 'denied')
   );
 }
 
@@ -60,7 +60,7 @@ export async function handleToolDenial(params: {
     for (const unrun of params.unrunCalls) {
       const content =
         unrun === call
-          ? `${denialText}\nNothing in this command ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this command or reproduce the blocked effects through another tool. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.`
+          ? `${denialText}\nNothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete independent permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional blocked work undone; explain a blocker only if it prevents the requested result.`
           : 'Not executed because an earlier call was blocked. Reconsider this step when replanning.';
       params.history.push(
         params.recordResult({

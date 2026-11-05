@@ -14,8 +14,10 @@ import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
 import { CONTEXT_GUARD_DEFAULTS } from '../shared/context-guard-config.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
+import { shouldOfferMessageTool } from '../shared/message-tool-channels.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { compileToolPatterns } from '../shared/tool-patterns.js';
+import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
 import {
@@ -1477,6 +1479,7 @@ async function processRequestInner(
   }
 
   while (stalledTurns < maxStalledTurns || continueForSteer(null)) {
+    appendActionPrerequisiteCheckpoint(history);
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: guardContextWindow,
@@ -2288,6 +2291,11 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     const isBlocked = compileToolPatterns(input.blockedTools);
     tools = tools.filter((tool) => !isBlocked(tool.function.name));
   }
+  tools = tools.filter(
+    (tool) =>
+      tool.function.name !== 'message' ||
+      shouldOfferMessageTool(input.activeMessageChannels),
+  );
   tools = adjustInboxCleanupTools(tools);
   setUserMailContext({
     toolNames: tools.map((tool) => tool.function.name),
