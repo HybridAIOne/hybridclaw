@@ -321,6 +321,37 @@ export const ADMIN_RBAC_ROLE_BUNDLES = {
 
 export type AdminRbacRole = keyof typeof ADMIN_RBAC_ROLE_ACTIONS;
 
+/**
+ * Actions an agent-scoped API token (one carrying an `agentIds` claim) may
+ * hold. Everything else is either not agent-aware (admin, apps, media) or can
+ * reach other agents (commands, OpenAI-compatible, voice), so it is refused.
+ */
+export const AGENT_SCOPED_TOKEN_ACTIONS = [
+  'chat.send',
+  'agents.read',
+] as const satisfies readonly AdminRbacAction[];
+
+/**
+ * Agent ids an API token is restricted to, or `null` when the token carries no
+ * `agentIds` claim (unrestricted). A malformed claim yields an empty list so it
+ * fails closed.
+ */
+export function readAgentScopeClaim(
+  payload: Record<string, unknown> | null,
+): string[] | null {
+  if (!payload || !Object.hasOwn(payload, 'agentIds')) return null;
+  const value = payload.agentIds;
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function isAgentScopedTokenAction(action: string): boolean {
+  return (AGENT_SCOPED_TOKEN_ACTIONS as readonly string[]).includes(action);
+}
+
 function readClaimValue(
   payload: Record<string, unknown>,
   key: 'actions' | 'scope' | 'role' | 'roles',

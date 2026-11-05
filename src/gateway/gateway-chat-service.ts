@@ -792,11 +792,40 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
+  const allowedAgentIds = req.allowedAgentIds;
+  const agentScopeError = (agentId: string): GatewayChatResult =>
+    attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: `Agent \`${agentId}\` is not available to this token.`,
+    });
+  if (
+    allowedAgentIds &&
+    session.agent_id &&
+    !allowedAgentIds.includes(session.agent_id)
+  ) {
+    return agentScopeError(session.agent_id);
+  }
   const addressed = resolveAgentAddressing({
     content: req.content,
     currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
     fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
   });
+  if (allowedAgentIds) {
+    if (addressed.kind === 'fanout') {
+      return agentScopeError(`@${addressed.alias}`);
+    }
+    if (addressed.kind === 'remote') {
+      return agentScopeError(addressed.canonicalId);
+    }
+    if (
+      addressed.kind === 'agent' &&
+      !allowedAgentIds.includes(addressed.agentId)
+    ) {
+      return agentScopeError(addressed.agentId);
+    }
+  }
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -975,6 +1004,17 @@ async function handleGatewayMessageInner(
         to: activeAgentId,
         from: session.agent_id || DEFAULT_AGENT_ID,
       };
+    }
+  }
+  if (allowedAgentIds) {
+    const scopedAgentId = resolveAgentForRequest({
+      agentId: req.agentId,
+      session,
+      model: req.model,
+      chatbotId: req.chatbotId,
+    }).agentId;
+    if (!allowedAgentIds.includes(scopedAgentId)) {
+      return agentScopeError(scopedAgentId);
     }
   }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);

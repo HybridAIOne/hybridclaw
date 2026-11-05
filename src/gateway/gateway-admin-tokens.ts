@@ -1,9 +1,14 @@
+import { getAgentById } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   ADMIN_TOKEN_RBAC_ACTIONS,
   type AdminRbacAction,
+  AGENT_SCOPED_TOKEN_ACTIONS,
+  collectAdminActionClaims,
   isAdminActionAllowed,
+  isAgentScopedTokenAction,
+  readAgentScopeClaim,
 } from '../security/admin-rbac.js';
 import {
   type ApiTokenMetadata,
@@ -97,6 +102,7 @@ function buildClaimsFromBody(body: Record<string, unknown>) {
   const actions = normalizeStringArrayClaim(body.actions, 'actions');
   const scope = normalizeStringArrayClaim(body.scope, 'scope');
   const roles = normalizeStringArrayClaim(body.roles, 'roles');
+  const agentIds = normalizeStringArrayClaim(body.agentIds, 'agentIds');
   const role =
     typeof body.role === 'string' && body.role.trim()
       ? body.role.trim()
@@ -106,6 +112,17 @@ function buildClaimsFromBody(body: Record<string, unknown>) {
   if (scope !== undefined) claims.scope = scope.join(' ');
   if (roles !== undefined) claims.roles = roles;
   if (role !== undefined) claims.role = role;
+  if (agentIds !== undefined) claims.agentIds = agentIds;
+  if (
+    agentIds !== undefined &&
+    actions === undefined &&
+    scope === undefined &&
+    roles === undefined &&
+    role === undefined
+  ) {
+    // An agent-scoped token defaults to the full agent-scopable action set.
+    claims.actions = [...AGENT_SCOPED_TOKEN_ACTIONS];
+  }
 
   if (
     !Object.hasOwn(claims, 'actions') &&
@@ -141,11 +158,51 @@ function normalizeCreateBody(body: unknown): {
   if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
     throw new GatewayRequestError(400, '`expiresAt` must be a valid date.');
   }
-  return {
-    label,
-    claims: buildClaimsFromBody(body),
-    expiresAt,
-  };
+  const claims = buildClaimsFromBody(body);
+  validateAgentScopeClaims(claims);
+  return { label, claims, expiresAt };
+}
+
+/**
+ * Validates an `agentIds` claim in place: known agents only, deduplicated, and
+ * combined only with agent-scopable actions. Shared by the admin API and CLI.
+ */
+export function validateAgentScopeClaims(
+  claims: Record<string, unknown>,
+): void {
+  if (!Object.hasOwn(claims, 'agentIds')) return;
+  const raw = claims.agentIds;
+  if (!Array.isArray(raw) || !raw.every((entry) => typeof entry === 'string')) {
+    throw new GatewayRequestError(
+      400,
+      '`agentIds` must be an array of agent ids.',
+    );
+  }
+  const agentIds = readAgentScopeClaim(claims) ?? [];
+  if (agentIds.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      '`agentIds` must name at least one agent.',
+    );
+  }
+  const unknown = agentIds.filter((agentId) => !getAgentById(agentId));
+  if (unknown.length > 0) {
+    throw new GatewayRequestError(
+      400,
+      `Unknown agent id(s) in \`agentIds\`: ${unknown.join(', ')}.`,
+    );
+  }
+  claims.agentIds = [...new Set(agentIds)];
+  const actions = collectAdminActionClaims(claims) ?? new Set<string>();
+  const disallowed = [...actions].filter(
+    (action) => !isAgentScopedTokenAction(action),
+  );
+  if (disallowed.length > 0) {
+    throw new GatewayRequestError(
+      400,
+      `Agent-scoped tokens only support the actions ${AGENT_SCOPED_TOKEN_ACTIONS.join(', ')}. Not allowed: ${disallowed.join(', ')}.`,
+    );
+  }
 }
 
 export function getGatewayAdminTokens(options: {

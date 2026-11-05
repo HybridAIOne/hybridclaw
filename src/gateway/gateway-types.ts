@@ -347,6 +347,12 @@ export interface GatewayChatRequest
   agentId?: GatewayChatRequestBody['agentId'];
   /** Bound before the request runs (`bindRequestedScope`); turns read the session's. */
   scope?: GatewayChatRequestBody['scope'];
+  /**
+   * When set, the turn may only run on these agents (agent-scoped API
+   * tokens). Addressing, fan-out, remote delivery and session agents are all
+   * checked against it.
+   */
+  allowedAgentIds?: string[];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];

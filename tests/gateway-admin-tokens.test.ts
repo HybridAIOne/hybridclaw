@@ -137,4 +137,39 @@ describe('gateway admin API tokens', () => {
       created.token,
     );
   });
+  test('creates agent-scoped tokens with default chat actions', async () => {
+    const { service } = await importAdminTokens();
+
+    const response = service.createGatewayAdminToken({
+      body: { label: 'Main widget', agentIds: ['main', 'main'] },
+      audit: { actor: 'admin-user' },
+    });
+
+    expect(response.apiToken.claims).toEqual({
+      actions: ['chat.send', 'agents.read'],
+      agentIds: ['main'],
+    });
+  });
+
+  test('rejects invalid agent-scoped token claims', async () => {
+    const { service } = await importAdminTokens();
+    const create = (body: Record<string, unknown>) => () =>
+      service.createGatewayAdminToken({
+        body: { label: 'scoped', ...body },
+        audit: {},
+      });
+
+    expect(create({ agentIds: [] })).toThrow(/at least one agent/);
+    expect(create({ agentIds: ['does-not-exist'] })).toThrow(
+      /Unknown agent id/,
+    );
+    expect(create({ agentIds: ['main'], actions: ['openai.api'] })).toThrow(
+      /Not allowed: openai\.api/,
+    );
+    expect(create({ agentIds: ['main'], actions: ['*'] })).toThrow(
+      /Not allowed: \*/,
+    );
+    expect(create({ claims: { agentIds: 'main', actions: ['chat.send'] } }))
+      .toThrow(/must be an array/);
+  });
 });
