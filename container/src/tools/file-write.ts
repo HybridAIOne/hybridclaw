@@ -44,6 +44,24 @@ export const WRITE_TOOL_DEFINITION: ToolDefinition = {
   },
 };
 
+const STALE_WRITE =
+  'Stale write: expected_content does not match; read the file again.';
+const missingFinalEnding = (ending: 'LF' | 'CRLF') =>
+  `Stale write: expected_content is missing the file's final ${ending}. Include that line ending in the exact current content before retrying.`;
+
+function staleWriteReason(current: Buffer, expected: Buffer): string {
+  const extra = current.length - expected.length;
+  if (
+    (extra === 1 || extra === 2) &&
+    current.subarray(0, expected.length).equals(expected)
+  ) {
+    const suffix = current.subarray(expected.length).toString();
+    if (suffix === '\n') return missingFinalEnding('LF');
+    if (suffix === '\r\n') return missingFinalEnding('CRLF');
+  }
+  return STALE_WRITE;
+}
+
 // Task images provide bash/coreutils, but need not have a Node runtime. Checks
 // and publication stay in one sandbox command, under the same .lock convention.
 const SANDBOX_WRITE = `set -euo pipefail
@@ -60,7 +78,19 @@ printf '%s' "$contents" | base64 -d > "$stage/content"
 if [ "$overwrite" = true ]; then
   [ ! -L "$target" ] && [ -f "$target" ] || { echo 'Replacement requires an existing regular file.' >&2; exit 1; }
   printf '%s' "$expected" | base64 -d > "$stage/expected"
-  cmp -s -- "$stage/expected" "$target" || { echo 'Stale write: expected_content does not match; read the file again.' >&2; exit 1; }
+  if ! cmp -s -- "$stage/expected" "$target"; then
+    case $(( $(wc -c < "$target") - $(wc -c < "$stage/expected") )) in
+      1) printf '\\n' >> "$stage/expected"; reason="${missingFinalEnding('LF')}" ;;
+      2) printf '\\r\\n' >> "$stage/expected"; reason="${missingFinalEnding('CRLF')}" ;;
+      *) reason='' ;;
+    esac
+    if [ -n "$reason" ] && cmp -s -- "$stage/expected" "$target"; then
+      printf '%s\\n' "$reason" >&2
+    else
+      echo '${STALE_WRITE}' >&2
+    fi
+    exit 1
+  fi
   chmod --reference="$target" -- "$stage/content"
   mv -fT -- "$stage/content" "$target"
 else
@@ -135,14 +165,10 @@ export async function runFileWrite(
           if (!stat?.isFile()) {
             throw new Error('Replacement requires an existing regular file');
           }
-          if (
-            !fs
-              .readFileSync(target)
-              .equals(Buffer.from(args.expected_content as string))
-          ) {
-            throw new Error(
-              'Stale write: expected_content does not match; read the file again',
-            );
+          const current = fs.readFileSync(target);
+          const expected = Buffer.from(args.expected_content as string);
+          if (!current.equals(expected)) {
+            throw new Error(staleWriteReason(current, expected));
           }
           writeMemoryFileAtomic(target, args.contents);
         } else {
