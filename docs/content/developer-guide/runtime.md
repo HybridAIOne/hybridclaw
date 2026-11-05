@@ -828,6 +828,9 @@ still require approval. Tools that accept multiple identifiers should fetch
 independent items in one request within the tool's limits.
 
 Shell safety hard blocks run before approval resolution and again at execution.
+The denial reports every enabled matching rule, once per rule, so a compound
+command does not hide an independent blocker behind the first match. No part of
+the blocked command executes; reporting more matches does not grant approval.
 They cannot be overridden by a user approval, so prohibited commands produce a
 denial without creating a pending approval. The first such denial in a request
 returns to the model once to plan work that omits prohibited effects. Remaining

@@ -1,7 +1,7 @@
 /**
  * Safety settings are a per-turn snapshot of authenticated gateway input.
  * Missing settings reset to all rules enabled; worker memory is never consent.
- * Eval matching examines shell words without treating path directories as code.
+ * Eval matching ignores path directories; denials report every enabled match.
  * Unlike approval policy, this module cannot promote or authorize an action.
  */
 import path from 'node:path';
@@ -52,7 +52,7 @@ export function activeSafetyBlock(
           .flatMap(evalCheckWords)
           .join(' ')
       : value;
-  const rule = SAFETY_RULES.find(
+  const rules = SAFETY_RULES.filter(
     (candidate) =>
       candidate.scope === scope &&
       !disabledRuleIds.includes(candidate.id) &&
@@ -60,7 +60,7 @@ export function activeSafetyBlock(
         (candidate.id === 'eval' ? evalInput : value).toLowerCase(),
       ),
   );
-  return rule
-    ? `Blocked by safety rule ${rule.id}: ${rule.reason} Approval cannot override this restriction.`
+  return rules.length > 0
+    ? `${rules.map((rule) => `Blocked by safety rule ${rule.id}: ${rule.reason}`).join('\n')} Approval cannot override ${rules.length === 1 ? 'this restriction' : 'these restrictions'}.`
     : null;
 }
