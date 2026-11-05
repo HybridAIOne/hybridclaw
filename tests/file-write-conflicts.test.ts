@@ -93,6 +93,15 @@ test.each([
   "node -e \"require('fs').writeFileSync('report.md','replacement')\"",
   'target=report.md; printf replacement > "$target"',
   'sh -c "printf replacement > report.md"',
+  "date -s '2030-01-01'",
+  'date --set=2030-01-01',
+  'date 010112002030',
+  'date +%s -s 2030-01-01',
+  'date +%s > report.md',
+  'date -u +$(python3 generated.py)',
+  'date +$FORMAT',
+  'date +%s*',
+  'date -u; python3 generated.py',
 ])('a failed write cannot silently recover with %s', async (command) => {
   const runtime = await worker();
   await expect(
@@ -108,12 +117,22 @@ test.each([
   );
 });
 
-test('read-only diagnostics and a new deliverable stay available', async () => {
+test.each([
+  'ls -l report.md',
+  'date',
+  'date -u',
+  'date --utc +%s',
+  'date --universal +%F',
+  'date -u +%FT%TZ',
+  "date -u '+%Y-%m-%d %H:%M:%S'",
+  'date +%s | head -1',
+  'ls report.md && date -u +%F',
+])('read-only diagnostic %s and a new deliverable stay available', async (command) => {
   const runtime = await worker();
   await expect(
     runtime.write({ path: 'report.md', contents: 'replacement' }),
   ).rejects.toThrow();
-  expect(runtime.call('bash', { command: 'ls -l report.md' })).toMatchObject({
+  expect(runtime.call('bash', { command })).toMatchObject({
     pinned: false,
     decision: 'auto',
   });
