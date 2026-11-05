@@ -1142,6 +1142,11 @@ Container-side adaptations for local models:
 
 ## Activity-Based Agent Timeout
 
+Successful streaming provider responses use a 90-second idle deadline for body chunks,
+including JSON returned instead of an event stream. Each received chunk resets
+that deadline; a longer response can complete while data continues to arrive.
+An idle JSON body is cancelled and surfaces the same retryable timeout as SSE.
+
 The IPC read timeout (default `CONTAINER_TIMEOUT = 300_000 ms`) now supports
 activity-based deadline extension:
 

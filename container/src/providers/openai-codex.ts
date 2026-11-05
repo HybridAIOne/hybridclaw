@@ -22,6 +22,7 @@ import {
 } from './shared.js';
 import {
   fetchWithHeaderTimeout,
+  readJsonWithIdleTimeout,
   readWithIdleTimeout,
   STREAM_IDLE_TIMEOUT_MS,
 } from './stream-utils.js';
@@ -880,26 +881,11 @@ async function callOpenAIResponsesProviderStreamInternal(
     response.headers.get('content-type') || ''
   ).toLowerCase();
   if (
-    contentType.includes('application/json') &&
-    !contentType.includes('event-stream')
+    (contentType.includes('application/json') &&
+      !contentType.includes('event-stream')) ||
+    !response.body
   ) {
-    const payload = (await response.json()) as unknown;
-    if (args.debugModelResponses) {
-      logModelResponseDebug({
-        provider: args.provider,
-        model: args.model,
-        kind: 'raw_non_streaming_response',
-        response: payload,
-      });
-    }
-    const adapted = adaptCodexResponse(payload, args.model);
-    assertNonEmptyCodexResponse(adapted, args.model, args.provider);
-    emitResponseTextDeltas(adapted, args.onTextDelta);
-    return adapted;
-  }
-
-  if (!response.body) {
-    const payload = (await response.json()) as unknown;
+    const payload = await readJsonWithIdleTimeout(response);
     if (args.debugModelResponses) {
       logModelResponseDebug({
         provider: args.provider,
