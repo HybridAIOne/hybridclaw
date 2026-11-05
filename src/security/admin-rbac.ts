@@ -333,8 +333,8 @@ export const AGENT_SCOPED_TOKEN_ACTIONS = [
 
 /**
  * Agent ids an API token is restricted to, or `null` when the token carries no
- * `agentIds` claim (unrestricted). A malformed claim yields an empty list so it
- * fails closed.
+ * `agentIds` claim (unrestricted). A malformed claim, including a single
+ * non-string or blank entry, yields an empty list so it fails closed.
  */
 export function readAgentScopeClaim(
   payload: Record<string, unknown> | null,
@@ -342,10 +342,12 @@ export function readAgentScopeClaim(
   if (!payload || !Object.hasOwn(payload, 'agentIds')) return null;
   const value = payload.agentIds;
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const agentIds: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.trim()) return [];
+    agentIds.push(entry.trim());
+  }
+  return agentIds;
 }
 
 export function isAgentScopedTokenAction(action: string): boolean {

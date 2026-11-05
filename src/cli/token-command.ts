@@ -1,6 +1,5 @@
 import { validateAgentScopeClaims } from '../gateway/gateway-admin-tokens.js';
 import { withMemoryDatabase } from '../memory/database.js';
-import { AGENT_SCOPED_TOKEN_ACTIONS } from '../security/admin-rbac.js';
 import {
   createApiToken,
   listApiTokens,
@@ -118,10 +117,7 @@ function parseCreateArgs(args: string[]): {
       'Usage: `hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>)`',
     );
   }
-  if (agentIds !== null && !role && actions.length === 0) {
-    actions = [...AGENT_SCOPED_TOKEN_ACTIONS];
-  }
-  if (!role && actions.length === 0) {
+  if (!role && actions.length === 0 && agentIds === null) {
     throw new Error(
       'Token claims are required. Pass `--role`, `--actions`, or `--agents`.',
     );

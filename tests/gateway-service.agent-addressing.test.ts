@@ -355,27 +355,31 @@ test('agent-scoped turns cannot address agents outside the scope', async () => {
     allowedAgentIds: ['support'],
   };
 
-  const addressed = await handleGatewayMessage({
-    ...base,
-    sessionId: 'session-scoped-addressed',
-    content: '@Research-Agent summarize this',
+  const forbidden = { statusCode: 403 };
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-addressed',
+      content: '@Research-Agent summarize this',
+    }),
+  ).rejects.toMatchObject({
+    ...forbidden,
+    message: expect.stringContaining('`research` is not available'),
   });
-  expect(addressed.status).toBe('error');
-  expect(addressed.error).toContain('`research` is not available');
-
-  const fanout = await handleGatewayMessage({
-    ...base,
-    sessionId: 'session-scoped-fanout',
-    content: '@team hello',
-  });
-  expect(fanout.status).toBe('error');
-
-  const remote = await handleGatewayMessage({
-    ...base,
-    sessionId: 'session-scoped-remote',
-    content: '@remote@team@peer-instance hello',
-  });
-  expect(remote.status).toBe('error');
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-fanout',
+      content: '@team hello',
+    }),
+  ).rejects.toMatchObject(forbidden);
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-remote',
+      content: '@remote@team@peer-instance hello',
+    }),
+  ).rejects.toMatchObject(forbidden);
 
   expect(runAgentMock).not.toHaveBeenCalled();
 

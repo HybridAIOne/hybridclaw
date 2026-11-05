@@ -113,26 +113,17 @@ function buildClaimsFromBody(body: Record<string, unknown>) {
   if (roles !== undefined) claims.roles = roles;
   if (role !== undefined) claims.role = role;
   if (agentIds !== undefined) claims.agentIds = agentIds;
-  if (
-    agentIds !== undefined &&
-    actions === undefined &&
-    scope === undefined &&
-    roles === undefined &&
-    role === undefined
-  ) {
-    // An agent-scoped token defaults to the full agent-scopable action set.
-    claims.actions = [...AGENT_SCOPED_TOKEN_ACTIONS];
-  }
 
   if (
     !Object.hasOwn(claims, 'actions') &&
     !Object.hasOwn(claims, 'scope') &&
     !Object.hasOwn(claims, 'role') &&
-    !Object.hasOwn(claims, 'roles')
+    !Object.hasOwn(claims, 'roles') &&
+    !Object.hasOwn(claims, 'agentIds')
   ) {
     throw new GatewayRequestError(
       400,
-      'API token claims are required. Provide `actions`, `scope`, `role`, `roles`, or `claims`.',
+      'API token claims are required. Provide `actions`, `scope`, `role`, `roles`, `agentIds`, or `claims`.',
     );
   }
 
@@ -164,18 +155,22 @@ function normalizeCreateBody(body: unknown): {
 }
 
 /**
- * Validates an `agentIds` claim in place: known agents only, deduplicated, and
- * combined only with agent-scopable actions. Shared by the admin API and CLI.
+ * Validates an `agentIds` claim in place: known agents only, deduplicated,
+ * no roles, and only agent-scopable actions (defaulting to all of them when
+ * none are given). Shared by the admin API, nested `claims`, and the CLI.
  */
 export function validateAgentScopeClaims(
   claims: Record<string, unknown>,
 ): void {
   if (!Object.hasOwn(claims, 'agentIds')) return;
   const raw = claims.agentIds;
-  if (!Array.isArray(raw) || !raw.every((entry) => typeof entry === 'string')) {
+  if (
+    !Array.isArray(raw) ||
+    !raw.every((entry) => typeof entry === 'string' && entry.trim())
+  ) {
     throw new GatewayRequestError(
       400,
-      '`agentIds` must be an array of agent ids.',
+      '`agentIds` must be an array of non-empty agent ids.',
     );
   }
   const agentIds = readAgentScopeClaim(claims) ?? [];
@@ -193,6 +188,17 @@ export function validateAgentScopeClaims(
     );
   }
   claims.agentIds = [...new Set(agentIds)];
+  if (Object.hasOwn(claims, 'role') || Object.hasOwn(claims, 'roles')) {
+    throw new GatewayRequestError(
+      400,
+      'Agent-scoped tokens do not accept `role` or `roles`; use `actions`.',
+    );
+  }
+  const explicitActions = collectAdminActionClaims(claims);
+  if (!explicitActions || explicitActions.size === 0) {
+    claims.actions = [...AGENT_SCOPED_TOKEN_ACTIONS];
+    delete claims.scope;
+  }
   const actions = collectAdminActionClaims(claims) ?? new Set<string>();
   const disallowed = [...actions].filter(
     (action) => !isAgentScopedTokenAction(action),

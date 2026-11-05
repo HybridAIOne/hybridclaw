@@ -53,6 +53,7 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
@@ -793,13 +794,13 @@ async function handleGatewayMessageInner(
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
   const allowedAgentIds = req.allowedAgentIds;
-  const agentScopeError = (agentId: string): GatewayChatResult =>
-    attachSessionIdentity({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Agent \`${agentId}\` is not available to this token.`,
-    });
+  // Thrown (not returned) so HTTP callers answer 403 rather than 500.
+  const agentScopeError = (agentId: string): never => {
+    throw new GatewayRequestError(
+      403,
+      `Agent \`${agentId}\` is not available to this token.`,
+    );
+  };
   if (
     allowedAgentIds &&
     session.agent_id &&
