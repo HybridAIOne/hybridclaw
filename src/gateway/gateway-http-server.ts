@@ -3543,7 +3543,11 @@ async function handleApiChat(
         403,
         'Connector approvals require a human chat session.',
       );
-    await forwardConnectorDecision(approval, sessionId, chatRequest.userId);
+    chatRequest.approvalClaim = await forwardConnectorDecision(
+      approval,
+      sessionId,
+      chatRequest.userId,
+    );
   }
   if (rejoin) {
     if (

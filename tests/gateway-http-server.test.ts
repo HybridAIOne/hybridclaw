@@ -13099,7 +13099,7 @@ describe('gateway HTTP server', () => {
     await waitForResponse(replayRes,next=>next.writableEnded);
     expect(replayRes.statusCode).toBe(409);
     expect(state.handleGatewayMessage).toHaveBeenCalledTimes(1);
-    await pending.clearPendingApproval('web-test');
+    await pending.clearPendingApproval('web-test', { ...pending.getPendingApproval('web-test')! });
   });
 
   test('handles /approve view from the web chat path', async () => {
@@ -13139,7 +13139,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
     });
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('rejects /approve always from the web chat path', async () => {
@@ -13186,7 +13186,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
     });
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('preserves pending approval metadata for /approve yes on the web chat stream path', async () => {
@@ -13271,7 +13271,7 @@ describe('gateway HTTP server', () => {
       },
     ]);
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('preserves assistant role and structured reply fields after a web approval', async () => {
@@ -13292,7 +13292,8 @@ describe('gateway HTTP server', () => {
     };
     const cost = { eur: 0, free: true, requests: 1 };
     const receipt = { version: 1, items: [], more: 0 };
-    state.handleGatewayMessage.mockResolvedValue({
+    const { coordinateGatewayApproval } = await import('../src/gateway/approval-coordination.js');
+    state.handleGatewayMessage.mockImplementation(coordinateGatewayApproval(async (_request, accept) => { accept(); return {
       status: 'success',
       assistantMessageId: 42,
       emailDraft, cost, receipt,
@@ -13300,7 +13301,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
       toolsUsed: ['delete', 'read'],
       artifacts: [],
-    });
+    }; }));
     const req = makeRequest({
       method: 'POST',
       url: '/api/chat',

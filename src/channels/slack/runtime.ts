@@ -14,6 +14,7 @@ import {
   getApprovalVisibleText,
 } from '../../gateway/approval-presentation.js';
 import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
+import type { PendingApprovalClaim } from '../../gateway/pending-approvals.js';
 import {
   claimPendingApprovalByApprovalId,
   rollbackPendingApprovalClaim,
@@ -102,6 +103,7 @@ export type SlackCommandHandler = (
   username: string,
   args: string[],
   reply: SlackCommandReplyFn,
+  approvalClaim?: PendingApprovalClaim,
 ) => Promise<void>;
 
 export interface SlackActiveSessionSendParams {
@@ -1104,6 +1106,7 @@ async function startSlackRuntime(handler: {
             }
             await postSlackText(approvalTarget, content);
           },
+          pending.claim,
         );
         const messageTs = trimValue(
           'ts' in message ? String(message.ts || '') : '',
@@ -1117,10 +1120,7 @@ async function startSlackRuntime(handler: {
           });
         }
       } catch (error) {
-        rollbackPendingApprovalClaim({
-          sessionId: pending.sessionId,
-          approvalId: parsed.approvalId,
-        });
+        rollbackPendingApprovalClaim(pending.claim);
         logger.error(
           { error, channelId, userId, approvalId: parsed.approvalId },
           'Slack approval button failed',

@@ -10,8 +10,10 @@ import {
 } from '../memory/message-approval.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
-  clearPendingApproval,
+  claimPendingApprovalByApprovalId,
   getPendingApproval,
+  getStoredPendingApproval,
+  handoffPendingApprovalClaim,
   setPendingApproval,
 } from './pending-approvals.js';
 
@@ -25,7 +27,8 @@ export async function rememberChatApproval(
   if (result.assistantMessageId)
     setMessageApproval(sessionId, result.assistantMessageId, approval);
   // A channel may already have registered the request with its notification cleanup.
-  if (getPendingApproval(sessionId)?.approvalId === approval.approvalId) return;
+  if (getStoredPendingApproval(sessionId)?.approvalId === approval.approvalId)
+    return;
   await setPendingApproval(sessionId, {
     approvalId: approval.approvalId,
     prompt: approval.prompt,
@@ -41,7 +44,7 @@ export function pendingChatApproval(sessionId: string, userId: string) {
   if (
     !pending?.approval ||
     pending.userId !== userId ||
-    pending.resolvedAt ||
+    pending.state !== 'pending' ||
     pending.expiresAt <= Date.now() ||
     (pending.approval.expiresAt !== null &&
       pending.approval.expiresAt <= Date.now())
@@ -60,11 +63,14 @@ export async function rememberChatApprovalDecision(
     (reply.decision !== 'approve' && reply.decision !== 'deny')
   )
     return;
-  const pending = getPendingApproval(sessionId);
+  const pending = getStoredPendingApproval(sessionId);
   if (
     pending?.approvalId !== reply.approvalId ||
     pending.userId !== userId ||
-    (pending.expiresAt <= Date.now() && !pending.resolvedAt)
+    (pending.state !== 'pending' &&
+      pending.state !== 'claimed' &&
+      pending.state !== 'handed_off') ||
+    pending.expiresAt <= Date.now()
   )
     return;
   decideMessageApproval(
@@ -72,5 +78,10 @@ export async function rememberChatApprovalDecision(
     reply.approvalId,
     reply.decision === 'approve' ? 'allowed' : 'denied',
   );
-  await clearPendingApproval(sessionId);
+  const claim = claimPendingApprovalByApprovalId({
+    sessionId,
+    approvalId: reply.approvalId,
+    userId,
+  });
+  if (claim.status === 'claimed') handoffPendingApprovalClaim(claim.claim);
 }

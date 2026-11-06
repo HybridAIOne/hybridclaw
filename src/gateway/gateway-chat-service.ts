@@ -168,6 +168,7 @@ import {
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from './app-widgets.js';
+import { coordinateGatewayApproval } from './approval-coordination.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
 import { rememberChatApprovalDecision } from './chat-approval-review.js';
@@ -656,8 +657,13 @@ function buildA2AChatThreadId(session: {
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
 
-export async function handleGatewayMessage(
+export const handleGatewayMessage = coordinateGatewayApproval(
+  handleGatewayMessageQueued,
+);
+
+async function handleGatewayMessageQueued(
   req: GatewayChatRequest,
+  accept: () => void,
 ): Promise<GatewayChatResult> {
   if (isGatewayShuttingDown()) {
     return {
@@ -667,6 +673,7 @@ export async function handleGatewayMessage(
       error: GATEWAY_RESTARTING_ERROR,
     };
   }
+  accept();
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);

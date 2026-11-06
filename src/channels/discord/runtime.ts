@@ -43,7 +43,11 @@ import {
   getApprovalVisibleText,
 } from '../../gateway/approval-presentation.js';
 import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
-import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
+import type { PendingApprovalClaim } from '../../gateway/pending-approvals.js';
+import {
+  claimPendingApprovalByApprovalId,
+  rollbackPendingApprovalClaim,
+} from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import {
   normalizeSessionShowMode,
@@ -208,6 +212,7 @@ export type CommandHandler = (
   username: string,
   args: string[],
   reply: ReplyFn,
+  approvalClaim?: PendingApprovalClaim,
 ) => Promise<void>;
 
 let client: Client;
@@ -1726,10 +1731,11 @@ export async function initDiscord(
               ...interactionVisibility,
             });
           },
+          pending.claim,
         );
         await pending.entry.disableButtons?.().catch(() => {});
       } catch (error) {
-        pending.entry.resolvedAt = null;
+        rollbackPendingApprovalClaim(pending.claim);
         const detail = error instanceof Error ? error.message : String(error);
         logger.error(
           { error, guildId, channelId, userId: interaction.user.id },

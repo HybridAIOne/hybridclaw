@@ -5,7 +5,7 @@ import { useCleanMocks } from './test-utils.js';
 const mocks = vi.hoisted(() => ({ model: vi.fn(), forward: vi.fn(), get: vi.fn(), set: vi.fn(), usage: vi.fn() }));
 vi.mock('../src/providers/auxiliary.js', () => ({ callAuxiliaryModel: mocks.model }));
 vi.mock('../src/gateway/connector-approval.js', () => ({ forwardConnectorDecision: mocks.forward }));
-vi.mock('../src/gateway/pending-approvals.js', () => ({ getPendingApproval: mocks.get, setPendingApproval: mocks.set }));
+vi.mock('../src/gateway/pending-approvals.js', () => ({ getStoredPendingApproval: mocks.get, getPendingApproval: mocks.get, setPendingApproval: mocks.set }));
 vi.mock('../src/usage/token-usage-buffer.js', () => ({ enqueueTokenUsage: mocks.usage }));
 useCleanMocks();
 const id = 'cc-0123456789abcdef';
@@ -15,7 +15,7 @@ const resolve = (request = req) => resolveConnectorApprovalReply(request, [{ rol
 function result(decision = 'approve', scope: string | null = 'once') { return { content: JSON.stringify({ decision, approvalId: id, scope, reply: decision === 'deny' ? 'Bleibt ungesendet.' : '' }), model: 'judge', usage: { inputTokens: 12, outputTokens: 3 } }; }
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.get.mockReturnValue({ approvalId: id, approval: card, userId: 'person', expiresAt: Date.now() + 60_000 });
+  mocks.get.mockReturnValue({ state: 'pending', approvalId: id, approval: card, userId: 'person', expiresAt: Date.now() + 60_000 });
   mocks.model.mockResolvedValue(result());
   mocks.forward.mockResolvedValue(undefined);
 });
