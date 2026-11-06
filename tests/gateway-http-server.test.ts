@@ -6938,7 +6938,7 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('redirects /chat, /agents, and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+  test('redirects /chat, /agents, and /admin through HybridAI sign-in back to the same page in Docker when no session cookie is present', async () => {
     const state = await importFreshHealth({ runningInsideContainer: true });
 
     for (const pathname of ['/chat', '/agents', '/admin']) {
@@ -6949,9 +6949,22 @@ describe('gateway HTTP server', () => {
 
       expect(res.statusCode).toBe(302);
       expect(res.headers.Location).toBe(
-        'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
+        `https://hybridai.one/hybridclaw/open?next=${encodeURIComponent(pathname)}`,
       );
     }
+  });
+
+  test('keeps the agent query but drops any token when sending a signed-out visitor to HybridAI sign-in', async () => {
+    const state = await importFreshHealth({ runningInsideContainer: true });
+    const req = makeRequest({ url: '/chat?agent=researcher&token=leak' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe(
+      'https://hybridai.one/hybridclaw/open?next=%2Fchat%3Fagent%3Dresearcher',
+    );
   });
 
   test('serves the standalone agents docs page with a valid session cookie', async () => {
