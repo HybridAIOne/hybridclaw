@@ -22,6 +22,13 @@ import {
 import { parseSessionKey } from '../session/session-key.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
+export type ResolvedSecretSource =
+  | 'store'
+  | 'google-oauth'
+  | 'hubspot-oauth'
+  | 'microsoft-oauth'
+  | 'github-connector';
+
 type ApiSecretInjectBody = {
   secretName?: unknown;
   sessionId?: unknown;
@@ -105,7 +112,7 @@ export function recordSecretResolved(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
+  secretSource: ResolvedSecretSource;
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -133,7 +140,7 @@ export function recordSecretUnsafeEscaped(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
+  secretSource: ResolvedSecretSource;
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;

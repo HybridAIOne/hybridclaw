@@ -450,6 +450,33 @@ The route is stored in `~/.hybridclaw/config.json` as:
 For common read-only Microsoft 365 workflows, prefer the bundled
 `microsoft-365` skill so endpoint construction stays deterministic.
 
+## GitHub For Git And The GitHub API
+
+Connect GitHub under `/admin/connectors` (HybridAI-managed GitHub connector).
+The GitHub OAuth grant stays on the HybridAI platform; at run time the gateway
+mints a short-lived access token from it on demand and never stores it
+locally.
+
+That token reaches the agent in two ways:
+
+- **`git` over HTTPS.** Agent bash sessions register a gateway-backed git
+  credential helper scoped to `https://github.com`, so `git clone`, `fetch`,
+  and `push` against GitHub authenticate without a token in the environment,
+  the remote URL, or git config. Other hosts are not affected.
+- **GitHub API calls.** `http_request` with
+  `bearerSecretName: "GITHUB_ACCESS_TOKEN"` injects the connector token into
+  requests to `api.github.com`, `github.com`, `uploads.github.com`, and
+  `codeload.github.com`; any other host is refused.
+
+When the GitHub connector is not connected, the git credential helper falls
+back to a stored `GH_TOKEN` secret (`/secret set GH_TOKEN <token>`), subject to
+the normal secret resolution policy. Every issued credential is recorded as a
+`secret.resolved` audit event for host `github.com`.
+
+The credential helper runs in the agent's own runtime (host mode and the agent
+container). Commands executed through a separate `docker exec` bash sandbox
+(`HYBRIDCLAW_BASH_DOCKER_CONTAINER`) do not get it.
+
 ## Google Ads Invoice Harvesting
 
 For campaign management and GAQL reporting, use the bundled `google-ads` skill.

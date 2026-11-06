@@ -6,6 +6,10 @@
  */
 import { spawn } from 'node:child_process';
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
+import {
+  applyGitCredentialHelperEnv,
+  resolveGitCredentialHelperPath,
+} from './git-credential-helper.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 
 export const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -110,6 +114,15 @@ export async function runBashProcess(
   ).trim();
   if (gatewayUrl) env.HYBRIDCLAW_GATEWAY_URL = gatewayUrl;
   if (gatewayToken) env.HYBRIDCLAW_GATEWAY_TOKEN = gatewayToken;
+  const gitCredentialHelperPath = resolveGitCredentialHelperPath();
+  if (gatewayUrl && gitCredentialHelperPath) {
+    // Host/agent-container shells only: a separate docker exec sandbox cannot
+    // see this helper path.
+    applyGitCredentialHelperEnv(env, {
+      helperPath: gitCredentialHelperPath,
+      nodePath: process.execPath,
+    });
+  }
   const child = TASK_SANDBOX_FS_ENABLED
     ? spawn(
         'docker',

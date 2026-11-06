@@ -329,6 +329,7 @@ import {
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiDelegate } from './gateway-delegation.js';
 import { getGatewayAdminFleetTopology } from './gateway-fleet-topology.js';
+import { handleApiGitCredential } from './gateway-git-credential.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -11708,6 +11709,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiSecretInject(req, res);
+            return;
+          }
+          if (pathname === '/api/git/credential' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiGitCredential(req, res);
             return;
           }
           if (pathname === '/api/discord/action' && method === 'POST') {

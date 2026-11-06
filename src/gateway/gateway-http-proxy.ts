@@ -30,6 +30,11 @@ import {
 } from '../../container/shared/http-response-artifacts.js';
 import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  GITHUB_ACCESS_TOKEN_SECRET,
+  isGitHubTokenHost,
+  resolveGitHubConnectorAccessToken,
+} from '../auth/github-connector-auth.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
@@ -89,6 +94,7 @@ import {
 } from './gateway-http-utils.js';
 import {
   assertSecretResolveAllowed,
+  type ResolvedSecretSource,
   recordSecretResolved,
   recordSecretUnsafeEscaped,
   resolveStoredSecretForInjection,
@@ -175,7 +181,7 @@ type UndiciConnector = ReturnType<typeof buildUndiciConnector>;
 type UndiciConnectorOptions = Parameters<UndiciConnector>[0];
 type UndiciConnectorCallback = Parameters<UndiciConnector>[1];
 
-type SecretResolveContext = {
+export type SecretResolveContext = {
   sessionId?: string;
   agentId?: string;
   skillName?: string;
@@ -754,7 +760,8 @@ function requiresBearerDomainBinding(secretName: string): boolean {
   return (
     !isGoogleWorkspaceRuntimeTokenName(secretName) &&
     secretName !== HUBSPOT_ACCESS_TOKEN_SECRET &&
-    secretName !== MICROSOFT_365_ACCESS_TOKEN_SECRET
+    secretName !== MICROSOFT_365_ACCESS_TOKEN_SECRET &&
+    secretName !== GITHUB_ACCESS_TOKEN_SECRET
   );
 }
 
@@ -777,7 +784,7 @@ async function resolveOAuthTokenOrThrow(params: {
   allowedHostDescription: string;
   resolveToken: () => Promise<{
     accessToken: string;
-    source: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
+    source: ResolvedSecretSource;
   } | null>;
   loginHint: string;
 }): Promise<string> {
@@ -870,6 +877,20 @@ async function resolveMicrosoftOAuthTokenOrThrow(
   });
 }
 
+export async function resolveGitHubConnectorTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isGitHubTokenHost,
+    allowedHostDescription: 'GitHub',
+    resolveToken: resolveGitHubConnectorAccessToken,
+    loginHint: `${secretName} is not available. Connect GitHub under Admin → Connectors (HybridAI GitHub connector) and retry.`,
+  });
+}
+
 async function resolveHttpSecretOrThrow(
   secretName: string,
   context: SecretResolveContext,
@@ -886,6 +907,9 @@ async function resolveHttpSecretOrThrow(
   if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
     return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
   }
+  if (secretName === GITHUB_ACCESS_TOKEN_SECRET) {
+    return await resolveGitHubConnectorTokenOrThrow(secretName, context);
+  }
   return resolveStoredSecretForInjection({
     secretName,
     sessionId: context.sessionId,
@@ -901,7 +925,8 @@ function isManagedConnectorTokenSecretName(secretName: string): boolean {
   return (
     isGoogleWorkspaceRuntimeTokenName(secretName) ||
     secretName === HUBSPOT_ACCESS_TOKEN_SECRET ||
-    secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET
+    secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET ||
+    secretName === GITHUB_ACCESS_TOKEN_SECRET
   );
 }
 

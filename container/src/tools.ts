@@ -3239,10 +3239,13 @@ async function executeToolInternal(
       const { result, notice } = await runBash({
         command: args.command,
         timeoutMs,
-        runtimeEnv: await resolveShellRuntimeEnv(
-          gatewayBaseUrl,
-          gatewayApiToken,
-        ),
+        runtimeEnv: {
+          ...(await resolveShellRuntimeEnv(gatewayBaseUrl, gatewayApiToken)),
+          ...(currentSessionId
+            ? { HYBRIDCLAW_SESSION_ID: currentSessionId }
+            : {}),
+          ...(currentAgentId ? { HYBRIDCLAW_AGENT_ID: currentAgentId } : {}),
+        },
         sessionId: currentSessionId,
       });
       return formatBashExecutionResult(result, timeoutMs, notice);
