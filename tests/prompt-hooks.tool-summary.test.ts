@@ -960,6 +960,15 @@ test('with fetch tools disabled, web guidance never names them and routes HTTP t
   }
 });
 
+test('browser guidance names only the browser tools the agent is allowed', () => {
+  const allowedTools = ['bash', 'web_fetch', 'browser_click', 'browser_snapshot'];
+  const noNavigate = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [], allowedTools });
+  expect(noNavigate).not.toMatch(/browser_navigate|browser_evaluate|browser_sign_in|browser_take_over|browser_\*/);
+  const noEvaluate = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [], allowedTools: [...allowedTools, 'browser_navigate'] });
+  expect(noEvaluate).toContain('continue with `browser_navigate` for the requested URL');
+  expect(noEvaluate).not.toContain('browser_evaluate');
+});
+
 test('with fetch tools enabled, web guidance keeps naming them', () => {
   const prompt = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [] });
   expect(prompt).toContain('## Web Retrieval Routing (web_search/web_fetch vs browser_*)');
