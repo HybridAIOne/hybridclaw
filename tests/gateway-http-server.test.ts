@@ -6938,10 +6938,10 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('redirects /chat, /agents, and /admin through HybridAI sign-in back to the same page in Docker when no session cookie is present', async () => {
+  test('redirects /chat, /agents, /admin, and /apps through HybridAI sign-in back to the same page in Docker when no session cookie is present', async () => {
     const state = await importFreshHealth({ runningInsideContainer: true });
 
-    for (const pathname of ['/chat', '/agents', '/admin']) {
+    for (const pathname of ['/chat', '/agents', '/admin', '/apps']) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
 
