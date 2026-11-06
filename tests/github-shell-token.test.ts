@@ -61,6 +61,12 @@ test.each([
 test.each([
   ['unreachable', () => Promise.reject(new Error('connect ECONNREFUSED'))],
   ['not connected', async () => Response.json({ error: 'not_connected' }, { status: 404 })],
+  ['reconnect required', async () => Response.json({ error: 'reconnect_required' }, { status: 401 })],
+  [
+    'returning a malformed token',
+    async () =>
+      Response.json({ username: 'x-access-token', password: 'gh\nhost=evil.example' }),
+  ],
 ])(
   'a platform that is %s leaves shell env intact and is not asked again on every command',
   async (_label, reply) => {

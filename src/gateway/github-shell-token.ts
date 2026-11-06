@@ -21,26 +21,36 @@ const GIT_CREDENTIAL_PATH = '/api/v1/connectors/github/git-credential';
 const TOKEN_TTL_MS = 30_000;
 const MISS_TTL_MS = 60_000;
 const TIMEOUT_MS = 5_000;
+// git and gh write the token into line-based protocols and headers.
+const TOKEN_PATTERN = /^[\x21-\x7e]+$/;
 
-let cached: { apiKey: string; token: string | null; expiresAt: number } | null =
+let cached: { key: string; token: string | null; expiresAt: number } | null =
   null;
 let inFlight: Promise<string | null> | null = null;
 
-async function fetchToken(apiKey: string): Promise<string | null> {
+async function fetchToken(
+  baseUrl: string,
+  apiKey: string,
+): Promise<string | null> {
   let token: string | null = null;
   try {
-    const response = await fetch(
-      `${(HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(/\/+$/g, '')}${GIT_CREDENTIAL_PATH}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}` },
-        redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      },
-    );
+    const response = await fetch(`${baseUrl}${GIT_CREDENTIAL_PATH}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      redirect: 'error',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
     const body: unknown = response.ok ? await response.json() : null;
-    if (isRecord(body) && typeof body.password === 'string' && body.password)
+    if (
+      isRecord(body) &&
+      typeof body.password === 'string' &&
+      TOKEN_PATTERN.test(body.password)
+    )
       token = body.password;
+    else if (response.status === 401)
+      logger.warn(
+        'GitHub shell credential refused; reconnect GitHub under Admin → Connectors',
+      );
     else if (response.status !== 404)
       logger.warn(
         { status: response.status },
@@ -50,7 +60,7 @@ async function fetchToken(apiKey: string): Promise<string | null> {
     logger.warn({ error }, 'GitHub shell credential request failed');
   }
   cached = {
-    apiKey,
+    key: `${baseUrl}\n${apiKey}`,
     token,
     expiresAt: Date.now() + (token ? TOKEN_TTL_MS : MISS_TTL_MS),
   };
@@ -67,9 +77,13 @@ export async function resolveGitHubShellToken(
     return null;
   const apiKey = readHybridAIApiKey();
   if (!apiKey) return null;
-  if (cached?.apiKey === apiKey && cached.expiresAt > Date.now())
+  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
+    /\/+$/g,
+    '',
+  );
+  if (cached?.key === `${baseUrl}\n${apiKey}` && cached.expiresAt > Date.now())
     return cached.token;
-  inFlight ??= fetchToken(apiKey).finally(() => {
+  inFlight ??= fetchToken(baseUrl, apiKey).finally(() => {
     inFlight = null;
   });
   return inFlight;
