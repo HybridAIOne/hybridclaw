@@ -182,6 +182,14 @@ calling the model or tools. Runs with no proposed tools remain safe to retry.
 A new run starts a fresh checkpoint; recovered exchanges are conversation context,
 never executable instructions or approval grants.
 
+The shared journal validates call identities, unique starts, matching immutable
+results, and completion of an exchange before another exchange begins. Identical
+result acknowledgements from batch assembly are idempotent; conflicting results
+are refused. Denials and rejections may record a terminal receipt without a start,
+but that receipt prevents later execution of the call. Failed writes leave the
+writer's last persisted state intact. A recovered journal instance accepts no
+further writes or starts. The version 1 journal format is unchanged.
+
 A started call without a saved result has an **unknown outcome**: its side effects
 may already have occurred. Recovery marks it explicitly and asks for external-state
 verification before retrying. A proposed call that never started is marked **not
