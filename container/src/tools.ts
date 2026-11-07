@@ -70,7 +70,6 @@ import {
   type FileReferenceExpansion,
   prepareToolArguments,
 } from './file-reference.js';
-import { resolveFileWriteConflict } from './file-write-conflicts.js';
 import {
   type GatewayJsonResponse,
   postGatewayJson,
@@ -2281,6 +2280,17 @@ function safeJoin(userPath: string): string {
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
+function writeCheckedFile(args: Record<string, unknown>): Promise<string> {
+  return runFileWrite(
+    args,
+    TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
+    TASK_SANDBOX_FS_ENABLED
+      ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
+      : undefined,
+    currentSessionId,
+  );
+}
+
 function writeWorkspaceFile(userPath: string, contents: string): void {
   if (TASK_SANDBOX_FS_ENABLED) {
     const sandboxPath = resolveTaskSandboxPath(userPath);
@@ -3081,14 +3091,7 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      return await runFileWrite(
-        args,
-        TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
-        TASK_SANDBOX_FS_ENABLED
-          ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
-          : undefined,
-        currentSessionId,
-      );
+      return await writeCheckedFile(args);
     }
 
     case SHOW_WIDGET_TOOL: {
@@ -3140,19 +3143,16 @@ async function executeToolInternal(
           return failTool('Error: old text is required for edit');
         }
         let content = '';
-        let filePath = '';
-        let sandboxPath = '';
         if (TASK_SANDBOX_FS_ENABLED) {
-          sandboxPath = resolveTaskSandboxPath(args.path) || '';
+          const sandboxPath = resolveTaskSandboxPath(args.path);
           if (!sandboxPath) {
             return failTool(`Error: Path escapes workspace: ${args.path}`);
           }
           const copied = copyTaskSandboxFileToTemp(sandboxPath);
           tempDirToCleanup = copied.tempDir;
-          filePath = copied.localPath;
-          content = fs.readFileSync(filePath, 'utf-8');
+          content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
-          filePath = safeJoin(args.path);
+          const filePath = safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
           content = fs.readFileSync(filePath, 'utf-8');
@@ -3166,14 +3166,13 @@ async function executeToolInternal(
         );
         if (!edited.count)
           return failTool(`Error: Text not found in ${args.path}`);
-        content = edited.content;
-
-        fs.writeFileSync(filePath, content);
-        if (TASK_SANDBOX_FS_ENABLED) {
-          writeTempFileToTaskSandbox(filePath, sandboxPath);
-        }
-        await resolveFileWriteConflict(currentSessionId, args.path);
-        return `Edited ${args.path} (${edited.count} replacement${edited.count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
+        await writeCheckedFile({
+          path: args.path,
+          contents: edited.content,
+          overwrite: true,
+          expected_content: content,
+        });
+        return `Edited ${args.path} (${edited.count} replacement${edited.count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, edited.content)}`;
       } finally {
         if (tempDirToCleanup) {
           fs.rmSync(tempDirToCleanup, { recursive: true, force: true });

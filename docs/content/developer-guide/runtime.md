@@ -1475,11 +1475,13 @@ searched again, and the result reports the actual replacement count. Replacement
 strings are literal in both `edit` and daily-memory `replace`: sequences such as
 `$&` are saved as supplied.
 
-Publication is atomic, and cooperative `.lock` directories serialize `write`
-checks and replacements across workers, including task sandboxes. These checks
-use current disk state and survive worker replacement. A crashed writer's lock
+Publication is atomic, and cooperative `.lock` directories serialize `write` and
+`edit` checks and replacements across workers, including task sandboxes. An edit
+uses the complete bytes it read as its expected content. A change detected since
+that read rejects the edit before publication. These checks use current disk
+state and survive worker replacement. A crashed writer's lock
 fails closed until removed after verifying no writer is active. External editors,
-`bash`, `edit`, and generated-artifact tools do not participate in this protocol;
+`bash`, and generated-artifact tools do not participate in this protocol;
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
 
