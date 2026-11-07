@@ -1469,6 +1469,12 @@ bytes remain saved, including intentionally invalid test fixtures. Larger JSON
 files report that the automatic check was skipped. This checks syntax only,
 not schemas or correctness, and does not apply to shell writes or other formats.
 
+The optional `edit` count is a positive safe integer (default: one) limiting
+replacements among the original, nonoverlapping matches. Inserted text is never
+searched again, and the result reports the actual replacement count. Replacement
+strings are literal in both `edit` and daily-memory `replace`: sequences such as
+`$&` are saved as supplied.
+
 Publication is atomic, and cooperative `.lock` directories serialize `write`
 checks and replacements across workers, including task sandboxes. These checks
 use current disk state and survive worker replacement. A crashed writer's lock

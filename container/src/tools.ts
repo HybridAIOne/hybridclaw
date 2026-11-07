@@ -123,6 +123,7 @@ import {
   ESTIMATE_COST_TOOL_DEFINITION,
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
+import { replaceEditOccurrences } from './tools/file-edit.js';
 import { fileSyntaxFeedback } from './tools/file-syntax-feedback.js';
 import { runFileWrite, WRITE_TOOL_DEFINITION } from './tools/file-write.js';
 import {
@@ -3157,26 +3158,22 @@ async function executeToolInternal(
           content = fs.readFileSync(filePath, 'utf-8');
         }
 
-        const count = args.count || 1;
-        for (let i = 0; i < count; i++) {
-          const idx = content.indexOf(oldText);
-          if (idx === -1) {
-            if (i === 0)
-              return failTool(`Error: Text not found in ${args.path}`);
-            break;
-          }
-          content =
-            content.slice(0, idx) +
-            newText +
-            content.slice(idx + oldText.length);
-        }
+        const edited = replaceEditOccurrences(
+          content,
+          oldText,
+          newText,
+          args.count,
+        );
+        if (!edited.count)
+          return failTool(`Error: Text not found in ${args.path}`);
+        content = edited.content;
 
         fs.writeFileSync(filePath, content);
         if (TASK_SANDBOX_FS_ENABLED) {
           writeTempFileToTaskSandbox(filePath, sandboxPath);
         }
         await resolveFileWriteConflict(currentSessionId, args.path);
-        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
+        return `Edited ${args.path} (${edited.count} replacement${edited.count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
       } finally {
         if (tempDirToCleanup) {
           fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
@@ -3370,7 +3367,7 @@ async function executeToolInternal(
           const content = fs.readFileSync(filePath, 'utf-8');
           if (!content.includes(oldText))
             return failTool(`Error: old_text not found in ${relativePath}`);
-          const next = content.replace(oldText, newText);
+          const next = content.replace(oldText, () => newText);
           const limit = memoryCharLimit(relativePath);
           if (next.length > limit) {
             return failTool(
@@ -4465,8 +4462,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description: 'Alias for new; replacement text',
           },
           count: {
-            type: 'number',
-            description: 'Number of replacements (default: 1)',
+            type: 'integer',
+            description:
+              'Maximum original, nonoverlapping occurrences to replace (positive safe integer; default: 1)',
           },
         },
         required: ['path', 'old', 'new'],
