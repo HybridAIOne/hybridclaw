@@ -89,6 +89,7 @@ export function checkpointOutput(data) {
     throw new Error('Invalid turn checkpoint; automatic replay refused.');
   const messages = [];
   const executions = [];
+  const calls = [];
   const starts = new Set(data.started);
   const knownCalls = new Set();
   for (let index = 0; index < data.messages.length; ) {
@@ -114,6 +115,15 @@ export function checkpointOutput(data) {
       const started = starts.has(key);
       if (!result && index < data.messages.length)
         throw new Error('Checkpoint contains an unfinished earlier exchange.');
+      calls.push({
+        messageIndex,
+        toolCallId: call.id,
+        outcome: result
+          ? 'result_recorded'
+          : started
+            ? 'outcome_unknown'
+            : 'not_executed',
+      });
       const outcome = result || {
         role: 'tool',
         tool_call_id: call.id,
@@ -143,6 +153,7 @@ export function checkpointOutput(data) {
   return {
     status: 'error',
     result: null,
+    recovery: { kind: 'recovered', turnId: data.turnId, calls },
     error:
       'The previous turn was interrupted. Completed tool outcomes were recovered. Any unknown side effects must be verified before retrying; actions were not automatically repeated.' +
       (data.assistantText
@@ -153,6 +164,19 @@ export function checkpointOutput(data) {
     toolHistory: history,
     toolHistoryForReplay: history,
   };
+}
+
+/** A failed read or run mismatch is terminal evidence, never retry permission. */
+export function readTurnRecovery(workspaceRoot, sessionId, turnId, maxBytes) {
+  try {
+    const saved = readTurnCheckpoint(workspaceRoot, sessionId, maxBytes);
+    if (!saved) return { kind: 'refused', reason: 'missing' };
+    if (saved.turnId !== turnId)
+      return { kind: 'refused', reason: 'run_mismatch' };
+    return { kind: 'recovered', evidence: checkpointOutput(saved) };
+  } catch {
+    return { kind: 'refused', reason: 'unreadable' };
+  }
 }
 
 export class TurnCheckpoint {
