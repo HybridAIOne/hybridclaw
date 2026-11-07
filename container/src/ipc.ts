@@ -10,14 +10,15 @@
  * `input.json` lives where this agent's own tools can write, so a follow-up is
  * honored only when its authenticity envelope verifies against the per-worker
  * secret received on stdin (`setIpcAuthSecret`, see shared/src/ipc-input-auth.ts);
- * an input that fails to verify is dropped, not run. `health-input.json` is
- * read as a liveness probe only: it yields a turn's input never — just the
+ * an input that fails to verify or was already consumed is dropped, not run.
+ * `health-input.json` is read as a liveness probe only: it yields a turn's input never — just the
  * nonce to echo — so an unauthenticated health file cannot become a turn.
  *
  * The IPC directory can outlive this process: the session's replacement agent
  * may share it while this one shuts down, so once shutdown starts this agent
  * consumes no input file and leaves it for the replacement.
  */
+import { hash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -39,9 +40,11 @@ const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
 // The per-worker secret from the first stdin payload. Held only in memory here;
 // never read from or written to a file.
 let ipcAuthSecret = '';
+const consumedInputs = new Set<string>();
 
 /** Record the secret received on stdin so follow-up inputs can be verified. */
 export function setIpcAuthSecret(secret: string): void {
+  if (ipcAuthSecret !== (secret || '')) consumedInputs.clear();
   ipcAuthSecret = secret || '';
 }
 
@@ -80,6 +83,12 @@ function readInputFile(inputPath: string): ContainerInput | null {
   try {
     const input = JSON.parse(decoded.body) as ContainerInput;
     fs.unlinkSync(inputPath);
+    const fingerprint = hash('sha256', decoded.body);
+    if (consumedInputs.has(fingerprint)) {
+      console.error('[ipc] rejected replayed input');
+      return null;
+    }
+    consumedInputs.add(fingerprint);
     return input;
   } catch {
     // Verified envelope with an unparseable body: drop it rather than loop.

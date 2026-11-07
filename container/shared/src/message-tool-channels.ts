@@ -1,3 +1,8 @@
+/**
+ * Built-in message channel metadata drives advertising, never authorization.
+ * Explicit snapshots decide readiness; an omitted snapshot retains contextual
+ * inference. Independent skill services are outside this channel inventory.
+ */
 export const MESSAGE_TOOL_CHANNEL_KINDS = [
   'discord',
   'discord_webhook',
@@ -57,6 +62,14 @@ export function normalizeMessageToolChannelKinds(
     if (isMessageToolChannelKind(candidate)) normalized.add(candidate);
   }
   return [...normalized].sort();
+}
+
+export function shouldOfferMessageTool(
+  kinds: readonly string[] | undefined,
+): boolean {
+  return (
+    kinds === undefined || normalizeMessageToolChannelKinds(kinds).length > 0
+  );
 }
 
 export function formatMessageToolChannelList(

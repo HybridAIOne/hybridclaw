@@ -124,7 +124,30 @@ callbacks such as `key=ranker.get` and `key=lambda item: item.score`. Public
 logs and exports keep strict credential masking; quoted key values, URL
 credentials and structured authentication fields remain redacted in replay.
 
+## Session storage isolation
+
+Gateway IPC and audit directories use `~` followed by the SHA-256 digest of the
+JSON-encoded session ID. Punctuation, whitespace and case remain distinct, including
+on case-insensitive filesystems. Agent workspaces and session IDs do not change.
+
+Stop the gateway before upgrading to this layout, then start the updated version;
+do not run old and new gateway/CLI versions against the same data directory.
+IPC files are disposable and are recreated in the new directory. On first access,
+a legacy audit directory is moved only if every record names the requested
+session. Its bytes and hash chain stay unchanged. A directory owned by another
+session is never claimed. Mixed-session, missing-identity or malformed legacy
+logs fail closed and remain untouched for manual recovery (including historical
+renames whose records span multiple session IDs); preserve a backup
+and resolve ownership before resuming affected sessions. The legacy migration
+is scheduled for removal after v0.43, so access/verify existing audits before
+upgrading beyond that version.
+
 ## Worker State
+
+Workers remember hashes of consumed authenticated follow-up inputs and reject
+replays for the lifetime of their stdin secret. These hashes stay in memory:
+a replacement worker receives a fresh secret, so old envelopes cannot verify.
+Repeating a user message with a new gateway request ID remains a new turn.
 
 Host workers keep managed state in their owning agent's workspace, or the scope's
 workspace for scoped chats. An execution workspace override changes tool paths
@@ -182,6 +205,14 @@ calling the model or tools. Runs with no proposed tools remain safe to retry.
 A new run starts a fresh checkpoint; recovered exchanges are conversation context,
 never executable instructions or approval grants.
 
+The shared journal validates call identities, unique starts, matching immutable
+results, and completion of an exchange before another exchange begins. Identical
+result acknowledgements from batch assembly are idempotent; conflicting results
+are refused. Denials and rejections may record a terminal receipt without a start,
+but that receipt prevents later execution of the call. Failed writes leave the
+writer's last persisted state intact. A recovered journal instance accepts no
+further writes or starts. The version 1 journal format is unchanged.
+
 A started call without a saved result has an **unknown outcome**: its side effects
 may already have occurred. Recovery marks it explicitly and asks for external-state
 verification before retrying. A proposed call that never started is marked **not
@@ -201,7 +232,7 @@ Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
 
-The shell-denial replan budget uses the current request's tool execution records.
+The shell/network-denial replan budget uses the current request's tool execution records.
 It grants one replan per request, not per session; it does not persist across
 requests or authorize execution after worker replacement.
 
@@ -335,6 +366,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Original in-loop compaction messages | Session state dir `in-loop-compactions/` | Kept; replacement summaries carry the file path |
 | Background processes, `/tmp` files | Worker | Lost |
+| Tool no-progress history | Worker, current turn | Reset between turns/workers; the gateway execution deadline remains authoritative |
 | IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
@@ -529,21 +561,77 @@ command is described as unclassified rather than asserted to mutate state.
 The same reason is retained in the pending approval and returned evaluation;
 this wording does not alter approval tiers or grant access.
 
+Shell network approvals compare explicit curl request methods and implicit
+data/form POST requests against the configured method and path rules. A request
+method declaration does not grant access by itself.
+A first shell-safety or unpinned network-policy denial permits one replan per turn that
+omits the prohibited effects. The denied call and remaining calls in its batch
+do not execute; every new call faces policy again. Repeated denials stop the
+turn, and required human approvals still pause execution.
+
 ## Tool Recovery
 
 The system prompt distinguishes a failed method from a blocked task. It uses
 current capability readiness, directs the model to investigate inconclusive
 results and try materially different permitted methods, and bounds recovery by
-useful progress and the remaining execution budget. Missing configuration does
-not grant permission to obtain credentials or broaden access. Runtime blocks
-and denied approvals must never be bypassed. Unread source content must not be
-replaced with invented findings. Recovery may repair dependencies but must not
+useful progress and the remaining execution budget. Transient service failures
+permit bounded retries of read-only or idempotent operations; a read throttled by
+HTTP 429 honors the server delay and retries before filesystem discovery.
+Mutations require outcome verification before retrying. Empty results require
+checking query filters and target arguments before polling again; unchanged
+output is not progress.
+The per-turn loop guard stops a fourth identical HTTP request after three
+successful, unchanged collection responses, ignoring volatile headers and
+intervening waits. Collections may contain existing records; new or changed records
+break the streak, as does a different HTTP operation. Asynchronous status payloads
+and errors keep their existing behavior.
+Scalar target fields take one ID or address; packing recipients into a string
+requires documented separator syntax, otherwise the model uses separate calls.
+Readiness is specific to the backend: a disabled built-in channel does not establish that a separate
+service described by an applicable skill is unavailable. An explicitly empty
+message-backend snapshot removes the built-in `message` tool from the request
+schemas and catalog, and from the gateway's tool summary and usage examples.
+The shared channel predicate keeps both sides aligned; missing snapshots retain
+context-based inference. Independent API tools remain available. The model reads a
+clearly applicable listed skill before selecting the access method and checks
+its permitted method before reporting a capability blocker. Missing configuration
+does not grant permission to obtain credentials or broaden access. Runtime blocks
+and denied approvals must never be bypassed. SSRF and network-policy errors are
+access denials, including when reported as ordinary tool errors; changing a host
+alias or switching to shell code does not authorize the denied destination.
+Unread source content must not be replaced with invented findings. Recovery may
+repair dependencies but must not
 manufacture or replace authoritative messages, events, records or source
 fixtures. Missing local files do not establish that a running service has no
-data. Cached or exported data supports only its demonstrated scope and
-freshness; reports must distinguish supported partial findings from complete
-coverage and identify inaccessible sources. These are model instructions,
-not runtime validation of arbitrary business data or connector coverage.
+data. Recovery must not restart, reset or change a source service without
+operator authorization, since that can discard authoritative in-memory state.
+Cached or exported data supports only its demonstrated scope and freshness;
+reports must distinguish supported partial findings from complete
+coverage and identify inaccessible sources. Recovery and prerequisite sections
+follow the skill catalog in both prompt composition paths while preserving the
+shared cache prefix. The prerequisite section distinguishes confirmed constraints
+from tentative exceptions and conflicting
+statements. For agreement-dependent actions, unresolved prerequisites require a
+focused clarification and reading its answer before deriving or proposing the
+action. A conservative interpretation is not verification, and the clarification
+must not be bundled with a revised proposal. A definitely scheduled competing
+event does not itself withdraw an earlier open availability window when its
+impact is tentative. A correction avoids a redundant question only when the
+source explicitly retracts the earlier claim and states its confirmed replacement.
+A proposal
+alone does not establish confirmation. Actions that depend on others' agreement
+require reading every required party's relevant replies and checking the exact action
+against known constraints before finalizing.
+Material changes require fresh confirmation before committing the revised action.
+Those confirmations must be read before invoking the committing tool.
+After a batch of tool results, the worker appends a labeled, generated policy
+checkpoint before its next model request. It reuses the selected coordination
+rules and documented argument cardinality, including scalar target fields;
+user and tool text cannot enable it when safety guidance is omitted. Earlier
+messages and tool schemas remain unchanged. The checkpoint is derived from the
+request history, so it needs no worker-local state or additional permissions.
+These are model instructions, not runtime validation
+of arbitrary business data or connector coverage.
 
 `tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
 `tests/media-tools-readiness.test.ts` checks configuration snapshots and their
@@ -835,7 +923,8 @@ They cannot be overridden by a user approval, so prohibited commands produce a
 denial without creating a pending approval. The first such denial in a request
 returns to the model once to plan work that omits prohibited effects. Remaining
 calls in that batch are marked unexecuted; every new call still faces the same
-policy. A second shell hard block ends the turn, as do other policy denials.
+policy. Shell-safety and unpinned network denials share one replan budget;
+a second denial ends the turn. Other policy denials remain terminal.
 Pending human approvals still pause execution.
 
 The eval block checks parsed shell words and nested shell commands, so an `eval`

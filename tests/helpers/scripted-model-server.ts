@@ -5,12 +5,24 @@
  * a gateway's local-backend discovery accepts the endpoint.
  */
 import http from 'node:http';
+import { ACTION_PREREQUISITE_CHECKPOINT } from '#shared/action-prerequisites.js';
 import type { ChatMessage, ToolDefinition } from '../../container/src/types.js';
 
 export type ModelRequestBody = {
   messages: ChatMessage[];
   tools: ToolDefinition[];
 };
+
+// Scripted workflows inspect business turns while captured requests retain all policy.
+export function workflowMessages(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) =>
+    message.role !== 'user' || message.content !== ACTION_PREREQUISITE_CHECKPOINT,
+  );
+}
+
+export function lastWorkflowMessage(body: ModelRequestBody): ChatMessage | undefined {
+  return workflowMessages(body.messages).at(-1);
+}
 
 export type ScriptedModelReply = (
   body: ModelRequestBody,

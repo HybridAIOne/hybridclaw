@@ -2,10 +2,13 @@
  * Durable turn evidence, shared by worker and gateway. A started call without
  * a result is uncertain and is never replayed here. Unlike IPC replies this
  * journal survives worker replacement; it grants no authority to execute tools.
+ * Executed calls progress proposed → started → result_recorded. Terminal
+ * receipts without a start (denials/rejections) never authorize a later start.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { writeFileAtomic } from './atomic-write.js';
 import type { HistoryMessage } from './tool-history.js';
 import { validateToolHistory } from './tool-history.js';
@@ -100,17 +103,6 @@ export function readTurnCheckpoint(
     throw error;
   }
   const data = JSON.parse(raw);
-  if (
-    data.version !== 1 ||
-    typeof data.turnId !== 'string' ||
-    !Array.isArray(data.messages) ||
-    !Array.isArray(data.started) ||
-    data.started.some((id: unknown) => typeof id !== 'string') ||
-    (data.assistantText !== undefined && typeof data.assistantText !== 'string')
-  ) {
-    throw new Error('Invalid turn checkpoint; automatic replay refused.');
-  }
-  // Validate even unfinished exchanges by closing them conservatively.
   checkpointOutput(data);
   return data as TurnCheckpointData;
 }
@@ -122,6 +114,16 @@ function callKey(messageIndex: number, id: string): string {
 export function checkpointOutput(
   data: TurnCheckpointData,
 ): TurnCheckpointOutput {
+  if (
+    data?.version !== 1 ||
+    typeof data.turnId !== 'string' ||
+    !data.turnId ||
+    !Array.isArray(data.messages) ||
+    !Array.isArray(data.started) ||
+    data.started.some((id: unknown) => typeof id !== 'string') ||
+    (data.assistantText !== undefined && typeof data.assistantText !== 'string')
+  )
+    throw new Error('Invalid turn checkpoint; automatic replay refused.');
   const messages: HistoryMessage[] = [];
   const executions: TurnCheckpointOutput['toolExecutions'] = [];
   const starts = new Set(data.started);
@@ -142,11 +144,13 @@ export function checkpointOutput(
       results.set(result.tool_call_id, result);
     }
     messages.push(message);
-    for (const call of message.tool_calls || []) {
+    for (const call of message.tool_calls) {
       const result = results.get(call.id);
       const key = callKey(messageIndex, call.id);
       knownCalls.add(key);
       const started = starts.has(key);
+      if (!result && index < data.messages.length)
+        throw new Error('Checkpoint contains an unfinished earlier exchange.');
       const outcome: HistoryMessage = result || {
         role: 'tool',
         tool_call_id: call.id,
@@ -190,7 +194,7 @@ export function checkpointOutput(
 
 export class TurnCheckpoint {
   private readonly file: string;
-  private readonly data: TurnCheckpointData;
+  private data: TurnCheckpointData;
   readonly recovered: TurnCheckpointOutput | null;
 
   constructor(workspaceRoot: string, sessionId: string, turnId: string) {
@@ -206,43 +210,73 @@ export class TurnCheckpoint {
   }
 
   assistant(message: CheckpointMessage): void {
+    if (message?.role !== 'assistant')
+      throw new Error('Invalid checkpoint assistant message.');
+    const next = structuredClone(this.data);
     if (typeof message.content === 'string' && message.content) {
-      this.data.assistantText = message.content;
+      next.assistantText = message.content;
     }
     if (message.tool_calls?.length)
-      this.data.messages.push(structuredClone(message) as HistoryMessage);
-    this.persist();
+      next.messages.push(structuredClone(message) as HistoryMessage);
+    this.persist(next);
   }
 
   start(id: string): void {
-    const index = this.data.messages.findLastIndex(
+    const next = structuredClone(this.data);
+    const index = next.messages.findLastIndex(
       (entry) => entry.role === 'assistant',
     );
-    this.data.started.push(callKey(index, id));
-    this.persist(); // A failed write prevents the action from starting.
+    const key = callKey(index, id);
+    if (
+      next.started.includes(key) ||
+      next.messages.slice(index + 1).some((entry) => entry.tool_call_id === id)
+    )
+      throw new Error(
+        'Checkpoint call has already started or recorded a result.',
+      );
+    next.started.push(key);
+    this.persist(next); // A failed write prevents the action from starting.
   }
 
   result(message: CheckpointMessage): void {
-    const assistantIndex = this.data.messages.findLastIndex(
+    if (message?.role !== 'tool')
+      throw new Error('Invalid checkpoint result message.');
+    const next = structuredClone(this.data);
+    const assistantIndex = next.messages.findLastIndex(
       (entry) => entry.role === 'assistant',
     );
-    const index = this.data.messages.findIndex(
+    const previous = next.messages.find(
       (entry, index) =>
         index > assistantIndex &&
         entry.role === 'tool' &&
         entry.tool_call_id === message.tool_call_id,
     );
-    const copy = structuredClone(message) as HistoryMessage;
-    if (index < 0) this.data.messages.push(copy);
-    else this.data.messages[index] = copy;
-    this.persist();
+    // Batch assembly records the same completion after checkpointExecution.
+    // It may acknowledge that result, but must never replace durable evidence.
+    if (previous) {
+      if (
+        !isDeepStrictEqual(
+          JSON.parse(JSON.stringify(previous)),
+          JSON.parse(JSON.stringify(message)),
+        )
+      )
+        throw new Error(
+          'Checkpoint result conflicts with its recorded outcome.',
+        );
+    } else next.messages.push(structuredClone(message) as HistoryMessage);
+    this.persist(next);
   }
 
-  private persist(): void {
-    checkpointOutput(this.data);
-    writeFileAtomic(this.file, JSON.stringify(this.data), {
+  private persist(next: TurnCheckpointData = this.data): void {
+    if (this.recovered)
+      throw new Error(
+        'Recovered checkpoint is evidence only; execution refused.',
+      );
+    checkpointOutput(next);
+    writeFileAtomic(this.file, JSON.stringify(next), {
       mode: 0o600,
       dirMode: 0o700,
     });
+    this.data = next;
   }
 }

@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -341,9 +342,9 @@ test('ephemeral eval artifact check removes stale eval sessions and directories'
   ).run(staleSession.id, 'user', 'User', 'assistant', 'stale', 'eval-stale');
   db.close();
 
-  const staleSessionDir = path.join(DATA_DIR, 'sessions', staleSession.id);
-  const staleAuditDir = path.join(DATA_DIR, 'audit', staleSession.id);
-  const recentSessionDir = path.join(DATA_DIR, 'sessions', recentSession.id);
+  const staleSessionDir = path.join(DATA_DIR, 'sessions', sessionDirectoryName(staleSession.id));
+  const staleAuditDir = path.join(DATA_DIR, 'audit', sessionDirectoryName(staleSession.id));
+  const recentSessionDir = path.join(DATA_DIR, 'sessions', sessionDirectoryName(recentSession.id));
   fs.mkdirSync(staleSessionDir, { recursive: true });
   fs.mkdirSync(staleAuditDir, { recursive: true });
   fs.mkdirSync(recentSessionDir, { recursive: true });

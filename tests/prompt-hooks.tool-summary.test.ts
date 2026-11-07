@@ -1,9 +1,11 @@
 import { expect, test, vi } from 'vitest';
+import { ACTION_PREREQUISITE_LINES } from '#shared/action-prerequisites.js';
 import { FILE_HYGIENE_LINES } from '../src/agent/file-hygiene-prompt.js';
 import { AFTER_FILE_CHANGE_LINES } from '../src/agent/mobile-prompt.js';
 
 import {
   buildRetrievedContextPrompt,
+  buildSystemPromptBlocksFromHooks,
   buildSystemPromptFromHooks,
   SILENT_TOOL_CALL_STYLE_LINES,
   TOOL_STATUS_STYLE_LINES,
@@ -114,6 +116,19 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   };
 }
 
+test('prerequisites follow a large skill catalog in the production block composition', () => {
+  const blocks = buildSystemPromptBlocksFromHooks({
+    agentId: 'catalog-order-test',
+    skills: Array.from({ length: 80 }, (_, i) => makeSkill({ name: `fixture-${i}` })),
+  });
+  const policy = ACTION_PREREQUISITE_LINES.join('\n');
+  expect(blocks.length).toBeGreaterThan(1);
+  expect(blocks[0]).not.toContain(policy);
+  expect(blocks.at(-1)).toContain('fixture-79');
+  expect(blocks.at(-1)?.endsWith(policy)).toBe(true);
+  expect(blocks.join('\n').split(policy)).toHaveLength(2);
+});
+
 test('buildSystemPromptFromHooks adds mandatory routing instructions for available skills', () => {
   const prompt = buildSystemPromptFromHooks({
     agentId: 'test-agent',
@@ -173,15 +188,8 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
-  expect(prompt).toContain(
-    'Use the `message` tool for sending or reading messages on active communication channels: none.',
-  );
-  expect(prompt).toContain(
-    'Do not use `message` for ordinary final replies in the current chat.',
-  );
-  expect(prompt).toContain(
-    'No active communication channels are registered right now.',
-  );
+  expect(prompt).not.toContain('**Communication**: `message`');
+  expect(prompt).not.toContain('### Message Tool Examples');
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
   );

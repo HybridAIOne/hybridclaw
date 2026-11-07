@@ -1038,9 +1038,11 @@ function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
 }
 
 function inferBashHttpMethod(command: string): string {
-  const explicit = command.match(/\b(?:-X|--request)\s+([A-Za-z]+)/i);
+  const explicit = command.match(/(?:^|\s)(?:-X|--request)\s+([A-Za-z]+)/);
   if (explicit?.[1]) return explicit[1].toUpperCase();
-  if (/\b(?:--data(?:-raw|-binary)?|-d|--form|-F)\b/i.test(command)) {
+  if (
+    /(?:^|\s)(?:--data(?:-raw|-binary)?|-d|--form|-F)(?=\s|=|$)/.test(command)
+  ) {
     return 'POST';
   }
   if (/\bwget\b/i.test(command)) return 'GET';

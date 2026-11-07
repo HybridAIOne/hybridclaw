@@ -6,6 +6,7 @@
  * one row. Archive flags and deletion records live in `kv_store` under a fixed
  * scope, which agent resets and session rotation leave alone.
  */
+
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +19,7 @@ import { deleteArchives } from '../memory/compaction-archive.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
 import { scopeWorkspaceDir } from '../scopes/scope-paths.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
 import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 import { deleteWebNotificationSession } from './web-notification-store.js';
 
@@ -215,7 +217,7 @@ function removeSessionFiles(
   const safe = safeName(sessionId);
   deleteArchives(sessionId);
   for (const target of [
-    path.join(DATA_DIR, 'sessions', safe),
+    path.join(DATA_DIR, 'sessions', sessionDirectoryName(sessionId)),
     path.join(workspace, '.session-transcripts', `${safe}.jsonl`),
     path.join(workspace, '.tool-results', safe),
     path.join(workspace, '.session-exports', safe),

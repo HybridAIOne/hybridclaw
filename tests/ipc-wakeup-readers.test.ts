@@ -123,10 +123,10 @@ test.each(['input', 'output'] as const)(
     vi.useFakeTimers();
     const watcher = mockIpcWatcher();
     const ipc = await reader(direction);
-    const exists = vi.spyOn(fs, 'existsSync');
+    const checks = vi.spyOn(fs, direction === 'input' ? 'existsSync' : 'openSync');
     const waiting = ipc.wait();
     await vi.advanceTimersByTimeAsync(9_500);
-    expect(exists).toHaveBeenCalledTimes(direction === 'input' ? 20 : 10);
+    expect(checks).toHaveBeenCalledTimes(direction === 'input' ? 20 : 10);
     await vi.advanceTimersByTimeAsync(500);
     if (direction === 'input') await expect(waiting).resolves.toBeNull();
     else

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getAuditWirePath } from '../../src/audit/audit-paths.js';
 import {
   buildDefaultEvalProfile,
   type EvalProfile,
@@ -1494,9 +1495,7 @@ function buildOperationalSkillReferencePattern(skillName: string): RegExp {
 }
 
 function resolveAuditWirePath(dataDir: string, sessionId: string): string {
-  const safeSessionDir =
-    sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
-  return path.join(dataDir, 'audit', safeSessionDir, 'wire.jsonl');
+  return getAuditWirePath(sessionId, dataDir);
 }
 
 function findAuditWirePathBySessionKey(
