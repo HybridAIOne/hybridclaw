@@ -89,7 +89,11 @@ function clampDimension(
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
-function resolveTuiLaunchCommand(): { command: string; args: string[] } {
+function resolveTuiLaunchCommand(): {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+} {
   const builtEntrypoint = path.join(INSTALL_ROOT, 'dist', 'cli.js');
   if (fs.existsSync(builtEntrypoint)) {
     return { command: process.execPath, args: [builtEntrypoint, 'tui'] };
@@ -102,6 +106,8 @@ function resolveTuiLaunchCommand(): { command: string; args: string[] } {
       return {
         command: process.execPath,
         args: ['--import', 'tsx', sourceEntrypoint, 'tui'],
+        // The PTY inherits the gateway's cwd; `#shared/*` must still map to sources.
+        env: { TSX_TSCONFIG_PATH: path.join(INSTALL_ROOT, 'tsconfig.json') },
       };
     }
   }
@@ -357,6 +363,7 @@ export function createAdminTerminalManager(): {
           cwd: launchCwd,
           env: {
             ...process.env,
+            ...launch.env,
             COLORTERM: 'truecolor',
             TERM: 'xterm-256color',
           },

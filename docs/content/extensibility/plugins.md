@@ -881,6 +881,9 @@ Type exports for external plugins are available from:
 import type { HybridClawPluginDefinition } from '@hybridaione/hybridclaw/plugin-sdk';
 ```
 
+These declarations use the package's `#shared/*` import map, so a TypeScript
+plugin needs `moduleResolution` set to `NodeNext` or `Bundler`.
+
 ## Memory Layers
 
 Memory plugins compose alongside HybridClaw's built-in SQLite session storage.

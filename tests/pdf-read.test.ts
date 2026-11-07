@@ -160,6 +160,12 @@ describe('bounded PDF read', () => {
     expect(result.pages[0].text.length).toBeGreaterThan(0);
   });
 
+  test('loads the bundled PDF skill runtime by default', async () => {
+    const { file } = await fixture();
+    const result = await readPdfPages(file, { pages: '1', render: 'never' });
+    expect(result.processedPages).toEqual([1]);
+  });
+
   test('rejects oversized files before extraction', async () => {
     const root = tempDir();
     const file = path.join(root, 'large.pdf');

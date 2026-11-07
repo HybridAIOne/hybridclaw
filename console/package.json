@@ -14,7 +14,7 @@
     "test:visual:update": "playwright test --config playwright.config.ts --update-snapshots",
     "typecheck": "npm run registry:check && tsc -b",
     "registry:check": "tsx ../scripts/generate-settings-registry.ts --check",
-    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
+    "lint": "tsc -b ../container/shared && tsc --noEmit --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {
     "@tanstack/react-query": "5.103.2",

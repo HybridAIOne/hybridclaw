@@ -161,7 +161,7 @@ export function checkpointOutput(
           name: call.function.name,
           arguments: call.function.arguments,
           toolCallId: call.id,
-          result: outcome.content ?? '',
+          result: outcome.content as string,
           isError: outcome.is_error === true,
           durationMs: 0,
         });
