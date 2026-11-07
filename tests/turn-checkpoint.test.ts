@@ -149,9 +149,7 @@ test('worker failure recovers evidence only for its own run, never queued side e
     toolsUsed: [],
     error: 'Worker exited.',
   };
-  expect(recoverWorkerOutput(failure, root, 'session-a', 'run-b')).toBe(
-    failure,
-  );
+  expect(recoverWorkerOutput(failure, root, 'session-a', 'run-b').recovery?.kind).toBe('refused');
   const recovered = recoverWorkerOutput(failure, root, 'session-a', 'run-a');
   expect(recovered.toolExecutions).toHaveLength(1);
   expect(recovered.sideEffects).toBeUndefined();

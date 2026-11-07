@@ -3682,6 +3682,7 @@ export function buildErrorTurnPlaceholder(params: {
 
 export function recordErrorTurn(opts: {
   sessionId: string;
+  runId: string;
   agentId: string;
   channelId: string;
   userId: string;

@@ -156,7 +156,10 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
-import { recoverWorkerOutput } from './worker-recovery.js';
+import {
+  recoverWorkerFailure,
+  recoverWorkerOutput,
+} from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
@@ -1513,6 +1516,14 @@ async function runContainerInner(
     );
 
     return output;
+  } catch (error) {
+    stopSessionContainer(sessionId);
+    return recoverWorkerFailure(
+      error,
+      workspacePath,
+      sessionId,
+      input.runId || input.requestId,
+    );
   } finally {
     params.steerInbox?.close();
     mlxRelay?.stop();

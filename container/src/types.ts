@@ -19,6 +19,7 @@ import type {
   StakesSignal as CanonicalStakesSignal,
 } from '../shared/stakes-classifier.js';
 import type { ToolCallLimits } from '../shared/tool-call-limits.js';
+import type { RecoveryDisposition } from '../shared/turn-checkpoint.js';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
@@ -448,6 +449,7 @@ export interface OutputPresentationMetadata {
 }
 
 export interface ContainerOutput {
+  recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;

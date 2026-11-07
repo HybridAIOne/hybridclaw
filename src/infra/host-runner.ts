@@ -135,7 +135,10 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
-import { recoverWorkerOutput } from './worker-recovery.js';
+import {
+  recoverWorkerFailure,
+  recoverWorkerOutput,
+} from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
@@ -1273,6 +1276,14 @@ async function runHostProcessInner(
       }
     }
     return output;
+  } catch (error) {
+    stopSessionHostProcess(sessionId);
+    return recoverWorkerFailure(
+      error,
+      hostWorkspaceStateRoot(params),
+      sessionId,
+      input.runId || input.requestId,
+    );
   } finally {
     params.steerInbox?.close();
     abortSignal?.removeEventListener('abort', onAbort);

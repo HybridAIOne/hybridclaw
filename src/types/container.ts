@@ -8,6 +8,7 @@ import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { RecoveryDisposition } from '../../container/shared/turn-checkpoint.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
@@ -125,6 +126,7 @@ export interface ContainerInput
 }
 
 export interface ContainerOutput {
+  recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
