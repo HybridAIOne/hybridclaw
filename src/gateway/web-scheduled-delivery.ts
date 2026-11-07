@@ -13,6 +13,7 @@ import {
 import { withMemoryDatabase } from '../memory/database.js';
 import { setMessageEmailDraft } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { setMessageApproval } from '../memory/message-approval.js';
 import { recordTrackedDraft } from '../tracking/follow-through.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
@@ -133,7 +134,7 @@ export function deliverWebScheduledMessage(
   artifacts?: ArtifactMetadata[],
   storedMessage?: StoredProactiveMessage,
   workId?: string,
-): { status: 'delivered' } {
+): { status: 'delivered'; messageId: number } {
   const session = memoryService.getSessionById(sessionId);
   if (session?.channel_id !== 'web')
     throw new Error('Scheduled web delivery requires an existing web session.');
@@ -158,9 +159,13 @@ export function deliverWebScheduledMessage(
                 source,
               });
       // A run kept apart from this chat stored its reply elsewhere; the copy here
-      // shows the same email card.
-      if (storedMessage?.emailDraft && storedMessage.sessionId !== session.id)
-        setMessageEmailDraft(messageId, storedMessage.emailDraft);
+      // shows the same email or approval card.
+      if (storedMessage && storedMessage.sessionId !== session.id) {
+        if (storedMessage.emailDraft)
+          setMessageEmailDraft(messageId, storedMessage.emailDraft);
+        if (storedMessage.approval)
+          setMessageApproval(session.id, messageId, storedMessage.approval);
+      }
       if (workId)
         updateWork(workId, (work) => {
           work.sessionId = session.id;
@@ -174,7 +179,13 @@ export function deliverWebScheduledMessage(
   // Feed and Ideas replies are app data, never reminders for the user.
   if (isAppDataChat(session.session_key)) {
     skipWorkNotification(workId, 'not_requested');
-    return { status: 'delivered' };
+    return { status: 'delivered', messageId };
+  }
+  // A run waiting on an approval rings like a turn that ended on one, never
+  // with the prompt's text.
+  if (storedMessage?.approval) {
+    notifyWebSession(session.id, 'approval', storedMessage.approval.approvalId);
+    return { status: 'delivered', messageId };
   }
   const delivery = notifyWebSession(
     session.id,
@@ -208,5 +219,5 @@ export function deliverWebScheduledMessage(
   )
     skipWorkNotification(workId, 'at_computer');
   else void send();
-  return { status: 'delivered' };
+  return { status: 'delivered', messageId };
 }

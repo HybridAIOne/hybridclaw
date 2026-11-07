@@ -12,6 +12,7 @@ import {
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from '../gateway/app-widgets.js';
+import { rememberApproval } from '../gateway/chat-approval-review.js';
 import {
   beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
@@ -77,6 +78,12 @@ export async function runIsolatedScheduledTask(params: {
   mainSessionKey?: string;
   /** The run's row in its task's run history, if it has one. */
   taskRunId?: number;
+  /**
+   * Resumes the run's session: `prompt` is this user's answer to the
+   * approval it paused on, already claimed for them
+   * (`gateway/scheduled-approval-answer.ts`).
+   */
+  approver?: string;
   onResult: (result: ProactiveMessagePayload) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {
@@ -116,9 +123,14 @@ export async function runIsolatedScheduledTask(params: {
   });
   const task = getJob(taskId, { kind: 'scheduled_task' });
   if (task?.event_parent_id && !isConnectorEventCurrent(task)) return;
-  const taskSession = task ? getSessionById(task.session_id) : null;
+  // A one-shot task is gone once it ran; an answer keeps the run's scope.
+  const taskSessionId =
+    task?.session_id ?? (params.approver ? params.originSessionId : undefined);
+  const taskSession = taskSessionId ? getSessionById(taskSessionId) : null;
+  // Only the task's owner can answer its run's approvals (rememberApproval below).
   const owner =
-    task?.enabled &&
+    params.approver ??
+    (task?.enabled &&
     task.channel_id === channelId &&
     taskOwner?.userId === task.owner_user_id &&
     taskOwner?.sessionId === task.session_id &&
@@ -128,9 +140,11 @@ export async function runIsolatedScheduledTask(params: {
       )) &&
     taskSession?.agent_id === agentId
       ? task.owner_user_id
-      : undefined;
+      : undefined);
   // The work tool only answers a verified owner, so only their runs are told to use it.
-  const taskPrompt = trackedTaskPrompt(taskId, storedPrompt);
+  const taskPrompt = params.approver
+    ? storedPrompt
+    : trackedTaskPrompt(taskId, storedPrompt);
   const prompt = owner ? workPrompt(taskPrompt) : taskPrompt;
   const trackedItem = trackedOwningTask(taskId);
   startWork({
@@ -234,6 +248,9 @@ export async function runIsolatedScheduledTask(params: {
       ...scopeRunAgentParams(scopeRun),
       skillCatalog: buildEligibleSkillCatalog(skills),
       background: true,
+      ...(params.approver
+        ? { approvalUserId: params.approver, approvalUserText: storedPrompt }
+        : {}),
     });
     emitToolExecutionAuditEvents({
       sessionId: activeSessionId,
@@ -352,6 +369,18 @@ export async function runIsolatedScheduledTask(params: {
       if (shown.emailDraft) {
         setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
       }
+      // An escalated approval is someone else's to answer; it stays text.
+      const approval =
+        owner && !output.pendingApproval?.escalationTarget
+          ? output.pendingApproval
+          : undefined;
+      if (owner && approval)
+        await rememberApproval(
+          activeSessionId,
+          storedTurn.assistantMessageId,
+          approval,
+          owner,
+        );
       if (isSilentReply(shown.content)) {
         noteTaskRun(params.taskRunId, { skipped: true });
       } else {
@@ -362,6 +391,7 @@ export async function runIsolatedScheduledTask(params: {
             sessionId: activeSessionId,
             id: storedTurn.assistantMessageId,
             ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
+            ...(approval ? { approval } : {}),
           },
           artifacts: output.artifacts,
         });

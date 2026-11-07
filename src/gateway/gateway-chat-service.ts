@@ -264,6 +264,7 @@ import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import { ReplyFetchGuard } from './reply-fetch-guard.js';
 import { recoverGeneratedMediaArtifactsFromResultText } from './result-text-artifacts.js';
+import { withScheduledApprovalAnswers } from './scheduled-approval-answer.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
@@ -658,8 +659,8 @@ function buildA2AChatThreadId(session: {
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
 
-export const handleGatewayMessage = coordinateGatewayApproval(
-  handleGatewayMessageQueued,
+export const handleGatewayMessage = withScheduledApprovalAnswers(
+  coordinateGatewayApproval(handleGatewayMessageQueued),
 );
 
 async function handleGatewayMessageQueued(

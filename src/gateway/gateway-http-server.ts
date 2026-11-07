@@ -532,6 +532,7 @@ import {
   isJevAvailable,
 } from './routing-evaluator.js';
 import { handleSafetyRulesAdmin } from './safety-rules-admin.js';
+import { approvalSessionId } from './scheduled-approval.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -3650,7 +3651,7 @@ async function handleApiChat(
       );
     chatRequest.approvalClaim = await forwardConnectorDecision(
       approval,
-      sessionId,
+      approvalSessionId(sessionId, approval.approvalId),
       chatRequest.userId,
     );
   }
