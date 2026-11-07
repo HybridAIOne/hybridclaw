@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.42.1',
+  version: '0.42.2',
   highlights: [
-    'Safer PDF reads and rendering recovery',
-    'Approval history and delegated file protection',
-    'Redacted audit previews by default',
-    'Outlook messages and HybridAI transcription',
+    'Scheduled approvals in chat',
+    'Safer interrupted-turn recovery',
+    'Agent-scoped API tokens',
+    'Git and gh with connected GitHub accounts',
   ],
 } as const;
 
