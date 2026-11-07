@@ -286,10 +286,15 @@ export class ToolCatalog {
       .join('\n');
   }
 
+  /** Whether the request admits this tool, directly or through discovery. */
+  permits(name: string): boolean {
+    return this.byName.has(name);
+  }
+
   private requireTool(name: unknown): ToolDefinition {
     const tool = typeof name === 'string' ? this.byName.get(name) : undefined;
     if (!tool)
-      throw new Error(
+      throw new CatalogUnavailableError(
         'Tool is not available in this request. Use tool_catalog to discover permitted tools.',
       );
     return tool;

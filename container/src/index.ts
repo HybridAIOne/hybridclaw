@@ -1681,10 +1681,13 @@ async function processRequestInner(
       } catch (error) {
         invalidToolCallError =
           error instanceof Error ? error.message : 'Invalid local tool call.';
+        // An unadmitted name has nothing to bypass: correct it like an unavailable catalog target.
         if (
           tools === toolCatalog.tools &&
-          toolCalls.every((call) =>
-            tools.some((tool) => tool.function.name === call.function.name),
+          toolCalls.every(
+            (call) =>
+              tools.some((tool) => tool.function.name === call.function.name) ||
+              !toolCatalog.permits(call.function.name),
           )
         ) {
           catalogCorrection =
