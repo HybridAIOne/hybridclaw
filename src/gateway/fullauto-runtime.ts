@@ -10,7 +10,7 @@ import {
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from '../config/config.js';
 import { logger } from '../logger.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import type { ArtifactMetadata, PendingApproval } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import type { DelegationStatusSnapshot } from './delegation-plan.js';
 import {
@@ -26,11 +26,12 @@ import type {
 const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
-/** A reply already stored, and the email card it showed, if any. */
+/** A reply already stored, and the email or approval card it showed, if any. */
 export interface StoredProactiveMessage {
   sessionId: string;
   id: number;
   emailDraft?: MessageEmailDraft;
+  approval?: PendingApproval;
 }
 
 export interface ProactiveMessagePayload {

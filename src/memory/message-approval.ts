@@ -4,6 +4,7 @@
  */
 import type { PendingApproval } from '../types/execution.js';
 import { withMemoryDatabase } from './database.js';
+import { queryOne } from './sqlite.js';
 
 export interface MessageApproval extends PendingApproval {
   decision?: 'allowed' | 'denied';
@@ -37,6 +38,22 @@ export function decideMessageApproval(
        AND json_extract(approval_json, '$.decision') IS NULL`,
       )
       .run(decision, Date.now(), sessionId, approvalId),
+  );
+}
+
+/** The newest reply in this chat that showed this approval. */
+export function findMessageApproval(
+  sessionId: string,
+  approvalId: string,
+): { id: number; source: string | null } | null {
+  return withMemoryDatabase(
+    (db) =>
+      queryOne<{ id: number; source: string | null }>(
+        db,
+        "SELECT id, source FROM messages WHERE session_id = ? AND role = 'assistant' AND json_extract(approval_json, '$.approvalId') = ? ORDER BY id DESC LIMIT 1",
+        sessionId,
+        approvalId,
+      ) ?? null,
   );
 }
 

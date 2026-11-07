@@ -878,3 +878,14 @@ The snapshot is presentation data: the worker policy still validates every decis
 against its live request and owning session. Clients must not infer approvals from
 reply text. `/api/history` also includes the caller's live `pendingApproval`, so a
 client can recover a request it did not receive over the stream.
+
+A scheduled run that pauses on an approval stores it the same way, on its reply
+in the run's session and on the copy delivered to the chat (the agent's main
+chat for a task kept apart), and rings as an approval, never with the prompt's
+text. The request stays with the run's session and only the task's owner can
+answer it. A structured answer sent in the chat that shows it (`/api/chat`
+`approval`) resumes the run in that session, with the run's own tools and
+limits, and its reply is delivered like any scheduled reply
+(`src/gateway/scheduled-approval-answer.ts`). A typed reply in that chat does not
+answer it, and the request expires with the worker's approval timeout like any
+other.

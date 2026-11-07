@@ -8,9 +8,11 @@ import {
   decideMessageApproval,
   setMessageApproval,
 } from '../memory/message-approval.js';
+import type { PendingApproval } from '../types/execution.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   claimPendingApprovalByApprovalId,
+  findPendingApprovalByApprovalId,
   getPendingApproval,
   getStoredPendingApproval,
   handoffPendingApprovalClaim,
@@ -23,17 +25,34 @@ export async function rememberChatApproval(
 ): Promise<void> {
   const approval = result.pendingApproval;
   if (request.channelId !== 'web' || !approval) return;
-  const sessionId = result.sessionId || request.sessionId;
-  if (result.assistantMessageId)
-    setMessageApproval(sessionId, result.assistantMessageId, approval);
-  // A channel may already have registered the request with its notification cleanup.
-  if (getStoredPendingApproval(sessionId)?.approvalId === approval.approvalId)
+  await rememberApproval(
+    result.sessionId || request.sessionId,
+    result.assistantMessageId,
+    approval,
+    approval.escalationTarget?.recipient || request.userId,
+  );
+}
+
+/** Shows an approval on the reply that asked and lets `userId` answer it. */
+export async function rememberApproval(
+  sessionId: string,
+  messageId: number | undefined,
+  approval: PendingApproval,
+  userId: string,
+): Promise<void> {
+  if (messageId) setMessageApproval(sessionId, messageId, approval);
+  // A channel may already have registered the request with its notification
+  // cleanup, or a scheduled run in its own session (scheduled-approval.ts).
+  if (
+    getStoredPendingApproval(sessionId)?.approvalId === approval.approvalId ||
+    findPendingApprovalByApprovalId(approval.approvalId)
+  )
     return;
   await setPendingApproval(sessionId, {
     approvalId: approval.approvalId,
     prompt: approval.prompt,
     approval,
-    userId: approval.escalationTarget?.recipient || request.userId,
+    userId,
     createdAt: Date.now(),
     expiresAt: approval.expiresAt ?? Number.MAX_SAFE_INTEGER,
   });
