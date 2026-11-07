@@ -18,9 +18,9 @@
  * flushed while shutting down. Starting and stopping the agent belongs to
  * host-runner / container-runner, not here.
  */
+
 import fs from 'node:fs';
 import path from 'node:path';
-
 import { encodeAuthenticatedInput } from '../../container/shared/ipc-input-auth.js';
 import {
   ipcOutputFileName,
@@ -37,12 +37,13 @@ import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
 
 /**
  * Get session directory, creating it if needed.
  */
 function sessionDir(sessionId: string): string {
-  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safe = sessionDirectoryName(sessionId);
   const dir = path.join(DATA_DIR, 'sessions', safe);
   return dir;
 }

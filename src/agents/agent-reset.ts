@@ -3,6 +3,7 @@
  * the definition and exclusive ownership before removing any agent data.
  * Other agents and instance credentials remain intact.
  */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../../container/shared/atomic-write.js';
@@ -13,6 +14,7 @@ import { deleteWebNotificationSession } from '../gateway/web-notification-store.
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { deleteArchives } from '../memory/compaction-archive.js';
 import { deleteSessionData, withMemoryDatabase } from '../memory/db.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
 import {
   applyAgentConfigJson,
   validateAgentDefaultJson,
@@ -109,7 +111,7 @@ export async function resetAgent(
       const sessionRoot = path.join(
         DATA_DIR,
         'sessions',
-        id.replace(/[^a-zA-Z0-9_-]/g, '_'),
+        sessionDirectoryName(id),
       );
       fs.rmSync(sessionRoot, { recursive: true, force: true });
     }

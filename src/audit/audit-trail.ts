@@ -15,12 +15,12 @@ import { hash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { type FileHandle, mkdir, open, stat } from 'node:fs/promises';
 import path from 'node:path';
-
-import { DATA_DIR } from '../config/config.js';
 import { redactSecretsDeep } from '../security/redact.js';
+import { getAuditSessionDir, getAuditWirePath } from './audit-paths.js';
+
+export { getAuditSessionDir, getAuditWirePath } from './audit-paths.js';
 
 export const AUDIT_PROTOCOL_VERSION = '2.0';
-const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
 const FALLBACK_PREV_HASH = 'GENESIS';
 
@@ -119,19 +119,6 @@ function stableStringify(value: unknown): string {
     parts.push(`${JSON.stringify(key)}:${stableStringify(raw)}`);
   }
   return `{${parts.join(',')}}`;
-}
-
-function safeSessionDirName(sessionId: string): string {
-  const normalized = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-  return normalized || 'session';
-}
-
-export function getAuditSessionDir(sessionId: string): string {
-  return path.join(DATA_DIR, AUDIT_DIR_NAME, safeSessionDirName(sessionId));
-}
-
-export function getAuditWirePath(sessionId: string): string {
-  return path.join(getAuditSessionDir(sessionId), WIRE_FILE_NAME);
 }
 
 async function appendLines(filePath: string, lines: string[]): Promise<number> {

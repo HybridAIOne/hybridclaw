@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -146,7 +147,7 @@ async function startRunner({
     '.hybridclaw',
     'data',
     'sessions',
-    'session-interrupt',
+    sessionDirectoryName('session-interrupt'),
     'ipc',
   );
 

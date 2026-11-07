@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -32,7 +33,7 @@ test('reset restores provisioned identity and removes only the chosen agent data
   const ctx = await setup();
   const rotated = ctx.db.createFreshSessionInstance(ctx.hySession.id);
   const { DATA_DIR } = await import('../src/config/config.ts');
-  const sessionDir = path.join(DATA_DIR, 'sessions', ctx.hySession.id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+  const sessionDir = path.join(DATA_DIR, 'sessions', sessionDirectoryName(ctx.hySession.id));
   const { archiveTranscript } = await import('../src/memory/compaction-archive.ts');
   const hyArchive = archiveTranscript({ sessionId: ctx.hySession.id, messages: [] });
   const writerArchive = archiveTranscript({ sessionId: ctx.writerSession.id, messages: [] });
