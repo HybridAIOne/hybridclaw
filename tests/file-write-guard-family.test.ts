@@ -95,7 +95,7 @@ test('failed shared-state updates release the lock and keep the worker fail-clos
   store.bindSession('parent');
   const file = sessionStatePath('parent', 'fixture-required.json');
   fs.mkdirSync(file, { recursive: true });
-  await expect(store.updateLockedSession('parent', 'add', 'report.md')).rejects.toThrow(/could not be updated/);
+  await expect(store.updateLockedSession('parent', (values) => values.add('report.md'))).rejects.toThrow(/could not be updated/);
   expect(fs.existsSync(`${file}.lock`)).toBe(false);
   fs.rmdirSync(file);
   expect(() => store.bindSession('parent', true)).toThrow(/could not be updated/);

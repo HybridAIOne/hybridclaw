@@ -2,6 +2,8 @@
  * Rejected file writes fence alternate mutations across a delegation family.
  * Unlike write's byte comparison, this preserves the rejection across workers;
  * only a successful checked file mutation or a one-time approval can proceed.
+ * A fence lapses an hour after its last change, so a long-lived chat is not
+ * kept behind approval by a write that failed in an earlier task.
  * Trusted input selects the root session; workers reload and lock its shared store.
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
@@ -16,6 +18,7 @@ import { SessionStateSet, sessionStatePath } from './session-state.js';
 
 const STATE_NAME = 'file-write-conflicts.json';
 const conflicts = new SessionStateSet(STATE_NAME, true);
+const CONFLICT_LIFETIME_MS = 60 * 60 * 1000;
 let activeSession = '';
 let guardSession = '';
 
@@ -37,6 +40,13 @@ function stateSession(sessionId: string): string {
   return sessionId === activeSession ? guardSession : sessionId;
 }
 
+function lapsed(owner: string): boolean {
+  const changed = fs.statSync(sessionStatePath(owner, STATE_NAME), {
+    throwIfNoEntry: false,
+  })?.mtimeMs;
+  return changed !== undefined && Date.now() - changed > CONFLICT_LIFETIME_MS;
+}
+
 function targetKey(target: string): string {
   return resolveCanonicalPath(resolveWorkspacePath(target) ?? target);
 }
@@ -50,11 +60,11 @@ export async function recordFileWriteConflict(
   target: string,
 ): Promise<string | undefined> {
   if (!sessionId) return undefined;
-  await conflicts.updateLockedSession(
-    stateSession(sessionId),
-    'add',
-    targetKey(target),
-  );
+  const owner = stateSession(sessionId);
+  await conflicts.updateLockedSession(owner, (values) => {
+    if (lapsed(owner)) values.clear();
+    values.add(targetKey(target));
+  });
   return recoveryReason();
 }
 
@@ -63,10 +73,8 @@ export async function resolveFileWriteConflict(
   target: string,
 ): Promise<void> {
   if (!sessionId) return;
-  await conflicts.updateLockedSession(
-    stateSession(sessionId),
-    'delete',
-    targetKey(target),
+  await conflicts.updateLockedSession(stateSession(sessionId), (values) =>
+    values.delete(targetKey(target)),
   );
 }
 
@@ -84,7 +92,7 @@ export function guardFileWriteConflict(
     );
   }
   conflicts.bindSession(owner, true);
-  if (conflicts.size === 0) return action;
+  if (conflicts.size === 0 || lapsed(owner)) return action;
   const shellMutation =
     toolName === 'bash' && (action.tier !== 'green' || action.writeIntent);
   const conflictedDelete =
