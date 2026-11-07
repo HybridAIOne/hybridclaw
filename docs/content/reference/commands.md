@@ -812,7 +812,9 @@ created in messaging channels remain scoped to their original session; the
 web-chat task list reports how many of them exist for the agent, so they can
 be managed from **Automation → Scheduler** instead of being created again.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
-tasks that never ran are retained. The list is read when the tool is called,
+tasks that never ran are retained. At startup, a one-shot whose execution was
+interrupted is retained as a paused failure: review its effects and reschedule
+it before retrying. The list is read when the tool is called,
 so it includes what the turn changed through `track` or `todo`. A goal's
 check-in and a todo's reminder are listed as such, and the `cron` tool cannot
 update or remove them: they move with their item, so they change through

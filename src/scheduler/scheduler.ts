@@ -26,7 +26,10 @@ import {
 import type { ScheduledTask } from '../types/scheduler.js';
 import { isRecord } from '../utils/type-guards.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
-import { fireDbTask } from './db-task-runner.js';
+import {
+  fireDbTask,
+  recoverInterruptedOneShotTasks,
+} from './db-task-runner.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { pendingEdition } from './routine-editions.js';
 import { routineDue } from './routine-time.js';
@@ -1124,6 +1127,7 @@ export function resetConfigJobRuntime(jobId: string): boolean {
 
 export function startScheduler(runner: TaskRunner): void {
   logger.info('Scheduler started');
+  recoverInterruptedOneShotTasks();
   taskRunner = runner;
   try {
     interruptTaskRuns();
