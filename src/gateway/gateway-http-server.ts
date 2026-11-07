@@ -151,6 +151,8 @@ import {
   adminActionClaimList,
   collectAdminActionClaims,
   isAdminActionAllowed,
+  isAgentScopedTokenAction,
+  readAgentScopeClaim,
   resolveAdminRbacAction,
   resolveOpenAICompatibleAccess,
 } from '../security/admin-rbac.js';
@@ -2580,6 +2582,37 @@ function hasFullApiTokenWildcard(context: ResolvedAuthContext): boolean {
   return collectAdminActionClaims(context.payload)?.has('*') === true;
 }
 
+/**
+ * Agent ids an API token is restricted to, or `null` for any non-token caller
+ * and for tokens without an `agentIds` claim.
+ */
+function resolveApiTokenAgentScope(
+  context: ResolvedAuthContext,
+): string[] | null {
+  if (context.kind !== 'apiToken') return null;
+  return readAgentScopeClaim(context.payload);
+}
+
+/**
+ * Agent-scoped tokens may only reach the agent-aware chat and agent-list
+ * routes. `/api/command` shares `chat.send` but can switch or manage agents,
+ * and the full `/api/agents` dashboard exposes every session, so both are
+ * refused explicitly.
+ */
+function isAgentScopedTokenRouteAllowed(
+  context: ResolvedAuthContext,
+  pathname: string,
+  action: AdminRbacAction | null,
+): boolean {
+  if (resolveApiTokenAgentScope(context) === null) return true;
+  if (!action || !isAgentScopedTokenAction(action)) return false;
+  return (
+    pathname === '/api/chat' ||
+    pathname === '/api/chat/rejoin' ||
+    pathname === '/api/agents/list'
+  );
+}
+
 function isApiTokenAllowedForRoute(
   context: ResolvedAuthContext,
   pathname: string,
@@ -2587,6 +2620,7 @@ function isApiTokenAllowedForRoute(
 ): boolean {
   if (context.kind !== 'apiToken') return true;
   const action = resolveAdminRbacAction(pathname, method);
+  if (!isAgentScopedTokenRouteAllowed(context, pathname, action)) return false;
   if (!action) return hasFullApiTokenWildcard(context);
   return isAdminActionAllowed(context.payload, action);
 }
@@ -2617,6 +2651,10 @@ function enforceAdminRouteRbac(
     return false;
   }
   if (authContext.kind === 'apiToken') {
+    if (!isAgentScopedTokenRouteAllowed(authContext, pathname, action)) {
+      sendJson(res, 403, { error: 'Forbidden for agent-scoped token.' });
+      return false;
+    }
     if (!action && hasFullApiTokenWildcard(authContext)) return true;
     if (!action) {
       sendJson(res, 403, { error: 'Forbidden.' });
@@ -3447,6 +3485,54 @@ function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
   );
 }
 
+/**
+ * Resolves and checks the agent for an agent-scoped token's chat request.
+ * Returns the agent id to use, or sends an error response and returns null.
+ */
+function resolveAgentScopedChatAgent(params: {
+  res: ServerResponse;
+  agentScope: string[];
+  requestedAgentId: string | undefined;
+  sessionId: string | undefined;
+  content: string;
+}): string | null {
+  const { res, agentScope } = params;
+  let agentId = params.requestedAgentId;
+  if (!agentId) {
+    if (agentScope.length !== 1) {
+      sendJson(res, 400, {
+        error: '`agentId` is required for tokens scoped to several agents.',
+      });
+      return null;
+    }
+    agentId = agentScope[0];
+  }
+  if (!agentScope.includes(agentId)) {
+    sendJson(res, 403, { error: 'Token is not allowed to use this agent.' });
+    return null;
+  }
+  if (params.sessionId) {
+    const existing = memoryService.getSessionById(params.sessionId);
+    if (existing?.agent_id && !agentScope.includes(existing.agent_id)) {
+      sendJson(res, 403, {
+        error: 'Token is not allowed to use this session.',
+      });
+      return null;
+    }
+  }
+  // Slash commands can switch or manage agents; only approvals stay usable.
+  const slashCommands = resolveTextChannelSlashCommands(params.content);
+  if (
+    slashCommands?.some((args) => parseLowerArg(args, 0) !== 'approve') === true
+  ) {
+    sendJson(res, 403, {
+      error: 'Slash commands are not available for agent-scoped tokens.',
+    });
+    return null;
+  }
+  return agentId;
+}
+
 // `rejoin` reads the body as `/api/chat` would, then only joins that request's
 // turn while it runs (`POST /api/chat/rejoin`): a client whose stream broke
 // off gets the rest of it, and never a second turn.
@@ -3458,6 +3544,7 @@ async function handleApiChat(
   rejoin = false,
 ): Promise<void> {
   const adminActions = adminActionClaimList(authContext.payload);
+  const agentScope = resolveApiTokenAgentScope(authContext);
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
   const media = await normalizeApiChatMediaItems(body.media);
@@ -3487,6 +3574,18 @@ async function handleApiChat(
       error: 'Invalid `reasoningEffort`; expected none, low, medium, or xhigh.',
     });
     return;
+  }
+
+  if (agentScope !== null) {
+    const scopedAgentId = resolveAgentScopedChatAgent({
+      res,
+      agentScope,
+      requestedAgentId: normalizeOptionalString(body.agentId),
+      sessionId: normalizeOptionalString(body.sessionId),
+      content,
+    });
+    if (!scopedAgentId) return;
+    body.agentId = scopedAgentId;
   }
 
   const sessionId =
@@ -3522,6 +3621,7 @@ async function handleApiChat(
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     ...(body.scope !== undefined ? { scope: body.scope } : {}),
+    ...(agentScope !== null ? { allowedAgentIds: agentScope } : {}),
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
@@ -4696,8 +4796,19 @@ async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
 
-async function handleApiAgentList(res: ServerResponse): Promise<void> {
-  sendJson(res, 200, await getGatewayAgentList());
+async function handleApiAgentList(
+  res: ServerResponse,
+  agentScope: string[] | null = null,
+): Promise<void> {
+  const list = await getGatewayAgentList();
+  if (agentScope === null) {
+    sendJson(res, 200, list);
+    return;
+  }
+  const allowed = new Set(agentScope);
+  sendJson(res, 200, {
+    agents: list.agents.filter((agent) => allowed.has(agent.id)),
+  });
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -11475,7 +11586,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/agents/list' && method === 'GET') {
-            await handleApiAgentList(res);
+            await handleApiAgentList(
+              res,
+              resolveApiTokenAgentScope(authContext),
+            );
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
@@ -11750,7 +11864,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         pathname,
         method,
       );
-      if (openAIAccess === 'denied') {
+      if (
+        openAIAccess === 'denied' ||
+        resolveApiTokenAgentScope(authContext) !== null
+      ) {
         sendJson(res, 403, {
           error: {
             message: 'Forbidden.',

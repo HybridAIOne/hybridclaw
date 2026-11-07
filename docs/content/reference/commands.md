@@ -36,7 +36,7 @@ hybridclaw config get <key>
 hybridclaw config set <key> <value>
 hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw token list
-hybridclaw token create --label <label> (--role <role>|--actions <a,b>) [--expires-at <iso>]
+hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>) [--expires-at <iso>]
 hybridclaw token revoke <id>
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
@@ -81,6 +81,7 @@ operator workflows that should not share a broad `WEB_API_TOKEN` or
 hybridclaw token list
 hybridclaw token create --label "local evals" --role admin.viewer --expires-at 2026-08-01T00:00:00Z
 hybridclaw token create --label "chat client" --actions openai.api,chat.send
+hybridclaw token create --label "support widget" --agents support
 hybridclaw token revoke <token-id>
 ```
 
@@ -92,6 +93,8 @@ hybridclaw token revoke <token-id>
 - `--actions` accepts explicit action names such as `openai.api`,
   `chat.send`, `voice.session`, `status.read`, `admin.tokens.read`,
   `admin.tokens.create`, and `admin.tokens.revoke`
+- `--agents` restricts a token to the listed agents; see
+  [Agent-scoped tokens](../developer-guide/admin-access-control.md#agent-scoped-tokens)
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
 
