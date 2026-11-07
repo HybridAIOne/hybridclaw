@@ -123,6 +123,7 @@ function buildLearningState(params: {
 }
 
 useCleanMocks({
+  unstubAllEnvs: true,
   restoreAllMocks: true,
   cleanup: async () => {
     vi.useRealTimers();
@@ -931,4 +932,30 @@ test('a transient full-auto retry is a fresh turn that sees the tools the failed
     }),
   );
   expect(retryTurn.at(-1)).toEqual(failedTurn.at(-1));
+});
+
+
+test('a pending approval disables full-auto and cancels every continuation', async () => {
+  vi.useFakeTimers();
+  vi.stubEnv('HOME', makeTempHome());
+  vi.resetModules();
+  runAgentMock.mockResolvedValue({
+    status: 'success', result: 'Approval required', toolsUsed: [],
+    toolExecutions: [{ name: 'write', arguments: '{}', result: 'Approval required', durationMs: 0, blocked: true, approvalDecision: 'required' }],
+  });
+  const { initDatabase, updateSessionChatbot } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayCommand } = await import('../src/gateway/gateway-service.ts');
+  const { initGatewayService } = await import('../src/gateway/gateway-plugin-service.ts');
+  const { FULLAUTO_COOLDOWN_MS } = await import('../src/config/config.ts');
+  initDatabase({ quiet: true });
+  await initGatewayService();
+  const sessionId = 'session-approval';
+  memoryService.getOrCreateSession(sessionId, null, 'tui');
+  updateSessionChatbot(sessionId, 'bot-1');
+  await handleGatewayCommand({ sessionId, guildId: null, channelId: 'tui', userId: 'user_a', username: null, args: ['fullauto', 'Prepare', 'report'] });
+  await vi.advanceTimersByTimeAsync(FULLAUTO_COOLDOWN_MS);
+  expect(memoryService.getSessionById(sessionId)?.full_auto_enabled).toBe(0);
+  await vi.advanceTimersByTimeAsync(FULLAUTO_COOLDOWN_MS * 3);
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
 });

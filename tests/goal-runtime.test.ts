@@ -14,7 +14,7 @@ import {
   pauseGoalForAgentBudgetHardStop,
   scheduleGoalContinuation,
   setGoalContinuationRunHandler,
-  setGoalContinuationRunning,
+  beginGoalContinuationRun,
 } from '../src/goals/goal-runtime.js';
 import { initDatabase, storeMessage } from '../src/memory/db.js';
 import type { ToolExecution } from '../src/types/execution.js';
@@ -377,7 +377,7 @@ test('scheduled continuation queues a direct rerun while runner is active', () =
   expect(runHandler).toHaveBeenCalledWith(session.id);
 
   runHandler.mockClear();
-  setGoalContinuationRunning(session.id, true);
+  const token = beginGoalContinuationRun(session.id)!;
   scheduleGoalContinuation({
     session,
     context: {
@@ -388,7 +388,7 @@ test('scheduled continuation queues a direct rerun while runner is active', () =
   });
   expect(runHandler).not.toHaveBeenCalled();
 
-  finishGoalContinuationRun(session.id);
+  finishGoalContinuationRun(session.id, token);
 
   expect(runHandler).toHaveBeenCalledWith(session.id);
   clearScheduledGoalContinuation(session.id);

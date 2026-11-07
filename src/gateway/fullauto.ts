@@ -1,3 +1,8 @@
+/**
+ * Full-auto turns retain their budgets, approval stops and retry policy here.
+ * Run ownership and timer transitions belong to fullauto-lifecycle; stale runs
+ * cannot update learning files or publish progress for a replacement runtime.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
@@ -16,7 +21,6 @@ import {
   FULLAUTO_MAX_SESSION_TOTAL_TOKENS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   FULLAUTO_RESUME_ON_BOOT_DELAY_MS,
-  FULLAUTO_STALL_POLL_MS,
   FULLAUTO_STALL_RECOVERY_DELAY_MS,
   FULLAUTO_STALL_TIMEOUT_MS,
   HYBRIDAI_MODEL,
@@ -41,7 +45,6 @@ import { sleep } from '../utils/sleep.js';
 import {
   buildFullAutoContinuationRequest,
   clearFullAutoRuntimeState,
-  clearFullAutoWatchdog,
   type FullAutoRuntimeState,
   getFullAutoRuntimeState,
   getOrCreateFullAutoRuntimeState,
@@ -56,6 +59,7 @@ import {
   setFullAutoRunHandler,
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
+import { startFullAutoWatchdog } from './fullauto-watchdog.js';
 import {
   appendFullAutoRunLogEntry,
   resolveFullAutoPrompt,
@@ -70,10 +74,7 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
-import {
-  interruptGatewaySessionExecution,
-  registerActiveGatewayRequest,
-} from './gateway-request-runtime.js';
+import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import { parseTimestampMs } from './gateway-time.js';
 import type {
   GatewayChatResult,
@@ -486,6 +487,7 @@ async function generateFullAutoLearningState(params: {
   state: FullAutoRuntimeState;
 }): Promise<string | null> {
   const { sessionId, session, result, state } = params;
+  const runToken = state.lifecycle.token;
   const model = state.model ?? session.model ?? HYBRIDAI_MODEL;
   const { agentId, chatbotId } = resolveAgentForRequest({
     session,
@@ -496,7 +498,7 @@ async function generateFullAutoLearningState(params: {
     sessionId,
     executionSessionId,
   });
-  markFullAutoProgress(sessionId, state, 'learning-subagent:start');
+  markFullAutoProgress(sessionId, state, 'learning-subagent:start', runToken);
 
   try {
     const output = await runAgent({
@@ -512,7 +514,12 @@ async function generateFullAutoLearningState(params: {
       blockedTools: [],
       onTextDelta: (delta) => {
         if (!delta) return;
-        markFullAutoProgress(sessionId, state, 'learning-subagent:text');
+        markFullAutoProgress(
+          sessionId,
+          state,
+          'learning-subagent:text',
+          runToken,
+        );
       },
       abortSignal: activeRequest.signal,
     });
@@ -549,6 +556,7 @@ async function rewriteFullAutoLearningState(params: {
   state: FullAutoRuntimeState;
 }): Promise<void> {
   const { session, sessionId, result, state } = params;
+  const runToken = state.lifecycle.token;
   const workspace = getFullAutoWorkspaceState(session);
   fs.mkdirSync(path.dirname(workspace.learningsPath), { recursive: true });
   if (!workspace.learningsExists) {
@@ -561,10 +569,20 @@ async function rewriteFullAutoLearningState(params: {
     result,
     state,
   });
-  if (!nextState) return;
+  if (
+    !nextState ||
+    !isCurrentFullAutoRuntimeState(sessionId, state) ||
+    !state.lifecycle.owns(runToken)
+  )
+    return;
 
   fs.writeFileSync(workspace.learningsPath, `${nextState.trim()}\n`, 'utf8');
-  markFullAutoProgress(sessionId, state, 'learning-subagent:complete');
+  markFullAutoProgress(
+    sessionId,
+    state,
+    'learning-subagent:complete',
+    runToken,
+  );
 }
 
 export function buildFullAutoOperatingContract(
@@ -622,51 +640,9 @@ function formatFullAutoRuntimeTimestamp(value: number | null): string {
 function describeFullAutoRuntimeState(sessionId: string): string {
   const state = getFullAutoRuntimeState(sessionId);
   if (!state) return 'idle';
-  if (state.running) return 'running';
-  if (state.timer) return 'scheduled';
+  if (state.lifecycle.running) return 'running';
+  if (state.lifecycle.scheduled) return 'scheduled';
   return 'armed';
-}
-
-function startFullAutoWatchdog(params: {
-  sessionId: string;
-  state: FullAutoRuntimeState;
-  runToken: number;
-}): void {
-  clearFullAutoWatchdog(params.sessionId);
-  if (FULLAUTO_STALL_TIMEOUT_MS <= 0) return;
-  const pollMs = Math.max(1_000, FULLAUTO_STALL_POLL_MS);
-  params.state.watchdogTimer = setInterval(() => {
-    if (
-      !isCurrentFullAutoRuntimeState(params.sessionId, params.state) ||
-      !params.state.running ||
-      params.state.activeRunToken !== params.runToken
-    ) {
-      clearFullAutoWatchdog(params.sessionId);
-      return;
-    }
-
-    const lastProgressAt =
-      params.state.lastProgressAt ?? params.state.lastTurnStartedAt;
-    if (!lastProgressAt) return;
-    const idleMs = Date.now() - lastProgressAt;
-    if (idleMs < FULLAUTO_STALL_TIMEOUT_MS) return;
-
-    params.state.watchdogInterruptedRunToken = params.runToken;
-    params.state.consecutiveStalls += 1;
-    params.state.lastInterventionAt = Date.now();
-    clearFullAutoWatchdog(params.sessionId);
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        runToken: params.runToken,
-        idleMs,
-        lastProgressLabel: params.state.lastProgressLabel,
-        consecutiveStalls: params.state.consecutiveStalls,
-      },
-      'Full-auto watchdog interrupting stalled turn',
-    );
-    interruptGatewaySessionExecution(params.sessionId);
-  }, pollMs);
 }
 
 async function recoverFullAutoAfterWatchdog(params: {
@@ -866,7 +842,6 @@ export function enableFullAutoSession(params: {
   state.lastProgressLabel = null;
   state.lastInterventionAt = null;
   state.lastTurnStartedAt = null;
-  state.watchdogInterruptedRunToken = null;
   syncFullAutoRuntimeContext(refreshed.id, {
     guildId: params.req.guildId,
     userId: params.req.userId ?? FULLAUTO_DEFAULT_USER_ID,
@@ -932,7 +907,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
   }
 
   const state = getOrCreateFullAutoRuntimeState(sessionId);
-  if (state.running) return;
+  if (state.lifecycle.running) return;
   if (state.turns >= FULLAUTO_MAX_CONSECUTIVE_TURNS) {
     await disableFullAutoSession({
       sessionId,
@@ -967,16 +942,15 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
     return;
   }
 
-  state.running = true;
-  state.activeRunToken = nextFullAutoRunToken++;
+  const runToken = nextFullAutoRunToken++;
+  if (!state.lifecycle.begin(runToken)) return;
   state.lastTurnStartedAt = Date.now();
   state.lastProgressAt = state.lastTurnStartedAt;
   state.lastProgressLabel = 'turn-start';
-  state.watchdogInterruptedRunToken = null;
   startFullAutoWatchdog({
     sessionId,
     state,
-    runToken: state.activeRunToken,
+    runToken,
   });
   const maxAttempts = PROACTIVE_AUTO_RETRY_ENABLED
     ? PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS
@@ -985,7 +959,6 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
   let delayMs = PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
   let lastError = 'Unknown full-auto error';
   let lastClassification: GatewayErrorClass = 'unknown';
-  const runToken = state.activeRunToken;
 
   try {
     while (attempt < maxAttempts) {
@@ -1005,24 +978,32 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         enableRag: state.enableRag ?? session.enable_rag === 1,
         onTextDelta: (delta) => {
           if (!delta) return;
-          markFullAutoProgress(sessionId, state, 'text');
+          markFullAutoProgress(sessionId, state, 'text', runToken);
         },
         onToolProgress: (event) => {
           markFullAutoProgress(
             sessionId,
             state,
             `${event.toolName}:${event.phase}`,
+            runToken,
           );
         },
-        onProactiveMessage: state.onProactiveMessage ?? undefined,
+        onProactiveMessage: state.onProactiveMessage
+          ? (message) => {
+              if (
+                isCurrentFullAutoRuntimeState(sessionId, state) &&
+                state.lifecycle.owns(runToken)
+              )
+                return state.onProactiveMessage?.(message);
+            }
+          : undefined,
         source: 'fullauto',
       });
 
       if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
         return;
       }
-      if (state.watchdogInterruptedRunToken === runToken) {
-        state.watchdogInterruptedRunToken = null;
+      if (state.lifecycle.takeInterruption(runToken)) {
         await recoverFullAutoAfterWatchdog({ sessionId, session, state });
         return;
       }
@@ -1049,8 +1030,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
           return;
         }
-        if (state.watchdogInterruptedRunToken === runToken) {
-          state.watchdogInterruptedRunToken = null;
+        if (state.lifecycle.takeInterruption(runToken)) {
           await recoverFullAutoAfterWatchdog({ sessionId, session, state });
           return;
         }
@@ -1091,7 +1071,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         state.turns += 1;
         state.consecutiveErrors = 0;
         state.consecutiveStalls = 0;
-        markFullAutoProgress(sessionId, state, 'turn-success');
+        markFullAutoProgress(sessionId, state, 'turn-success', runToken);
         const activeSession =
           memoryService.getSessionById(sessionId) ?? session;
         if (
@@ -1116,8 +1096,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
           return;
         }
-        if (state.watchdogInterruptedRunToken === runToken) {
-          state.watchdogInterruptedRunToken = null;
+        if (state.lifecycle.takeInterruption(runToken)) {
           await recoverFullAutoAfterWatchdog({ sessionId, session, state });
           return;
         }
@@ -1164,8 +1143,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
     if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
       return;
     }
-    if (state.watchdogInterruptedRunToken === runToken) {
-      state.watchdogInterruptedRunToken = null;
+    if (state.lifecycle.takeInterruption(runToken)) {
       const activeSession = session ?? memoryService.getSessionById(sessionId);
       if (!activeSession) return;
       await recoverFullAutoAfterWatchdog({
@@ -1204,9 +1182,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
     }
   } finally {
     if (isCurrentFullAutoRuntimeState(sessionId, state)) {
-      clearFullAutoWatchdog(sessionId);
-      state.running = false;
-      state.activeRunToken = null;
+      state.lifecycle.finish(runToken);
     }
     if (!memoryService.getSessionById(sessionId)?.full_auto_enabled) {
       clearFullAutoRuntimeState(sessionId);
