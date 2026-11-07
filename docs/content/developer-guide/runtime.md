@@ -1468,3 +1468,23 @@ grant scopes are unchanged. It carries message content over the existing private
 approval transport and must not be included in diagnostic logging. Attachment paths
 use the client's authenticated document reader; metadata without a path cannot
 supply an attachment-content preview.
+
+### Approval coordination
+
+The gateway owns durable prompt presentation and response claims. Its lifecycle
+is `pending → claimed → handed_off`, with `expired` and `superseded` terminal
+outcomes. Handoff records acceptance for processing, independent of tool success.
+Only pending prompts produce actionable approval cards. The worker remains the
+authority for exact executable arguments, approving identity, and trust scope.
+
+Claims, rollbacks, expiry, and cleanup are guarded by session ID, approval ID,
+and a rotating claim identity. Replacement is durable before any asynchronous
+button cleanup, which only touches the captured old prompt. Cleanup failure
+cannot restore an actionable card or remove its replacement. A restart retains
+claimed prompts without authorizing or replaying them; request the action again
+when a response was interrupted before handoff. Dispatch failures after handoff
+also require a fresh request rather than automatic approval retry.
+
+Upgrade note: gateway prompt snapshots without lifecycle state and claim identity
+are ignored on hydration. Re-request those pending actions after upgrading; worker
+approval records do not acquire consent from gateway snapshots.

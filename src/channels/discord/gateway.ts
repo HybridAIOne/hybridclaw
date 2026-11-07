@@ -3,6 +3,7 @@
  * The descriptor selects targets and lifecycle; this module connects the runtime
  * to execution without starting it on import or owning queue policy.
  */
+
 import { isSilentReply, stripSilentToken } from '../../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../../agent/silent-reply-stream.js';
 import { DISCORD_TOKEN } from '../../config/config.js';
@@ -25,7 +26,7 @@ import {
   isDiscordInvalidTokenError,
 } from '../../gateway/gateway-error-service.js';
 import { withInFlightTurn } from '../../gateway/in-flight-turns.js';
-import { clearPendingApproval } from '../../gateway/pending-approvals.js';
+import type { PendingApprovalClaim } from '../../gateway/pending-approvals.js';
 import { deliverProactiveMessage } from '../../gateway/proactive-dispatch.js';
 import {
   normalizeSessionShowMode,
@@ -162,9 +163,6 @@ export async function startDiscordIntegration(): Promise<boolean> {
               }
             }
             if (streamFilter.isSilent() || isSilentReply(result.result)) {
-              await clearPendingApproval(effectiveSessionId, {
-                disableButtons: true,
-              });
               await context.stream.discard();
               return;
             }
@@ -209,15 +207,9 @@ export async function startDiscordIntegration(): Promise<boolean> {
               result.artifacts,
             );
             if (!rawText.trim()) {
-              await clearPendingApproval(effectiveSessionId, {
-                disableButtons: true,
-              });
               await context.stream.discard();
               return;
             }
-            await clearPendingApproval(effectiveSessionId, {
-              disableButtons: true,
-            });
             if (result.components && !sawTextDelta) {
               await _reply(responseText, attachments, result.components);
               await context.stream.discard();
@@ -241,6 +233,7 @@ export async function startDiscordIntegration(): Promise<boolean> {
         username: string,
         args: string[],
         reply: ReplyFn,
+        approvalClaim?: PendingApprovalClaim,
       ) => {
         try {
           await handleTextChannelCommand({
@@ -251,6 +244,7 @@ export async function startDiscordIntegration(): Promise<boolean> {
             username,
             args,
             reply,
+            approvalClaim,
           });
         } catch (error) {
           logger.error(

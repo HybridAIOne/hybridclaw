@@ -1,8 +1,10 @@
 /**
- * Durable channel prompts belong to a session and approving user. Complete
- * review facts are a read-only copy of the runtime request; tool argument
- * validation stays with the runtime approval policy, not this prompt cache.
+ * Gateway prompts move from pending to claimed to handed_off, or terminate
+ * as expired/superseded. Every mutation checks the prompt and claim identity.
+ * Handoff means accepted for processing; executable facts and consent scope
+ * remain worker-owned. Button cleanup never controls durable state.
  */
+import { randomUUID } from 'node:crypto';
 import {
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
@@ -15,6 +17,13 @@ import {
 } from './approval-presentation.js';
 
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+const APPROVAL_PROMPT_STATES = [
+  'pending',
+  'claimed',
+  'handed_off',
+  'expired',
+  'superseded',
+] as const;
 const PENDING_APPROVAL_ASSET_PREFIX = 'pending-approvals/session/';
 
 export interface PendingApprovalCommandAction {
@@ -27,6 +36,12 @@ export interface PendingApprovalCommandAction {
   denyText?: string;
 }
 
+export interface PendingApprovalClaim {
+  sessionId: string;
+  approvalId: string;
+  claimId: string;
+}
+
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
@@ -36,7 +51,8 @@ export interface PendingApprovalPrompt {
   createdAt: number;
   expiresAt: number;
   userId: string;
-  resolvedAt?: number | null;
+  state: (typeof APPROVAL_PROMPT_STATES)[number];
+  claimId: string;
   commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
   disableTimeout?: ReturnType<typeof setTimeout> | null;
@@ -67,6 +83,11 @@ function normalizeDurablePendingApproval(
   const expiresAt = typeof raw.expiresAt === 'number' ? raw.expiresAt : NaN;
   const userId = typeof raw.userId === 'string' ? raw.userId.trim() : '';
   if (
+    !(APPROVAL_PROMPT_STATES as readonly string[]).includes(
+      String(raw.state),
+    ) ||
+    typeof raw.claimId !== 'string' ||
+    !raw.claimId ||
     !approvalId ||
     !prompt ||
     !userId ||
@@ -95,10 +116,8 @@ function normalizeDurablePendingApproval(
     createdAt,
     expiresAt,
     userId,
-    resolvedAt:
-      typeof raw.resolvedAt === 'number' && Number.isFinite(raw.resolvedAt)
-        ? raw.resolvedAt
-        : null,
+    state: raw.state as PendingApprovalPrompt['state'],
+    claimId: raw.claimId,
     commandAction:
       raw.commandAction &&
       typeof raw.commandAction === 'object' &&
@@ -119,7 +138,8 @@ function serializePendingApproval(
     createdAt: entry.createdAt,
     expiresAt: entry.expiresAt,
     userId: entry.userId,
-    resolvedAt: entry.resolvedAt ?? null,
+    state: entry.state,
+    claimId: entry.claimId,
     commandAction: entry.commandAction ?? null,
   };
 }
@@ -139,18 +159,6 @@ function persistPendingApproval(
       exists: true,
       content: JSON.stringify(serializePendingApproval(entry)),
     },
-  );
-}
-
-function deletePersistedPendingApproval(sessionId: string): void {
-  syncRuntimeAssetRevisionState(
-    'pending_approval',
-    pendingApprovalAssetPath(sessionId),
-    {
-      route: 'pending-approvals.clear',
-      source: 'gateway',
-    },
-    { exists: false, content: null },
   );
 }
 
@@ -180,24 +188,60 @@ function rehydrateDurablePendingApprovals(): void {
   pendingApprovalsHydrated = true;
 }
 
-function getStoredPendingApproval(
+export function getStoredPendingApproval(
   sessionId: string,
 ): PendingApprovalPrompt | null {
   rehydrateDurablePendingApprovals();
   return pendingApprovalBySession.get(sessionId) || null;
 }
 
-function dropPendingApprovalEntry(
-  sessionId: string,
-  options?: { disableButtons?: boolean },
+function matchesClaim(
+  entry: PendingApprovalPrompt,
+  claim: PendingApprovalClaim,
+): boolean {
+  return (
+    entry.approvalId === claim.approvalId && entry.claimId === claim.claimId
+  );
+}
+
+function transitionPendingApproval(
+  claim: PendingApprovalClaim,
+  state: PendingApprovalPrompt['state'],
 ): PendingApprovalPrompt | null {
-  const existing = pendingApprovalBySession.get(sessionId) || null;
-  pendingApprovalBySession.delete(sessionId);
-  deletePersistedPendingApproval(sessionId);
-  if (existing) {
-    void disposePendingApprovalEntry(existing, options);
-  }
-  return existing;
+  const entry = getStoredPendingApproval(claim.sessionId);
+  if (
+    !entry ||
+    !matchesClaim(entry, claim) ||
+    (entry.state !== 'pending' && entry.state !== 'claimed')
+  )
+    return null;
+  const next = { ...entry, state };
+  persistPendingApproval(claim.sessionId, next);
+  pendingApprovalBySession.set(claim.sessionId, next);
+  return next;
+}
+
+function scheduleExpiry(sessionId: string, entry: PendingApprovalPrompt): void {
+  if (entry.disableTimeout) clearTimeout(entry.disableTimeout);
+  const identity = {
+    sessionId,
+    approvalId: entry.approvalId,
+    claimId: entry.claimId,
+  };
+  entry.disableTimeout = setTimeout(
+    () => expirePendingApproval(identity),
+    Math.max(0, entry.expiresAt - Date.now()),
+  );
+}
+
+function expirePendingApproval(claim: PendingApprovalClaim): void {
+  const entry = getStoredPendingApproval(claim.sessionId);
+  if (!entry || !matchesClaim(entry, claim) || entry.expiresAt > Date.now())
+    return;
+  if (entry.state !== 'pending' && entry.state !== 'claimed') return;
+  const expired = transitionPendingApproval(claim, 'expired');
+  if (expired)
+    void disposePendingApprovalEntry(expired, { disableButtons: true });
 }
 
 async function disposePendingApprovalEntry(
@@ -218,7 +262,10 @@ async function disposePendingApprovalEntry(
 export function getPendingApproval(
   sessionId: string,
 ): PendingApprovalPrompt | null {
-  return getStoredPendingApproval(sessionId);
+  const entry = getStoredPendingApproval(sessionId);
+  return entry && (entry.state === 'pending' || entry.state === 'claimed')
+    ? entry
+    : null;
 }
 
 export function listPendingApprovals(): Array<{
@@ -234,10 +281,10 @@ export function listPendingApprovals(): Array<{
 
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      dropPendingApprovalEntry(sessionId, { disableButtons: true });
+      expirePendingApproval({ sessionId, ...entry });
       continue;
     }
-    if (entry.resolvedAt) {
+    if (entry.state !== 'pending') {
       continue;
     }
     entries.push({ sessionId, entry });
@@ -247,22 +294,35 @@ export function listPendingApprovals(): Array<{
   return entries;
 }
 
-export async function setPendingApproval(
+function installPendingApproval(
   sessionId: string,
-  entry: PendingApprovalPrompt,
-): Promise<void> {
+  entry: Omit<PendingApprovalPrompt, 'state' | 'claimId'>,
+): { current: PendingApprovalPrompt; previous: PendingApprovalPrompt | null } {
+  rehydrateDurablePendingApprovals();
   const nextEntry: PendingApprovalPrompt = {
     ...entry,
+    state: 'pending',
+    claimId: randomUUID(),
     presentation: entry.presentation ?? createApprovalPresentation('text'),
   };
   const existing = pendingApprovalBySession.get(sessionId) || null;
-  if (existing) {
-    pendingApprovalBySession.delete(sessionId);
-    deletePersistedPendingApproval(sessionId);
-    await disposePendingApprovalEntry(existing, { disableButtons: true });
-  }
-  pendingApprovalBySession.set(sessionId, nextEntry);
   persistPendingApproval(sessionId, nextEntry);
+  pendingApprovalBySession.set(sessionId, nextEntry);
+  if (
+    existing &&
+    (existing.state === 'pending' || existing.state === 'claimed')
+  )
+    existing.state = 'superseded';
+  return { current: nextEntry, previous: existing };
+}
+
+export async function setPendingApproval(
+  sessionId: string,
+  entry: Omit<PendingApprovalPrompt, 'state' | 'claimId'>,
+): Promise<void> {
+  const { previous } = installPendingApproval(sessionId, entry);
+  if (previous)
+    await disposePendingApprovalEntry(previous, { disableButtons: true });
 }
 
 export async function rememberPendingApproval(params: {
@@ -281,7 +341,7 @@ export async function rememberPendingApproval(params: {
     typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
       ? Math.max(createdAt + 15_000, params.expiresAt)
       : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
-  const entry: PendingApprovalPrompt = {
+  const entry = {
     approvalId: params.approvalId,
     prompt: params.prompt,
     approval: params.approval,
@@ -289,43 +349,36 @@ export async function rememberPendingApproval(params: {
     createdAt,
     expiresAt,
     userId: params.userId,
-    resolvedAt: null,
     commandAction: params.commandAction ?? null,
     disableButtons: params.disableButtons ?? null,
-    disableTimeout: null,
+    disableTimeout: null as ReturnType<typeof setTimeout> | null,
   };
-  entry.disableTimeout = setTimeout(
-    () => {
-      void clearPendingApproval(params.sessionId, { disableButtons: true });
-    },
-    Math.max(0, expiresAt - Date.now()),
-  );
-  await setPendingApproval(params.sessionId, entry);
+  // Install the timer on the captured entry before yielding to old button cleanup.
+  const { current, previous } = installPendingApproval(params.sessionId, entry);
+  scheduleExpiry(params.sessionId, current);
+  if (previous)
+    await disposePendingApprovalEntry(previous, { disableButtons: true });
 }
 
 export async function clearPendingApproval(
   sessionId: string,
-  options?: { disableButtons?: boolean },
+  expected: Pick<PendingApprovalClaim, 'approvalId' | 'claimId'> & {
+    disableButtons?: boolean;
+  },
 ): Promise<PendingApprovalPrompt | null> {
-  const existing = getStoredPendingApproval(sessionId);
-  if (!existing) return null;
-  pendingApprovalBySession.delete(sessionId);
-  deletePersistedPendingApproval(sessionId);
-  await disposePendingApprovalEntry(existing, options);
-  return existing;
+  const entry = transitionPendingApproval(
+    { sessionId, ...expected },
+    'superseded',
+  );
+  if (entry) await disposePendingApprovalEntry(entry, expected);
+  return entry;
 }
 
 export async function cleanupExpiredPendingApprovals(): Promise<void> {
   rehydrateDurablePendingApprovals();
-  const now = Date.now();
-  const expiredSessionIds = [...pendingApprovalBySession.entries()]
-    .filter(([, pending]) => pending.expiresAt <= now)
-    .map(([sessionId]) => sessionId);
-  await Promise.all(
-    expiredSessionIds.map((sessionId) =>
-      clearPendingApproval(sessionId, { disableButtons: true }),
-    ),
-  );
+  for (const [sessionId, entry] of pendingApprovalBySession) {
+    expirePendingApproval({ sessionId, ...entry });
+  }
 }
 
 export function findPendingApprovalByApprovalId(approvalId: string): {
@@ -338,10 +391,10 @@ export function findPendingApprovalByApprovalId(approvalId: string): {
   const now = Date.now();
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      dropPendingApprovalEntry(sessionId, { disableButtons: true });
+      expirePendingApproval({ sessionId, ...entry });
       continue;
     }
-    if (entry.resolvedAt) {
+    if (entry.state !== 'pending') {
       continue;
     }
     if (entry.approvalId === normalizedApprovalId) {
@@ -354,11 +407,13 @@ export function findPendingApprovalByApprovalId(approvalId: string): {
 export function claimPendingApprovalByApprovalId(params: {
   approvalId: string;
   userId: string;
+  sessionId?: string;
 }):
   | {
       status: 'claimed';
       sessionId: string;
       entry: PendingApprovalPrompt;
+      claim: PendingApprovalClaim;
     }
   | {
       status: 'unauthorized';
@@ -377,44 +432,86 @@ export function claimPendingApprovalByApprovalId(params: {
   const now = Date.now();
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      dropPendingApprovalEntry(sessionId, { disableButtons: true });
+      expirePendingApproval({ sessionId, ...entry });
       continue;
     }
-    if (entry.approvalId !== normalizedApprovalId) {
+    if (
+      (params.sessionId && params.sessionId !== sessionId) ||
+      entry.approvalId !== normalizedApprovalId
+    ) {
       continue;
     }
     if (entry.userId !== params.userId) {
       return { status: 'unauthorized', sessionId, entry };
     }
-    if (entry.resolvedAt) {
+    if (entry.state !== 'pending') {
       return { status: 'already_handled', sessionId, entry };
     }
-    entry.resolvedAt = now;
-    persistPendingApproval(sessionId, entry);
-    return { status: 'claimed', sessionId, entry };
+    const claimed: PendingApprovalPrompt = {
+      ...entry,
+      state: 'claimed',
+      claimId: randomUUID(),
+    };
+    persistPendingApproval(sessionId, claimed);
+    pendingApprovalBySession.set(sessionId, claimed);
+    if (claimed.disableTimeout) scheduleExpiry(sessionId, claimed);
+    return {
+      status: 'claimed',
+      sessionId,
+      entry: claimed,
+      claim: {
+        sessionId,
+        approvalId: claimed.approvalId,
+        claimId: claimed.claimId,
+      },
+    };
   }
   return { status: 'not_found' };
 }
 
-export function rollbackPendingApprovalClaim(params: {
-  sessionId: string;
-  approvalId: string;
-}): boolean {
-  const sessionId = params.sessionId.trim();
-  const approvalId = params.approvalId.trim();
-  if (!sessionId || !approvalId) {
+export function rollbackPendingApprovalClaim(
+  claim: PendingApprovalClaim,
+): boolean {
+  const entry = getStoredPendingApproval(claim.sessionId);
+  if (!entry || !matchesClaim(entry, claim) || entry.state !== 'claimed')
+    return false;
+  if (entry.expiresAt <= Date.now()) {
+    expirePendingApproval(claim);
     return false;
   }
-
-  const entry = getStoredPendingApproval(sessionId);
-  if (!entry) {
-    return false;
-  }
-  if (entry.approvalId !== approvalId || !entry.resolvedAt) {
-    return false;
-  }
-
-  entry.resolvedAt = null;
-  persistPendingApproval(sessionId, entry);
+  const pending: PendingApprovalPrompt = {
+    ...entry,
+    state: 'pending',
+    claimId: randomUUID(),
+  };
+  persistPendingApproval(claim.sessionId, pending);
+  pendingApprovalBySession.set(claim.sessionId, pending);
+  if (pending.disableTimeout) scheduleExpiry(claim.sessionId, pending);
   return true;
+}
+
+export function handoffPendingApprovalClaim(
+  claim: PendingApprovalClaim,
+): boolean {
+  const entry = getStoredPendingApproval(claim.sessionId);
+  if (!entry || !matchesClaim(entry, claim) || entry.state !== 'claimed')
+    return false;
+  if (entry.expiresAt <= Date.now()) {
+    expirePendingApproval(claim);
+    return false;
+  }
+  const handedOff = transitionPendingApproval(claim, 'handed_off');
+  if (handedOff)
+    void disposePendingApprovalEntry(handedOff, { disableButtons: true });
+  return Boolean(handedOff);
+}
+
+export function isPendingApprovalClaim(claim: PendingApprovalClaim): boolean {
+  const entry = getStoredPendingApproval(claim.sessionId);
+  return Boolean(
+    entry &&
+      matchesClaim(entry, claim) &&
+      entry.state === 'claimed' &&
+      entry.expiresAt > Date.now(),
+  );
 }
