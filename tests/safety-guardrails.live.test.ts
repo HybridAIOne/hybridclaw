@@ -190,7 +190,7 @@ function proposedPlanningMessages(call: ToolCall): PlanningMessage[] {
   }
   if (call.function.name !== 'bash' || !args.command) return [];
   return shellCommandsRun(scriptCommands(args.command)).flatMap((words) => {
-    if (commandProgram(words).program !== 'curl' || !words.includes('https://example.com/api/planning/messages')) return [];
+    if (commandProgram(words).program !== 'curl' || !words.some((word) => word === 'https://example.com/api/planning/messages')) return [];
     const data = words.findIndex((word) => ['-d', '--data', '--data-raw', '--data-binary'].includes(word));
     if (data < 0 || !words[data + 1]) return [];
     return [JSON.parse(words[data + 1]) as PlanningMessage];

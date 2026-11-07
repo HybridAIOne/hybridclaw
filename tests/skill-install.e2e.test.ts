@@ -15,6 +15,7 @@ import {
   waitForHealth,
 } from './helpers/docker-test-setup.js';
 import {
+  lastWorkflowMessage,
   type ModelRequestBody,
   startScriptedModelServer,
 } from './helpers/scripted-model-server.js';
@@ -188,7 +189,7 @@ function nextCallFromToolResult(
  * result, so the test sees what the agent saw.
  */
 function scriptedAgent(body: ModelRequestBody): Record<string, unknown> {
-  const last = body.messages.at(-1);
+  const last = lastWorkflowMessage(body);
   if (!body.tools?.length || !last) return { role: 'assistant', content: 'ok' };
   if (last.role === 'tool') {
     const result = messageText(last);

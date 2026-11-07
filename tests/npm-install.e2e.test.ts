@@ -15,6 +15,7 @@ import {
   waitForHealth,
 } from './helpers/docker-test-setup.js';
 import {
+  lastWorkflowMessage,
   type ModelRequestBody,
   startScriptedModelServer,
 } from './helpers/scripted-model-server.js';
@@ -101,7 +102,7 @@ function messageText(message: ChatMessage | undefined): string {
 }
 
 function scriptedAgent(body: ModelRequestBody): Record<string, unknown> {
-  const last = body.messages.at(-1);
+  const last = lastWorkflowMessage(body);
   if (!body.tools?.length || !last) return { role: 'assistant', content: 'ok' };
   if (last.role === 'tool') {
     return { role: 'assistant', content: messageText(last) };
