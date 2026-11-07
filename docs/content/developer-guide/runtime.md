@@ -1328,7 +1328,8 @@ Container-side sandboxed tool families:
 read its complete contents and pass `overwrite: true` and `expected_content`
 containing those exact contents, including trailing newlines. A missing file or
 content mismatch rejects the replacement without changing the target. Empty
-files require `expected_content: ""`. After a stale-write error, read again and
+files require `expected_content: ""`. If the only missing bytes are the final LF or
+CRLF, the error identifies that ending. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
 targeted substitutions.
 

@@ -110,6 +110,29 @@ describe('local writes', () => {
     },
   );
 
+  test.each([
+    ['café\n', 'café', /missing.*final LF\b/],
+    ['café\r\n', 'café', /missing.*final CRLF\b/],
+    ['\n', '', /missing.*final LF\b/],
+    ['café!\n', 'café', /does not match/],
+    ['café!\n', 'café?', /does not match/],
+    ['café\r\n', 'café\r', /missing.*final LF\b/],
+  ] as const)(
+    'explains an omitted final line ending only when all other bytes match',
+    async (current, expected_content, error) => {
+      fs.writeFileSync(file, current);
+      const args = {
+        path: 'report.txt',
+        contents: 'replacement',
+        overwrite: true,
+      };
+      await expect(write({ ...args, expected_content })).rejects.toThrow(error);
+      expect(fs.readFileSync(file, 'utf8')).toBe(current);
+      await write({ ...args, expected_content: current });
+      expect(fs.readFileSync(file, 'utf8')).toBe('replacement');
+    },
+  );
+
   test('does not recreate a deleted replacement target or treat missing as empty', async () => {
     await expect(
       write({
