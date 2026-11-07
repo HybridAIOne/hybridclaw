@@ -103,10 +103,16 @@ export class SessionStateSet extends Set<string> {
     return deleted;
   }
 
+  override clear(): void {
+    if (this.failure) throw this.failure;
+    if (this.size === 0) return;
+    super.clear();
+    if (this.filePath) this.persist(this.filePath);
+  }
+
   async updateLockedSession(
     sessionId: string,
-    operation: 'add' | 'delete',
-    value: string,
+    update: (values: this) => void,
   ): Promise<void> {
     this.bindSession(sessionId);
     const filePath = sessionStatePath(sessionId, this.name);
@@ -114,7 +120,7 @@ export class SessionStateSet extends Set<string> {
     try {
       release = await waitForMemoryFileLock(filePath);
       this.bindSession(sessionId, true);
-      this[operation](value);
+      update(this);
     } catch (error) {
       if (this.required) {
         this.failure = new Error(
