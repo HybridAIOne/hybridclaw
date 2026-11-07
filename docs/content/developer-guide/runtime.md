@@ -126,6 +126,11 @@ credentials and structured authentication fields remain redacted in replay.
 
 ## Worker State
 
+Workers remember hashes of consumed authenticated follow-up inputs and reject
+replays for the lifetime of their stdin secret. These hashes stay in memory:
+a replacement worker receives a fresh secret, so old envelopes cannot verify.
+Repeating a user message with a new gateway request ID remains a new turn.
+
 Host workers keep managed state in their owning agent's workspace, or the scope's
 workspace for scoped chats. An execution workspace override changes tool paths
 and the shell's working directory without moving bootstrap files, approval
