@@ -597,7 +597,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
-const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const HYBRIDAI_SANDBOX_OPEN_PATH = '/hybridclaw/open';
 const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
 const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
@@ -2836,10 +2836,11 @@ function buildMobileLaunchUrl(params: {
   return url.toString();
 }
 
-function resolveHybridAILoginUrl(): string | null {
+// HybridAI signs the visitor in if needed and launches them back to returnPath.
+function resolveHybridAISignInUrl(returnPath: string): string | null {
   const baseUrl = HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '');
   if (!baseUrl) return null;
-  return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
+  return `${baseUrl}${HYBRIDAI_SANDBOX_OPEN_PATH}?next=${encodeURIComponent(returnPath)}`;
 }
 
 function isConsoleSpaPath(pathname: string): boolean {
@@ -2898,7 +2899,11 @@ function requiresSessionAuth(pathname: string): boolean {
 function ensureSessionAuth(req: IncomingMessage, res: ServerResponse): boolean {
   if (hasSessionAuth(req)) return true;
 
-  const loginUrl = resolveHybridAILoginUrl();
+  const returnUrl = new URL(req.url || '/', 'http://sandbox.invalid');
+  returnUrl.searchParams.delete('token');
+  const loginUrl = resolveHybridAISignInUrl(
+    `${returnUrl.pathname}${returnUrl.search}`,
+  );
   if (!loginUrl) {
     sendText(
       res,
