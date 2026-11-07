@@ -14,6 +14,7 @@ import {
   waitForHealth,
 } from './helpers/docker-test-setup.js';
 import {
+  lastWorkflowMessage,
   type ModelRequestBody,
   startScriptedModelServer,
 } from './helpers/scripted-model-server.js';
@@ -84,7 +85,7 @@ function toolCall(
 }
 
 function scriptedAgent(body: ModelRequestBody): Record<string, unknown> {
-  const last = body.messages.at(-1);
+  const last = lastWorkflowMessage(body);
   if (!body.tools?.length || !last) return { role: 'assistant', content: 'ok' };
   const text = messageText(last);
   // A PDF read with rendered pages delivers them in a user message after the

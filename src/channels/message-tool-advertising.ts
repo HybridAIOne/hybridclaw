@@ -1,8 +1,13 @@
+/**
+ * Registered message backends define advertising, not channel authorization.
+ * Independent skill services do not belong to this transport inventory.
+ */
 import {
   formatMessageToolChannelList,
   MESSAGE_TOOL_CHANNEL_KINDS,
   type MessageToolChannelKind,
   normalizeMessageToolChannelKinds,
+  shouldOfferMessageTool,
 } from '../../container/shared/message-tool-channels.js';
 import { listChannels } from './channel-registry.js';
 
@@ -11,6 +16,7 @@ export {
   formatMessageToolChannelList,
   MESSAGE_TOOL_CHANNEL_KINDS,
   normalizeMessageToolChannelKinds,
+  shouldOfferMessageTool,
 };
 
 const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {

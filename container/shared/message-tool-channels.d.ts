@@ -29,6 +29,10 @@ export declare function normalizeMessageToolChannelKinds(
   kinds: readonly string[] | undefined,
 ): MessageToolChannelKind[];
 
+export declare function shouldOfferMessageTool(
+  kinds: readonly string[] | undefined,
+): boolean;
+
 export declare function formatMessageToolChannelList(
   kinds: readonly string[] | undefined,
 ): string;
