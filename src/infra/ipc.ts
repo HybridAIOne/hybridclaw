@@ -13,7 +13,8 @@
  *
  * `readOutput` always settles, with the reply to its own request id, a
  * timeout, or an interrupt, so a stopped agent's late reply never answers a
- * later request. An interrupted read keeps only the tool history the agent
+ * later request. Replies must be bounded, regular files opened without following
+ * links. An interrupted read keeps only the tool history the agent
  * flushed while shutting down. Starting and stopping the agent belongs to
  * host-runner / container-runner, not here.
  */
@@ -356,37 +357,74 @@ async function readOutputFile(
   }
 }
 
-/** One look at the reply files: the parsed output, an oversize error, or null. */
+/** One look at the reply files: parsed output, an invalid-file error, or null. */
 function readOutputFiles(
   sessionId: string,
   outputPaths: readonly string[],
 ): ContainerOutput | null {
   for (const outputPath of outputPaths) {
-    if (!fs.existsSync(outputPath)) continue;
-    const stat = fs.statSync(outputPath);
-    if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
-      fs.unlinkSync(outputPath);
-      logger.warn(
-        { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
-        'Container output exceeded size limit',
-      );
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
-      };
-    }
+    let fd: number | undefined;
     try {
-      const raw = fs.readFileSync(outputPath, 'utf-8');
-      const output: ContainerOutput = JSON.parse(raw);
-      // Clean up output file after reading
+      fd = fs.openSync(
+        outputPath,
+        fs.constants.O_RDONLY |
+          fs.constants.O_NOFOLLOW |
+          fs.constants.O_NONBLOCK,
+      );
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
+        throw new Error('Output must be a regular file within the size limit');
+      }
+      // Read the opened inode, never reopen the worker-controlled pathname.
+      // One extra byte detects growth without allowing an unbounded read.
+      const buffer = Buffer.alloc(stat.size + 1);
+      let bytes = 0;
+      while (bytes < buffer.length) {
+        const read = fs.readSync(
+          fd,
+          buffer,
+          bytes,
+          buffer.length - bytes,
+          bytes,
+        );
+        if (read === 0) break;
+        bytes += read;
+      }
+      const named = fs.lstatSync(outputPath);
+      if (
+        bytes !== stat.size ||
+        !named.isFile() ||
+        named.dev !== stat.dev ||
+        named.ino !== stat.ino ||
+        named.size !== stat.size
+      ) {
+        throw new Error('Output file changed while reading');
+      }
+      const output: ContainerOutput = JSON.parse(
+        buffer.toString('utf8', 0, bytes),
+      );
       fs.unlinkSync(outputPath);
       logger.debug({ sessionId }, 'Read IPC output');
       return output;
     } catch (err) {
-      // File might be partially written, wait and retry
-      logger.debug({ sessionId, err }, 'Output file not ready, retrying');
+      if (
+        (err as NodeJS.ErrnoException).code === 'ENOENT' ||
+        err instanceof SyntaxError
+      ) {
+        // Missing or partially written JSON can become ready on the next wakeup.
+        logger.debug({ sessionId }, 'Output file not ready, retrying');
+        continue;
+      }
+      logger.warn({ sessionId }, 'Rejected unsafe or unreadable IPC output');
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error:
+          'Invalid agent output file: expected a stable regular file within the size limit',
+      };
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
     }
   }
   return null;
