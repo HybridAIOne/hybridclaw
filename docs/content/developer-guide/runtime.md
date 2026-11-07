@@ -1488,3 +1488,15 @@ also require a fresh request rather than automatic approval retry.
 Upgrade note: gateway prompt snapshots without lifecycle state and claim identity
 are ignored on hydration. Re-request those pending actions after upgrading; worker
 approval records do not acquire consent from gateway snapshots.
+
+The worker keeps only pending executable requests in its existing shared workspace
+file. Denial, revision, expiry, and approval for replay consume pending records;
+these are worker outcomes, not gateway handoff states. Saving a session's requests
+and pruning expired requests hold the shared memory-file lock across the complete
+read/modify/atomic-write transaction. Concurrent sessions retain each other's
+requests. Reads reject malformed state, and write or lock failures propagate
+before consent can grant replay or trust. Lock acquisition waits synchronously
+for at most the existing five-second bound because policy evaluation is synchronous.
+A crashed writer's lock is not stolen: remove it only after verifying no writer
+is running. The file format and worker validation of arguments, user, session,
+and pinned one-time scope are unchanged.
