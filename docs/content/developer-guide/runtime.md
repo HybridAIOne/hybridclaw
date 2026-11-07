@@ -1461,7 +1461,11 @@ content mismatch rejects the replacement without changing the target. Empty
 files require `expected_content: ""`. If the only missing bytes are the final LF or
 CRLF, the error identifies that ending. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
-targeted substitutions.
+targeted substitutions. Replacement text must be a string: omitted or non-string
+`new` / `new_text` values fail without changing the file. An explicit empty string
+still deletes the matched text. Daily memory `write` and `replace` follow the same
+rule for `content` and `new_text`; clearing a whole daily note also requires
+`confirm_overwrite: true`.
 
 Successful `write` and `edit` calls check JSON syntax for `.json` files up to
 256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested

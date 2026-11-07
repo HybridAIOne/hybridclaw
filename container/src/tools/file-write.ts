@@ -16,6 +16,7 @@ import {
 } from '../file-write-conflicts.js';
 import type { ToolDefinition } from '../types.js';
 import { fileSyntaxFeedback } from './file-syntax-feedback.js';
+import { assertTextPayload } from './text-payload.js';
 
 export const WRITE_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -118,9 +119,7 @@ export async function runFileWrite(
   ) {
     throw new Error('path must be a non-empty file path');
   }
-  if (typeof args.contents !== 'string') {
-    throw new Error('contents must be a string');
-  }
+  assertTextPayload(args.contents, 'contents');
   if (args.overwrite !== undefined && typeof args.overwrite !== 'boolean') {
     throw new Error('overwrite must be a boolean');
   }
