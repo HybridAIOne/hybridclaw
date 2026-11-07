@@ -1,3 +1,5 @@
+import { validateAgentScopeClaims } from '../gateway/gateway-admin-tokens.js';
+import { withMemoryDatabase } from '../memory/database.js';
 import {
   createApiToken,
   listApiTokens,
@@ -42,6 +44,7 @@ function parseCreateArgs(args: string[]): {
   let label = '';
   let role = '';
   let actions: string[] = [];
+  let agentIds: string[] | null = null;
   let expiresAt: string | null = null;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -82,6 +85,18 @@ function parseCreateArgs(args: string[]): {
       index = actionsFlag.nextIndex;
       continue;
     }
+    const agentsFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--agents',
+      placeholder: '<agent[,agent]>',
+    });
+    if (agentsFlag) {
+      agentIds = splitClaimList(agentsFlag.value);
+      index = agentsFlag.nextIndex;
+      continue;
+    }
     const expiresAtFlag = parseValueFlag({
       arg,
       args,
@@ -99,21 +114,23 @@ function parseCreateArgs(args: string[]): {
 
   if (!label) {
     throw new Error(
-      'Usage: `hybridclaw token create --label <label> (--role <role>|--actions <a,b>)`',
+      'Usage: `hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>)`',
     );
   }
-  if (!role && actions.length === 0) {
-    throw new Error('Token claims are required. Pass `--role` or `--actions`.');
+  if (!role && actions.length === 0 && agentIds === null) {
+    throw new Error(
+      'Token claims are required. Pass `--role`, `--actions`, or `--agents`.',
+    );
   }
 
-  return {
-    label,
-    claims: {
-      ...(role ? { role } : {}),
-      ...(actions.length > 0 ? { actions } : {}),
-    },
-    expiresAt,
+  const claims: Record<string, unknown> = {
+    ...(role ? { role } : {}),
+    ...(actions.length > 0 ? { actions } : {}),
+    ...(agentIds !== null ? { agentIds } : {}),
   };
+  // Open the database first so agents created in the console are known.
+  withMemoryDatabase(() => validateAgentScopeClaims(claims));
+  return { label, claims, expiresAt };
 }
 
 export async function handleTokenCommand(args: string[]): Promise<void> {

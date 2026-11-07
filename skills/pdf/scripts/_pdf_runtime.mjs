@@ -23,6 +23,12 @@ export function resolveRuntimeModule(specifier, lookup = RUNTIME_MODULE_LOOKUP) 
   );
 }
 
+function pdfJsDirectory() {
+  return path.dirname(
+    fileURLToPath(resolveRuntimeModule('pdfjs-dist/package.json')),
+  );
+}
+
 export async function loadPdfJs() {
   if (!pdfJsPromise) {
     pdfJsPromise = import(
@@ -37,10 +43,9 @@ export async function loadCanvas() {
     // Render with the canvas build pdfjs-dist itself loads; Path2D objects
     // from a second @napi-rs/canvas copy are rejected at draw time.
     canvasPromise = (async () => {
-      const pdfJsDir = path.dirname(
-        fileURLToPath(resolveRuntimeModule('pdfjs-dist/package.json')),
+      return import(
+        resolveRuntimeModule('@napi-rs/canvas', [pdfJsDirectory()]).href
       );
-      return import(resolveRuntimeModule('@napi-rs/canvas', [pdfJsDir]).href);
     })().catch((err) => {
       canvasPromise = null;
       throw new Error(
@@ -89,6 +94,7 @@ export async function openPdfDocument(inputPath) {
   const buffer = await fs.readFile(inputPath);
   return getDocument({
     data: new Uint8Array(buffer),
+    cMapUrl: `${path.join(pdfJsDirectory(), 'cmaps')}/`,
     disableWorker: true,
     useSystemFonts: true,
   }).promise;

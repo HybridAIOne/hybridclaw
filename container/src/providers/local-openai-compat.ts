@@ -30,6 +30,7 @@ import {
 } from './shared.js';
 import {
   fetchWithHeaderTimeout,
+  readJsonWithIdleTimeout,
   readWithIdleTimeout,
   STREAM_IDLE_TIMEOUT_MS,
 } from './stream-utils.js';
@@ -780,30 +781,13 @@ export async function callLocalOpenAICompatProviderStream(
     response.headers.get('content-type') || ''
   ).toLowerCase();
   if (
-    contentType.includes('application/json') &&
-    !contentType.includes('event-stream')
+    (contentType.includes('application/json') &&
+      !contentType.includes('event-stream')) ||
+    !response.body
   ) {
-    const payload = (await response.json()) as ChatCompletionResponse;
-    if (args.debugModelResponses) {
-      logModelResponseDebug({
-        provider: args.provider,
-        model: args.model,
-        kind: 'raw_non_streaming_response',
-        response: payload,
-      });
-    }
-    assertNoProviderError(payload);
-    const adapted = adaptLocalOpenAICompatResponse(payload, {
-      provider: args.provider,
-      model: args.model,
-      modelBehavior: args.modelBehavior,
-    });
-    emitResponseTextDeltas(adapted, args.onTextDelta);
-    return adapted;
-  }
-
-  if (!response.body) {
-    const payload = (await response.json()) as ChatCompletionResponse;
+    const payload = (await readJsonWithIdleTimeout(
+      response,
+    )) as ChatCompletionResponse;
     if (args.debugModelResponses) {
       logModelResponseDebug({
         provider: args.provider,

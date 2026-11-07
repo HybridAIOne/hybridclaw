@@ -226,6 +226,7 @@ describe('PDF attachment preview', () => {
     const root = tempDir();
     await pdf(root);
     const installRoot = tempDir();
+    await fs.writeFile(path.join(installRoot, 'package.json'), JSON.stringify({ version: '0.0.0' }));
     vi.resetModules();
     vi.doMock('../src/infra/install-root.js', async (importOriginal) => ({
       ...(await importOriginal<typeof import('../src/infra/install-root.js')>()),

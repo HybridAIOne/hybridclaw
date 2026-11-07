@@ -69,6 +69,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
@@ -155,6 +156,7 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import { recoverWorkerOutput } from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
@@ -1144,6 +1146,7 @@ async function runContainerInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     escalationTarget,
@@ -1225,6 +1228,7 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,
@@ -1249,6 +1253,7 @@ async function runContainerInner(
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
     ralphMaxIterations,
+    disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
     approvalMode,
     approvalUserText,
     approvalUserId,
@@ -1281,6 +1286,7 @@ async function runContainerInner(
     media,
     readableMediaPaths,
     visualMediaAllowed,
+    primaryModelSupportsVisualMedia,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,
@@ -1428,7 +1434,7 @@ async function runContainerInner(
       });
     }
 
-    const output = await readOutput(
+    let output = await readOutput(
       entry.ipcSessionId,
       requestId,
       inactivityTimeoutMs === undefined
@@ -1451,6 +1457,13 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
+    output = recoverWorkerOutput(
+      output,
+      workspacePath,
+      sessionId,
+      input.runId || input.requestId,
+      Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
+    );
     remapOutputArtifacts(
       output,
       workspacePath,

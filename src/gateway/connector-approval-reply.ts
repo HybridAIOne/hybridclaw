@@ -17,7 +17,12 @@ import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { approvalReplyContext } from './chat-approval.js';
 import { forwardConnectorDecision } from './connector-approval.js';
 import type { GatewayChatRequest } from './gateway-types.js';
-import { getPendingApproval, setPendingApproval } from './pending-approvals.js';
+import {
+  getPendingApproval,
+  getStoredPendingApproval,
+  handoffPendingApprovalClaim,
+  setPendingApproval,
+} from './pending-approvals.js';
 
 export async function resolveConnectorApprovalReply(
   req: GatewayChatRequest,
@@ -35,7 +40,7 @@ export async function resolveConnectorApprovalReply(
     !pending?.approval ||
     !platformApprovalId(pending.approvalId) ||
     pending.userId !== req.userId ||
-    pending.resolvedAt ||
+    pending.state !== 'pending' ||
     pending.expiresAt <= Date.now()
   )
     return undefined;
@@ -87,7 +92,7 @@ export async function resolveConnectorApprovalReply(
       { id: pending.approvalId, pinned: true },
     ]);
     if (['approve', 'deny', 'revise'].includes(decision.decision)) {
-      await forwardConnectorDecision(
+      const claim = await forwardConnectorDecision(
         {
           approvalId: pending.approvalId,
           decision: decision.decision === 'approve' ? 'yes' : 'no',
@@ -95,6 +100,7 @@ export async function resolveConnectorApprovalReply(
         req.sessionId,
         req.userId,
       );
+      if (claim) handoffPendingApprovalClaim(claim);
     }
     return { ...decision, model: result.model };
   } catch {
@@ -109,7 +115,9 @@ export async function rememberConnectorApproval(
 ): Promise<void> {
   const approval = output.pendingApproval;
   if (!approval || !platformApprovalId(approval.approvalId)) return;
-  if (getPendingApproval(req.sessionId)?.approvalId === approval.approvalId)
+  if (
+    getStoredPendingApproval(req.sessionId)?.approvalId === approval.approvalId
+  )
     return;
   await setPendingApproval(req.sessionId, {
     approvalId: approval.approvalId,

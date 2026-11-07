@@ -3,10 +3,24 @@
  * Only the allowlisted CLI environment reaches the shell; this helper does
  * not expose credentials as tool output or mutate the agent environment.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   SHELL_RUNTIME_ENV_NAMES,
   SHELL_RUNTIME_ENV_PATH,
 } from '#shared/shell-runtime-env.js';
+
+// A GitHub CLI login made in this shell's home wins over the injected token.
+function hasOwnGitHubCliLogin(): boolean {
+  const configDir =
+    process.env.GH_CONFIG_DIR ||
+    path.join(
+      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+      'gh',
+    );
+  return fs.existsSync(path.join(configDir, 'hosts.yml'));
+}
 
 export async function resolveShellRuntimeEnv(
   baseUrl: string,
@@ -32,6 +46,7 @@ export async function resolveShellRuntimeEnv(
   }
   const env: Record<string, string> = {};
   for (const name of SHELL_RUNTIME_ENV_NAMES) {
+    if (name === 'GH_TOKEN' && hasOwnGitHubCliLogin()) continue;
     const value = (body as Record<string, unknown>)[name];
     if (typeof value === 'string' && !value.includes('\0')) env[name] = value;
   }

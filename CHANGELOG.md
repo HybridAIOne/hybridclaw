@@ -2,6 +2,147 @@
 
 ## Unreleased
 
+## [0.42.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.1) - 2026-11-04
+
+### Added
+
+- **Outlook message reading**: The bundled `outlook-msg` skill extracts message
+  headers and bodies from `.msg` files and saves attachments, including those
+  inside embedded forwarded messages. Teams recognizes `.msg` uploads as
+  Outlook messages (#2077).
+
+### Changed
+
+- **Audit result privacy**: Tool-result audit events retain a redacted preview
+  of up to `audit.toolResults.maxChars` characters (4,000 by default), rather
+  than a full copy. Existing configurations migrate to `truncate` once; trace
+  exports from new turns follow the same setting (#2131).
+
+### Fixed
+
+- **PDF reads and rendering**: Load bundled character maps to recover encoded
+  text in PDF reads and searches. Isolate native page rendering so a drawing
+  crash cannot terminate the reader or discard extracted text; unavailable
+  images are reported. Oversized page selections suggest a retry for up to
+  four requested pages, including requests with text-line limits (#2133,
+  #2134, #2136).
+- **Approval history and receipts**: Restore structured approval cards after
+  reconnecting, retain answers and keep resolved requests out of pending
+  reviews. Reply receipts show failed reads even without a named target and
+  preserve distinct errors and approval outcomes (#2127, #2135).
+- **Delegated workspace and file protection**: Delegated workers inherit their
+  task workspace. Unresolved file-write conflicts remain enforced across
+  parent, child and sibling workers; failing writes explain checked recovery
+  before alternate mutations require approval (#2126, #2128, #2129).
+- **Context and model discovery**: Budget the content actually dispatched to
+  each model and compact older tool batches while retaining original evidence
+  and the newest complete exchange. Apply discovered visual capabilities from
+  the first turn and retry initial discovery after temporary failures (#2123,
+  #2124, #2125).
+- **Web retrieval**: Enforce HTTP timeouts through response-body reads, preserve
+  short section headings beside inline controls, exclude commented-out HTML
+  from extracted text and titles, and identify truncated sources in fetched
+  pages and summaries, including saved tool results (#2118–#2120, #2122).
+- **Shell and TLS safety**: Allow ordinary tools inside an `eval` directory
+  while retaining the eval execution block. Restrict the null-device workspace
+  fence exception to the exact `/dev/null` path. Recovery guidance preserves
+  TLS verification when diagnosing certificate failures (#2121, #2130, #2138).
+- **MCP tool discovery**: Describe deferred tools with responses up to 64,000
+  characters so tools with long request-format descriptions remain usable
+  (#2132).
+- **Audio transcription**: The media-tools plugin can transcribe audio using
+  existing HybridAI credentials without a separate speech-provider setup
+  (#2058).
+
+### Upgrade Notes
+
+- To retain full tool results in the audit trail, set
+  `"audit": { "toolResults": { "mode": "full" } }` in `config.json` after
+  upgrading. The one-time migration resets the previous `full` setting to
+  `truncate`; existing audit records are not rewritten.
+
+## [0.42.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.0) - 2026-10-31
+
+### Added
+
+- **Learning approval mode**: Opt-in Learning runs actions while recording the
+  approvals they would normally require, including protected approvals. Review
+  flagged actions and outcomes in the admin audit view. This mode executes real
+  actions; enabled safety blocks, explicit denials, authentication and sandbox
+  restrictions still apply (#2113).
+- **Admin security controls**: Configure the approval default for new
+  conversations and change individual conversation modes under **Security →
+  Approvals & firewall**. Inspect, disable or restore built-in safety blocks
+  alongside network policy, with audited changes and stale-edit protection.
+  Existing conversations retain their selected mode; Auto and all safety
+  blocks remain the shipped defaults (#2114, #2117).
+
+### Changed
+
+- **Self-contained routines and task guidance**: Routine definitions retain
+  agreed sources, output format and notification rules. Follow-up work carries
+  task constraints, preserves source records and identifies incomplete findings;
+  repository publication guidance calls for content and outgoing-history review
+  (#2071, #2072, #2078, #2086, #2087).
+- **WhatsApp compatibility**: Retain the adapter and SDK host type required
+  by the published WhatsApp v0.1.1 plugin; removal is deferred to v0.43.
+- **Observability cursor isolation**: Removed the expired fallback to bot/agent
+  stream cursors. Export resumes only from the current node's persisted cursor.
+
+### Fixed
+
+- **File preservation**: New writes cannot silently replace existing files.
+  Intentional replacement requires a complete prior read and matching expected
+  contents; stale writes fail without changing the file. Unresolved conflicts
+  identify affected files and block shell mutation workarounds while permitting
+  read-only diagnostics. Saved malformed JSON produces an advisory syntax
+  warning (#2080, #2090, #2091, #2108, #2115).
+- **Interrupted turns and context recovery**: Durable checkpoints retain
+  messages and completed tool outcomes, flag uncertain side effects and avoid
+  automatically repeating actions. Large tool results remain searchable on
+  disk; short conversations can recover from oversized results. Compaction
+  honors summary budgets, reserves reasoning tokens separately and keeps
+  maintenance separate from bounded recovery retries (#2081, #2082, #2084, #2102).
+- **Useful approval recovery**: Unconditionally blocked shell commands do not
+  request futile approvals. Assistants can continue permitted work after
+  omitting blocked optional steps, and Teams retains answers to approval
+  questions. Protected approvals explain their one-time requirement and
+  summaries preserve case-sensitive arguments. API clients receive explicit
+  approval-blocked results (#2085, #2089, #2107, #2112).
+- **Reliable web retrieval**: Preserve URL case in cache keys, leading page
+  context and usable absolute links. Reject binary or incomplete bodies from
+  text retrieval. Oversized HTTP downloads release streams and report sizes
+  for an explicit bounded retry; downloaded artifacts resolve correctly from
+  separate worker directories (#2095–#2098, #2109, #2110, #2116).
+- **Vision and helper models**: Text-only models can use permitted vision
+  helpers and durable PDF/image snapshots. Confidentiality settings still
+  control pixel delivery. Image-routing rejection falls back to text, disabled
+  helper policies stay disabled, configured output budgets survive worker IPC
+  and token-limited vision results report incompleteness (#2074, #2092, #2093,
+  #2103, #2105).
+- **Delegation and workspace ownership**: Resolve waiting delegation against
+  the execution session, isolate each child's callback identity and model,
+  retain scope through nested callbacks and resolve skills from their owning
+  workspace. Stored tool replay preserves code callbacks (#2094, #2099–#2101,
+  #2104).
+- **Final output checks**: Agent guidance calls for parsing structured
+  deliverables after the final edit and reporting validation limits. Browser
+  script failures explain recovery when page elements are missing (#2106,
+  #2111).
+
+### Upgrade Notes
+
+- Custom callers replacing an existing file with `write` must first read the
+  complete file, then pass `overwrite: true` and `expected_content` containing
+  those exact contents, including trailing newlines. After a stale-write error,
+  read again and reconsider the replacement. Use `edit` for targeted changes.
+- Learning is not a dry run: it bypasses approval prompts, including protected
+  prompts, and records observations instead. Select it only for conversations
+  where that execution behavior is intended.
+- Installations that have not exported since node-keyed observability cursors
+  were introduced may resend retained audit history once. Existing node-keyed
+  cursors continue normally; local audit records are preserved.
+
 ## [0.41.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.41.5) - 2026-10-29
 
 ### Fixed

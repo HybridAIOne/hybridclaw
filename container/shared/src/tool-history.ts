@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { VisualAttachmentMessage } from './visual-snapshots.js';
 import { validateVisualAttachments } from './visual-snapshots.js';
 
-interface HistoryMessage extends VisualAttachmentMessage {
+export interface HistoryMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{
@@ -43,7 +43,7 @@ export function toolResultFilePath(
   return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
 }
 
-/** File references bound IPC only; model and replay messages retain full text. */
+/** IPC references identify full evidence; model excerpts are managed separately. */
 export function toolResultForTransport<
   T extends { role: string; content: unknown; tool_call_id?: string },
 >(message: T, resultPath?: string): T {

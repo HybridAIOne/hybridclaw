@@ -323,3 +323,73 @@ test('@team fanout continues past an agent whose run throws', async () => {
   expect(fanout.result).toMatch(/@research: .*(failed|crashed|error)/i);
   expect(fanout.result).toContain('@writer: reply from writer');
 });
+
+test('agent-scoped turns cannot address agents outside the scope', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'research', displayName: 'Research Agent' });
+  upsertRegisteredAgent({ id: 'support', displayName: 'Support Agent' });
+
+  const base = {
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'User',
+    agentId: 'support',
+    allowedAgentIds: ['support'],
+  };
+
+  const forbidden = { statusCode: 403 };
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-addressed',
+      content: '@Research-Agent summarize this',
+    }),
+  ).rejects.toMatchObject({
+    ...forbidden,
+    message: expect.stringContaining('`research` is not available'),
+  });
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-fanout',
+      content: '@team hello',
+    }),
+  ).rejects.toMatchObject(forbidden);
+  await expect(
+    handleGatewayMessage({
+      ...base,
+      sessionId: 'session-scoped-remote',
+      content: '@remote@team@peer-instance hello',
+    }),
+  ).rejects.toMatchObject(forbidden);
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+
+  const allowed = await handleGatewayMessage({
+    ...base,
+    sessionId: 'session-scoped-allowed',
+    content: 'hello',
+  });
+  expect(allowed.status).toBe('success');
+  expect(runAgentMock.mock.calls[0]?.[0]).toMatchObject({
+    agentId: 'support',
+  });
+});

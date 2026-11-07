@@ -1,3 +1,8 @@
+/**
+ * Executor selection applies a run override before the configured sandbox mode.
+ * Unlike the runners, this module owns selection and the initialized registry;
+ * selecting an executor never starts a worker or grants workspace access.
+ */
 import {
   CONTAINER_BINDS,
   CONTAINER_CPUS,
@@ -47,7 +52,7 @@ function getHostExecutor(): HostExecutor {
   return hostExecutor;
 }
 
-function resolveExecutorMode(
+export function resolveExecutorMode(
   override?: 'host' | 'container',
 ): 'host' | 'container' {
   return override || CONTAINER_SANDBOX_MODE;

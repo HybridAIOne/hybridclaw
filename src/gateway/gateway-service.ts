@@ -8544,7 +8544,7 @@ export function getGatewayHistory(
       if (message.role !== 'assistant') return true;
       return (
         !isSilentReply(message.content) &&
-        !isApprovalHistoryMessage(message.content)
+        (message.approval != null || !isApprovalHistoryMessage(message.content))
       );
     })
     .map((message) => {
@@ -8571,7 +8571,10 @@ export function getGatewayHistory(
         ...(responseRating ? { response_rating: responseRating } : {}),
       };
     })
-    .filter((message) => message.content.trim().length > 0)
+    .filter(
+      (message) =>
+        message.approval != null || message.content.trim().length > 0,
+    )
     .reverse();
   return {
     sessionId: page.sessionId,
@@ -9084,7 +9087,7 @@ export function getGatewaySessionContextUsage(sessionId: string): {
       sessionId,
       snapshot: null,
       routing: null,
-      approvalMode: null,
+      approvalMode: getRuntimeConfig().security.defaultApprovalMode,
     };
   }
   return {

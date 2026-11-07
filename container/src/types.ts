@@ -1,4 +1,7 @@
-import type { ApprovalMode } from '#shared/approval-mode.js';
+import type {
+  ApprovalMode,
+  ApprovalObservation,
+} from '#shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -6,6 +9,7 @@ import type {
 import type { ApprovalRule } from '#shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '#shared/boost-offer.js';
 import type { ConnectorApproval } from '#shared/connector-approval.js';
+import type { FileWriteGuardContext } from '#shared/file-write-guard.js';
 import type { RuntimeProviderId } from '#shared/provider-ids.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
@@ -208,6 +212,7 @@ export interface AddressEnvelope {
 export interface ContainerInput
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
+    FileWriteGuardContext,
     ToolCallLimits {
   healthCheck?: {
     nonce: string;
@@ -243,6 +248,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
@@ -327,6 +333,7 @@ export function normalizeEscalationTarget(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;

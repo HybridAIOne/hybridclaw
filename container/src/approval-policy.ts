@@ -1,5 +1,7 @@
 /**
- * Policy classifies concrete tool actions and preserves pinned denials.
+ * Policy classifies task actions and preserves unconditional denials.
+ * Explicit learning mode observes approvals, including pinned prompts, without
+ * granting trust; other modes enforce the pinned approval floor.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
@@ -10,7 +12,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
-import type { ApprovalMode as SessionApprovalMode } from '#shared/approval-mode.js';
+import type {
+  ApprovalObservation,
+  ApprovalMode as SessionApprovalMode,
+} from '#shared/approval-mode.js';
 import type { ApprovalReplyInterpretation } from '#shared/approval-reply.js';
 import {
   APPROVAL_TRUST_STORE_FILES,
@@ -51,6 +56,12 @@ import {
   parseApprovalUserResponse,
 } from './approval-directive.js';
 import {
+  observeLearningApproval,
+  resolveApprovalPrompt,
+  resolveApprovalQueue,
+} from './approval-prompt-rule.js';
+import { approvalReason } from './approval-reason.js';
+import {
   messageToolEmailTarget,
   messageToolTarget,
   ownMailboxRefusal,
@@ -68,6 +79,7 @@ import {
   scriptCommands,
   shellCommandsRun,
 } from './bash-commands.js';
+import { isReadOnlyDateCommand } from './bash-date.js';
 import { fenceCandidates } from './bash-fence.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
@@ -84,6 +96,7 @@ import {
   classifyBrowserCheckout,
 } from './browser-checkout.js';
 import { buildConnectorApproval } from './connector-approvals.js';
+import { guardFileWriteConflict } from './file-write-conflicts.js';
 import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
@@ -101,6 +114,7 @@ import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import { SessionStateSet, sessionStateKey } from './session-state.js';
 import {
@@ -255,6 +269,7 @@ export interface ApprovalPrelude {
 }
 
 export interface ToolApprovalEvaluation {
+  approvalObservation?: ApprovalObservation;
   baseTier: ApprovalTier;
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;
@@ -392,27 +407,27 @@ export type McpToolBehaviorResolver = (
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   '.hybridclaw',
   'policy.yaml',
 );
 const AGENT_TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   APPROVAL_TRUST_STORE_FILES.agent,
 );
 const PENDING_APPROVAL_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   '.hybridclaw',
   'pending-approvals.json',
 );
 const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
 type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   APPROVAL_TRUST_STORE_FILES.all,
 );
 const LEGACY_AGENT_TRUST_STORE_PATH = path.join(
-  WORKSPACE_ROOT_ACTUAL,
+  WORKSPACE_STATE_ROOT,
   LEGACY_AGENT_TRUST_STORE_FILE,
 );
 const AGENT_ID_ENV = 'HYBRIDCLAW_AGENT_ID';
@@ -499,7 +514,7 @@ const GIT_WRITE_RE =
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
-  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|date|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
 const CACHE_PATH_SEGMENTS = new Set([
   '.cache',
   'build',
@@ -1144,8 +1159,15 @@ function skillManagedWriteApprovalReason(
 }
 
 function isReadOnlyCommand(words: string[]): boolean {
+  if (words[0] === 'date') return isReadOnlyDateCommand(words);
   const text = words.join(' ');
-  return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
+  // 2026-10-31, Codex: echo may print a diagnostic fallback in a read-only
+  // chain. The first-command whitelist remains unchanged.
+  return (
+    words[0] === 'echo' ||
+    READ_ONLY_BASH_RE.test(text) ||
+    READ_ONLY_PDF_SCRIPT_RE.test(text)
+  );
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -1575,17 +1597,6 @@ function isRedRuleActive(context: ToolCallContext): boolean {
   );
 }
 
-// Keep the classifier's reason and add the anomaly score, so approval prompts
-// and audit events say why an elevated call's tier rose.
-function approvalReason(
-  context: ToolCallContext,
-  classified: ClassifiedAction,
-): string {
-  return context.anomalyElevated && context.anomaly
-    ? `${classified.reason}; ${context.anomaly.reason}`
-    : classified.reason;
-}
-
 function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
   if (tier === 'green') return 'yellow';
   if (tier === 'yellow') return 'red';
@@ -1814,9 +1825,8 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   red_full_auto(context) {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
-    // Pinned calls prompt in every mode (owner call, 2026-09-27), as
-    // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
-    // exemption.
+    // Full access keeps the pinned floor. Learning mode observes the prompt
+    // later, before queuing it (owner request, 2026-10-31).
     if (
       context.helpers.approvalMode() === 'full' &&
       !requirePinned(context) &&
@@ -1835,61 +1845,31 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
 
   red_queue(context) {
     if (!isRedRuleActive(context)) return nextRule();
-    if (
-      context.helpers.getPendingCount() < context.policy.maxPendingApprovals
-    ) {
-      return nextRule();
-    }
-    return decision(
-      buildEvaluation(context, {
-        tier: 'red',
-        decision: 'denied',
-        escalationRoute: 'policy_denial',
-        consequenceIfDenied:
-          'If this is denied, I will continue with non-destructive alternatives only.',
-        reason: `Approval queue is full (${context.policy.maxPendingApprovals} pending).`,
-      }),
-    );
-  },
-
-  red_prompt(context) {
-    if (!isRedRuleActive(context)) return nextRule();
-    const classified = requireClassified(context);
-    // A card for a bot or webhook would wait for a click that never comes.
-    if (context.helpers.approvalUserIsBot() && !context.escalationTarget) {
-      return decision(
-        buildEvaluation(context, {
-          tier: 'red',
-          decision: 'denied',
-          escalationRoute: 'policy_denial',
-          reason:
-            'another bot or a webhook started this turn, so no person can approve this step',
-        }),
-      );
-    }
-    const request = context.helpers.getOrCreatePending({
-      fingerprint: requireFingerprint(context),
-      actionKey: classified.actionKey,
-      toolName: context.params.toolName,
-      argsJson: context.params.argsJson,
-      intent: classified.intent,
-      consequenceIfDenied: classified.consequenceIfDenied,
-      reason: approvalReason(context, classified),
-      commandPreview: classified.commandPreview,
-      originalPrompt: context.params.latestUserPrompt,
-      pinned: requirePinned(context),
-    });
-    return decision(
+    const result = resolveApprovalQueue(
+      context,
       buildEvaluation(context, {
         tier: 'red',
         decision: 'required',
         escalationRoute: 'approval_request',
-        requestId: request.id,
-        expiresAtMs: request.expiresAtMs,
-        pausedBy: requirePinned(context)
-          ? 'protected'
-          : context.raisedBy || 'risky',
       }),
+    );
+    return result ? decision(result) : nextRule();
+  },
+
+  red_prompt(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    return decision(
+      resolveApprovalPrompt(
+        context,
+        buildEvaluation(context, {
+          tier: 'red',
+          decision: 'required',
+          escalationRoute: 'approval_request',
+          pausedBy: requirePinned(context)
+            ? 'protected'
+            : context.raisedBy || 'risky',
+        }),
+      ),
     );
   },
 
@@ -1927,7 +1907,12 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   green_fallback(context) {
-    return decision(buildEvaluation(context));
+    return decision(
+      observeLearningApproval(
+        buildEvaluation(context),
+        context.helpers.approvalMode(),
+      ),
+    );
   },
 };
 
@@ -2198,7 +2183,13 @@ export class TrustedAgentApprovalRuntime {
         return this.reloadPolicyIfNeeded();
       },
       cleanupExpiredPending: () => this.cleanupExpiredPending(),
-      classifyAction: (toolName, args) => this.classifyAction(toolName, args),
+      classifyAction: (toolName, args) =>
+        guardFileWriteConflict(
+          this.sessionId,
+          toolName,
+          args,
+          this.classifyAction(toolName, args),
+        ),
       isPinnedRed: (input) => this.isPinnedRed(input),
       resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
       runStakesMiddleware: (context) => this.runStakesMiddleware(context),
@@ -2561,7 +2552,7 @@ export class TrustedAgentApprovalRuntime {
     evaluation: ToolApprovalEvaluation,
     succeeded: boolean,
   ): void {
-    if (!succeeded) return;
+    if (!succeeded || evaluation.approvalObservation) return;
     this.bumpCount(this.actionExecutionCounts, evaluation.actionKey);
     if (
       evaluation.decision !== 'required' &&
@@ -2619,7 +2610,7 @@ export class TrustedAgentApprovalRuntime {
           'Reply `no` to deny.',
         ];
     return [
-      `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `I need your approval before I ${evaluation.intent}.`,
       `Proposed action: ${evaluation.commandPreview || evaluation.intent}`,
       `Classifier reasoning: ${formatStakesReasoning(evaluation.stakesScore)}`,
       ...(evaluation.escalationTarget
@@ -3734,7 +3725,7 @@ export class TrustedAgentApprovalRuntime {
         (entry) =>
           !entry.startsWith('/') ||
           (!isWorkspacePath(entry) &&
-            !entry.startsWith('/dev/null') &&
+            entry !== '/dev/null' &&
             !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
@@ -3958,7 +3949,7 @@ export class TrustedAgentApprovalRuntime {
       actionKey: 'bash:other',
       intent: `run shell command \`${normalizePreview(command)}\``,
       consequenceIfDenied: 'I will continue without running that command.',
-      reason: 'this command may change local state',
+      reason: 'the effects of this command are not classified as read-only',
       commandPreview: normalizePreview(command),
       pathHints,
       hostHints: hosts,

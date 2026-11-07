@@ -2,8 +2,12 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { expect, test } from 'vitest';
-import { readPdfPages } from '#shared/pdf-reader.js';
+import {
+  readPdfPages,
+  searchPdfPages,
+} from '#shared/pdf-reader.js';
 import { useTempDir } from './test-utils.ts';
 
 /**
@@ -86,4 +90,57 @@ test('the read tool path renders pages through the workspace pdf runtime', async
   expect(result.renderError).toBeUndefined();
   expect(result.pages[0].text).toContain(PDF_TEXT);
   expect(result.images.map((image) => image.page)).toEqual([1]);
+});
+
+test('extracts text from a PDF that uses a predefined character map', async () => {
+  const workspace = agentWorkspace();
+  const doc = await PDFDocument.create();
+  const page = doc.addPage();
+  const descriptor = doc.context.obj({
+    Type: 'FontDescriptor',
+    FontName: 'HeiseiMin-W3',
+    Flags: 6,
+    FontBBox: [-123, -257, 1001, 910],
+    ItalicAngle: 0,
+    Ascent: 723,
+    Descent: -241,
+    CapHeight: 700,
+    StemV: 80,
+  });
+  const cidFont = doc.context.obj({
+    Type: 'Font',
+    Subtype: 'CIDFontType0',
+    BaseFont: 'HeiseiMin-W3',
+    CIDSystemInfo: {
+      Registry: PDFString.of('Adobe'),
+      Ordering: PDFString.of('Japan1'),
+      Supplement: 2,
+    },
+    FontDescriptor: doc.context.register(descriptor),
+  });
+  const font = doc.context.obj({
+    Type: 'Font',
+    Subtype: 'Type0',
+    BaseFont: 'HeiseiMin-W3',
+    Encoding: 'UniJIS-UCS2-H',
+    DescendantFonts: [doc.context.register(cidFont)],
+  });
+  page.node.setFontDictionary(PDFName.of('F1'), doc.context.register(font));
+  page.node.addContentStream(
+    doc.context.register(doc.context.stream('BT /F1 12 Tf <65E5672C> Tj ET')),
+  );
+  const file = path.join(workspace, 'sample.pdf');
+  fs.writeFileSync(file, await doc.save());
+
+  expect(
+    runScript(workspace, 'extract_pdf_text.mjs', ['sample.pdf']),
+  ).toContain('日本');
+  const runtimeUrl = pathToFileURL(
+    path.join(workspace, 'skills/pdf/scripts/_pdf_runtime.mjs'),
+  ).href;
+  const read = await readPdfPages(file, { render: 'never', runtimeUrl });
+  expect(read.pages[0].text).toBe('日本');
+  expect((await searchPdfPages(file, '日本', runtimeUrl)).matches).toEqual([
+    { page: 1, snippet: '日本' },
+  ]);
 });

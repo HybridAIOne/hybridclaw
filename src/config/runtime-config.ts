@@ -10,6 +10,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+  normalizeApprovalMode,
+} from '#shared/approval-mode.js';
 import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
@@ -23,6 +28,7 @@ import {
   normalizeMcpToolMode,
 } from '#shared/local-tool-config.js';
 import { parseMcpToolBehaviorConfig } from '#shared/mcp-server-config.js';
+import { normalizeDisabledSafetyRules } from '#shared/safety-rules.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -178,8 +184,8 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-// 41: built-in Twilio voice becomes the bundled twilio-voice plugin.
-export const CONFIG_VERSION = 41;
+// 42: audit keeps truncated tool results unless `full` is chosen again.
+export const CONFIG_VERSION = 42;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -255,6 +261,8 @@ type DeepPartial<T> = {
 };
 
 export interface RuntimeSecurityConfig {
+  defaultApprovalMode: ApprovalMode;
+  disabledSafetyRules: string[];
   trustModelAccepted: boolean;
   trustModelAcceptedAt: string;
   trustModelVersion: string;
@@ -1423,11 +1431,13 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   audit: {
     toolResults: {
-      mode: 'full',
+      mode: 'truncate',
       maxChars: 4_000,
     },
   },
   security: {
+    defaultApprovalMode: DEFAULT_APPROVAL_MODE,
+    disabledSafetyRules: [],
     trustModelAccepted: false,
     trustModelAcceptedAt: '',
     trustModelVersion: '',
@@ -6933,11 +6943,13 @@ function normalizeRuntimeConfig(
     version: CONFIG_VERSION,
     audit: {
       toolResults: {
+        // Before v42 every config carried the then-default `full`.
         mode:
-          auditToolResultsMode === 'truncate' ||
-          auditToolResultsMode === 'truncated'
-            ? 'truncate'
-            : DEFAULT_RUNTIME_CONFIG.audit.toolResults.mode,
+          auditToolResultsMode === 'full' &&
+          sourceVersion !== null &&
+          sourceVersion >= 42
+            ? 'full'
+            : 'truncate',
         maxChars: normalizeInteger(
           rawAuditToolResults.maxChars,
           DEFAULT_RUNTIME_CONFIG.audit.toolResults.maxChars,
@@ -6946,6 +6958,12 @@ function normalizeRuntimeConfig(
       },
     },
     security: {
+      defaultApprovalMode: normalizeApprovalMode(
+        rawSecurity.defaultApprovalMode,
+      ),
+      disabledSafetyRules: normalizeDisabledSafetyRules(
+        rawSecurity.disabledSafetyRules,
+      ),
       trustModelAccepted: normalizeBoolean(
         rawSecurity.trustModelAccepted,
         DEFAULT_RUNTIME_CONFIG.security.trustModelAccepted,

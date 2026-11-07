@@ -45,7 +45,7 @@ export {
   sendWebhookJson,
   WebhookHttpError,
 } from '../channels/webhook-http.js';
-// compat: remove after v0.42 — hybridclaw-whatsapp 0.1.x types its transport
+// compat: remove after v0.43 — hybridclaw-whatsapp 0.1.x types its transport
 // against this host, so its source must keep typechecking until it migrates.
 export type { WhatsAppTransportHost } from '../channels/whatsapp/legacy-registration.js';
 export { parseValueFlag } from '../cli/common.js';

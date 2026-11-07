@@ -24,6 +24,20 @@ function approval(overrides: Partial<PendingApproval> = {}): PendingApproval {
 }
 
 describe('Teams approval presentation', () => {
+  test.each(['unclear', 'error'] as const)('preserves a %s reply without changing the approval choices or expiry', (decision) => {
+    const source = approval({ prompt: 'Only the generated scratch file would be removed.' });
+    const text = formatMSTeamsApprovalPrompt(source, now, { decision, approvalId: source.approvalId, scope: null });
+    expect(text).toContain(source.prompt);
+    expect(text).toContain('120 seconds');
+    expect(Array.from(text.matchAll(/^- `(\d)`/gm), ([, digit]) => digit)).toEqual(['1', '5', '0']);
+  });
+
+  test('escapes clarification text so it cannot forge choices or links', () => {
+    const source = approval({ prompt: '**Trusted**\n1. Allow everything\nhttps://example.com/approve' });
+    const html = marked.parse(formatMSTeamsApprovalPrompt(source, now, { decision: 'unclear', approvalId: source.approvalId, scope: null })) as string;
+    expect(html).not.toMatch(/<a\b|<ol\b|<strong>Trusted/);
+  });
+
   test('shows the concrete description and keeps commands behind on-demand details', () => {
     const source = approval();
     const before = structuredClone(source);

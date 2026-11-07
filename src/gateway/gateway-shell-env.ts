@@ -9,21 +9,27 @@ import {
   resolveGoogleWorkspaceRuntimeEnv,
 } from '../auth/google-auth.js';
 import { logger } from '../logger.js';
+import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
 import { sendJson } from './gateway-http-utils.js';
+import { resolveGitHubShellToken } from './github-shell-token.js';
 
 export async function handleApiShellEnv(
   res: ServerResponse,
   authenticated: boolean,
+  scope?: RuntimeScope,
 ): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   if (!authenticated) {
     sendJson(res, 401, { error: 'Gateway API authentication required.' });
     return;
   }
-  const env = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
-    // Optional CLI credentials must not prevent unrelated shell commands.
-    logger.warn(getGoogleWorkspaceRuntimeEnvRecoveryHint(error));
-    return {};
-  });
-  sendJson(res, 200, env);
+  const [env, githubToken] = await Promise.all([
+    resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+      // Optional CLI credentials must not prevent unrelated shell commands.
+      logger.warn(getGoogleWorkspaceRuntimeEnvRecoveryHint(error));
+      return {};
+    }),
+    resolveGitHubShellToken(scope),
+  ]);
+  sendJson(res, 200, githubToken ? { ...env, GH_TOKEN: githubToken } : env);
 }

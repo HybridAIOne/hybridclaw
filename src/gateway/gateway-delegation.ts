@@ -4,12 +4,16 @@
  * A waiting call (`/api/delegate`) returns the child reports as the parent's
  * tool result. A background batch runs after the turn and then wakes the
  * parent with a hidden results turn, unless that session was reset meanwhile.
+ * Worker aliases are resolved through the active request's conversation owner.
+ * Each live child carries its own model and exact callback identity.
  *
  * NOT A2A: peer-agent delegation across instances lives in `src/a2a/`.
  */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { FileWriteGuardContext } from '#shared/file-write-guard.js';
 import { enqueueDelegation } from '../agent/delegation-manager.js';
+import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { PROACTIVE_DELEGATION_MAX_DEPTH } from '../config/config.js';
@@ -27,6 +31,10 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  type DelegationChildContext,
+  getActiveDelegationChildContext,
+} from './delegation-child-context.js';
 import { runDelegationTaskWithRetry } from './delegation-child-run.js';
 import {
   formatDelegationCompletion,
@@ -37,7 +45,7 @@ import {
   type DelegationCompletionEntry,
   type DelegationStatusEntry,
   type DelegationStatusSnapshot,
-  delegationSessionPrefix,
+  type DelegationTaskRunInput,
   extractDelegationDepth,
   interpolateChainPrompt,
   type NormalizedDelegationPlan,
@@ -48,6 +56,7 @@ import {
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import { resolveGatewayRequestContext } from './gateway-request-runtime.js';
 import type {
   GatewayChatApprovalEvent,
   GatewayChatResult,
@@ -229,29 +238,10 @@ function storeDelegationFallback(params: {
   });
 }
 
-interface DelegationRunContext {
-  parentSessionId: string;
-  childDepth: number;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  abortSignal?: AbortSignal;
-}
-
-interface DelegationChildContext {
-  sessionPrefix: string;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  model: string;
-}
-
-// Children are not stored sessions; a waiting `delegate` call from inside one
-// resolves its parent context here. One entry per run: a parent may have
-// several runs in flight.
-const activeChildContexts = new Set<DelegationChildContext>();
+type DelegationRunContext = Omit<
+  DelegationTaskRunInput,
+  'mode' | 'task' | 'onToolProgress'
+>;
 
 function buildStatusEntries(
   plans: NormalizedDelegationPlan[],
@@ -377,30 +367,6 @@ async function runDelegationPlans(params: {
   return planEntries.flat();
 }
 
-async function withActiveChildContext<T>(
-  context: DelegationRunContext,
-  plans: NormalizedDelegationPlan[],
-  run: () => Promise<T>,
-): Promise<T> {
-  const entry: DelegationChildContext = {
-    sessionPrefix: delegationSessionPrefix(
-      context.parentSessionId,
-      context.childDepth,
-    ),
-    channelId: context.channelId,
-    chatbotId: context.chatbotId,
-    enableRag: context.enableRag,
-    agentId: context.agentId,
-    model: plans[0]?.tasks[0]?.model || '',
-  };
-  activeChildContexts.add(entry);
-  try {
-    return await run();
-  } finally {
-    activeChildContexts.delete(entry);
-  }
-}
-
 /** Runs the parent turn that receives finished delegate results. */
 export type DelegationParentTurnRunner = (params: {
   content: string;
@@ -409,22 +375,25 @@ export type DelegationParentTurnRunner = (params: {
   Pick<GatewayChatResult, 'status' | 'result' | 'artifacts' | 'pendingApproval'>
 >;
 
-export function enqueueDelegationBatchFromSideEffects(params: {
-  plans: NormalizedDelegationPlan[];
-  parentSessionId: string;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  parentModel?: string;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  parentDepth: number;
-  runParentTurn: DelegationParentTurnRunner;
-  publicId?: string;
-  ackText?: string;
-}): { publicId: string } | null {
+export function enqueueDelegationBatchFromSideEffects(
+  params: FileWriteGuardContext & {
+    plans: NormalizedDelegationPlan[];
+    workspaceOverrides?: WorkspaceOverrides;
+    parentSessionId: string;
+    channelId: string;
+    chatbotId: string;
+    enableRag: boolean;
+    agentId: string;
+    parentModel?: string;
+    onProactiveMessage?: (
+      message: ProactiveMessagePayload,
+    ) => void | Promise<void>;
+    parentDepth: number;
+    runParentTurn: DelegationParentTurnRunner;
+    publicId?: string;
+    ackText?: string;
+  },
+): { publicId: string } | null {
   const {
     plans,
     parentSessionId,
@@ -484,6 +453,8 @@ export function enqueueDelegationBatchFromSideEffects(params: {
   }
 
   const context: DelegationRunContext = {
+    workspaceOverrides: params.workspaceOverrides,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId ?? parentSessionId,
     parentSessionId,
     childDepth,
     channelId,
@@ -526,14 +497,12 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           return statusPublishChain;
         };
 
-        const entries = await withActiveChildContext(context, activePlans, () =>
-          runDelegationPlans({
-            plans: activePlans,
-            context,
-            statusEntriesByPlan,
-            publishStatus,
-          }),
-        );
+        const entries = await runDelegationPlans({
+          plans: activePlans,
+          context,
+          statusEntriesByPlan,
+          publishStatus,
+        });
 
         if (entries.length === 0) {
           logger.warn(
@@ -649,7 +618,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
 
 function resolveWaitingParentContext(
   sessionId: string,
-): Omit<DelegationChildContext, 'sessionPrefix'> | null {
+): Readonly<DelegationChildContext> | null {
   const session = memoryService.getSessionById(sessionId);
   if (session) {
     const runtime = resolveAgentForRequest({ session });
@@ -661,10 +630,7 @@ function resolveWaitingParentContext(
       model: runtime.model,
     };
   }
-  for (const context of activeChildContexts) {
-    if (sessionId.startsWith(context.sessionPrefix)) return context;
-  }
-  return null;
+  return getActiveDelegationChildContext(sessionId) ?? null;
 }
 
 /** Runs a `delegate` call to completion and returns what the parent reads. */
@@ -673,9 +639,12 @@ export async function runDelegationNow(params: {
   effect: DelegationSideEffect;
   abortSignal?: AbortSignal;
 }): Promise<{ result: string } | { error: string; status: number }> {
-  const { sessionId, effect, abortSignal } = params;
-  const parent = resolveWaitingParentContext(sessionId);
-  if (!parent) return { error: 'Unknown delegating session.', status: 404 };
+  const { effect, abortSignal } = params;
+  const request = resolveGatewayRequestContext(params.sessionId);
+  const sessionId = request?.sessionId;
+  const parent = sessionId ? resolveWaitingParentContext(sessionId) : null;
+  if (!sessionId || !parent)
+    return { error: 'Unknown delegating session.', status: 404 };
   const normalized = normalizeDelegationEffect(effect, parent.model);
   if (!normalized.plan) {
     return { error: normalized.error || 'Invalid delegation.', status: 400 };
@@ -690,6 +659,9 @@ export async function runDelegationNow(params: {
   const plans = [normalized.plan];
   const context: DelegationRunContext = {
     parentSessionId: sessionId,
+    fileWriteGuardSessionId: parent.fileWriteGuardSessionId ?? params.sessionId,
+    workspaceOverrides:
+      request?.workspaceOverrides ?? parent.workspaceOverrides,
     childDepth,
     channelId: parent.channelId,
     chatbotId: parent.chatbotId,
@@ -698,13 +670,11 @@ export async function runDelegationNow(params: {
     abortSignal,
   };
   const startedAt = Date.now();
-  const entries = await withActiveChildContext(context, plans, () =>
-    runDelegationPlans({
-      plans,
-      context,
-      statusEntriesByPlan: buildStatusEntries(plans),
-    }),
-  );
+  const entries = await runDelegationPlans({
+    plans,
+    context,
+    statusEntriesByPlan: buildStatusEntries(plans),
+  });
   return {
     result: formatDelegationCompletion({
       mode: normalized.plan.mode,

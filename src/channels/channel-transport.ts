@@ -256,7 +256,7 @@ function normalizeRegistration(
     }
     return registration;
   }
-  // compat: remove after v0.42 — hybridclaw-whatsapp 0.1.x registers only
+  // compat: remove after v0.43 — hybridclaw-whatsapp 0.1.x registers only
   // `{ kind, create }` against the retired WhatsApp host.
   if (registration.kind === 'whatsapp') {
     return adaptLegacyWhatsAppRegistration(registration);

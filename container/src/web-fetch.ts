@@ -1,7 +1,9 @@
 /**
- * Fetch public URLs within one timeout and the existing SSRF boundary.
- * Extraction hints distinguish visible access challenges from pages needing
- * browser rendering; loading a protection script is not proof of blocking.
+ * Fetch public text within one timeout and the existing SSRF boundary.
+ * Body read failures propagate; only explicit size limits allow partial output.
+ * HTML comments and non-content elements stay out of readable output.
+ * Short heading groups retain structure; leading main-page context is bounded.
+ * Extraction hints distinguish visible challenges from browser-only pages.
  * Unlike browser navigation, this tool never executes page JavaScript.
  */
 
@@ -24,6 +26,9 @@ const TIMEOUT_MS = 30_000;
 const CACHE_TTL_MS = 15 * 60_000; // 15 min
 const CACHE_MAX_ENTRIES = 100;
 const READABILITY_MAX_HTML_CHARS = 1_000_000;
+// 1,000 chars (Codex, 2026-10-31): retain leading status/context without duplicating
+// the whole document; full-page inspection remains a browser operation.
+const PAGE_CONTEXT_MAX_CHARS = 1_000;
 const ESCALATION_MIN_TEXT_CHARS = 200;
 const ESCALATION_MIN_HTML_CHARS = 5_000;
 // 1,000 chars (Benedikt Koehler, 2026-09-25): challenge pages carry almost no
@@ -129,27 +134,39 @@ function findHtmlTagEnd(value: string, start: number): number {
   return -1;
 }
 
-function removeRawHtmlElement(value: string, tagName: string): string {
+function removeNonContentHtml(value: string): string {
   const lower = value.toLowerCase();
-  const openPrefix = `<${tagName}`;
-  const closePrefix = `</${tagName}`;
+  const commentEnd = /--!?>/g;
   let output = '';
   let cursor = 0;
   while (cursor < value.length) {
-    let openStart = lower.indexOf(openPrefix, cursor);
-    while (
-      openStart >= 0 &&
-      ![' ', '\t', '\r', '\n', '>', '/'].includes(
-        lower[openStart + openPrefix.length] || '',
-      )
-    ) {
-      openStart = lower.indexOf(openPrefix, openStart + openPrefix.length);
-    }
+    const openStart = value.indexOf('<', cursor);
     if (openStart < 0) break;
     output += value.slice(cursor, openStart);
-    const openEnd = findHtmlTagEnd(value, openStart + openPrefix.length);
+    if (value.startsWith('<!--', openStart)) {
+      if (value[openStart + 4] === '>') {
+        cursor = openStart + 5;
+      } else if (value.startsWith('->', openStart + 4)) {
+        cursor = openStart + 6;
+      } else {
+        commentEnd.lastIndex = openStart + 4;
+        const end = commentEnd.exec(value);
+        if (!end) return output;
+        cursor = end.index + end[0].length;
+      }
+      continue;
+    }
+    const openEnd = findHtmlTagEnd(value, openStart + 1);
     if (openEnd < 0) return output;
-
+    const tag = /^<(script|style|noscript)(?=[ \t\r\n\f/>])/i.exec(
+      value.slice(openStart, openEnd + 1),
+    );
+    if (!tag) {
+      output += value.slice(openStart, openEnd + 1);
+      cursor = openEnd + 1;
+      continue;
+    }
+    const closePrefix = `</${tag[1].toLowerCase()}`;
     let closeStart = lower.indexOf(closePrefix, openEnd + 1);
     while (
       closeStart >= 0 &&
@@ -167,14 +184,6 @@ function removeRawHtmlElement(value: string, tagName: string): string {
   return output + value.slice(cursor);
 }
 
-function removeRawHtmlElements(value: string): string {
-  let output = value;
-  for (const tagName of ['script', 'style', 'noscript']) {
-    output = removeRawHtmlElement(output, tagName);
-  }
-  return output;
-}
-
 function normalizeWhitespace(value: string): string {
   return value
     .replace(/\r/g, '')
@@ -184,20 +193,31 @@ function normalizeWhitespace(value: string): string {
     .trim();
 }
 
-function htmlToMarkdown(html: string): { text: string; title?: string } {
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+function htmlToMarkdown(
+  html: string,
+  baseUrl: string,
+  linksDecoded = false,
+): { text: string; title?: string } {
+  let text = removeNonContentHtml(html);
+  const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch
     ? normalizeWhitespace(stripTags(titleMatch[1]))
     : undefined;
-
-  let text = removeRawHtmlElements(html);
 
   // Links
   text = text.replace(
     /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
     (_, href, body) => {
       const label = normalizeWhitespace(stripTags(body));
-      return label ? `[${label}](${href})` : href;
+      let destination = linksDecoded ? href : decodeEntities(href);
+      try {
+        destination = new URL(destination, baseUrl).href;
+      } catch {
+        // Preserve malformed destinations without losing the article.
+      }
+      // The final stripTags pass decodes entities once more.
+      const escapedDestination = destination.replace(/&/g, '&amp;');
+      return label ? `[${label}](${escapedDestination})` : escapedDestination;
     },
   );
 
@@ -263,14 +283,20 @@ function loadReadabilityDeps() {
   return readabilityDeps;
 }
 
+interface ReadableContent {
+  text: string;
+  title?: string;
+  articleText?: string;
+}
+
 async function extractReadableContent(
   html: string,
   url: string,
   extractMode: 'markdown' | 'text',
-): Promise<{ text: string; title?: string }> {
+): Promise<ReadableContent> {
   // Fallback: simple regex-based conversion
-  const fallback = (): { text: string; title?: string } => {
-    const rendered = htmlToMarkdown(html);
+  const fallback = (): ReadableContent => {
+    const rendered = htmlToMarkdown(html, url);
     if (extractMode === 'text') {
       return { text: markdownToText(rendered.text), title: rendered.title };
     }
@@ -290,17 +316,94 @@ async function extractReadableContent(
       /* best-effort */
     }
 
+    const style = document.createElement('div').style;
+    const isHidden = (node: Element): boolean => {
+      style.cssText = node.getAttribute('style') ?? '';
+      return (
+        node.hasAttribute('hidden') ||
+        node.getAttribute('aria-hidden') === 'true' ||
+        style.display === 'none' ||
+        style.visibility === 'hidden'
+      );
+    };
+    const main = [...document.querySelectorAll('main, [role="main"]')].find(
+      (element) => {
+        for (
+          let node: Element | null = element;
+          node;
+          node = node.parentElement
+        ) {
+          if (isHidden(node)) return false;
+        }
+        return true;
+      },
+    );
+    let pageContext = '';
+    if (main) {
+      const context = main.cloneNode(true) as typeof main;
+      for (const node of context.querySelectorAll('*')) {
+        if (
+          node.matches(
+            'script,style,noscript,nav,footer,aside,[role="navigation"]',
+          ) ||
+          isHidden(node)
+        )
+          node.remove();
+      }
+      pageContext = htmlToMarkdown(context.innerHTML, url, true).text.slice(
+        0,
+        PAGE_CONTEXT_MAX_CHARS,
+      );
+    }
+
+    // Short headings beside inline controls look like link-heavy boilerplate to
+    // Readability's div cleanup. Preserve their structure and visibility metadata.
+    for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+      const group = heading.parentElement;
+      if (
+        group?.tagName !== 'DIV' ||
+        ![...group.children].every(
+          (child) => child === heading || child.matches('a,span,small,button'),
+        )
+      )
+        continue;
+      const header = document.createElement('header');
+      for (const attribute of group.attributes) {
+        header.setAttribute(attribute.name, attribute.value);
+      }
+      header.append(...group.childNodes);
+      group.replaceWith(header);
+    }
+
     const reader = new Readability(document, { charThreshold: 0 });
     const parsed = reader.parse();
     if (!parsed?.content) return fallback();
 
     const title = parsed.title || undefined;
+    const articleContext = `${title ?? ''} ${parsed.textContent ?? ''}`;
+    const contextPrefix =
+      pageContext &&
+      !normalizeForDetection(articleContext).includes(
+        normalizeForDetection(markdownToText(pageContext)),
+      )
+        ? `Page context (leading excerpt):
+${extractMode === 'text' ? markdownToText(pageContext) : pageContext}
+
+Article:
+`
+        : '';
     if (extractMode === 'text') {
       const text = normalizeWhitespace(parsed.textContent ?? '');
-      return text ? { text, title } : fallback();
+      return text
+        ? { text: contextPrefix + text, title, articleText: text }
+        : fallback();
     }
-    const rendered = htmlToMarkdown(parsed.content);
-    return { text: rendered.text, title: title ?? rendered.title };
+    const rendered = htmlToMarkdown(parsed.content, url, true);
+    return {
+      text: contextPrefix + rendered.text,
+      title: title ?? rendered.title,
+      articleText: markdownToText(rendered.text),
+    };
   } catch {
     return fallback();
   }
@@ -349,9 +452,9 @@ async function readResponseText(
           break;
         }
       }
-    } catch {
+    } catch (error) {
       if (signal.aborted) throw abortError(signal);
-      /* return what we have */
+      throw error;
     } finally {
       signal.removeEventListener('abort', cancelOnAbort);
       if (truncated) {
@@ -514,7 +617,7 @@ function detectEscalationHint(params: {
 }): WebFetchEscalationHint | undefined {
   const normalizedBody = normalizeForDetection(params.body);
   const visibleBody = normalizeForDetection(
-    decodeEntities(stripTags(removeRawHtmlElements(params.body))),
+    decodeEntities(stripTags(removeNonContentHtml(params.body))),
   );
   const normalizedExtracted = normalizeForDetection(params.extractedText);
   if (
@@ -588,6 +691,21 @@ export interface WebFetchResult {
   nextPageUrl?: string;
 }
 
+function binaryResponseError(url: string, response: Response): Error {
+  const declaredBytes = Number(response.headers.get('content-length'));
+  const sizeHint =
+    Number.isSafeInteger(declaredBytes) && declaredBytes > 0
+      ? ` Declared size: ${declaredBytes} bytes.`
+      : '';
+  const next = {
+    name: 'http_request',
+    arguments: { method: 'GET', url, responseArtifact: {} },
+  };
+  return new Error(
+    `web_fetch cannot decode this binary response as text.${sizeHint} Download it with an available artifact tool and a bounded maxResponseBytes large enough for the file, then inspect the saved file with read or an appropriate permitted skill. If http_request is offered, use: ${JSON.stringify(next)}`,
+  );
+}
+
 export async function webFetch(params: {
   url: string;
   extractMode?: 'markdown' | 'text';
@@ -600,8 +718,7 @@ export async function webFetch(params: {
   );
 
   // Check cache
-  const cacheKey =
-    `fetch:${params.url}:${extractMode}:${maxChars}`.toLowerCase();
+  const cacheKey = `fetch:${params.url}:${extractMode}:${maxChars}`;
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
@@ -670,18 +787,32 @@ export async function webFetch(params: {
     const contentType =
       res.headers.get('content-type') ?? 'application/octet-stream';
     const normalizedContentType =
-      contentType.split(';')[0]?.trim() || 'application/octet-stream';
+      contentType.split(';')[0]?.trim().toLowerCase() ||
+      'application/octet-stream';
+    if (
+      normalizedContentType === 'application/pdf' ||
+      (/^(?:image|audio|video)\//.test(normalizedContentType) &&
+        !normalizedContentType.endsWith('+xml'))
+    ) {
+      void res.body?.cancel().catch(() => {});
+      if (!res.ok)
+        throw new Error(`Web fetch failed (${res.status}): ${res.statusText}`);
+      throw binaryResponseError(finalUrl, res);
+    }
     const bodyResult = await readResponseText(
       res,
       MAX_RESPONSE_BYTES,
       controller.signal,
     );
     const body = bodyResult.text;
+    if (body.startsWith('%PDF-') || body.includes('\0'))
+      throw binaryResponseError(finalUrl, res);
 
     let title: string | undefined;
     let extractor = 'raw';
     let text = body;
     let nextPageUrl: string | undefined;
+    let articleText: string | undefined;
 
     if (contentType.includes('text/markdown')) {
       extractor = 'cf-markdown';
@@ -694,6 +825,7 @@ export async function webFetch(params: {
       );
       text = readable.text;
       title = readable.title;
+      articleText = readable.articleText;
       extractor = 'readability';
       nextPageUrl = findNextPageUrl(body, finalUrl);
     } else if (contentType.includes('application/json')) {
@@ -705,7 +837,9 @@ export async function webFetch(params: {
       }
     }
 
-    const extractedText = extractMode === 'text' ? text : markdownToText(text);
+    // Supplemental context must not conceal short or blocked article extraction.
+    const extractedText =
+      articleText ?? (extractMode === 'text' ? text : markdownToText(text));
     const escalationHint = detectEscalationHint({
       status: res.status,
       contentType: normalizedContentType,

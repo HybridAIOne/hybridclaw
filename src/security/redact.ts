@@ -2,7 +2,11 @@
  * Text redactors mask credentials and, optionally, personal data; they do not
  * promise valid serialized JSON. Structured callers use redactSecretsDeep to
  * preserve property names and nesting, unlike the text-only entry points.
+ * Private tool replay may preserve nonliteral callback syntax; public text
+ * and structured credential values retain strict masking.
  */
+import { isCodeCallbackReference } from './code-callback-reference.js';
+
 const REDACTION_DISABLED_ENV = 'HYBRIDCLAW_REDACT_SECRETS';
 const HIGH_ENTROPY_MIN_LENGTH = 24;
 const HIGH_ENTROPY_THRESHOLD = 3.5;
@@ -396,7 +400,11 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     },
   ]);
 
-export function redactCredentialSecrets(text: string, force = false): string {
+export function redactCredentialSecrets(
+  text: string,
+  force = false,
+  preserveCodeCallbacks = false,
+): string {
   if (!text || (!force && !isRedactionEnabled())) return text;
 
   let next = text;
@@ -404,7 +412,28 @@ export function redactCredentialSecrets(text: string, force = false): string {
     // Guards run after earlier replacements, so each must remain a necessary
     // match condition that prior patterns do not remove.
     if (pattern.shouldRun && !pattern.shouldRun(next)) continue;
-    next = next.replace(pattern.match, pattern.replace as never);
+    const replace =
+      preserveCodeCallbacks && pattern.match === ENV_SECRET_ASSIGNMENT_RE
+        ? (
+            match: string,
+            key: string,
+            value: string,
+            offset: unknown,
+            input: unknown,
+          ) =>
+            key === 'key' &&
+            typeof offset === 'number' &&
+            typeof input === 'string' &&
+            isCodeCallbackReference(
+              input,
+              offset,
+              value,
+              HIGH_ENTROPY_MIN_LENGTH,
+            )
+              ? match
+              : `${key}=${redactStructuredSecretValue(value)}`
+        : pattern.replace;
+    next = next.replace(pattern.match, replace as never);
   }
   return next;
 }

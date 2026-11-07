@@ -3,6 +3,7 @@ import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
 } from '#shared/approval-reply.js';
+import type { FileWriteGuardContext } from '#shared/file-write-guard.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
@@ -54,6 +55,7 @@ export interface AddressEnvelope {
 export interface ContainerInput
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
+    FileWriteGuardContext,
     ToolCallLimits {
   healthCheck?: {
     nonce: string;
@@ -89,6 +91,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;

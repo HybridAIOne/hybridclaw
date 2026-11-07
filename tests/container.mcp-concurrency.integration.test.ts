@@ -58,8 +58,13 @@ async function run(
 }
 
 test('overlaps trusted reads with a cap of eight, orders results and drains before mutations', async () => {
-  const reads = Array.from({ length: 10 }, (_, i) =>
-    call(`r${i}`, 'lookup', { delay: 100 - i * 5, fail: i === 2 }),
+  const ids = Array.from({ length: 10 }, (_, i) => `r${i}`);
+  const reads = ids.map((id, i) =>
+    call(id, 'lookup', {
+      waitFor: i < 8 ? ids.slice(0, 8) : ids.slice(8),
+      delay: 100 - i * 5,
+      fail: i === 2,
+    }),
   );
   const calls = [
     ...reads,
@@ -106,9 +111,11 @@ test('server read-only annotations alone remain serial', async () => {
 });
 
 test('an exact operator declaration admits reads without trusting annotations', async () => {
-  const { events } = await run([call('a'), call('b')], {
-    overrides: { lookup: 'read-only' },
-  });
+  const waitFor = ['a', 'b'];
+  const { events } = await run(
+    [call('a', 'lookup', { waitFor }), call('b', 'lookup', { waitFor, startDelay: 100 })],
+    { overrides: { lookup: 'read-only' } },
+  );
   expect(Math.max(...events.map((event) => event.active))).toBe(2);
 });
 

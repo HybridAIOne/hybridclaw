@@ -1,8 +1,10 @@
 /**
  * Bounded, page-addressable PDF reads shared by preview and worker tools.
  * File authorization belongs to the caller; this module never fetches URLs or
- * calls a model. The bundled PDF skill remains the extraction/render engine.
+ * calls a model. Native rendering runs outside the reader process so a canvas
+ * crash cannot discard extracted text or kill the worker serving the turn.
  */
+import { fork } from 'node:child_process';
 import fs from 'node:fs/promises';
 import type { VisualAttachmentMessage } from './visual-snapshots.js';
 import { PDF_READ_MAX_PAGES, saveVisualSnapshot } from './visual-snapshots.js';
@@ -46,16 +48,6 @@ interface PdfRuntime {
     selectedPages: number[];
     pages: Array<{ pageNumber: number; text: string }>;
   }>;
-  renderPdfPages(params: {
-    inputPath: string;
-    outputDir: string;
-    pageNumbers: string;
-    maxDimension: number;
-  }): Promise<{
-    pageCount: number;
-    selectedPages: number[];
-    written: string[];
-  }>;
   subsetPdfBytes(inputPath: string, pages: number[]): Promise<Buffer>;
   searchPdfText(inputPath: string, query: string): Promise<PdfSearchResult>;
 }
@@ -72,8 +64,86 @@ export const PDF_PREVIEW_MAX_CHARS: number = 6_000;
 const SPARSE_PAGE_CHARS = 50;
 const RENDER_MAX_DIMENSION = 1600;
 
-function selectPages(selection: unknown): string {
-  if (selection === undefined) return `1-${PDF_READ_MAX_PAGES}`;
+interface RenderedPage {
+  page: number;
+  path: string;
+}
+
+function renderInChild(
+  runtimeUrl: string,
+  inputPath: string,
+  outputDir: string,
+  pages: number[],
+): Promise<RenderedPage[]> {
+  const params = {
+    inputPath,
+    outputDir,
+    pageNumbers: pages.join(','),
+    maxDimension: RENDER_MAX_DIMENSION,
+  };
+  return new Promise((resolve, reject) => {
+    const child = fork(
+      new URL('render_pdf_pages.mjs', runtimeUrl),
+      ['--render-for-read', JSON.stringify(params)],
+      { execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    let result: { written?: unknown; selectedPages?: unknown[] } | undefined;
+    child.once('message', (message) => {
+      result = message as typeof result;
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (code !== 0) {
+        reject(Object.assign(new Error('PDF renderer exited'), { signal }));
+      } else if (
+        result &&
+        Array.isArray(result.written) &&
+        result.written.length === pages.length &&
+        pages.every(
+          (page, i) =>
+            result?.selectedPages?.[i] === page &&
+            typeof (result.written as unknown[])[i] === 'string',
+        )
+      ) {
+        const written = result.written as string[];
+        resolve(pages.map((page, i) => ({ page, path: written[i] })));
+      } else {
+        reject(new Error('PDF renderer returned an incomplete page list'));
+      }
+    });
+  });
+}
+
+async function renderReadPages(
+  runtimeUrl: string,
+  inputPath: string,
+  outputDir: string,
+  pages: number[],
+): Promise<RenderedPage[]> {
+  try {
+    return await renderInChild(runtimeUrl, inputPath, outputDir, pages);
+  } catch (error) {
+    if (
+      (error as { signal?: unknown })?.signal !== 'SIGSEGV' ||
+      pages.length < 2
+    )
+      throw error;
+    // A native drawing fault can depend on earlier pages. Re-render each in
+    // a fresh process; a partial PNG left by the crashed process is untrusted.
+    const images: RenderedPage[] = [];
+    for (const page of pages) {
+      images.push(
+        ...(await renderInChild(runtimeUrl, inputPath, outputDir, [page])),
+      );
+    }
+    return images;
+  }
+}
+
+export function firstPdfPageBatch(
+  selection: unknown,
+): { pages: string; hasMore: boolean } | undefined {
+  if (selection === undefined) return undefined;
   if (typeof selection !== 'string' || !selection.trim()) {
     throw new Error(
       'pages must be a nonempty page range such as "1-4" or "5,7"',
@@ -93,30 +163,41 @@ function selectPages(selection: unknown): string {
     ) {
       throw new Error('PDF pages must be positive, ascending integers');
     }
-    if (last - first >= PDF_READ_MAX_PAGES)
-      throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
-    for (let page = first; page <= last; page += 1) selected.add(page);
-    if (selected.size > PDF_READ_MAX_PAGES)
-      throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
+    // One extra distinct page detects overflow without expanding a large range.
+    for (
+      let page = first;
+      page <= last && selected.size <= PDF_READ_MAX_PAGES;
+      page += 1
+    )
+      selected.add(page);
   }
-  return [...selected].sort((a, b) => a - b).join(',');
+  return {
+    pages: [...selected]
+      .slice(0, PDF_READ_MAX_PAGES)
+      .sort((a, b) => a - b)
+      .join(','),
+    hasMore: selected.size > PDF_READ_MAX_PAGES,
+  };
 }
 
 export async function readPdfPages(
   filePath: string,
   options: PdfReadOptions = {},
 ): Promise<PdfReadResult> {
-  const selection = selectPages(options.pages);
+  const batch = firstPdfPageBatch(options.pages);
+  if (batch?.hasMore)
+    throw new Error(`Read at most ${PDF_READ_MAX_PAGES} PDF pages per call`);
+  const selection = batch?.pages ?? `1-${PDF_READ_MAX_PAGES}`;
   const render = options.render ?? 'auto';
   if (!['auto', 'always', 'never'].includes(render))
     throw new Error('render must be auto, always, or never');
   const stat = await fs.stat(filePath);
   if (!stat.isFile() || stat.size > MAX_BYTES)
     throw new Error('PDF must be a regular file of at most 50 MiB');
-  const runtime: PdfRuntime = await import(
+  const runtimeUrl =
     options.runtimeUrl ??
-      new URL('../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url).href
-  );
+    new URL('../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url).href;
+  const runtime: PdfRuntime = await import(runtimeUrl);
   const extracted = await runtime.extractPdfText(filePath, selection);
   if (
     options.pages !== undefined &&
@@ -153,19 +234,16 @@ export async function readPdfPages(
   );
   if (imagePages.length && render !== 'never' && options.outputDir) {
     try {
-      const rendered = await runtime.renderPdfPages({
-        inputPath: filePath,
-        outputDir: options.outputDir,
-        pageNumbers: imagePages.map((page) => page.page).join(','),
-        maxDimension: RENDER_MAX_DIMENSION,
-      });
-      result.images = rendered.written.map((imagePath, index) => ({
-        page: rendered.selectedPages[index],
-        path: imagePath,
-      }));
-    } catch {
-      result.renderError =
-        'Page rendering failed; visual content has not been inspected.';
+      result.images = await renderReadPages(
+        runtimeUrl,
+        filePath,
+        options.outputDir,
+        imagePages.map((page) => page.page),
+      );
+    } catch (error) {
+      const signal = (error as { signal?: unknown })?.signal;
+      const reason = signal ? `stopped (${String(signal)})` : 'failed';
+      result.renderError = `Page rendering ${reason}; visual content has not been inspected.`;
     }
   }
   if (options.workspaceRoot && render !== 'never') {

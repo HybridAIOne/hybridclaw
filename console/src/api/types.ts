@@ -555,6 +555,8 @@ export interface AdminEmailAccountConfig {
 export interface AdminConfig {
   version: number;
   security: {
+    defaultApprovalMode: import('#shared/approval-mode.js').ApprovalMode;
+    disabledSafetyRules: string[];
     trustModelAccepted: boolean;
     trustModelAcceptedAt: string;
     trustModelVersion: string;

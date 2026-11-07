@@ -1,6 +1,15 @@
+/**
+ * Gateway turn contracts keep approval interpretations separate from execution.
+ * Transports render these results; they do not grant consent from reply prose.
+ * Authorization and pending-state ownership remain in the approval runtimes.
+ */
+
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
-import type { ApprovalReplyContext } from '#shared/approval-reply.js';
+import type {
+  ApprovalReplyContext,
+  ApprovalReplyInterpretation,
+} from '#shared/approval-reply.js';
 import type { MessageEmailDraft } from '#shared/email-draft.js';
 import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { ToolCallLimits } from '#shared/tool-call-limits.js';
@@ -77,6 +86,7 @@ import type { TaskCost, TaskCostEstimate } from '../usage/task-cost.js';
 import type { GatewayApprovalAnswer } from './approval-answer.js';
 import type { DelegationStatusSnapshot } from './delegation-plan.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
+import type { PendingApprovalClaim } from './pending-approvals.js';
 import type { TurnReceipt } from './turn-receipt.js';
 
 export type GatewayMessageComponents = NonNullable<
@@ -133,6 +143,7 @@ export interface GatewayA2ADeliveryDescriptor {
 }
 
 export interface GatewayChatResult {
+  approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
@@ -300,6 +311,8 @@ export interface GatewayChatRequestBody {
 export interface GatewayChatRequest
   extends ApprovalReplyContext,
     ToolCallLimits {
+  /** Internal gateway claim; never accepted from HTTP request bodies. */
+  approvalClaim?: PendingApprovalClaim;
   /** Notification operator from authenticated dispatch, never request-body input. */
   operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
@@ -338,6 +351,12 @@ export interface GatewayChatRequest
   agentId?: GatewayChatRequestBody['agentId'];
   /** Bound before the request runs (`bindRequestedScope`); turns read the session's. */
   scope?: GatewayChatRequestBody['scope'];
+  /**
+   * When set, the turn may only run on these agents (agent-scoped API
+   * tokens). Addressing, fan-out, remote delivery and session agents are all
+   * checked against it.
+   */
+  allowedAgentIds?: string[];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
@@ -378,6 +397,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Internal gateway claim; never accepted from HTTP request bodies. */
+  approvalClaim?: PendingApprovalClaim;
   /** Notification operator from authenticated dispatch, never request-body input. */
   operatorId?: string;
   /** Tenant captured by the authenticated Teams transport, never HTTP input. */

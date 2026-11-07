@@ -118,6 +118,11 @@ describe('bash command classification', () => {
 
   test.each([
     ['cat README.md', 'green'],
+    ['date', 'green'],
+    ['date -u +%FT%TZ', 'green'],
+    ["date -u '+%F %T'", 'green'],
+    ["date -s '2030-01-01'", 'yellow'],
+    ['date +%s -s 2030-01-01', 'yellow'],
     ['cat *', 'green'],
     ["grep -rn --exclude='.env*' TODO src/", 'green'],
     ["grep -r --exclude '.env*' KEY .", 'green'],
@@ -537,7 +542,7 @@ approval:
     ['/opt/tools/bin/convert in.png out.jpg > log.txt', 'bash:write-op'],
     ['bash /opt/tools/setup.sh > log.txt', 'bash:script'],
     // `2>&1` and `>&2` duplicate a descriptor and write no file.
-    ['ls -la /opt/data/report.png 2>&1 || echo missing', 'bash:other'],
+    ['ls -la /opt/data/report.png 2>&1 || echo missing', 'bash:read-only'],
     ['node scripts/fetch.cjs --path /api/v2/items/42.jpg 2>&1', 'bash:other'],
     ['cd /opt/data && npx some-tool check 2>&1', 'bash:other'],
     ['grep -c key /opt/data/app.log >&2', 'bash:read-only'],
@@ -628,6 +633,8 @@ approval:
     'node scripts/fetch.cjs >& /opt/data/log.txt',
     'echo x 2>&1 > /opt/data/out.txt',
     'echo x >| /opt/data/out.txt',
+    'printf x > /dev/null-backup',
+    'touch /dev/null-backup',
   ])('writes outside the workspace stay fenced: %j', (command) => {
     const evaluation = evaluateBash(command);
 

@@ -1,3 +1,9 @@
+/**
+ * Tool hooks enforce active gateway-configured pattern guards before execution.
+ * File-format validation remains independent of those configurable rules.
+ * Unlike approval policy, these hooks never grant consent or promote trust.
+ */
+import { activeSafetyBlock } from './safety-rules.js';
 import { parseToolArgsJsonOrThrow } from './tool-args.js';
 
 type RuntimeEventName =
@@ -35,34 +41,6 @@ interface RuntimeExtension {
   ) => void | Promise<void>;
 }
 
-const DANGEROUS_FILE_CONTENT_PATTERNS: Array<{ re: RegExp; reason: string }> = [
-  {
-    re: /\brm\s+-rf\s+\/(\s|$)/i,
-    reason:
-      'Detected destructive root delete pattern (`rm -rf /`) in file content.',
-  },
-  {
-    re: /:\(\)\s*\{.*\};\s*:/i,
-    reason: 'Detected fork-bomb pattern in file content.',
-  },
-  {
-    re: /\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b/i,
-    reason:
-      'Detected remote shell execution pattern (`curl | sh`) in file content.',
-  },
-];
-
-const DANGEROUS_BASH_PATTERNS: Array<{ re: RegExp; reason: string }> = [
-  {
-    re: /\b(cat|sed|awk)\b[^|]*\.(env|pem|key|p12)\b[^|]*(\|\s*(curl|wget)|>\s*\/dev\/tcp)/i,
-    reason: 'Command appears to exfiltrate sensitive local files.',
-  },
-  {
-    re: /\b(printenv|env)\b[^|]*(\|\s*(curl|wget)|>\s*\/dev\/tcp)/i,
-    reason: 'Command appears to exfiltrate environment variables.',
-  },
-];
-
 const BINARY_OFFICE_FILE_RE = /\.(docx|xlsx|pptx|pdf)$/i;
 
 function getBlockedBinaryOfficeFileReason(
@@ -86,16 +64,13 @@ const securityHookExtension: RuntimeExtension = {
         toolName === 'write'
           ? String(args.contents || '')
           : String(args.new || '');
-      for (const pattern of DANGEROUS_FILE_CONTENT_PATTERNS) {
-        if (pattern.re.test(content)) return pattern.reason;
-      }
+      const blocked = activeSafetyBlock('file-content', content);
+      if (blocked) return blocked;
     }
 
     if (toolName === 'bash') {
       const command = String(args.command || '');
-      for (const pattern of DANGEROUS_BASH_PATTERNS) {
-        if (pattern.re.test(command)) return pattern.reason;
-      }
+      return activeSafetyBlock('bash', command);
     }
 
     return null;

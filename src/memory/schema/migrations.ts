@@ -33,7 +33,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 79;
+export const DATABASE_SCHEMA_VERSION = 80;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4056,6 +4056,20 @@ export function runMigrations(
       database,
       79,
       'Remove retired Teams user compatibility table',
+    );
+  }
+  if (currentVersion < 80) {
+    addColumnIfMissing({
+      database,
+      table: 'messages',
+      column: 'approval_json',
+      ddl: 'approval_json TEXT',
+      quiet,
+    });
+    recordMigration(
+      database,
+      80,
+      'Keep structured approval messages in chat history',
     );
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);

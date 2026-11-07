@@ -79,6 +79,7 @@ import {
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelPricingUsdPerToken,
+  getDiscoveredOpenRouterModelVisionCapability,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -722,6 +723,22 @@ export function isModelVisionCapable(model: string): boolean {
     isDiscoveredAnthropicModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
+  );
+}
+
+/** Explicit input metadata wins; unknown models retain endpoint negotiation. */
+export async function canModelAcceptVisualMedia(
+  model: string,
+): Promise<boolean> {
+  if (hasModelPrefix(model, OPENROUTER_MODEL_PREFIX)) {
+    // The executor resolves credentials later; first-turn IPC needs discovery now.
+    await discoverOpenRouterModels();
+    const discovered = getDiscoveredOpenRouterModelVisionCapability(model);
+    if (discovered !== null) return discovered;
+  }
+  return (
+    isModelVisionCapable(model) ||
+    !resolveStaticModelCatalogMetadata(model).known
   );
 }
 

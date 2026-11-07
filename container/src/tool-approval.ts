@@ -1,6 +1,7 @@
 /**
  * Agent-loop glue for tool approvals: the process's one approval runtime, the
  * records a gated call reports, and the resolver that evaluates each call.
+ * Unconditional shell blocks are rejected before approval state is touched.
  * After shutdown starts, the resolver evaluates nothing, so a stopped turn's
  * late tool calls record no pending approval. NOT the policy
  * (`approval-policy.ts`). Display descriptions never reach that policy or its
@@ -15,6 +16,7 @@ import {
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { approvalReviewArguments } from './approval-review.js';
+import { evaluateBashSafety } from './bash-safety.js';
 import { emitRuntimeEvent } from './extensions.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import type {
@@ -182,6 +184,8 @@ export function createToolApprovalResolver(params: {
 }) => Promise<ToolApprovalEvaluation> {
   return async (input) => {
     await haltIfShuttingDown();
+    const blocked = evaluateBashSafety(input);
+    if (blocked) return blocked;
     const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
       ...input,

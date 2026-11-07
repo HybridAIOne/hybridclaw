@@ -71,6 +71,8 @@ test('an approval answer reaches the agent but stays out of history', async () =
     chatbotId: '',
   };
 
+  const { setPendingApproval } = await import('../src/gateway/pending-approvals.js');
+  await setPendingApproval(request.sessionId, { approvalId: '1a2b3c4d', prompt: 'Review the action.', userId: request.userId, createdAt: Date.now(), expiresAt: Date.now() + 60_000 });
   await handleGatewayMessage({
     ...request,
     content: 'yes 1a2b3c4d',

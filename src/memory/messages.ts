@@ -32,6 +32,7 @@ import type {
 } from '../types/session.js';
 import { normalizeNonNegativeInteger } from '../utils/number-normalization.js';
 import { withMemoryDatabase } from './database.js';
+import { parseMessageApproval } from './message-approval.js';
 import { ensureSessionBranchesTable } from './schema/migrations.js';
 import { resolveSessionIdCompat } from './sessions.js';
 import { queryAll, queryOne } from './sqlite.js';
@@ -52,6 +53,7 @@ interface ConversationHistoryPageRow {
   routing_trace_json: string | null;
   reaction: string | null;
   email_draft_json: string | null;
+  approval_json: string | null;
   source: string | null;
   created_at: string | null;
 }
@@ -451,6 +453,7 @@ export function getSessionAssistantMessage(
   | 'artifacts'
   | 'source'
   | 'emailDraft'
+  | 'approval'
   | 'routingTrace'
   | 'created_at'
 > | null {
@@ -463,13 +466,14 @@ export function getSessionAssistantMessage(
       artifacts_json: string | null;
       source: string | null;
       email_draft_json: string | null;
+      approval_json: string | null;
       routing_trace_json: string | null;
       created_at: string;
     },
     [number, string]
   >(
     getMessageDatabase(),
-    `SELECT id, session_id, agent_id, content, artifacts_json, source, email_draft_json, routing_trace_json, created_at
+    `SELECT id, session_id, agent_id, content, artifacts_json, source, email_draft_json, approval_json, routing_trace_json, created_at
      FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'`,
     messageId,
     resolveSessionIdCompat(sessionId),
@@ -483,6 +487,7 @@ export function getSessionAssistantMessage(
     artifacts: parseMessageArtifacts(row.artifacts_json),
     source: row.source,
     emailDraft: parseEmailDraft(row.email_draft_json) ?? undefined,
+    approval: parseMessageApproval(row.approval_json),
     routingTrace: parseRoutingTrace(row.routing_trace_json) ?? undefined,
     created_at: row.created_at,
   };
@@ -833,6 +838,7 @@ export function getConversationHistoryPage(
          m.routing_trace_json,
          m.reaction,
          m.email_draft_json,
+         m.approval_json,
          m.source,
          m.created_at
        FROM sessions s
@@ -891,6 +897,9 @@ export function getConversationHistoryPage(
       ...(routingTrace ? { routingTrace } : {}),
       ...(row.reaction ? { reaction: row.reaction } : {}),
       ...(emailDraft ? { emailDraft } : {}),
+      ...(row.approval_json
+        ? { approval: parseMessageApproval(row.approval_json) }
+        : {}),
       ...(row.source ? { source: row.source } : {}),
       created_at: row.created_at,
     });

@@ -16,6 +16,7 @@ import {
 import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import { resolveExecutorMode } from '../agent/executor.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import {
@@ -52,6 +53,7 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
@@ -167,8 +169,10 @@ import {
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from './app-widgets.js';
+import { coordinateGatewayApproval } from './approval-coordination.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
+import { rememberChatApprovalDecision } from './chat-approval-review.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -271,6 +275,10 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import {
+  beginTurnCheckpoint,
+  recoverTurnCheckpoint,
+} from './turn-checkpoint.js';
 import { turnReceiptFromExecutions } from './turn-receipt.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
@@ -650,8 +658,13 @@ function buildA2AChatThreadId(session: {
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
 
-export async function handleGatewayMessage(
+export const handleGatewayMessage = coordinateGatewayApproval(
+  handleGatewayMessageQueued,
+);
+
+async function handleGatewayMessageQueued(
   req: GatewayChatRequest,
+  accept: () => void,
 ): Promise<GatewayChatResult> {
   if (isGatewayShuttingDown()) {
     return {
@@ -661,6 +674,7 @@ export async function handleGatewayMessage(
       error: GATEWAY_RESTARTING_ERROR,
     };
   }
+  accept();
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -786,11 +800,40 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
+  const allowedAgentIds = req.allowedAgentIds;
+  // Thrown (not returned) so HTTP callers answer 403 rather than 500.
+  const agentScopeError = (agentId: string): never => {
+    throw new GatewayRequestError(
+      403,
+      `Agent \`${agentId}\` is not available to this token.`,
+    );
+  };
+  if (
+    allowedAgentIds &&
+    session.agent_id &&
+    !allowedAgentIds.includes(session.agent_id)
+  ) {
+    return agentScopeError(session.agent_id);
+  }
   const addressed = resolveAgentAddressing({
     content: req.content,
     currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
     fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
   });
+  if (allowedAgentIds) {
+    if (addressed.kind === 'fanout') {
+      return agentScopeError(`@${addressed.alias}`);
+    }
+    if (addressed.kind === 'remote') {
+      return agentScopeError(addressed.canonicalId);
+    }
+    if (
+      addressed.kind === 'agent' &&
+      !allowedAgentIds.includes(addressed.agentId)
+    ) {
+      return agentScopeError(addressed.agentId);
+    }
+  }
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -971,6 +1014,17 @@ async function handleGatewayMessageInner(
       };
     }
   }
+  if (allowedAgentIds) {
+    const scopedAgentId = resolveAgentForRequest({
+      agentId: req.agentId,
+      session,
+      model: req.model,
+      chatbotId: req.chatbotId,
+    }).agentId;
+    if (!allowedAgentIds.includes(scopedAgentId)) {
+      return agentScopeError(scopedAgentId);
+    }
+  }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
   if (cliSecretSetCommand) {
     return attachSessionIdentity({
@@ -996,6 +1050,7 @@ async function handleGatewayMessageInner(
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
+    workspaceOverrides: req,
     abortSignal: req.abortSignal,
     steerInbox,
   });
@@ -1178,9 +1233,8 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     workspacePathOverride || agentWorkspaceDir(agentId),
   );
-  const approvalMode = autoApproveTools
-    ? 'full'
-    : resolveSessionApprovalMode(session);
+  const approvalMode = resolveSessionApprovalMode(session, autoApproveTools);
+  recoverTurnCheckpoint(req.sessionId);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools
     : approvalMode === 'full'
@@ -1191,6 +1245,9 @@ async function handleGatewayMessageInner(
       : FULLAUTO_NEVER_APPROVE_TOOLS;
   const workspaceDisplayPath =
     req.workspaceDisplayRootOverride?.trim() || workspacePath;
+  const skillWorkspacePath = path.resolve(
+    scopeRun?.workspaceDir ?? agentWorkspaceDir(agentId),
+  );
   const workspaceBootstrap = workspacePathOverride
     ? {
         workspacePath,
@@ -1885,6 +1942,11 @@ async function handleGatewayMessageInner(
       channelId: req.channelId,
       sessionContext,
       workspacePath: workspaceDisplayPath,
+      skillWorkspacePath:
+        resolveExecutorMode(req.executorModeOverride) === 'host' &&
+        workspacePath !== skillWorkspacePath
+          ? skillWorkspacePath
+          : undefined,
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools,
@@ -2080,6 +2142,18 @@ async function handleGatewayMessageInner(
   try {
     const scheduledTaskCount =
       listManageableScheduledTasks(session).tasks.length;
+    beginTurnCheckpoint({
+      ...req,
+      ...scopeRunAgentParams(scopeRun),
+      agentId,
+      runId,
+      workspacePath,
+      workerSessionId: req.executionSessionId || req.sessionId,
+      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      userMedia: media,
+      userDynamicContext: dynamicContext,
+      userSource: userTurnSource(req),
+    });
     let firstTextDeltaMs: number | null = null;
     const tail = new TurnTailTimer();
     const replyFetches = new ReplyFetchGuard(messages, (text) =>
@@ -2385,6 +2459,11 @@ async function handleGatewayMessageInner(
     }
     await rememberConnectorApproval(req, output);
     recordApprovalReply(req.sessionId, runId, output);
+    await rememberChatApprovalDecision(
+      req.sessionId,
+      req.userId,
+      output.approvalReply,
+    );
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
@@ -2665,12 +2744,17 @@ async function handleGatewayMessageInner(
       acceptedDelegationPlans.length > 0
         ? enqueueDelegationBatchFromSideEffects({
             plans: acceptedDelegationPlans,
+            fileWriteGuardSessionId: req.executionSessionId || req.sessionId,
             parentSessionId: req.sessionId,
             channelId: req.channelId,
             chatbotId,
             enableRag,
             agentId,
             parentModel: model,
+            workspaceOverrides: {
+              workspacePathOverride,
+              workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+            },
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
             runParentTurn: ({ content, onTextDelta }) =>
@@ -2688,6 +2772,8 @@ async function handleGatewayMessageInner(
                 onTextDelta,
                 onProactiveMessage: req.onProactiveMessage,
                 source: DELEGATION_RESULTS_SOURCE,
+                workspacePathOverride,
+                workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
               }),
             publicId: req.delegationPublicId,
             ackText: ackText || '',
@@ -3065,6 +3151,7 @@ async function handleGatewayMessageInner(
       toolExecutions,
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
+      approvalReply: output.approvalReply,
       effectiveUserPrompt: output.effectiveUserPrompt,
       assistantPresentation:
         getGatewayAssistantPresentationForMessageAgent(agentId),

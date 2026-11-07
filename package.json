@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.41.5",
+  "version": "0.42.1",
   "type": "module",
   "imports": {
     "#shared/*": "./container/shared/dist/*"

@@ -1,3 +1,5 @@
+import { fork, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -34,6 +36,70 @@ async function fixture() {
 }
 
 describe('bounded PDF read', () => {
+  test('a fatal renderer exit preserves text and lets the reader serve the next call', async () => {
+    const { root, file } = await fixture();
+    const runtime = path.join(root, '_pdf_runtime.mjs');
+    await fs.writeFile(runtime, [
+      `export { extractPdfText, subsetPdfBytes } from ${JSON.stringify(runtimeUrl)};`,
+      `import { renderPdfPages as render } from ${JSON.stringify(runtimeUrl)};`,
+      `export async function renderPdfPages(params) {
+        if (params.pageNumbers === '1') process.kill(process.pid, 'SIGKILL');
+        if (params.pageNumbers.includes(',')) process.kill(process.pid, 'SIGSEGV');
+        return render(params);
+      }`,
+    ].join('\n'));
+    await fs.copyFile(path.resolve('skills/pdf/scripts/render_pdf_pages.mjs'), path.join(root, 'render_pdf_pages.mjs'));
+    const reader = pathToFileURL(path.resolve('container/shared/src/pdf-reader.ts')).href;
+    const probe = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+      import { readPdfPages } from ${JSON.stringify(reader)};
+      const options = { runtimeUrl: ${JSON.stringify(pathToFileURL(runtime).href)}, outputDir: ${JSON.stringify(root)}, workspaceRoot: ${JSON.stringify(root)}, pages: '1' };
+      const run = render => readPdfPages(${JSON.stringify(file)}, { ...options, render });
+      const first = await run('always');
+      const next = await run('never');
+      const recovered = await readPdfPages(${JSON.stringify(file)}, { ...options, render: 'always', pages: '3,5' });
+      console.log(JSON.stringify({first, next, recovered}));
+    `], { encoding: 'utf8', timeout: 15000 });
+    expect(probe.status, probe.signal || probe.stderr).toBe(0);
+    const { first, next, recovered } = JSON.parse(probe.stdout);
+    expect(first.images).toEqual([]);
+    expect(first.renderError).toContain('SIGKILL');
+    expect(first.pages[0].text).toContain('Readable document evidence');
+    expect(first.visualAttachments).toEqual([expect.objectContaining({ pages: [1] })]);
+    expect(next.pages[0].text).toBe(first.pages[0].text);
+    expect(next.renderError).toBeUndefined();
+    expect(recovered.renderError).toBeUndefined();
+    expect(recovered.images.map((image: { page: number }) => image.page)).toEqual([3, 5]);
+    expect(recovered.visualAttachments).toEqual([expect.objectContaining({ pages: [3, 5] })]);
+  });
+
+  test('a renderer exits if its reader disappears during a render', async () => {
+    const root = tempDir();
+    const entry = path.join(root, 'render_pdf_pages.mjs');
+    await fs.copyFile(path.resolve('skills/pdf/scripts/render_pdf_pages.mjs'), entry);
+    await fs.writeFile(path.join(root, '_pdf_runtime.mjs'), [
+      'export function renderPdfPages() {',
+      "  process.send('started');",
+      '  return new Promise(() => setInterval(() => {}, 60_000));',
+      '}',
+    ].join('\n'));
+    const child = fork(entry, ['--render-for-read', '{}'], {
+      execArgv: [],
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    const terminated = once(child, 'exit');
+    try {
+      const signal = AbortSignal.timeout(3_000);
+      const [started] = await once(child, 'message', { signal });
+      expect(started).toBe('started');
+      const exited = once(child, 'exit', { signal });
+      child.disconnect();
+      expect(await exited).toEqual([1, null]);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await terminated;
+    }
+  });
+
   test('reads selected pages with original numbering and explicit text truncation', async () => {
     const { file } = await fixture();
     const result = await readPdfPages(file, {
@@ -100,6 +166,44 @@ describe('bounded PDF read', () => {
     await fs.writeFile(file, '');
     await fs.truncate(file, 51 * 1024 * 1024);
     await expect(readPdfPages(file, { runtimeUrl })).rejects.toThrow('50 MiB');
+  });
+
+  test.each([
+    { pages: '2-6', lineArgs: { limit: 1 }, expected: [2, 3, 4, 5] },
+    { pages: '5-6', lineArgs: { limit: 20 }, expected: [5, 6] },
+    { pages: '6,2,2,4,3,5', lineArgs: { offset: 9 }, expected: [2, 3, 4, 6] },
+    { pages: '2-9999999999', lineArgs: {}, expected: [2, 3, 4, 5] },
+  ])('offers an executable first batch for $pages with $lineArgs', async ({
+    pages,
+    lineArgs,
+    expected,
+  }) => {
+    const { root } = await fixture();
+    await fs.symlink(path.resolve('skills'), path.join(root, 'skills'));
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', root);
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
+    );
+    const args = { path: 'document.pdf', pages, render: 'never', ...lineArgs };
+    const failed = await executeToolWithMetadata('read', JSON.stringify(args));
+    expect(failed.isError).toBe(true);
+    expect(failed.visualAttachments).toBeUndefined();
+    const { suggestedCall } = JSON.parse(failed.output);
+    expect(suggestedCall.name).toBe('read');
+    expect(suggestedCall.arguments).toEqual({
+      path: args.path,
+      pages: expected.join(','),
+      render: args.render,
+    });
+    const retry = await executeToolWithMetadata(
+      suggestedCall.name,
+      JSON.stringify(suggestedCall.arguments),
+    );
+    expect(retry.isError).toBe(false);
+    expect(JSON.parse(retry.output)).toMatchObject({
+      processedPages: expected,
+      omittedPages: 6 - expected.length,
+    });
   });
 
   test('worker read uses the PDF branch and gateway attachment access is replaced each turn', async () => {

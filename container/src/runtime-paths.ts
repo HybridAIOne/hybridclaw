@@ -1,3 +1,8 @@
+/**
+ * Execution paths stay within configured tool roots; state belongs to the worker's owner.
+ * Display aliases translate tool paths without granting additional access.
+ * Unlike approval-policy this resolves paths, never authorizes a tool action.
+ */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +27,10 @@ const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
+);
+// Host runners provide their owning agent/scope directory independently of cwd.
+export const WORKSPACE_STATE_ROOT = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_STATE_ROOT || WORKSPACE_ROOT,
 );
 const ALLOWED_HOST_ROOTS = (() => {
   const raw = (process.env.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '').trim();

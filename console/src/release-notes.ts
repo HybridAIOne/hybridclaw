@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.5',
+  version: '0.42.1',
   highlights: [
-    'Clearer Teams approval requests',
-    'Show only available approval choices',
-    'View commands and details with 0',
+    'Safer PDF reads and rendering recovery',
+    'Approval history and delegated file protection',
+    'Redacted audit previews by default',
+    'Outlook messages and HybridAI transcription',
   ],
 } as const;
 

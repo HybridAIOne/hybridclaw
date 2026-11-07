@@ -41,7 +41,8 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-vi.mock('../src/agent/executor.js', () => ({
+vi.mock('../src/agent/executor.js', async (original) => ({
+  ...(await original<typeof import('../src/agent/executor.js')>()),
   getActiveExecutorSessionIds: getActiveExecutorSessionIdsMock,
   getExecutorSessionHealthSnapshots: getExecutorSessionHealthSnapshotsMock,
   getSandboxDiagnostics: getSandboxDiagnosticsMock,

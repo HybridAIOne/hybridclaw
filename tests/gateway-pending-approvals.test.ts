@@ -1,12 +1,14 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+import { useTempDir } from './test-utils.js';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+const makeTempDir = useTempDir('hy-pending-');
+
 const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
 
-afterEach(() => {
+afterEach(async () => {
+  await cleanupGatewayRuntime();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
@@ -26,7 +28,6 @@ test('findPendingApprovalByApprovalId returns stored approvals', async () => {
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
   });
 
   expect(
@@ -38,7 +39,7 @@ test('findPendingApprovalByApprovalId returns stored approvals', async () => {
     },
   });
 
-  await pendingApprovals.clearPendingApproval('session-1');
+  await pendingApprovals.clearPendingApproval('session-1', { ...pendingApprovals.getPendingApproval('session-1')! });
 });
 
 test('findPendingApprovalByApprovalId removes expired approvals during lookup', async () => {
@@ -54,7 +55,6 @@ test('findPendingApprovalByApprovalId removes expired approvals during lookup', 
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
-    resolvedAt: null,
     disableButtons,
     disableTimeout: setTimeout(() => {}, 60_000),
   });
@@ -82,7 +82,6 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
     disableButtons: disableOriginal,
     disableTimeout: setTimeout(() => {
       originalTimerFired = true;
@@ -95,7 +94,6 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
   });
 
   vi.advanceTimersByTime(1_000);
@@ -109,7 +107,7 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
     sessionId: 'session-2',
   });
 
-  await pendingApprovals.clearPendingApproval('session-2');
+  await pendingApprovals.clearPendingApproval('session-2', { ...pendingApprovals.getPendingApproval('session-2')! });
 });
 
 test('cleanupExpiredPendingApprovals removes expired entries and disables buttons', async () => {
@@ -125,7 +123,6 @@ test('cleanupExpiredPendingApprovals removes expired entries and disables button
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
-    resolvedAt: null,
     disableButtons,
     disableTimeout: setTimeout(() => {}, 60_000),
   });
@@ -148,7 +145,6 @@ test('listPendingApprovals returns only unresolved, unexpired entries', async ()
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
   });
   await pendingApprovals.setPendingApproval('session-resolved', {
     approvalId: 'done-1',
@@ -156,7 +152,7 @@ test('listPendingApprovals returns only unresolved, unexpired entries', async ()
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-2',
-    resolvedAt: Date.now(),
+
   });
   await pendingApprovals.setPendingApproval('session-expired-list', {
     approvalId: 'expired-1',
@@ -164,9 +160,9 @@ test('listPendingApprovals returns only unresolved, unexpired entries', async ()
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-3',
-    resolvedAt: null,
   });
 
+  pendingApprovals.claimPendingApprovalByApprovalId({ sessionId: 'session-resolved', approvalId: 'done-1', userId: 'user-2' });
   expect(pendingApprovals.listPendingApprovals()).toEqual([
     {
       sessionId: 'session-active',
@@ -177,8 +173,8 @@ test('listPendingApprovals returns only unresolved, unexpired entries', async ()
     },
   ]);
 
-  await pendingApprovals.clearPendingApproval('session-active');
-  await pendingApprovals.clearPendingApproval('session-resolved');
+  await pendingApprovals.clearPendingApproval('session-active', { ...pendingApprovals.getPendingApproval('session-active')! });
+  await pendingApprovals.clearPendingApproval('session-resolved', { ...pendingApprovals.getPendingApproval('session-resolved')! });
 });
 
 test('claimPendingApprovalByApprovalId marks an approval handled after first claim', async () => {
@@ -190,7 +186,6 @@ test('claimPendingApprovalByApprovalId marks an approval handled after first cla
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
   });
 
   expect(
@@ -213,7 +208,7 @@ test('claimPendingApprovalByApprovalId marks an approval handled after first cla
     sessionId: 'session-4',
   });
 
-  await pendingApprovals.clearPendingApproval('session-4');
+  await pendingApprovals.clearPendingApproval('session-4', { ...pendingApprovals.getPendingApproval('session-4')! });
 });
 
 test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong users', async () => {
@@ -225,7 +220,6 @@ test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong use
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'owner-1',
-    resolvedAt: null,
   });
 
   expect(
@@ -248,7 +242,7 @@ test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong use
     sessionId: 'session-5',
   });
 
-  await pendingApprovals.clearPendingApproval('session-5');
+  await pendingApprovals.clearPendingApproval('session-5', { ...pendingApprovals.getPendingApproval('session-5')! });
 });
 
 test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async () => {
@@ -260,7 +254,6 @@ test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async 
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
-    resolvedAt: null,
   });
 
   expect(
@@ -277,6 +270,7 @@ test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async 
     pendingApprovals.rollbackPendingApprovalClaim({
       sessionId: 'session-6',
       approvalId: 'claim66',
+      claimId: pendingApprovals.getPendingApproval('session-6')!.claimId,
     }),
   ).toBe(true);
 
@@ -290,15 +284,14 @@ test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async 
     sessionId: 'session-6',
   });
 
-  await pendingApprovals.clearPendingApproval('session-6');
+  await pendingApprovals.clearPendingApproval('session-6', { ...pendingApprovals.getPendingApproval('session-6')! });
 });
 
 test('pending approvals rehydrate from durable F4 state after module reload', async () => {
-  const tmpDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-pending-approval-'),
-  );
+  const tmpDir = makeTempDir();
   try {
     process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
+    await cleanupGatewayRuntime();
     vi.resetModules();
 
     const pendingApprovals = await import(
@@ -310,9 +303,9 @@ test('pending approvals rehydrate from durable F4 state after module reload', as
       createdAt: Date.now(),
       expiresAt: Date.now() + 600_000,
       userId: 'user-1',
-      resolvedAt: null,
     });
 
+    await cleanupGatewayRuntime();
     vi.resetModules();
     const reloadedPendingApprovals = await import(
       '../src/gateway/pending-approvals.js'
@@ -326,8 +319,8 @@ test('pending approvals rehydrate from durable F4 state after module reload', as
       userId: 'user-1',
     });
 
-    await reloadedPendingApprovals.clearPendingApproval('session-durable');
+    await reloadedPendingApprovals.clearPendingApproval('session-durable', { ...reloadedPendingApprovals.getPendingApproval('session-durable')! });
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupGatewayRuntime();
   }
 });
