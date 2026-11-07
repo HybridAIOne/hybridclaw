@@ -20,7 +20,7 @@ test('delivery failure and restart reuse the stored result without rerunning the
   const request = { source: 'scheduled-task' as const, taskId: id, taskRunId: runId, sessionId: session.id, channelId: 'web', prompt: task.prompt, actionKind: 'agent_turn' as const, delivery: { kind: 'channel' as const, channelId: 'web' }, routine: { key: 'daily-brief', scope: 'scope-a' } };
   const dependencies = { deliverProactiveMessage: vi.fn(), deliverWebhookMessage: vi.fn(), resolveLastUsedDeliverableChannelId: () => null };
   await expect(runScheduledTask(request, dependencies)).rejects.toThrow('Delivery failed');
-  expect(editions.savedEdition(runId)?.text).toContain('calendar unavailable');
+  expect(editions.readRoutineEdition(runId)).toMatchObject({ kind: 'delivery_pending', result: { text: expect.stringContaining('calendar unavailable') } });
   db.closeDatabase(); db.initDatabase({ quiet: true });
   await runScheduledTask(request, dependencies);
   expect(mocks.run).toHaveBeenCalledTimes(1);
