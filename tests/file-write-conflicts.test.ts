@@ -184,6 +184,31 @@ test('the conflict survives worker replacement and is isolated by session', asyn
   ).toBe(false);
 });
 
+test('a fence from an earlier task lapses after an hour', async () => {
+  const runtime = await worker();
+  await expect(
+    runtime.write({ path: 'report.md', contents: 'replacement' }),
+  ).rejects.toThrow();
+  const { sessionStatePath } = await import('../container/src/session-state.js');
+  const state = sessionStatePath('session-a', 'file-write-conflicts.json');
+  const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(state, lastWeek, lastWeek);
+  expect(
+    runtime.call('bash', { command: 'node ./read-mail.cjs --top 25' }).pinned,
+  ).toBe(false);
+  await expect(
+    runtime.write({ path: 'notes.md', contents: 'x' }),
+  ).resolves.toContain('Wrote');
+  fs.writeFileSync(path.join(workspace, 'other.md'), 'Other\n');
+  await expect(
+    runtime.write({ path: 'other.md', contents: 'replacement' }),
+  ).rejects.toThrow(/other\.md/);
+  expect(fs.readFileSync(state, 'utf8')).not.toContain('report.md');
+  expect(
+    runtime.call('bash', { command: 'printf x > other.md' }).pinned,
+  ).toBe(true);
+});
+
 test('deleting the conflicted file also requires one-time approval', async () => {
   const runtime = await worker();
   await expect(
