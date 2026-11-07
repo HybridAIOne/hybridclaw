@@ -2812,6 +2812,7 @@ async function handleGatewayMessageInner(
       });
       recordPendingHatchingTerminalAudit();
       const storedErrorTurn = recordErrorTurn({
+        runId,
         sessionId: req.sessionId,
         agentId,
         channelId: req.channelId,
@@ -3217,6 +3218,7 @@ async function handleGatewayMessageInner(
     if (!turnPersisted) {
       try {
         storedErrorTurn = recordErrorTurn({
+          runId,
           sessionId: req.sessionId,
           agentId,
           channelId: req.channelId,

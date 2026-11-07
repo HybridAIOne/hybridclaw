@@ -228,6 +228,38 @@ between an external effect and its result checkpoint cannot prove success or fai
 so recovery must never automatically repeat that call. The protected state remains
 subject to the existing approval-state guard; it confers no execution authority.
 
+
+Recovery returns typed evidence with a per-call `result_recorded`,
+`outcome_unknown`, or `not_executed` outcome, or a refusal reason (`missing`,
+`run_mismatch`, `unreadable`). Executable approvals, approval replies, and queued
+side effects are excluded from recovered evidence. An interruption wins over a
+late success reply. The output carries a recovery marker even when no tool-start
+progress or execution record survived.
+
+Retry audit:
+- Whole-run model routing and delegation retries use the shared retry guard.
+  Recovery markers, tool history, executions, approvals, or queued effects stop
+  retries, provider fallback, and ladder escalation.
+- Host and container exceptions after dispatch use the same evidence reader as
+  lost IPC replies. Missing or mismatched journals refuse retries.
+- Worker native-media retries also use the shared guard. Ordinary model-request,
+  context-window, and empty-response retries continue the existing conversation;
+  they do not dispatch an earlier tool call again. Replacement workers return
+  same-run journal evidence before entering that loop.
+- OpenAI-compatible provider fallback only generates model responses; client tools
+  execute outside the gateway. Streaming fallback stops once bytes are emitted.
+
+Gateway finalization stores a receipt keyed by session and run ID in SQLite's
+existing key/value store. Replacing provisional rows, clearing the pending marker,
+and recording the final message IDs commit together. A storage or receipt failure
+rolls all three back. Repeating finalization, including after restart or recovery,
+returns those IDs without adding messages, canonical-memory entries, or transcript
+entries; a wrong run cannot finalize another pending turn. Receipts persist with
+session runtime state. Canonical-memory and transcript file appends remain
+best-effort after the SQLite commit: a crash there can omit a file append, but
+repeating finalization does not duplicate it. This is not exactly-once delivery
+of external side effects or file appends.
+
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
