@@ -144,6 +144,10 @@ upgrading beyond that version.
 
 ## Worker State
 
+The fetched-code guard refuses unreadable or invalid saved history. Downloads
+are refused if their history cannot be persisted; that worker retains the failure
+for the session instead of allowing later downloads without durable tracking.
+
 Workers remember hashes of consumed authenticated follow-up inputs and reject
 replays for the lifetime of their stdin secret. These hashes stay in memory:
 a replacement worker receives a fresh secret, so old envelopes cannot verify.

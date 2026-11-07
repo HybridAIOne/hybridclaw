@@ -1,7 +1,8 @@
 /**
  * Policy classifies task actions and preserves unconditional denials.
  * Explicit learning mode observes approvals, including pinned prompts, without
- * granting trust; other modes enforce the pinned approval floor.
+ * granting trust; other modes enforce the pinned approval floor. Fetched-code
+ * history must load and persist successfully before a download is allowed.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  */
@@ -2049,7 +2050,10 @@ export class TrustedAgentApprovalRuntime {
   // Files curl/wget calls saved this session; running one is fetched code.
   // Persisted per session: a worker restart between `curl -o f` and `sh f`
   // must not forget the download.
-  private readonly fetchedFiles = new SessionStateSet('fetched-files.json');
+  private readonly fetchedFiles = new SessionStateSet(
+    'fetched-files.json',
+    true,
+  );
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
