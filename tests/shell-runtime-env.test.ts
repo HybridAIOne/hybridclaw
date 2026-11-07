@@ -120,6 +120,31 @@ test('runtime handoff filters unexpected environment names and rejects malformed
 });
 
 test.each([false, true])(
+  'a GitHub CLI login in the shell home wins over the injected GH_TOKEN (login=%s)',
+  async (login) => {
+    const configDir = makeTemp();
+    if (login) fs.writeFileSync(path.join(configDir, 'hosts.yml'), 'github.com: {}\n');
+    vi.stubEnv('GH_CONFIG_DIR', configDir);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ GOG_ACCOUNT: 'user_a', GH_TOKEN: 'test-key' }),
+      ),
+    );
+    const { resolveShellRuntimeEnv } = await import(
+      '../container/src/shell-runtime-env.js'
+    );
+    expect(
+      await resolveShellRuntimeEnv('http://localhost:9090', 'gateway-key'),
+    ).toEqual(
+      login
+        ? { GOG_ACCOUNT: 'user_a' }
+        : { GOG_ACCOUNT: 'user_a', GH_TOKEN: 'test-key' },
+    );
+  },
+);
+
+test.each([false, true])(
   'approved bash receives refreshed credentials without persisting them (persistent=%s)',
   async (persistent) => {
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', makeTemp());
