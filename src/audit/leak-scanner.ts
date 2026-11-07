@@ -1,6 +1,10 @@
+/**
+ * Leak scans use physical audit paths while retaining their session identities.
+ * Directory hashes are storage names, not session IDs; adoption can change ownership.
+ * This inspects payloads, unlike audit-trail's integrity verification.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
-
 import { DATA_DIR } from '../config/config.js';
 import {
   type ConfidentialFinding,
@@ -12,6 +16,7 @@ import type {
   ConfidentialRuleSet,
 } from '../security/confidential-rules.js';
 import { withResolvedSecretLeakRules } from '../security/secret-leak-corpus.js';
+import { getAuditWirePath, readAuditSessionId } from './audit-paths.js';
 
 const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
@@ -379,10 +384,16 @@ export function listAuditedSessions(
   dataDir: string = DATA_DIR,
 ): { sessionId: string; filePath: string }[] {
   const auditRoot = path.join(dataDir, AUDIT_DIR_NAME);
-  return listAuditSessionIds(auditRoot).map((sessionId) => ({
-    sessionId,
-    filePath: path.join(auditRoot, sessionId, WIRE_FILE_NAME),
-  }));
+  return listAuditSessionIds(auditRoot).map((name) => {
+    const filePath = path.join(auditRoot, name, WIRE_FILE_NAME);
+    let sessionId = name;
+    try {
+      sessionId = readAuditSessionId(path.dirname(filePath)) ?? name;
+    } catch {
+      // Keep unreadable logs in the scan so their read error is reported.
+    }
+    return { sessionId, filePath };
+  });
 }
 
 export function scanAuditSessionForLeaks(
@@ -391,10 +402,22 @@ export function scanAuditSessionForLeaks(
   dataDir: string = DATA_DIR,
   options: LeakScanOptions = {},
 ): LeakScanReport {
+  return scanAuditFileForLeaks(
+    sessionId,
+    getAuditWirePath(sessionId, dataDir),
+    ruleSet,
+    options,
+  );
+}
+
+function scanAuditFileForLeaks(
+  sessionId: string,
+  filePath: string,
+  ruleSet: ConfidentialRuleSet,
+  options: LeakScanOptions,
+): LeakScanReport {
   const scanTypes = options.scanEventTypes ?? PROMPT_BEARING_EVENT_TYPES;
   const effectiveRuleSet = withResolvedSecretLeakRules(sessionId, ruleSet);
-  const safeId = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
-  const filePath = path.join(dataDir, AUDIT_DIR_NAME, safeId, WIRE_FILE_NAME);
   const errors: string[] = [];
 
   if (!fs.existsSync(filePath)) {
@@ -504,8 +527,8 @@ export function scanAllAuditSessionsForLeaks(
   dataDir: string = DATA_DIR,
   options: LeakScanOptions = {},
 ): LeakScanReport[] {
-  return listAuditedSessions(dataDir).map(({ sessionId }) =>
-    scanAuditSessionForLeaks(sessionId, ruleSet, dataDir, options),
+  return listAuditedSessions(dataDir).map(({ sessionId, filePath }) =>
+    scanAuditFileForLeaks(sessionId, filePath, ruleSet, options),
   );
 }
 

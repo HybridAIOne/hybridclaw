@@ -10,10 +10,12 @@
  *
  * NOT agent reset (`agent-reset.ts`), which deletes; nothing here deletes data.
  */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
+import { recordAuditSessionRename } from '../audit/audit-paths.js';
 import {
   flushAuditTrail,
   forgetAuditSessionState,
@@ -35,6 +37,7 @@ import { mergeCanonicalSessionsInto } from '../memory/schema/migrations.js';
 import { renameTodoOwners } from '../todos/todo-store.js';
 import { renameTrackedOwners } from '../tracking/track-store.js';
 import { expandHomePath } from '../utils/path.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
 import {
   PROACTIVE_PREFERENCES_FILE,
   readWorkspaceTemplate,
@@ -430,7 +433,7 @@ function renameSessionFiles(
   asideSuffix: string,
 ): void {
   const sessionDir = (id: string) =>
-    path.join(DATA_DIR, 'sessions', id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    path.join(DATA_DIR, 'sessions', sessionDirectoryName(id));
   forgetAuditSessionState(renames.flatMap(({ from, to }) => [from, to]));
   for (const { from, to } of renames) {
     interruptGatewaySessionExecution(from);
@@ -438,6 +441,7 @@ function renameSessionFiles(
       if (!fs.existsSync(dir(from))) continue;
       moveAside(dir(to), asideSuffix);
       fs.renameSync(dir(from), dir(to));
+      if (dir === getAuditSessionDir) recordAuditSessionRename(to);
     }
     renameArchives(from, to);
     renameWebNotificationSession(from, to);

@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -72,7 +73,7 @@ function writeAuditWire(
   events: Array<Record<string, unknown>>,
 ): string {
   const safeSessionDir =
-    sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
+    sessionDirectoryName(sessionId);
   const target = path.join(dataDir, 'audit', safeSessionDir, 'wire.jsonl');
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const lines = [
