@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { isRetrySafeRun } from '../container/shared/retry-safety.js';
 import { steerInboxDirName } from '../container/shared/steer-inbox.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -164,10 +165,16 @@ test.each(RUNNERS)('$runner: a turn started right after an interrupt gets its ow
   });
   await vi.waitFor(() => expect(agents[0]?.stdin.write).toHaveBeenCalled());
   controller.abort();
-  await expect(interrupted).resolves.toMatchObject({
+  const stopped = await interrupted;
+  expect(stopped).toMatchObject({
     status: 'error',
-    error: 'Interrupted by user.',
+    error: expect.stringContaining('Interrupted by user.'),
+    recovery: { kind: 'refused' },
   });
+  expect(stopped.pendingApproval).toBeUndefined();
+  expect(stopped.approvalReply).toBeUndefined();
+  expect(stopped.sideEffects).toBeUndefined();
+  expect(isRetrySafeRun(stopped, false)).toBe(false);
 
   const next = executor.exec({
     ...request,
