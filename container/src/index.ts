@@ -4,6 +4,7 @@
  * Full tool exchanges and surviving model context are retained separately;
  * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
+ * Tool reviews retain full user text; bounded output excerpts are not review intent.
  */
 
 import './node-version-guard.js';
@@ -205,6 +206,7 @@ import {
   type ToolDefinition,
   type ToolExecution,
 } from './types.js';
+import { latestUserRequestText } from './user-request-text.js';
 
 const IDLE_TIMEOUT_MS = parseInt(
   process.env.CONTAINER_IDLE_TIMEOUT || '300000',
@@ -457,16 +459,10 @@ function emitStreamActivity(): void {
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== 'user') continue;
-    const text = normalizeMessageContentToText(message.content)
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) continue;
-    return text.slice(0, 1_200);
-  }
-  return 'Continue the task';
+  return (
+    latestUserRequestText(messages).replace(/\s+/g, ' ').slice(0, 1_200) ||
+    'Continue the task'
+  );
 }
 
 function cloneMessageWithTextContent(
@@ -1319,7 +1315,8 @@ async function processRequestInner(
   };
 
   const resolveToolApproval = createToolApprovalResolver({
-    latestUserPrompt: effectiveUserPrompt,
+    latestUserPrompt:
+      effectiveUserPromptOverride || latestUserRequestText(messages),
     channelId,
     escalationTarget,
     taskModels,
