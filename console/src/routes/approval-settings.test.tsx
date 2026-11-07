@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { ApprovalSettingsResponse } from '../../../container/shared/approval-mode.js';
+import type { ApprovalSettingsResponse } from '#shared/approval-mode.js';
 import {
   fetchApprovalSettings,
   saveApprovalSettings,

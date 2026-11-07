@@ -1,4 +1,4 @@
-import { hybridAIDestinationHeaders } from '../../container/shared/hybridai-destination.js';
+import { hybridAIDestinationHeaders } from '#shared/hybridai-destination.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';

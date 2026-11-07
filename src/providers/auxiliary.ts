@@ -1,14 +1,14 @@
-import { fetchHybridAIDestination } from '../../container/shared/hybridai-destination.js';
-import { getProviderContextError } from '../../container/shared/provider-context.js';
+import { fetchHybridAIDestination } from '#shared/hybridai-destination.js';
+import { getProviderContextError } from '#shared/provider-context.js';
 import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
-} from '../../container/shared/request-max-tokens.js';
-import { extractResponseTextContent } from '../../container/shared/response-text.js';
+} from '#shared/request-max-tokens.js';
+import { extractResponseTextContent } from '#shared/response-text.js';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../container/shared/server-sent-events.js';
+} from '#shared/server-sent-events.js';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';

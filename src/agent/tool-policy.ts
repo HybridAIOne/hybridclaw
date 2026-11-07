@@ -11,7 +11,7 @@
  * allowed call needs a human); this module only decides whether the tool is
  * offered to the model at all.
  */
-import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
+import { compileToolPatterns } from '#shared/tool-patterns.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import {
   getRuntimeConfig,

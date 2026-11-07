@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { lockMemoryFile } from '../container/shared/memory-file.js';
+import { lockMemoryFile } from '#shared/memory-file.js';
 import {
   loadSessionPendingApprovals,
   saveSessionPendingApprovals,

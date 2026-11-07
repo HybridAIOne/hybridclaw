@@ -8,12 +8,12 @@ import type {
   SkillPolicyActionType,
   SkillPolicyRule,
   SkillPolicyState,
-} from '../../container/shared/skill-policy.js';
+} from '#shared/skill-policy.js';
 import {
   DEFAULT_SKILL_POLICY_ACTION,
   evaluateSkillPolicyAccess,
   readSkillPolicyState,
-} from '../../container/shared/skill-policy.js';
+} from '#shared/skill-policy.js';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
 export type {

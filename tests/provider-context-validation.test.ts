@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { getProviderContextError } from '../container/shared/provider-context.js';
+import { getProviderContextError } from '#shared/provider-context.js';
 import { resolveRuntimeProviderContext } from '../container/src/providers/provider-ids.js';
 
 describe('provider context validation', () => {

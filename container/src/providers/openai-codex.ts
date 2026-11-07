@@ -1,8 +1,8 @@
-import { isRecord } from '../../shared/primitive-values.js';
+import { isRecord } from '#shared/primitive-values.js';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../shared/server-sent-events.js';
+} from '#shared/server-sent-events.js';
 import type {
   ChatCompletionResponse,
   ChatContentPart,

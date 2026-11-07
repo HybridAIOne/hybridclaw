@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { DAILY_MEMORY_MAX_CHARS } from '../container/shared/daily-memory.js';
-import { currentDateStampInTimezone } from '../container/shared/workspace-time.js';
+import { DAILY_MEMORY_MAX_CHARS } from '#shared/daily-memory.js';
+import { currentDateStampInTimezone } from '#shared/workspace-time.js';
 import type { CompactionResult } from '../src/types/memory.js';
 import type { StoredMessage } from '../src/types/session.js';
 import { useTempDir } from './test-utils.js';

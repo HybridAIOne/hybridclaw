@@ -4,7 +4,7 @@
  * their live parent's workspace and scope; deleted scopes never become unscoped runs.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
-import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
+import { isRetrySafeRun } from '#shared/retry-safety.js';
 import { runAgent } from '../agent/agent.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
 import {

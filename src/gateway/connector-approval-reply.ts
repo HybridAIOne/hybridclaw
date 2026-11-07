@@ -7,9 +7,9 @@ import {
   APPROVAL_REPLY_INSTRUCTIONS,
   type ApprovalReplyDecision,
   parseApprovalReplyDecision,
-} from '../../container/shared/approval-reply.js';
-import { platformApprovalId } from '../../container/shared/connector-approval.js';
-import { extractResponseTextContent } from '../../container/shared/response-text.js';
+} from '#shared/approval-reply.js';
+import { platformApprovalId } from '#shared/connector-approval.js';
+import { extractResponseTextContent } from '#shared/response-text.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput } from '../types/container.js';

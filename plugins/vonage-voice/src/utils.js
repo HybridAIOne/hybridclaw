@@ -1,4 +1,4 @@
-// Mirrors core buildSessionKey (container/shared/session-keys.js), which
+// Mirrors core buildSessionKey (container/shared/src/session-keys.ts), which
 // trims and lowercases each segment; tests/voice-plugin-session-keys.test.ts
 // fails when the two diverge.
 const segment = (value) =>

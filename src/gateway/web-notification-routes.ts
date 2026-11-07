@@ -6,11 +6,11 @@
 
 import { ECDH } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { assertBrowserNavigationUrl } from '#shared/browser-navigation.js';
 import type {
   WebNotificationPreferences,
   WebPushSubscription,
-} from '../../container/shared/web-notifications.js';
+} from '#shared/web-notifications.js';
 import { isRecord } from '../utils/type-guards.js';
 import { markWorkSeen } from '../work/work-delivery.js';
 import { isPresencePageId, noteComputerPresence } from './computer-presence.js';

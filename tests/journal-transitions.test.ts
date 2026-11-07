@@ -5,7 +5,7 @@ import {
   readTurnCheckpoint,
   TurnCheckpoint,
   turnCheckpointPath,
-} from '../container/shared/turn-checkpoint.js';
+} from '#shared/turn-checkpoint.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import { useTempDir } from './test-utils.js';
 

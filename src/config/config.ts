@@ -10,7 +10,7 @@ import path from 'node:path';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '#shared/context-guard-config.js';
 import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import {

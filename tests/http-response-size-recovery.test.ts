@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { HTTP_RESPONSE_ARTIFACT_DIR } from '../container/shared/http-response-artifacts.js';
+import { HTTP_RESPONSE_ARTIFACT_DIR } from '#shared/http-response-artifacts.js';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

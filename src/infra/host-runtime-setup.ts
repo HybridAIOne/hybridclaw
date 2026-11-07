@@ -129,7 +129,16 @@ export function resolveHostRuntimeCommand(
     process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
   );
   if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxBin)) {
-    return { command: tsxBin, args: [sourceEntrypoint] };
+    // The worker's cwd is its workspace, so name the tsconfig whose `paths`
+    // map `#shared/*` to sources; tsx would otherwise look for it in the cwd.
+    return {
+      command: tsxBin,
+      args: [
+        '--tsconfig',
+        path.join(installRoot, 'container', 'tsconfig.json'),
+        sourceEntrypoint,
+      ],
+    };
   }
 
   throw new HostRuntimeSetupError(

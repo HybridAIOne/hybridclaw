@@ -27,8 +27,8 @@ import {
 import {
   HTTP_RESPONSE_ARTIFACT_DIR,
   HTTP_RESPONSE_ARTIFACT_PREFIX,
-} from '../../container/shared/http-response-artifacts.js';
-import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
+} from '#shared/http-response-artifacts.js';
+import { isPrivateNetworkAddress } from '#shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {

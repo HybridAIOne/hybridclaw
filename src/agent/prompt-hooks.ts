@@ -5,8 +5,8 @@
  * this module; prompt text never grants a capability.
  */
 
-import { ACTION_PREREQUISITE_LINES } from '../../container/shared/action-prerequisites.js';
-import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
+import { ACTION_PREREQUISITE_LINES } from '#shared/action-prerequisites.js';
+import { compileToolPatterns } from '#shared/tool-patterns.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,

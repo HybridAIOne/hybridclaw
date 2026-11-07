@@ -71,7 +71,7 @@ const requiredPrefixes = [
   'templates/',
   'docs/',
   'console/dist/',
-  'container/shared/',
+  'container/shared/dist/',
 ];
 
 const forbiddenPathPatterns = [
@@ -87,6 +87,7 @@ const forbiddenPathPatterns = [
   // Packaged installs pull the agent image; the host sandbox runs container/dist.
   /^container\/src\//,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,
+  /\.tsbuildinfo$/,
 ];
 
 function fail(message) {

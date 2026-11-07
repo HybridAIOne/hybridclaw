@@ -3,7 +3,7 @@ import { lookup } from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
-import { isPrivateNetworkAddress } from '../../../container/shared/private-network.js';
+import { isPrivateNetworkAddress } from '#shared/private-network.js';
 import {
   getConfigSnapshot,
   IMESSAGE_ALLOW_PRIVATE_NETWORK,

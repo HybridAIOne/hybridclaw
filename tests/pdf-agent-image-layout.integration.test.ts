@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import {
   readPdfPages,
   searchPdfPages,
-} from '../container/shared/pdf-reader.js';
+} from '#shared/pdf-reader.js';
 import { useTempDir } from './test-utils.ts';
 
 /**

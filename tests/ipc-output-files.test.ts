@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { DEFAULT_LOCAL_STARTER_TOOLS } from '../container/shared/local-tool-config.js';
+import { DEFAULT_LOCAL_STARTER_TOOLS } from '#shared/local-tool-config.js';
 
 let runtimeHome: string;
 beforeEach(() => {

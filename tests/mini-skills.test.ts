@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
-import { MAX_MINI_SKILL_CHARS } from '../container/shared/skill-catalog.js';
+import { MAX_MINI_SKILL_CHARS } from '#shared/skill-catalog.js';
 import {
   runSkillsList,
   setEligibleSkillsCatalog,

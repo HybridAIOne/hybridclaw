@@ -1,7 +1,4 @@
-import {
-  type EmailDraft,
-  normalizeEmailDraft,
-} from '../../../../container/shared/email-draft.js';
+import { type EmailDraft, normalizeEmailDraft } from '#shared/email-draft.js';
 import { EmailDraftCard } from './email-draft-card';
 import { RoutingTags } from './routing-tags';
 /**

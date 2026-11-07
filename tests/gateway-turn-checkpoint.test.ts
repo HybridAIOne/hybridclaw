@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { TurnCheckpoint } from '../container/shared/turn-checkpoint.js';
+import { TurnCheckpoint } from '#shared/turn-checkpoint.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const temp = useTempDir('gateway-checkpoint-');
@@ -123,7 +123,7 @@ test('a missing or corrupt worker journal preserves the user message and explici
   checkpoint.beginTurnCheckpoint(opts);
   new TurnCheckpoint(root, opts.sessionId, opts.runId);
   const { turnCheckpointPath } = await import(
-    '../container/shared/turn-checkpoint.js'
+    '#shared/turn-checkpoint.js'
   );
   fs.writeFileSync(turnCheckpointPath(root, opts.sessionId), '{');
   checkpoint.recoverTurnCheckpoint(opts.sessionId);

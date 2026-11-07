@@ -3,7 +3,7 @@
  * Learning suppresses prompts and implicit waits, never policy denials or trust
  * boundaries. Unlike approval-policy, this module does not classify actions.
  */
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
 import type {
   ToolApprovalEvaluation,
   ToolCallContext,

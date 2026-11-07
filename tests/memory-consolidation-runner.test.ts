@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
-import { nextDateBoundaryInTimezone } from '../container/shared/workspace-time.js';
+import { nextDateBoundaryInTimezone } from '#shared/workspace-time.js';
 
 afterEach(() => {
   vi.restoreAllMocks();

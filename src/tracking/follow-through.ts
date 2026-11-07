@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { normalizeEmailDraft } from '../../container/shared/email-draft.js';
+import { normalizeEmailDraft } from '#shared/email-draft.js';
 import { listReceipts } from '../gateway/receipts-command.js';
 import {
   canManageScheduledTask,

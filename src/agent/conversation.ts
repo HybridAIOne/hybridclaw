@@ -7,12 +7,12 @@
 
 import os from 'node:os';
 import path from 'node:path';
-import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
+import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '#shared/dynamic-context.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   resolveEffectiveTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {

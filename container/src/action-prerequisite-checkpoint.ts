@@ -6,8 +6,8 @@
 import {
   ACTION_PREREQUISITE_CHECKPOINT,
   ACTION_PREREQUISITE_LINES,
-} from '../shared/action-prerequisites.js';
-import { TOOL_ARGUMENT_CARDINALITY } from '../shared/tool-argument-contract.js';
+} from '#shared/action-prerequisites.js';
+import { TOOL_ARGUMENT_CARDINALITY } from '#shared/tool-argument-contract.js';
 import type { ChatMessage } from './types.js';
 
 const policy = ACTION_PREREQUISITE_LINES.join('\n');

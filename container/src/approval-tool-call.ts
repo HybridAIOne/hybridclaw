@@ -3,7 +3,7 @@
  * approval, hooks, storage, audit, or execution. The provider's original calls
  * remain untouched in conversation history; descriptions never grant consent.
  */
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '#shared/primitive-values.js';
 import { normalizeText } from './text-normalization.js';
 import type { ToolCall } from './types.js';
 

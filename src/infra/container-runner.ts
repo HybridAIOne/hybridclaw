@@ -15,9 +15,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
-import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
+import { generateIpcAuthSecret } from '#shared/ipc-input-auth.js';
+import { resolveProviderRequestMaxTokens } from '#shared/request-max-tokens.js';
+import { resolveEffectiveTimezone } from '#shared/workspace-time.js';
 import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
-import { isDynamicContextMessageText } from '../container/shared/dynamic-context.js';
+import { isDynamicContextMessageText } from '#shared/dynamic-context.js';
 import type { ChatMessage } from '../src/types/api.js';
 import type {
   ContainerOutput,

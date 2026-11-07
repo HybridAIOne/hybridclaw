@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'vitest';
 import {
   SAFETY_RULES,
   normalizeDisabledSafetyRules,
-} from '../container/shared/safety-rules.js';
+} from '#shared/safety-rules.js';
 import {
   guardCommand,
   evaluateBashSafety,

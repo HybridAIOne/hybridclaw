@@ -1,5 +1,5 @@
 import type { MessageMentions, UserResolvable } from 'discord.js';
-import { escapeRegExp } from '../../../container/shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 import { SILENT_REPLY_TOKEN } from '../../agent/silent-reply.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';

@@ -6,7 +6,7 @@
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../shared/context-guard-config.js';
+} from '#shared/context-guard-config.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import type { TokenEstimateCache } from './token-usage.js';
 import type {

@@ -8,7 +8,7 @@
  * NOT the registry (`provider-factory.ts` maps a kind to its plugin) and not
  * a sandbox: providers run in the gateway process as trusted plugin code.
  */
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { assertBrowserNavigationUrl } from '#shared/browser-navigation.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {

@@ -4,5 +4,6 @@
     "noEmit": true,
     "rootDir": ".."
   },
-  "include": ["src/**/*", "../src/**/*.d.ts"]
+  "include": ["src/**/*", "../src/**/*.d.ts"],
+  "references": [{ "path": "../container/shared" }]
 }

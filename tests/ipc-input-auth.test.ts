@@ -3,7 +3,7 @@ import {
   decodeAuthenticatedInput,
   encodeAuthenticatedInput,
   generateIpcAuthSecret,
-} from '../container/shared/ipc-input-auth.js';
+} from '#shared/ipc-input-auth.js';
 
 const SECRET = 'a'.repeat(64);
 const BODY = JSON.stringify({ sessionId: 's', messages: [] });

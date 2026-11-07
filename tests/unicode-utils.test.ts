@@ -4,7 +4,7 @@ import {
   repairUnicodeForJson,
   replaceUnpairedSurrogates,
   replaceUnsafeJsonStorageChars,
-} from '../container/shared/unicode-utils.js';
+} from '#shared/unicode-utils.js';
 
 // The previous character-by-character implementation, kept as the reference
 // the built-in fast paths must match.

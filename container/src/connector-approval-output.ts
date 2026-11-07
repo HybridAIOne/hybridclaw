@@ -1,5 +1,5 @@
 /** A broker approval ends the turn before its error can reach the model as a result. */
-import type { ConnectorApproval } from '../shared/connector-approval.js';
+import type { ConnectorApproval } from '#shared/connector-approval.js';
 import { approvalOutputPresentation } from './chat-segments.js';
 import { approvalRuntime, emitApprovalProgress } from './tool-approval.js';
 import type {

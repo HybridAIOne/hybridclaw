@@ -11,7 +11,7 @@ import {
   emailDraftText,
   type MessageEmailDraft,
   normalizeEmailDraft,
-} from '../../container/shared/email-draft.js';
+} from '#shared/email-draft.js';
 import { setMessageEmailDraft } from '../memory/db.js';
 import { recordTrackedDraft } from '../tracking/follow-through.js';
 import type { ToolExecution } from '../types/execution.js';

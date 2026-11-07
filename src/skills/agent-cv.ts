@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  writeFileAtomic,
-  writeFileAtomicAsync,
-} from '../../container/shared/atomic-write.js';
+import { writeFileAtomic, writeFileAtomicAsync } from '#shared/atomic-write.js';
 
 import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';

@@ -9,7 +9,7 @@ import {
   normalizeDisabledSafetyRules,
   SAFETY_RULES,
   type SafetyRule,
-} from '../shared/safety-rules.js';
+} from '#shared/safety-rules.js';
 import {
   commandProgram,
   HOME_VARIABLE_RE,

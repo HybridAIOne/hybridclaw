@@ -4,7 +4,7 @@
  * identical call; asynchronous status payloads keep their existing behavior.
  */
 import { createHash } from 'node:crypto';
-import { asRecord } from '../shared/primitive-values.js';
+import { asRecord } from '#shared/primitive-values.js';
 
 const GUARDED_TOOL_NAMES = new Set(['read', 'glob', 'grep']);
 const LOOP_GUARD_PREFIX = 'Tool loop guard:';

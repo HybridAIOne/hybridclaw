@@ -12,7 +12,7 @@
  * hundred with an address book.
  */
 import fs from 'node:fs';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import { logger } from '../logger.js';
 import {
   containsProtectedDeviceSources,

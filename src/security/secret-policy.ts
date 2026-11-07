@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 
 import YAML from 'yaml';
-import { globToRegExp } from '../../container/shared/policy-glob.js';
+import { globToRegExp } from '#shared/policy-glob.js';
 import { matchesNetworkHostPattern } from '../policy/network-policy.js';
 import {
   describePolicyRuleProblem,

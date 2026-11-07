@@ -2,7 +2,7 @@
  * CLI bootstrap rejects unsupported runtimes before its application graph loads.
  * Unlike node-version.ts, importing this module enforces the check and may exit.
  */
-import type { NodeVersionCheck } from '../container/shared/node-version.js';
+import type { NodeVersionCheck } from '#shared/node-version.js';
 import { checkNodeVersion } from './node-version.js';
 
 export function enforceNodeVersion(

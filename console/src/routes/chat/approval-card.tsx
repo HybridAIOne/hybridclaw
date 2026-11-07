@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { parseApprovalRule } from '../../../../container/shared/approval-rules.js';
-import { parseBoostPrompt } from '../../../../container/shared/boost-offer.js';
+import { parseApprovalRule } from '#shared/approval-rules.js';
+import { parseBoostPrompt } from '#shared/boost-offer.js';
 import type { ChatStreamApproval } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';

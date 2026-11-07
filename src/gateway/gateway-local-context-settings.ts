@@ -7,7 +7,7 @@ import {
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
-} from '../../container/shared/local-tool-config.js';
+} from '#shared/local-tool-config.js';
 import { listAgents } from '../agents/agent-registry.js';
 import {
   getRuntimeConfig,

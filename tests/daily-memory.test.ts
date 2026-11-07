@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { DAILY_MEMORY_MAX_CHARS, readDailyMemoryFile, truncateDailyMemoryText } from '../container/shared/daily-memory.js';
+import { DAILY_MEMORY_MAX_CHARS, readDailyMemoryFile, truncateDailyMemoryText } from '#shared/daily-memory.js';
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 function writeNote(content: string) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+import { validateToolHistory } from '#shared/tool-history.js';
 
 function history(input: unknown, id = 'call-a', name = 'lookup') {
   return [

@@ -7,7 +7,7 @@
  * A user message expands with the dynamic context it was sent with, so replay
  * reproduces the earlier request byte for byte.
  */
-import { validateToolHistory } from '../../container/shared/tool-history.js';
+import { validateToolHistory } from '#shared/tool-history.js';
 import {
   redactCredentialSecrets,
   redactSecretsDeep,

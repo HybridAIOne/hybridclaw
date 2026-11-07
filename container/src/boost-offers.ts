@@ -12,9 +12,9 @@
  * becomes session, agent or workspace trust.
  */
 import fs from 'node:fs';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import type { BoostOffer } from '../shared/boost-offer.js';
-import { parseBoostOffer } from '../shared/boost-offer.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
+import type { BoostOffer } from '#shared/boost-offer.js';
+import { parseBoostOffer } from '#shared/boost-offer.js';
 import { parseApprovalUserResponse } from './approval-directive.js';
 import {
   type ApprovalPrelude,

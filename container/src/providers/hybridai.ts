@@ -1,6 +1,6 @@
-import { fetchHybridAIDestination } from '../../shared/hybridai-destination.js';
-import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
-import { getSupportedReasoningEfforts } from '../../shared/reasoning-effort.js';
+import { fetchHybridAIDestination } from '#shared/hybridai-destination.js';
+import { stripHybridAIModelPrefix } from '#shared/model-names.js';
+import { getSupportedReasoningEfforts } from '#shared/reasoning-effort.js';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,

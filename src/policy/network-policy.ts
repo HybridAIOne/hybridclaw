@@ -2,7 +2,7 @@ export type {
   NetworkPolicyAction,
   NetworkPolicyState,
   NetworkRule,
-} from '../../container/shared/network-policy.js';
+} from '#shared/network-policy.js';
 
 export {
   DEFAULT_NETWORK_DEFAULT,
@@ -20,4 +20,4 @@ export {
   normalizeNetworkRule,
   normalizePresetNames,
   readNetworkPolicyState,
-} from '../../container/shared/network-policy.js';
+} from '#shared/network-policy.js';

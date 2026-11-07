@@ -250,7 +250,7 @@ test('an interrupted turn drops the delegations its shutdown output carries and 
 
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { sessionTranscriptFilename } = await import(
-    '../container/shared/tool-history.js'
+    '#shared/tool-history.js'
   );
   const transcriptRows = fs
     .readFileSync(

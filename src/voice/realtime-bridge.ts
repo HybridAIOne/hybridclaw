@@ -16,7 +16,7 @@
  * framing lives in the transport plugins, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import type { ApprovalReplyContext } from '#shared/approval-reply.js';
 import type {
   RuntimeSpeechRealtimeConfig,
   RuntimeSpeechTurnDetectionConfig,

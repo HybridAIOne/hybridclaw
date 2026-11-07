@@ -9,7 +9,7 @@ import type {
   ContainerInput,
   ContainerOutput,
 } from '../src/types/container.js';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { toolResultFilePath } from '#shared/tool-history.js';
 import { runContainerWorker } from './helpers/container-worker.js';
 
 let root: string;

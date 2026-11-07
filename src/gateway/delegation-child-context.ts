@@ -4,7 +4,7 @@
  * durable parent session; sibling prefixes and finished children never match.
  */
 
-import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
+import type { FileWriteGuardContext } from '#shared/file-write-guard.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
 

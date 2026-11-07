@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { isRetrySafeRun } from '../container/shared/retry-safety.js';
+import { isRetrySafeRun } from '#shared/retry-safety.js';
 
 test.each([
   {

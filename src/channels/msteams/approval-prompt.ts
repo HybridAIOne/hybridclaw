@@ -4,11 +4,11 @@
  * consent nor changes approval policy, unlike the worker's approval runtime.
  */
 
-import type { ApprovalReplyInterpretation } from '../../../container/shared/approval-reply.js';
+import type { ApprovalReplyInterpretation } from '#shared/approval-reply.js';
 import {
   type ApprovalPauseCause,
   parseApprovalRule,
-} from '../../../container/shared/approval-rules.js';
+} from '#shared/approval-rules.js';
 import type { PendingApproval } from '../../types/execution.js';
 
 const PAUSE_EXPLANATIONS: Record<ApprovalPauseCause, string> = {

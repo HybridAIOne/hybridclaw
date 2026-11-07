@@ -5,7 +5,7 @@
  * places each group, or its shorter app wording, where it belongs. It changes
  * prompt text only, never which tools are offered or what they may do.
  */
-import { describeBashStatePersistence } from '../../container/shared/bash-state.js';
+import { describeBashStatePersistence } from '#shared/bash-state.js';
 import {
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_SANDBOX_MODE,

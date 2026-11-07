@@ -1,6 +1,6 @@
-import type { McpServerConfig } from '../../../container/shared/mcp-server-config.js';
-import type { LocalBackendType } from '../../../container/shared/provider-ids.js';
-import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
+import type { McpServerConfig } from '#shared/mcp-server-config.js';
+import type { LocalBackendType } from '#shared/provider-ids.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
   GatewayAdminStatisticsChannelRow,
@@ -555,7 +555,7 @@ export interface AdminEmailAccountConfig {
 export interface AdminConfig {
   version: number;
   security: {
-    defaultApprovalMode: import('../../../container/shared/approval-mode.js').ApprovalMode;
+    defaultApprovalMode: import('#shared/approval-mode.js').ApprovalMode;
     disabledSafetyRules: string[];
     trustModelAccepted: boolean;
     trustModelAcceptedAt: string;

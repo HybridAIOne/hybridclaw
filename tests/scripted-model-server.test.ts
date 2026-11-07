@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { ACTION_PREREQUISITE_CHECKPOINT } from '../container/shared/action-prerequisites.js';
+import { ACTION_PREREQUISITE_CHECKPOINT } from '#shared/action-prerequisites.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { lastWorkflowMessage, workflowMessages } from './helpers/scripted-model-server.js';
 

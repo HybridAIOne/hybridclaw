@@ -1,7 +1,7 @@
 export {
   parseNonNegativeInteger,
   parsePositiveInteger,
-} from '../../container/shared/primitive-values.js';
+} from '#shared/primitive-values.js';
 
 export function finiteNumberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;

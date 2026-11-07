@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { assertBrowserNavigationUrl } from '#shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   assertSecretResolveAllowed,

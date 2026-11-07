@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseMcpToolBehaviorConfig } from '../container/shared/mcp-server-config.js';
+import { parseMcpToolBehaviorConfig } from '#shared/mcp-server-config.js';
 import { parseMcpServerConfig } from '../src/mcp/server-config.js';
 
 test('preserves trusted scheduling declarations without enabling trust by default', () => {

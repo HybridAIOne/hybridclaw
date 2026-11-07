@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, test } from 'vitest';
-import type { ApprovalMode } from '../container/shared/approval-mode.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import { classifyMcpTool } from '../container/src/mcp/tool-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';

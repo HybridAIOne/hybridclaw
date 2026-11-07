@@ -5,8 +5,8 @@
  * NOT the gateway prompt lifecycle: completed worker decisions leave this store.
  */
 import fs from 'node:fs';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import { waitForMemoryFileLockSync } from '../shared/memory-file.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
+import { waitForMemoryFileLockSync } from '#shared/memory-file.js';
 
 export interface PendingApproval {
   id: string;

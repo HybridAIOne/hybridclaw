@@ -9,7 +9,7 @@ import {
   DEFAULT_COMPRESSION_MAX_TOKENS,
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
-} from '../../container/shared/request-max-tokens.js';
+} from '#shared/request-max-tokens.js';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,

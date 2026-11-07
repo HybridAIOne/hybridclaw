@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import {
   buildSanitizedEnv,
   isSensitiveEnvName,
-} from '../container/shared/sensitive-env.js';
+} from '#shared/sensitive-env.js';
 
 test('buildSanitizedEnv rejects invalid source environments', () => {
   expect(() =>

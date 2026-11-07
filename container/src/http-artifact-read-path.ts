@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   HTTP_RESPONSE_ARTIFACT_DIR,
   HTTP_RESPONSE_ARTIFACT_PREFIX,
-} from '../shared/http-response-artifacts.js';
+} from '#shared/http-response-artifacts.js';
 import {
   resolveCanonicalPath,
   resolveWorkspacePath,

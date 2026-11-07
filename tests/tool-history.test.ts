@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import {
   toolResultForTransport,
   validateToolHistory,
-} from '../container/shared/tool-history.js';
+} from '#shared/tool-history.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import {
   expandStoredMessage,

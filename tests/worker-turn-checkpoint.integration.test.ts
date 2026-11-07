@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
 import {
   checkpointOutput,
   readTurnCheckpoint,
-} from '../container/shared/turn-checkpoint.js';
+} from '#shared/turn-checkpoint.js';
 import type {
   ChatMessage,
   ContainerInput,

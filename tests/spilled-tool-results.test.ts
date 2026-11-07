@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { toolResultFilePath, toolResultForTransport } from '../container/shared/tool-history.js';
+import { toolResultFilePath, toolResultForTransport } from '#shared/tool-history.js';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../src/config/config.js';
 import type { ContainerOutput } from '../src/types/container.js';

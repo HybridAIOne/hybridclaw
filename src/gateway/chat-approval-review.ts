@@ -3,7 +3,7 @@
  * approval authority. Only the pending request's owner sees its live facts;
  * answering and validating the action stays in the existing approval flow.
  */
-import type { ApprovalReplyInterpretation } from '../../container/shared/approval-reply.js';
+import type { ApprovalReplyInterpretation } from '#shared/approval-reply.js';
 import {
   decideMessageApproval,
   setMessageApproval,

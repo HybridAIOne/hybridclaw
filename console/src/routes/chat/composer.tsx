@@ -17,8 +17,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ApprovalMode } from '../../../../container/shared/approval-mode.js';
-import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import { fetchChatCommands } from '../../api/chat';
 import type {
   ChatCommandSuggestion,

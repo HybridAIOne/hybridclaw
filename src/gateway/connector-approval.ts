@@ -1,6 +1,6 @@
 /** Human chat decisions cross the connector boundary with a host-only proof. */
 import { createHmac } from 'node:crypto';
-import { platformApprovalId } from '../../container/shared/connector-approval.js';
+import { platformApprovalId } from '#shared/connector-approval.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, WEB_API_TOKEN } from '../config/config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';

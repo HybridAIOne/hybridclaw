@@ -16,7 +16,7 @@ import {
   normalizeDashboard,
   readDashboardSchedules,
   withDashboardRefresh,
-} from '../../shared/dashboard.js';
+} from '#shared/dashboard.js';
 import type { ToolDefinition } from '../types.js';
 
 export const SHOW_DASHBOARD_TOOL = 'show_dashboard';

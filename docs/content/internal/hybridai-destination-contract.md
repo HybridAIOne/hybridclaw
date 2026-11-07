@@ -58,7 +58,7 @@ appropriate contract and policy at all sensitive egress paths, including
 fallbacks and auxiliary work. A gateway restart does not substitute for durable
 operator policy or backend assurance.
 
-Gateway and container transports share `container/shared/hybridai-destination.js`.
+Gateway and container transports share `container/shared/src/hybridai-destination.ts`.
 Tests cover strict metadata validation, exact IDs, origin mismatch, discovery
 failure and response acknowledgement. No deployed HybridAI backend was changed
 or certified by this repository change.

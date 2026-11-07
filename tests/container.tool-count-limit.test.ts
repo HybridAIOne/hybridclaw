@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { classifyProviderError } from '../container/shared/provider-fallback.js';
+import { classifyProviderError } from '#shared/provider-fallback.js';
 import { isRetryableModelError } from '../container/src/model-retry.js';
 import type { RuntimeProviderId } from '../container/src/providers/provider-ids.js';
 import { ProviderRequestError } from '../container/src/providers/shared.js';

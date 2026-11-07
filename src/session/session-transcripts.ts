@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { sessionTranscriptFilename } from '../../container/shared/tool-history.js';
+import { sessionTranscriptFilename } from '#shared/tool-history.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isRealScopeDir, scopeWorkspaceDir } from '../scopes/scope-paths.js';

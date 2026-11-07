@@ -4,7 +4,7 @@
  * trust every proxied connector or grant execution/approval permission.
  */
 
-import { HYBRIDAI_MCP_SERVER_NAME } from '../../container/shared/mcp-server-config.js';
+import { HYBRIDAI_MCP_SERVER_NAME } from '#shared/mcp-server-config.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,

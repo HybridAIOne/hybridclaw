@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 
 import type { ClassifiedAction } from '../approval-policy.js';
 import { WORKSPACE_ROOT } from '../runtime-paths.js';

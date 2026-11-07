@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
-import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import { structuredReply } from '../../../../src/gateway/structured-reply';
 import { executeCommand } from '../../api/chat';
 import type {

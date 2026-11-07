@@ -6,7 +6,7 @@
 import {
   checkpointOutput,
   readTurnCheckpoint,
-} from '../../container/shared/turn-checkpoint.js';
+} from '#shared/turn-checkpoint.js';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import {
   CONTAINER_MAX_OUTPUT_SIZE,

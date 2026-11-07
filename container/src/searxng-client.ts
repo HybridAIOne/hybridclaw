@@ -1,4 +1,4 @@
-import { isRecord, parsePositiveInteger } from '../shared/primitive-values.js';
+import { isRecord, parsePositiveInteger } from '#shared/primitive-values.js';
 import {
   dedupeResults,
   normalizeResultUrl,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+import { validateToolHistory } from '#shared/tool-history.js';
 import {
   createPlaceholderMap,
   rehydrateConfidential,

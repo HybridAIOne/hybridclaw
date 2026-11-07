@@ -1,10 +1,7 @@
-import {
-  buildSessionKey,
-  parseSessionKey,
-} from '../../container/shared/session-keys.js';
+import { buildSessionKey, parseSessionKey } from '#shared/session-keys.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 
-export type { ParsedSessionKey } from '../../container/shared/session-keys.js';
+export type { ParsedSessionKey } from '#shared/session-keys.js';
 export { buildSessionKey, parseSessionKey };
 
 export interface SessionKeyMigrationResult {

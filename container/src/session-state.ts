@@ -12,14 +12,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import { waitForMemoryFileLock } from '../shared/memory-file.js';
-import { sessionStatePath as workspaceSessionStatePath } from '../shared/turn-checkpoint.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
+import { waitForMemoryFileLock } from '#shared/memory-file.js';
+import { sessionStatePath as workspaceSessionStatePath } from '#shared/turn-checkpoint.js';
 import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 
 // Stands in for a session id in paths and records, which keeps peer ids such
 // as phone numbers out of agent-readable files.
-export { sessionStateKey } from '../shared/turn-checkpoint.js';
+export { sessionStateKey } from '#shared/turn-checkpoint.js';
 
 export function sessionStatePath(sessionId: string, name: string): string {
   return workspaceSessionStatePath(WORKSPACE_STATE_ROOT, sessionId, name);

@@ -11,8 +11,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "emitDeclarationOnly": true
+    "emitDeclarationOnly": true,
+    "paths": { "#shared/*": ["./container/shared/src/*"] }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "container"]
+  "exclude": ["node_modules", "dist", "container"],
+  "references": [{ "path": "./container/shared" }]
 }

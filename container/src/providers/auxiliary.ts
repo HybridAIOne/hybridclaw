@@ -3,11 +3,11 @@
  * Unlike the primary conversation router, vision gets a bounded default rather
  * than the provider's maximum output allowance; no model selection changes here.
  */
-import { getProviderContextError } from '../../shared/provider-context.js';
+import { getProviderContextError } from '#shared/provider-context.js';
 import {
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
-} from '../../shared/request-max-tokens.js';
+} from '#shared/request-max-tokens.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, test, vi } from 'vitest';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
+import { readPdfPages } from '#shared/pdf-reader.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
@@ -49,8 +49,8 @@ describe('bounded PDF read', () => {
       }`,
     ].join('\n'));
     await fs.copyFile(path.resolve('skills/pdf/scripts/render_pdf_pages.mjs'), path.join(root, 'render_pdf_pages.mjs'));
-    const reader = pathToFileURL(path.resolve('container/shared/pdf-reader.js')).href;
-    const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const reader = pathToFileURL(path.resolve('container/shared/src/pdf-reader.ts')).href;
+    const probe = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
       import { readPdfPages } from ${JSON.stringify(reader)};
       const options = { runtimeUrl: ${JSON.stringify(pathToFileURL(runtime).href)}, outputDir: ${JSON.stringify(root)}, workspaceRoot: ${JSON.stringify(root)}, pages: '1' };
       const run = render => readPdfPages(${JSON.stringify(file)}, { ...options, render });
@@ -158,6 +158,12 @@ describe('bounded PDF read', () => {
     expect(result.renderError).toBeDefined();
     expect(result.images).toEqual([]);
     expect(result.pages[0].text.length).toBeGreaterThan(0);
+  });
+
+  test('loads the bundled PDF skill runtime by default', async () => {
+    const { file } = await fixture();
+    const result = await readPdfPages(file, { pages: '1', render: 'never' });
+    expect(result.processedPages).toEqual([1]);
   });
 
   test('rejects oversized files before extraction', async () => {

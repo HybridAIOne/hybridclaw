@@ -15,6 +15,7 @@ RUN printf '%s\n' \
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
+COPY tsconfig.json ./
 COPY scripts/bundle.mjs scripts/
 COPY shared/ shared/
 COPY src/ src/

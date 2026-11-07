@@ -77,7 +77,7 @@ rule IDs are rejected, and missing settings enable all rules. Admin saves produc
 configuration revisions and `safety.rules_changed` audit events. These pattern
 checks are heuristics, not a complete shell parser or sandbox.
 
-Implementation: [shared catalog](./container/shared/safety-rules.js),
+Implementation: [shared catalog](./container/shared/src/safety-rules.ts),
 [worker enforcement](./container/src/safety-rules.ts), and
 [admin controls](./src/gateway/safety-rules-admin.ts)
 
@@ -150,7 +150,7 @@ Tool execution runs inside Docker with sandbox constraints:
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
 [src/security/mount-security.ts](./src/security/mount-security.ts),
-[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
+[container/shared/src/ipc-input-auth.ts](./container/shared/src/ipc-input-auth.ts)
 
 ### 4) Session Isolation
 

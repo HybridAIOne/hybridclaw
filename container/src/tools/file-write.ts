@@ -5,11 +5,8 @@
  * Cooperative locks serialize tool writers, not external editors or shell commands.
  */
 import fs from 'node:fs';
-import { writeFileAtomicExclusive } from '../../shared/atomic-write.js';
-import {
-  lockMemoryFile,
-  writeMemoryFileAtomic,
-} from '../../shared/memory-file.js';
+import { writeFileAtomicExclusive } from '#shared/atomic-write.js';
+import { lockMemoryFile, writeMemoryFileAtomic } from '#shared/memory-file.js';
 import {
   recordFileWriteConflict,
   resolveFileWriteConflict,

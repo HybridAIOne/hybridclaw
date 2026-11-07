@@ -5,8 +5,8 @@
  * A complete region must fit with room for reasoning and visible summary text;
  * this budget never authorizes truncating selected evidence.
  */
-import { parsePositiveInteger } from '../shared/primitive-values.js';
-import { DEFAULT_COMPRESSION_MAX_TOKENS } from '../shared/request-max-tokens.js';
+import { parsePositiveInteger } from '#shared/primitive-values.js';
+import { DEFAULT_COMPRESSION_MAX_TOKENS } from '#shared/request-max-tokens.js';
 import { compactInLoop } from './in-loop-compaction.js';
 import { createInLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import {

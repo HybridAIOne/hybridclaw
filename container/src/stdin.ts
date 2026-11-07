@@ -10,7 +10,7 @@
 import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 
-import { readWarmWorkerFrame } from '../shared/warm-worker-frame.js';
+import { readWarmWorkerFrame } from '#shared/warm-worker-frame.js';
 import type { ContainerInput } from './types.js';
 
 export function createLineReader(stream: Readable): () => Promise<string> {

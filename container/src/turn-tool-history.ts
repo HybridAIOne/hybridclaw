@@ -10,13 +10,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../shared/atomic-write.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
-} from '../shared/tool-history.js';
-import { TurnCheckpoint } from '../shared/turn-checkpoint.js';
+} from '#shared/tool-history.js';
+import { TurnCheckpoint } from '#shared/turn-checkpoint.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
 // Engineering choice, 2026-10-30: cap inline evidence at 16k characters;

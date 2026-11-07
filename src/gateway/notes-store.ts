@@ -6,10 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  lockMemoryFile,
-  writeMemoryFileAtomic,
-} from '../../container/shared/memory-file.js';
+import { lockMemoryFile, writeMemoryFileAtomic } from '#shared/memory-file.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { isRecord } from '../utils/type-guards.js';
 import {

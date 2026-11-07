@@ -12,10 +12,10 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import * as yazl from 'yazl';
-import { platformApprovalId } from '../../container/shared/connector-approval.js';
-import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
-import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
+import { platformApprovalId } from '#shared/connector-approval.js';
+import { isReasoningEffort } from '#shared/reasoning-effort.js';
+import { SHELL_RUNTIME_ENV_PATH } from '#shared/shell-runtime-env.js';
+import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '#shared/two-factor-detection.js';
 import {
   extractA2AMtlsPublicKeyPem,
   handleA2AHttpEnvelopeInbound,

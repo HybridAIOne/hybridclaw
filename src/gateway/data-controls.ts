@@ -14,7 +14,7 @@ import path from 'node:path';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
-} from '../../container/shared/memory-file.js';
+} from '#shared/memory-file.js';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
 import {
   listAgents,

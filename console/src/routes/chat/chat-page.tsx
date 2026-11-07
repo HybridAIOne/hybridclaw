@@ -11,8 +11,8 @@ import {
 import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
-} from '../../../../container/shared/approval-mode.js';
-import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
+} from '#shared/approval-mode.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import { appViewUrl } from '../../api/apps';
 import {
   cleanupNoUserChatSessions,

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { saveVisualSnapshot } from '../container/shared/visual-snapshots.js';
+import { saveVisualSnapshot } from '#shared/visual-snapshots.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

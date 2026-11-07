@@ -1,7 +1,7 @@
 import {
   APPROVAL_MODE_PRESENTATION,
   APPROVAL_MODES,
-} from '../container/shared/approval-mode.js';
+} from '#shared/approval-mode.js';
 import type { CanonicalSlashCommandDefinition } from './command-registry.js';
 
 export const APPROVAL_SCOPE_MODES = [

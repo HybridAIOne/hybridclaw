@@ -7,7 +7,7 @@
 import {
   checkpointOutput,
   readTurnCheckpoint,
-} from '../../container/shared/turn-checkpoint.js';
+} from '#shared/turn-checkpoint.js';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../config/config.js';
 import type { ContainerOutput } from '../types/container.js';
 

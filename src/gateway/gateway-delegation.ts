@@ -11,7 +11,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
+import type { FileWriteGuardContext } from '#shared/file-write-guard.js';
 import { enqueueDelegation } from '../agent/delegation-manager.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { isSilentReply } from '../agent/silent-reply.js';

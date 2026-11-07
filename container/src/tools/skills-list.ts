@@ -4,7 +4,7 @@
  * call uses the current request's exposed functions and permission snapshot.
  */
 
-import { isMiniSkillInstructions } from '../../shared/skill-catalog.js';
+import { isMiniSkillInstructions } from '#shared/skill-catalog.js';
 import { searchCatalog } from '../catalog-search.js';
 import type { SessionSkillCatalogEntry, ToolDefinition } from '../types.js';
 

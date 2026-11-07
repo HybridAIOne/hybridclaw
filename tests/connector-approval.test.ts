@@ -2,7 +2,7 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
-import { parseConnectorApproval } from '../container/shared/connector-approval.js';
+import { parseConnectorApproval } from '#shared/connector-approval.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeDir = useTempDir('connector-approval-');

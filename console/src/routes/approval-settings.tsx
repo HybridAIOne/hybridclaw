@@ -11,7 +11,7 @@ import {
   type ApprovalMode,
   type ApprovalSettingsUpdate,
   isApprovalMode,
-} from '../../../container/shared/approval-mode.js';
+} from '#shared/approval-mode.js';
 import {
   fetchApprovalSettings,
   saveApprovalSettings,

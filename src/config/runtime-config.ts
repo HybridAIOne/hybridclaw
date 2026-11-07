@@ -14,21 +14,21 @@ import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   normalizeApprovalMode,
-} from '../../container/shared/approval-mode.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+} from '#shared/approval-mode.js';
+import { writeFileAtomic } from '#shared/atomic-write.js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '#shared/context-guard-config.js';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
   normalizeMcpToolMode,
-} from '../../container/shared/local-tool-config.js';
-import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
-import { normalizeDisabledSafetyRules } from '../../container/shared/safety-rules.js';
+} from '#shared/local-tool-config.js';
+import { parseMcpToolBehaviorConfig } from '#shared/mcp-server-config.js';
+import { normalizeDisabledSafetyRules } from '#shared/safety-rules.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,

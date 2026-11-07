@@ -9,7 +9,7 @@
 import {
   isValidTimezone,
   resolveEffectiveTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { readUserTimezone, writeUserTimezone } from '../workspace.js';
 import {
   badCommand,

@@ -2,8 +2,8 @@ import { expect, test } from 'vitest';
 import {
   ACTION_PREREQUISITE_CHECKPOINT,
   ACTION_PREREQUISITE_LINES,
-} from '../container/shared/action-prerequisites.js';
-import { TOOL_ARGUMENT_CARDINALITY } from '../container/shared/tool-argument-contract.js';
+} from '#shared/action-prerequisites.js';
+import { TOOL_ARGUMENT_CARDINALITY } from '#shared/tool-argument-contract.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 
 const run = useContainerAgentHarness();

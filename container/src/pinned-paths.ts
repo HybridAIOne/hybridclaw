@@ -8,7 +8,7 @@
  * rules, which stays in approval-policy.ts.
  */
 import path from 'node:path';
-import { globToRegExp } from '../shared/policy-glob.js';
+import { globToRegExp } from '#shared/policy-glob.js';
 import { expandUserPath } from './runtime-paths.js';
 
 // Safety net that a policy file replacing `approval.pinned_red` cannot drop.

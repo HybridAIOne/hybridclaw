@@ -14,7 +14,7 @@
  */
 
 import path from 'node:path';
-import { escapeRegExp } from '../../container/shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import { WORKSPACE_BOOTSTRAP_FILES } from '../workspace.js';
 import {

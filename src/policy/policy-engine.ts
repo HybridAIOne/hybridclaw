@@ -7,10 +7,10 @@ export type {
   PolicyPredicateParameters,
   PolicyPredicateRegistry,
   PolicyRule,
-} from '../../container/shared/policy-engine.js';
+} from '#shared/policy-engine.js';
 
 export {
   describePolicyRuleProblem,
   evaluatePolicyExpression,
   evaluatePolicyRules,
-} from '../../container/shared/policy-engine.js';
+} from '#shared/policy-engine.js';

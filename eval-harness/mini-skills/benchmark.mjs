@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
+import { generateIpcAuthSecret } from '#shared/ipc-input-auth.js';
 import * as cfg from '../../src/config/config.ts';
 import { withAutoHybridAIConnectorsMcpServer } from '../../src/mcp/hybridai-connectors.ts';
 import { resolveMcpServersForRuntime } from '../../src/mcp/mcp-oauth.ts';

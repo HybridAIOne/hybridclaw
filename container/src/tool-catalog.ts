@@ -9,7 +9,7 @@ import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalStarterTools,
-} from '../shared/local-tool-config.js';
+} from '#shared/local-tool-config.js';
 import { searchCatalog } from './catalog-search.js';
 import type { ToolCall, ToolDefinition, ToolRunResult } from './types.js';
 
