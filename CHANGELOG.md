@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+## [0.42.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.2) - 2026-11-07
+
+### Added
+
+- **Agent-scoped API tokens**: Restrict tokens to chatting with and listing
+  specific agents using `hybridclaw token create --label <label> --agents <a,b>`
+  or the admin API's `agentIds` field (#2150).
+- **Connected GitHub shell access**: Use ordinary `git` and `gh` with the
+  GitHub account connected to HybridAI. Agent images include the GitHub CLI
+  and its github.com credential helper; scoped chats require the GitHub
+  connector, and an existing local `gh` login takes precedence (#2152).
+
+### Changed
+
+- **File-write recovery**: The extra script-approval fence from a rejected
+  write lapses one hour after its last change, so an old conflict does not
+  constrain unrelated later tasks. Checked replacements still require exact
+  current contents (#2165).
+
+### Fixed
+
+- **Scheduled approvals and budgets**: Scheduled runs deliver actionable
+  approval cards to the main chat, and card answers resume the original run
+  with its own tools and limits. All agent runs, including isolated scheduled
+  tasks, check the monthly budget before starting a worker (#2163, #2166).
+- **Approval coordination**: Coordinate replies across channels and preserve
+  concurrent sessions' pending approvals. Stale callbacks cannot clear newer
+  prompts; interrupted handoffs require a fresh request, and persistence or
+  lock failures stop approval processing before replay or trust is granted
+  (#2154, #2155).
+- **Interrupted turns**: Preserve recorded tool outcomes, reject invalid
+  journal transitions and retain uncertain execution evidence without
+  automatically repeating actions. Repeated finalization does not duplicate
+  stored conversation messages (#2161, #2162).
+- **Session and worker boundaries**: Isolate IPC and audit directories by
+  exact session ID, reject replayed worker inputs, and enforce output limits
+  while rejecting unsafe reply files. Downloaded-code approval history fails
+  closed when it cannot be read or saved (#2158–#2160, #2164).
+- **Tool workflow recovery**: Recover from calls to unavailable tools without
+  immediately losing the turn, omit unavailable browser and messaging guidance,
+  bound retries and unchanged polling, and clarify conflicting coordination
+  constraints before acting (#2145, #2157).
+- **Vision handoff**: Accept saved standalone image IDs without a page
+  selection and retain visible observations when analysis reaches its output
+  limit, while keeping the result marked incomplete (#2140, #2141).
+- **Shell and file feedback**: Report every matching safety block, preserve
+  terminal denial reasons in tool history, recognize home-relative interpreter
+  and script paths, allow literal date display during file-write recovery,
+  and explain missing final LF or CRLF bytes in checked replacements
+  (#2142–#2144, #2146, #2148).
+- **Provider and sign-in recovery**: Apply the streaming idle deadline to
+  stalled JSON response bodies. Hosted console sign-in returns visitors to
+  the requested page instead of the API keys page (#2149, #2153).
+
+### Upgrade Notes
+
+- Stop the gateway before upgrading, then start the updated version. Do not
+  mix old and new gateway or CLI versions against one data directory.
+  Unambiguous legacy audit directories migrate on access without changing
+  their hash chains; mixed or malformed logs remain untouched and require
+  operator recovery. Access and verify retained audits before upgrading to
+  v0.43, when the legacy migration is scheduled for removal.
+- Re-request actions awaiting approval before the upgrade. Old gateway
+  approval snapshots without lifecycle and claim identity are not restored.
+- Scheduled approval cards retain the worker's 120-second approval timeout;
+  answer through the card, as a plain-text reply in the main chat does not
+  resolve an isolated run's approval.
+
 ## [0.42.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.1) - 2026-11-04
 
 ### Added
