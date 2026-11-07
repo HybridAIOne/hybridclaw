@@ -1,7 +1,8 @@
 /**
  * Scheduler — timer-based, arms for exact next-fire time.
  *
- * Runs SQLite-backed scheduler jobs.
+ * Runs SQLite-backed scheduler jobs without overlapping a config job
+ * in this process; persisted retry timing is separate from in-flight ownership.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -107,6 +108,7 @@ interface SchedulerStateFile {
 let timer: ReturnType<typeof setTimeout> | null = null;
 let taskRunner: TaskRunner | null = null;
 let ticking = false;
+const activeConfigJobs = new Set<string>();
 const schedulerState: SchedulerStateFile = loadSchedulerState();
 
 function formatFireTime(timeZone = DEFAULT_SCHEDULER_TIME_ZONE): string {
@@ -411,7 +413,7 @@ function nextFireMsForConfigJob(
   job: RuntimeSchedulerJob,
   nowMs: number,
 ): number | null {
-  if (!job.enabled) return null;
+  if (!job.enabled || activeConfigJobs.has(job.id)) return null;
   const meta = getConfigJobMeta(job.id);
   if (meta.disabled) return null;
 
@@ -555,7 +557,14 @@ function arm(): void {
   }, clamped);
 }
 
-async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
+function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
+  activeConfigJobs.add(job.id);
+  return dispatchConfigJobInner(job).finally(() => {
+    activeConfigJobs.delete(job.id);
+  });
+}
+
+async function dispatchConfigJobInner(job: RuntimeSchedulerJob): Promise<void> {
   if (
     job.action.kind === 'system_event' &&
     job.action.message === RESOURCE_HYGIENE_SYSTEM_EVENT
@@ -760,7 +769,7 @@ async function tick(): Promise<void> {
     }
 
     for (const job of cfgJobs) {
-      if (!job.enabled) continue;
+      if (!job.enabled || activeConfigJobs.has(job.id)) continue;
       const meta = getConfigJobMeta(job.id);
       if (meta.disabled) continue;
       const jobLabel = resolveConfigJobLabel(job);
@@ -808,7 +817,8 @@ async function tick(): Promise<void> {
                   'Scheduler one-shot job exhausted retries and moved to review',
                 );
               }
-            });
+            })
+            .finally(rearmScheduler);
           continue;
         }
 
@@ -871,7 +881,8 @@ async function tick(): Promise<void> {
                   'Scheduler job auto-disabled after repeated failures',
                 );
               }
-            });
+            })
+            .finally(rearmScheduler);
           continue;
         }
 
@@ -923,7 +934,8 @@ async function tick(): Promise<void> {
                   'Scheduler job auto-disabled after repeated failures',
                 );
               }
-            });
+            })
+            .finally(rearmScheduler);
           continue;
         }
 
@@ -959,7 +971,8 @@ async function tick(): Promise<void> {
                   'Scheduler job auto-disabled after repeated failures',
                 );
               }
-            });
+            })
+            .finally(rearmScheduler);
           continue;
         }
 
@@ -1005,7 +1018,8 @@ async function tick(): Promise<void> {
                 'Scheduler job auto-disabled after repeated failures',
               );
             }
-          });
+          })
+          .finally(rearmScheduler);
       } catch (err) {
         logger.error({ jobId: job.id, jobLabel, err }, 'Scheduler job error');
       }

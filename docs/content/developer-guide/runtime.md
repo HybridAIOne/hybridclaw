@@ -142,6 +142,11 @@ and resolve ownership before resuming affected sessions. The legacy migration
 is scheduled for removal after v0.43, so access/verify existing audits before
 upgrading beyond that version.
 
+Scheduler jobs have at most one pending run per gateway process. Retry and
+recurrence timers exclude active jobs until their execution settles, then rearm
+using the saved schedule and outcome. This in-process guard does not claim jobs
+across multiple gateways.
+
 ## Worker State
 
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
