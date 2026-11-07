@@ -24,6 +24,9 @@ describe.skipIf(process.env.HYBRIDCLAW_TEST_DOCKER !== '1')(
         [
           'run',
           '-d',
+          '--cpus=1',
+          '--memory=256m',
+          '--memory-swap=256m',
           '--name',
           container,
           '-v',
@@ -53,6 +56,37 @@ describe.skipIf(process.env.HYBRIDCLAW_TEST_DOCKER !== '1')(
         await write({ path: 'report.txt', contents: 'accidental' }),
       ).toMatchObject({ isError: true });
       expect(fs.readFileSync(file, 'utf8')).toBe(original);
+      const prefix = original.slice(0, -1);
+      for (const [current, expected, error] of [
+        [prefix + '\n', prefix, /missing.*final LF\b/],
+        [prefix + '\r\n', prefix, /missing.*final CRLF\b/],
+        [prefix + '!\n', prefix, /does not match/],
+        [prefix + '!\n', prefix + '?', /does not match/],
+      ] as const) {
+        fs.writeFileSync(file, current);
+        expect(
+          await write({
+            path: 'report.txt',
+            contents: 'must not replace',
+            overwrite: true,
+            expected_content: expected,
+          }),
+        ).toMatchObject({
+          isError: true,
+          output: expect.stringMatching(error),
+        });
+        expect(fs.readFileSync(file, 'utf8')).toBe(current);
+        expect(
+          await write({
+            path: 'report.txt',
+            contents: 'checked replacement',
+            overwrite: true,
+            expected_content: current,
+          }),
+        ).toMatchObject({ isError: false });
+        expect(fs.readFileSync(file, 'utf8')).toBe('checked replacement');
+      }
+      fs.writeFileSync(file, original);
       fs.chmodSync(file, 0o640);
       expect(
         await write({

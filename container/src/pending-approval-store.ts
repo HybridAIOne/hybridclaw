@@ -1,16 +1,12 @@
 /**
- * Pending-approval store: the requests each session is waiting on, kept in one
- * workspace file that every session of the agent shares.
- *
- * Each record names its session (hashed), a runtime loads only its own
- * session's records, and a save replaces only those after re-reading the file
- * for the rest, so one session can neither answer nor overwrite another
- * session's requests. Two saves in the same instant can still lose one change.
- * NOT the gateway's prompt cache (src/gateway/pending-approvals.ts), which
- * tracks the prompt a channel shows.
+ * One workspace pending file preserves every session's executable requests.
+ * Cross-process locks cover reads, merges, expiry pruning and atomic writes;
+ * failed persistence throws before the policy can grant replay or trust.
+ * NOT the gateway prompt lifecycle: completed worker decisions leave this store.
  */
 import fs from 'node:fs';
 import { writeFileAtomic } from '../shared/atomic-write.js';
+import { waitForMemoryFileLockSync } from '../shared/memory-file.js';
 
 export interface PendingApproval {
   id: string;
@@ -105,19 +101,38 @@ function readPendingApprovals(storePath: string): PendingApproval[] {
   let raw: string;
   try {
     raw = fs.readFileSync(storePath, 'utf-8');
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
+  let parsed: PersistedPendingApprovalStore;
   try {
-    const parsed = JSON.parse(raw) as { pending?: unknown };
-    return Array.isArray(parsed?.pending)
-      ? parsed.pending
-          .map((entry) => parsePersistedPendingApproval(entry))
-          .filter((entry): entry is PendingApproval => Boolean(entry))
-      : [];
+    parsed = JSON.parse(raw) as PersistedPendingApprovalStore;
   } catch {
-    return [];
+    throw new Error('Invalid pending approval store');
   }
+  if (parsed?.version !== 1 || !Array.isArray(parsed.pending)) {
+    throw new Error('Invalid pending approval store');
+  }
+  return parsed.pending.map((entry) => {
+    const pending = parsePersistedPendingApproval(entry);
+    if (!pending) throw new Error('Invalid pending approval record');
+    return pending;
+  });
+}
+
+function writePendingApprovals(
+  storePath: string,
+  pending: PendingApproval[],
+): void {
+  const payload: PersistedPendingApprovalStore = {
+    version: 1,
+    pending: pending.sort(
+      (left, right) => left.createdAtMs - right.createdAtMs,
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+  writeFileAtomic(storePath, JSON.stringify(payload, null, 2));
 }
 
 export function saveSessionPendingApprovals(
@@ -125,21 +140,18 @@ export function saveSessionPendingApprovals(
   sessionHash: string,
   pending: Iterable<PendingApproval>,
 ): void {
-  const now = Date.now();
-  const otherSessions = readPendingApprovals(storePath).filter(
-    (entry) => entry.sessionHash !== sessionHash && entry.expiresAtMs > now,
-  );
-  const payload: PersistedPendingApprovalStore = {
-    version: 1,
-    pending: [...otherSessions, ...pending].sort(
-      (left, right) => left.createdAtMs - right.createdAtMs,
-    ),
-    updatedAt: new Date().toISOString(),
-  };
+  const release = waitForMemoryFileLockSync(storePath);
   try {
-    writeFileAtomic(storePath, JSON.stringify(payload, null, 2));
-  } catch {
-    // ignore persistence failures and continue with in-memory pending approvals
+    const now = Date.now();
+    const own = [...pending];
+    if (own.some((entry) => entry.sessionHash !== sessionHash))
+      throw new Error('Pending approval session mismatch');
+    const otherSessions = readPendingApprovals(storePath).filter(
+      (entry) => entry.sessionHash !== sessionHash && entry.expiresAtMs > now,
+    );
+    writePendingApprovals(storePath, [...otherSessions, ...own]);
+  } finally {
+    release();
   }
 }
 
@@ -147,15 +159,19 @@ export function loadSessionPendingApprovals(
   storePath: string,
   sessionHash: string,
 ): PendingApproval[] {
-  const now = Date.now();
-  const stored = readPendingApprovals(storePath);
-  const live = stored.filter((entry) => entry.expiresAtMs > now);
-  const own = live.filter((entry) => entry.sessionHash === sessionHash);
-  if (live.length < stored.length) {
-    console.warn(
-      `[approval-policy] dropped ${stored.length - live.length} expired persisted pending approval(s) on load`,
-    );
-    saveSessionPendingApprovals(storePath, sessionHash, own);
+  const release = waitForMemoryFileLockSync(storePath);
+  try {
+    const now = Date.now();
+    const stored = readPendingApprovals(storePath);
+    const live = stored.filter((entry) => entry.expiresAtMs > now);
+    if (live.length < stored.length) {
+      writePendingApprovals(storePath, live);
+      console.warn(
+        `[approval-policy] dropped ${stored.length - live.length} expired persisted pending approval(s) on load`,
+      );
+    }
+    return live.filter((entry) => entry.sessionHash === sessionHash);
+  } finally {
+    release();
   }
-  return own;
 }

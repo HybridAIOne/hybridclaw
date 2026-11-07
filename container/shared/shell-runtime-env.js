@@ -3,6 +3,7 @@ export const SHELL_RUNTIME_ENV_NAMES = [
   'GOG_ACCESS_TOKEN',
   'GOOGLE_WORKSPACE_CLI_TOKEN',
   'GOG_ACCOUNT',
+  'GH_TOKEN',
 ];
 
 export const SHELL_RUNTIME_ENV_PATH = '/api/runtime/shell-env';

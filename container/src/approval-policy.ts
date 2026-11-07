@@ -79,6 +79,7 @@ import {
   scriptCommands,
   shellCommandsRun,
 } from './bash-commands.js';
+import { isReadOnlyDateCommand } from './bash-date.js';
 import { fenceCandidates } from './bash-fence.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
@@ -513,7 +514,7 @@ const GIT_WRITE_RE =
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
-  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|date|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
 const CACHE_PATH_SEGMENTS = new Set([
   '.cache',
   'build',
@@ -1160,6 +1161,7 @@ function skillManagedWriteApprovalReason(
 }
 
 function isReadOnlyCommand(words: string[]): boolean {
+  if (words[0] === 'date') return isReadOnlyDateCommand(words);
   const text = words.join(' ');
   // 2026-10-31, Codex: echo may print a diagnostic fallback in a read-only
   // chain. The first-command whitelist remains unchanged.

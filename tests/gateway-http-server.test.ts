@@ -13099,7 +13099,7 @@ describe('gateway HTTP server', () => {
     await waitForResponse(replayRes,next=>next.writableEnded);
     expect(replayRes.statusCode).toBe(409);
     expect(state.handleGatewayMessage).toHaveBeenCalledTimes(1);
-    await pending.clearPendingApproval('web-test');
+    await pending.clearPendingApproval('web-test', { ...pending.getPendingApproval('web-test')! });
   });
 
   test('handles /approve view from the web chat path', async () => {
@@ -13139,7 +13139,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
     });
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('rejects /approve always from the web chat path', async () => {
@@ -13186,7 +13186,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
     });
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('preserves pending approval metadata for /approve yes on the web chat stream path', async () => {
@@ -13271,7 +13271,7 @@ describe('gateway HTTP server', () => {
       },
     ]);
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    await pendingApprovals.clearPendingApproval('session-web-approve', { ...pendingApprovals.getPendingApproval('session-web-approve')! });
   });
 
   test('preserves assistant role and structured reply fields after a web approval', async () => {
@@ -13292,7 +13292,8 @@ describe('gateway HTTP server', () => {
     };
     const cost = { eur: 0, free: true, requests: 1 };
     const receipt = { version: 1, items: [], more: 0 };
-    state.handleGatewayMessage.mockResolvedValue({
+    const { coordinateGatewayApproval } = await import('../src/gateway/approval-coordination.js');
+    state.handleGatewayMessage.mockImplementation(coordinateGatewayApproval(async (_request, accept) => { accept(); return {
       status: 'success',
       assistantMessageId: 42,
       emailDraft, cost, receipt,
@@ -13300,7 +13301,7 @@ describe('gateway HTTP server', () => {
       sessionId: 'session-web-approve',
       toolsUsed: ['delete', 'read'],
       artifacts: [],
-    });
+    }; }));
     const req = makeRequest({
       method: 'POST',
       url: '/api/chat',
@@ -18803,6 +18804,130 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.getHeader('Access-Control-Allow-Origin')).toBe('*');
+  });
+
+  describe('agent-scoped API tokens', () => {
+    const scopedTokens = () => ({
+      hck_agent_helper: {
+        id: 'agenttok0001',
+        label: 'helper-only',
+        claims: { actions: ['chat.send', 'agents.read'], agentIds: ['helper'] },
+      },
+    });
+    const scopedRequest = (params: Parameters<typeof makeRequest>[0]) =>
+      makeRequest({
+        ...params,
+        noAuth: true,
+        headers: {
+          authorization: 'Bearer hck_agent_helper',
+          ...(params.headers || {}),
+        },
+      });
+    const send = async (
+      state: Awaited<ReturnType<typeof importFreshHealth>>,
+      req: ReturnType<typeof makeRequest>,
+    ) => {
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res;
+    };
+
+    test('pins chat turns to the scoped agent', async () => {
+      const state = await importFreshHealth({ apiTokens: scopedTokens() });
+      const res = await send(
+        state,
+        scopedRequest({
+          method: 'POST',
+          url: '/api/chat',
+          body: { content: 'hello' },
+        }),
+      );
+
+      expect(res.statusCode).toBe(200);
+      expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: 'helper',
+          allowedAgentIds: ['helper'],
+        }),
+      );
+    });
+
+    test('rejects other agents, foreign sessions and slash commands', async () => {
+      const state = await importFreshHealth({ apiTokens: scopedTokens() });
+
+      const otherAgent = await send(
+        state,
+        scopedRequest({
+          method: 'POST',
+          url: '/api/chat',
+          body: { content: 'hello', agentId: 'main' },
+        }),
+      );
+      expect(otherAgent.statusCode).toBe(403);
+
+      // The mocked session store reports every session as belonging to `main`.
+      const foreignSession = await send(
+        state,
+        scopedRequest({
+          method: 'POST',
+          url: '/api/chat',
+          body: { content: 'hello', sessionId: 'existing-session' },
+        }),
+      );
+      expect(foreignSession.statusCode).toBe(403);
+      expect(state.getSessionById).toHaveBeenCalledWith('existing-session');
+
+      const slash = await send(
+        state,
+        scopedRequest({
+          method: 'POST',
+          url: '/api/chat',
+          body: { content: '/agent switch main' },
+        }),
+      );
+      expect(slash.statusCode).toBe(403);
+      expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    });
+
+    test('refuses routes that are not agent-scoped', async () => {
+      const state = await importFreshHealth({ apiTokens: scopedTokens() });
+      const command = await send(
+        state,
+        scopedRequest({
+          method: 'POST',
+          url: '/api/command',
+          body: { sessionId: 's1', args: ['agent', 'list'] },
+        }),
+      );
+      expect(command.statusCode).toBe(403);
+
+      const dashboard = await send(
+        state,
+        scopedRequest({ url: '/api/agents' }),
+      );
+      expect(dashboard.statusCode).toBe(403);
+
+      const openai = await send(state, scopedRequest({ url: '/v1/models' }));
+      expect(openai.statusCode).toBe(403);
+    });
+
+    test('filters the agent list to the scoped agents', async () => {
+      const state = await importFreshHealth({ apiTokens: scopedTokens() });
+      state.getGatewayAgentList.mockReturnValueOnce({
+        agents: [
+          { id: 'main', name: 'Main Agent' },
+          { id: 'helper', name: 'Helper' },
+        ],
+        remotePeers: [{ id: 'peer' }],
+      } as never);
+      const res = await send(state, scopedRequest({ url: '/api/agents/list' }));
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({
+        agents: [{ id: 'helper', name: 'Helper' }],
+      });
+    });
   });
 
   test('rejects unauthenticated voice token mints but answers preflight', async () => {

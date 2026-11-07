@@ -118,6 +118,11 @@ describe('bash command classification', () => {
 
   test.each([
     ['cat README.md', 'green'],
+    ['date', 'green'],
+    ['date -u +%FT%TZ', 'green'],
+    ["date -u '+%F %T'", 'green'],
+    ["date -s '2030-01-01'", 'yellow'],
+    ['date +%s -s 2030-01-01', 'yellow'],
     ['cat *', 'green'],
     ["grep -rn --exclude='.env*' TODO src/", 'green'],
     ["grep -r --exclude '.env*' KEY .", 'green'],

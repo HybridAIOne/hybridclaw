@@ -796,17 +796,19 @@ export function printTokenUsage(): void {
 
 Commands:
   hybridclaw token list
-  hybridclaw token create --label <label> (--role <role>|--actions <a,b>) [--expires-at <iso>]
+  hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>) [--expires-at <iso>]
   hybridclaw token revoke <id>
 
 Examples:
   hybridclaw token create --label sdk --actions openai.api
   hybridclaw token create --label admin-read --role admin:auditor
+  hybridclaw token create --label support-widget --agents support
   hybridclaw token revoke 0123456789ab
 
 Notes:
   - Tokens are printed once on creation. HybridClaw stores only a SHA-256 hash.
-  - WEB_API_TOKEN and GATEWAY_API_TOKEN remain unscoped master tokens; \`hybridclaw token\` creates revocable scoped tokens.`);
+  - WEB_API_TOKEN and GATEWAY_API_TOKEN remain unscoped master tokens; \`hybridclaw token\` creates revocable scoped tokens.
+  - \`--agents\` restricts a token to those agents. It only allows \`chat.send\` and \`agents.read\` (the default) and only works on \`POST /api/chat\`, \`POST /api/chat/rejoin\`, and \`GET /api/agents/list\`.`);
 }
 
 export function printEnvUsage(): void {

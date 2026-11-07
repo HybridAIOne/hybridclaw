@@ -53,6 +53,7 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
@@ -168,6 +169,7 @@ import {
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from './app-widgets.js';
+import { coordinateGatewayApproval } from './approval-coordination.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
 import { rememberChatApprovalDecision } from './chat-approval-review.js';
@@ -656,8 +658,13 @@ function buildA2AChatThreadId(session: {
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
 
-export async function handleGatewayMessage(
+export const handleGatewayMessage = coordinateGatewayApproval(
+  handleGatewayMessageQueued,
+);
+
+async function handleGatewayMessageQueued(
   req: GatewayChatRequest,
+  accept: () => void,
 ): Promise<GatewayChatResult> {
   if (isGatewayShuttingDown()) {
     return {
@@ -667,6 +674,7 @@ export async function handleGatewayMessage(
       error: GATEWAY_RESTARTING_ERROR,
     };
   }
+  accept();
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -792,11 +800,40 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
+  const allowedAgentIds = req.allowedAgentIds;
+  // Thrown (not returned) so HTTP callers answer 403 rather than 500.
+  const agentScopeError = (agentId: string): never => {
+    throw new GatewayRequestError(
+      403,
+      `Agent \`${agentId}\` is not available to this token.`,
+    );
+  };
+  if (
+    allowedAgentIds &&
+    session.agent_id &&
+    !allowedAgentIds.includes(session.agent_id)
+  ) {
+    return agentScopeError(session.agent_id);
+  }
   const addressed = resolveAgentAddressing({
     content: req.content,
     currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
     fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
   });
+  if (allowedAgentIds) {
+    if (addressed.kind === 'fanout') {
+      return agentScopeError(`@${addressed.alias}`);
+    }
+    if (addressed.kind === 'remote') {
+      return agentScopeError(addressed.canonicalId);
+    }
+    if (
+      addressed.kind === 'agent' &&
+      !allowedAgentIds.includes(addressed.agentId)
+    ) {
+      return agentScopeError(addressed.agentId);
+    }
+  }
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -975,6 +1012,17 @@ async function handleGatewayMessageInner(
         to: activeAgentId,
         from: session.agent_id || DEFAULT_AGENT_ID,
       };
+    }
+  }
+  if (allowedAgentIds) {
+    const scopedAgentId = resolveAgentForRequest({
+      agentId: req.agentId,
+      session,
+      model: req.model,
+      chatbotId: req.chatbotId,
+    }).agentId;
+    if (!allowedAgentIds.includes(scopedAgentId)) {
+      return agentScopeError(scopedAgentId);
     }
   }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);

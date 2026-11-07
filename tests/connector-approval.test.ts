@@ -105,7 +105,7 @@ test('only a current human-owned request can receive the host proof, and upstrea
   vi.doMock('../src/auth/hybridai-auth.js', () => ({
     getHybridAIApiKey: () => 'model-api-key',
   }));
-  const { setPendingApproval, clearPendingApproval } = await import(
+  const { setPendingApproval, clearPendingApproval, getPendingApproval } = await import(
     '../src/gateway/pending-approvals.js'
   );
   const { forwardConnectorDecision, connectorDecisionRequest } = await import(
@@ -164,5 +164,5 @@ test('only a current human-owned request can receive the host proof, and upstrea
   await expect(
     forwardConnectorDecision(answer, 'web-test', 'test-user'),
   ).rejects.toThrow('could not be saved');
-  await clearPendingApproval('web-test');
+  await clearPendingApproval('web-test', { ...getPendingApproval('web-test')! });
 });

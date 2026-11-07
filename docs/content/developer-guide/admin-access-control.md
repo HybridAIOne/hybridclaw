@@ -153,6 +153,27 @@ no claims and may run them all.
 The gateway takes these actions from the verified credential, never from the
 request body. A device token holds none of them.
 
+## Agent-Scoped Tokens
+
+An API token with an `agentIds` claim can only talk to those agents. Create
+one with `hybridclaw token create --label <label> --agents <a,b>`, or send
+`agentIds` to `POST /api/admin/tokens`. Without explicit actions the token gets
+`chat.send` and `agents.read`; any other action, role, or wildcard is rejected
+at creation, and unknown agent ids are rejected too.
+
+An agent-scoped token works on two routes only:
+
+- `POST /api/chat` (and `POST /api/chat/rejoin`): `agentId` may be omitted when the token names a single
+  agent. A different `agentId`, a `sessionId` that belongs to another agent,
+  and slash commands other than `/approve` get `403`. The chat service also
+  refuses `@agent` addressing outside the scope, `@team` fan-out, and remote
+  A2A addresses.
+- `GET /api/agents/list`: the list contains only the scoped agents and no
+  remote peers.
+
+Every other route returns `403`, including `/api/command`, `/api/agents`,
+`/v1/*`, voice token minting, media, and artifact downloads.
+
 ## Role Bundles
 
 These bundles are least-privilege defaults for scoped admin sessions. Operators

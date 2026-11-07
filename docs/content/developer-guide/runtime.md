@@ -885,6 +885,9 @@ still require approval. Tools that accept multiple identifiers should fetch
 independent items in one request within the tool's limits.
 
 Shell safety hard blocks run before approval resolution and again at execution.
+The denial reports every enabled matching rule, once per rule, so a compound
+command does not hide an independent blocker behind the first match. No part of
+the blocked command executes; reporting more matches does not grant approval.
 They cannot be overridden by a user approval, so prohibited commands produce a
 denial without creating a pending approval. The first such denial in a request
 returns to the model once to plan work that omits prohibited effects. Remaining
@@ -1200,6 +1203,11 @@ Container-side adaptations for local models:
 
 ## Activity-Based Agent Timeout
 
+Successful streaming provider responses use a 90-second idle deadline for body chunks,
+including JSON returned instead of an event stream. Each received chunk resets
+that deadline; a longer response can complete while data continues to arrive.
+An idle JSON body is cancelled and surfaces the same retryable timeout as SSE.
+
 The IPC read timeout (default `CONTAINER_TIMEOUT = 300_000 ms`) now supports
 activity-based deadline extension:
 
@@ -1378,7 +1386,8 @@ Container-side sandboxed tool families:
 read its complete contents and pass `overwrite: true` and `expected_content`
 containing those exact contents, including trailing newlines. A missing file or
 content mismatch rejects the replacement without changing the target. Empty
-files require `expected_content: ""`. After a stale-write error, read again and
+files require `expected_content: ""`. If the only missing bytes are the final LF or
+CRLF, the error identifies that ending. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
 targeted substitutions.
 
@@ -1517,3 +1526,35 @@ grant scopes are unchanged. It carries message content over the existing private
 approval transport and must not be included in diagnostic logging. Attachment paths
 use the client's authenticated document reader; metadata without a path cannot
 supply an attachment-content preview.
+
+### Approval coordination
+
+The gateway owns durable prompt presentation and response claims. Its lifecycle
+is `pending → claimed → handed_off`, with `expired` and `superseded` terminal
+outcomes. Handoff records acceptance for processing, independent of tool success.
+Only pending prompts produce actionable approval cards. The worker remains the
+authority for exact executable arguments, approving identity, and trust scope.
+
+Claims, rollbacks, expiry, and cleanup are guarded by session ID, approval ID,
+and a rotating claim identity. Replacement is durable before any asynchronous
+button cleanup, which only touches the captured old prompt. Cleanup failure
+cannot restore an actionable card or remove its replacement. A restart retains
+claimed prompts without authorizing or replaying them; request the action again
+when a response was interrupted before handoff. Dispatch failures after handoff
+also require a fresh request rather than automatic approval retry.
+
+Upgrade note: gateway prompt snapshots without lifecycle state and claim identity
+are ignored on hydration. Re-request those pending actions after upgrading; worker
+approval records do not acquire consent from gateway snapshots.
+
+The worker keeps only pending executable requests in its existing shared workspace
+file. Denial, revision, expiry, and approval for replay consume pending records;
+these are worker outcomes, not gateway handoff states. Saving a session's requests
+and pruning expired requests hold the shared memory-file lock across the complete
+read/modify/atomic-write transaction. Concurrent sessions retain each other's
+requests. Reads reject malformed state, and write or lock failures propagate
+before consent can grant replay or trust. Lock acquisition waits synchronously
+for at most the existing five-second bound because policy evaluation is synchronous.
+A crashed writer's lock is not stolen: remove it only after verifying no writer
+is running. The file format and worker validation of arguments, user, session,
+and pinned one-time scope are unchanged.
