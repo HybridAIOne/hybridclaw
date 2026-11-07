@@ -19,8 +19,7 @@ beforeEach(async () => {
   mockIpcWatcher();
   ipc = await import('../src/infra/ipc.js');
   ipc.ensureSessionDirs('session-a');
-  const { DATA_DIR } = await import('../src/config/config.js');
-  outputPath = path.join(DATA_DIR, 'sessions', 'session-a', 'ipc', ipcOutputFileName('request-a'));
+  outputPath = path.join(ipc.getSessionPaths('session-a', 'main').ipcPath, ipcOutputFileName('request-a'));
 });
 
 const read = () => ipc.readOutput('session-a', 'request-a', 100);
