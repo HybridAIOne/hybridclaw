@@ -14,10 +14,14 @@ export type ModelRequestBody = {
 };
 
 // Scripted workflows inspect business turns while captured requests retain all policy.
-export function lastWorkflowMessage(body: ModelRequestBody): ChatMessage | undefined {
-  return body.messages.findLast((message) =>
+export function workflowMessages(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) =>
     message.role !== 'user' || message.content !== ACTION_PREREQUISITE_CHECKPOINT,
   );
+}
+
+export function lastWorkflowMessage(body: ModelRequestBody): ChatMessage | undefined {
+  return workflowMessages(body.messages).at(-1);
 }
 
 export type ScriptedModelReply = (

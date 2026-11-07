@@ -18,6 +18,7 @@ import {
   lastWorkflowMessage,
   type ModelRequestBody,
   startScriptedModelServer,
+  workflowMessages,
 } from './helpers/scripted-model-server.js';
 import { writeZipArchive } from './helpers/zip-archive.js';
 
@@ -334,7 +335,7 @@ async function expectInstalled(skill: string, agentId: string): Promise<void> {
 
 /** Tool results the model received after the latest user message. */
 function latestTurnToolResults(): string[] {
-  const messages = modelRequests.at(-1)?.messages ?? [];
+  const messages = workflowMessages(modelRequests.at(-1)?.messages ?? []);
   const turnStart = messages.map((message) => message.role).lastIndexOf('user');
   return messages
     .slice(turnStart + 1)
