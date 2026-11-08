@@ -1770,7 +1770,8 @@ each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
 `read` searches PDF text with `query` (literal text, up to 256 characters),
-returning page numbers and snippets before a separate `pages` read. Each search
+returning page numbers and snippets before a separate `pages` read. A PDF query
+cannot be combined with `pages` or `render` in the same call. Each search
 covers at most 500 pages and 20 matching pages, reporting unsearched and sparse
 pages. It does not OCR scans. The model chooses search queries and page selections
 through `read`, using the attachment paths and conversation context. Automatic
