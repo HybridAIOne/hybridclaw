@@ -134,7 +134,7 @@ describe.sequential('container grep tool', () => {
     expect(result).toContain('Error: nested quantifiers are not supported');
   });
 
-  test('skips oversized text files without matching their contents', async () => {
+  test('reports oversized text files it skipped without matching their contents', async () => {
     workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-grep-workspace-'),
     );
@@ -151,7 +151,24 @@ describe.sequential('container grep tool', () => {
       }),
     );
 
-    expect(result).toBe('No matches found.');
+    expect(result).toBe(
+      'No matches found.\n\n(Skipped 1 file larger than 2.0MB without searching: large.txt. Use bash grep to search them.)',
+    );
+  });
+
+  test('reports a missing path instead of no matches', async () => {
+    workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-grep-workspace-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+
+    const { executeTool } = await import('../container/src/tools.js');
+    const result = await executeTool(
+      'grep',
+      JSON.stringify({ pattern: 'needle', path: 'chat/src' }),
+    );
+
+    expect(result).toBe('Error: path not found: chat/src');
   });
 
   test('uses one shared timeout budget across file discovery and matching', async () => {
