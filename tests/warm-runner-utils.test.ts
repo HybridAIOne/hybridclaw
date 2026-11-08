@@ -1,3 +1,4 @@
+import { WorkerLifecycle } from '../src/infra/worker-lifecycle.js';
 import { expect, test, vi } from 'vitest';
 import { WarmProcessPool } from '../src/infra/warm-process-pool.js';
 import {
@@ -36,13 +37,13 @@ function makeEntry(
   agentId = 'agent_a',
   lastUsedAt = 100,
 ): WarmRunnerEntry {
+  const lifecycle = new WorkerLifecycle(null);
   return {
     id,
-    sessionId: id,
+    get sessionId() { return lifecycle.owner.kind === 'session' ? lifecycle.owner.sessionId : id; },
     agentId,
     lastUsedAt,
-    warm: true,
-    readyForInputAt: null,
+    lifecycle,
     pendingColdStartProbeStartedAt: null,
     stderrHistory: [],
     stop: vi.fn(),
@@ -52,16 +53,17 @@ function makeEntry(
 function makeHealthEntry(params: {
   id: string;
   lastUsedAt: number;
-  activity?: WarmRunnerEntry['activity'];
+  activity?: WorkerLifecycle['activity'];
   killed?: boolean;
   exitCode?: number | null;
 }): WarmRunnerHealthEntry {
+  const entry = makeEntry(params.id, 'agent_a', params.lastUsedAt);
+  entry.lifecycle.claim(params.id);
+  if (params.activity) entry.lifecycle.begin('request', params.activity);
   return {
-    ...makeEntry(params.id, 'agent_a', params.lastUsedAt),
+    ...entry,
     ipcSessionId: params.id,
     startedAt: 0,
-    terminalError: null,
-    activity: params.activity,
     process: {
       killed: params.killed ?? false,
       exitCode: params.exitCode ?? null,
@@ -84,10 +86,8 @@ test('creates warm session IDs with sanitized agents and crypto entropy', () => 
 test('claims an existing warming entry instead of forcing another spawn', () => {
   const active = new Map<string, WarmRunnerEntry>();
   const warmPool = makeWarmPool({});
-  const warming: WarmRunnerEntry = {
-    ...makeEntry('warm-1'),
-    isReady: () => false,
-  };
+  const warming = makeEntry('warm-1');
+  warming.isReady = () => false;
   const logClaim = vi.fn();
   warmPool.add(warming);
 
@@ -102,7 +102,7 @@ test('claims an existing warming entry instead of forcing another spawn', () => 
 
   expect(claimed).toBe(warming);
   expect(warming.sessionId).toBe('request-1');
-  expect(warming.warm).toBe(false);
+  expect(warming.lifecycle.isSpare).toBe(false);
   expect(active.get('request-1')).toBe(warming);
   expect(warmPool.size).toBe(0);
   expect(logClaim).toHaveBeenCalledWith(warming);
@@ -133,7 +133,8 @@ test('observes readiness and records cold-start from agent request start', () =>
   const warmPool = makeWarmPool({});
   const entry = makeEntry('warm-1');
   const notify = vi.fn();
-  entry.activity = { notify } as WarmRunnerEntry['activity'];
+  entry.lifecycle.claim('session');
+  entry.lifecycle.begin('request', { lastActivityMs: 0, notify });
   entry.pendingColdStartProbeStartedAt = 1_000;
 
   nowSpy.mockReturnValue(1_050);
@@ -144,7 +145,7 @@ test('observes readiness and records cold-start from agent request start', () =>
       warmPool,
     ),
   ).toBe(true);
-  expect(entry.readyForInputAt).toBe(1_050);
+  expect(entry.lifecycle.readyForInputAt).toBe(1_050);
 
   nowSpy.mockReturnValue(1_125);
   expect(
@@ -291,7 +292,7 @@ test('uses the last known memory sample while refreshing a changed pool sample',
   };
   let refreshInFlight = false;
   const entry = makeEntry('warm-1');
-  entry.readyForInputAt = 1;
+  entry.lifecycle.ready(1);
   const refreshTotalBytes = vi.fn(async () => 1024);
 
   const observed = getCachedObservedMemoryBytes({
@@ -345,7 +346,7 @@ test('collectIdleSessionEvictions skips busy entries', () => {
       makeHealthEntry({
         id: 's1',
         lastUsedAt: 0,
-        activity: { notify: vi.fn() } as WarmRunnerEntry['activity'],
+        activity: { notify: vi.fn() } as WorkerLifecycle['activity'],
       }),
     ],
   ]);

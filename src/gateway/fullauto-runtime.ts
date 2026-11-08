@@ -1,5 +1,6 @@
 /**
- * Gateway-owned full-auto session bookkeeping, separate from worker execution.
+ * Gateway-owned full-auto bookkeeping binds timers and callbacks to a run lease.
+ * Disposed runtimes cannot resume; worker execution stays with the executor.
  * Proactive payloads may reference an already-persisted reply so transport
  * delivery never needs to store the same assistant message a second time.
  */
@@ -13,6 +14,7 @@ import { logger } from '../logger.js';
 import type { ArtifactMetadata, PendingApproval } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import type { DelegationStatusSnapshot } from './delegation-plan.js';
+import { FullAutoLifecycle } from './fullauto-lifecycle.js';
 import {
   appendFullAutoRunLogEntry,
   looksLikeSyntheticFullAutoPrompt,
@@ -60,9 +62,7 @@ export interface FullAutoRequestContext {
 }
 
 export interface FullAutoRuntimeState {
-  timer: ReturnType<typeof setTimeout> | null;
-  watchdogTimer: ReturnType<typeof setInterval> | null;
-  running: boolean;
+  lifecycle: FullAutoLifecycle;
   turns: number;
   consecutiveErrors: number;
   consecutiveStalls: number;
@@ -72,12 +72,10 @@ export interface FullAutoRuntimeState {
   chatbotId: string | null;
   model: string | null;
   enableRag: boolean | null;
-  activeRunToken: number | null;
   lastTurnStartedAt: number | null;
   lastProgressAt: number | null;
   lastProgressLabel: string | null;
   lastInterventionAt: number | null;
-  watchdogInterruptedRunToken: number | null;
   onProactiveMessage?:
     | ((message: ProactiveMessagePayload) => void | Promise<void>)
     | null;
@@ -99,9 +97,7 @@ export function getOrCreateFullAutoRuntimeState(
   let state = fullAutoRuntimeBySession.get(sessionId);
   if (state) return state;
   state = {
-    timer: null,
-    watchdogTimer: null,
-    running: false,
+    lifecycle: new FullAutoLifecycle(),
     turns: 0,
     consecutiveErrors: 0,
     consecutiveStalls: 0,
@@ -111,12 +107,10 @@ export function getOrCreateFullAutoRuntimeState(
     chatbotId: null,
     model: null,
     enableRag: null,
-    activeRunToken: null,
     lastTurnStartedAt: null,
     lastProgressAt: null,
     lastProgressLabel: null,
     lastInterventionAt: null,
-    watchdogInterruptedRunToken: null,
     onProactiveMessage: null,
   };
   fullAutoRuntimeBySession.set(sessionId, state);
@@ -124,23 +118,13 @@ export function getOrCreateFullAutoRuntimeState(
 }
 
 function clearFullAutoTimer(sessionId: string): void {
-  const state = fullAutoRuntimeBySession.get(sessionId);
-  if (!state?.timer) return;
-  clearTimeout(state.timer);
-  state.timer = null;
-}
-
-export function clearFullAutoWatchdog(sessionId: string): void {
-  const state = fullAutoRuntimeBySession.get(sessionId);
-  if (!state?.watchdogTimer) return;
-  clearInterval(state.watchdogTimer);
-  state.watchdogTimer = null;
+  fullAutoRuntimeBySession.get(sessionId)?.lifecycle.cancelScheduled();
 }
 
 export function clearFullAutoRuntimeState(sessionId: string): void {
   clearFullAutoTimer(sessionId);
-  clearFullAutoWatchdog(sessionId);
-  if (!fullAutoRuntimeBySession.get(sessionId)?.running) {
+  fullAutoRuntimeBySession.get(sessionId)?.lifecycle.clearWatchdog();
+  if (!fullAutoRuntimeBySession.get(sessionId)?.lifecycle.running) {
     fullAutoRuntimeBySession.delete(sessionId);
   }
 }
@@ -152,10 +136,7 @@ export function clearScheduledFullAutoContinuation(sessionId: string): void {
 export function invalidateFullAutoRuntimeState(sessionId: string): void {
   const state = fullAutoRuntimeBySession.get(sessionId);
   if (!state) return;
-  clearFullAutoTimer(sessionId);
-  clearFullAutoWatchdog(sessionId);
-  state.running = false;
-  state.activeRunToken = null;
+  state.lifecycle.dispose();
   fullAutoRuntimeBySession.delete(sessionId);
 }
 
@@ -184,8 +165,13 @@ export function markFullAutoProgress(
   sessionId: string,
   state: FullAutoRuntimeState,
   label: string,
+  runToken: number | null,
 ): void {
-  if (!isCurrentFullAutoRuntimeState(sessionId, state)) return;
+  if (
+    !isCurrentFullAutoRuntimeState(sessionId, state) ||
+    !state.lifecycle.owns(runToken)
+  )
+    return;
   state.lastProgressAt = Date.now();
   state.lastProgressLabel = label.trim() || null;
 }
@@ -259,8 +245,8 @@ export function scheduleFullAutoContinuation(params: {
     0,
     Math.floor(params.delayMs ?? FULLAUTO_COOLDOWN_MS),
   );
-  state.timer = setTimeout(() => {
-    state.timer = null;
+  state.lifecycle.schedule(delayMs, () => {
+    if (!isCurrentFullAutoRuntimeState(params.session.id, state)) return;
     if (!runFullAutoTurnHandler) {
       logger.error(
         { sessionId: params.session.id },
@@ -269,7 +255,7 @@ export function scheduleFullAutoContinuation(params: {
       return;
     }
     void runFullAutoTurnHandler(params.session.id);
-  }, delayMs);
+  });
 }
 
 export function hasPendingApproval(result: GatewayChatResult): boolean {
@@ -326,7 +312,7 @@ export function preemptRunningFullAutoTurn(
   source: string,
 ): boolean {
   const state = fullAutoRuntimeBySession.get(sessionId);
-  if (!state?.running) return false;
+  if (!state?.lifecycle.running) return false;
   const stopped = interruptGatewaySessionExecution(sessionId);
   invalidateFullAutoRuntimeState(sessionId);
   logger.info(

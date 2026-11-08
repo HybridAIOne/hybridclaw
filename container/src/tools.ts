@@ -148,6 +148,7 @@ import {
   runSlideSamplesTool,
   SLIDE_SAMPLES_TOOL_DEFINITION,
 } from './tools/slide-samples.js';
+import { assertTextPayload } from './tools/text-payload.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
 import {
@@ -3133,15 +3134,11 @@ async function executeToolInternal(
             : typeof args.old_text === 'string'
               ? args.old_text
               : '';
-        const newText =
-          typeof args.new === 'string'
-            ? args.new
-            : typeof args.new_text === 'string'
-              ? args.new_text
-              : '';
+        const newText = typeof args.new === 'string' ? args.new : args.new_text;
         if (!oldText) {
           return failTool('Error: old text is required for edit');
         }
+        assertTextPayload(newText, 'new or new_text');
         let content = '';
         if (TASK_SANDBOX_FS_ENABLED) {
           const sandboxPath = resolveTaskSandboxPath(args.path);
@@ -3342,7 +3339,8 @@ async function executeToolInternal(
               'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
             );
           }
-          const content = typeof args.content === 'string' ? args.content : '';
+          const content = args.content;
+          assertTextPayload(content, 'content');
           const limit = memoryCharLimit(relativePath);
           if (content.length > limit) {
             return failTool(
@@ -3357,8 +3355,8 @@ async function executeToolInternal(
         if (action === 'replace') {
           const oldText =
             typeof args.old_text === 'string' ? args.old_text : '';
-          const newText =
-            typeof args.new_text === 'string' ? args.new_text : '';
+          const newText = args.new_text;
+          assertTextPayload(newText, 'new_text');
           if (!oldText)
             return failTool('Error: old_text is required for memory replace');
           if (!fs.existsSync(filePath))

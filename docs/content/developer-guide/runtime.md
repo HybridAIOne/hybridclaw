@@ -195,6 +195,13 @@ clients cannot select this path. The agent retains its default bootstrap and
 skills, and the execution workspace fence remains enabled. Changing this setting
 requires a new eval session; it is not a way to alter an active worker's roots.
 
+### Worker lifecycle ownership
+
+Host and Docker runners use `WorkerLifecycle` for spare/session ownership and
+request leases. Stop and exit are terminal for reuse; a late readiness marker
+or request finalizer cannot revive a stopped process or release a newer request.
+These are gateway process handles, not durable session state.
+
 ### Interrupted Turns
 
 Before worker dispatch, the gateway commits the user message and an unfinished
@@ -1390,6 +1397,14 @@ the worker shows it to the model; queued, forged and previous-request notes do
 not. Shown notes are held for the active request and reset when it ends or a
 new worker starts. The gateway owns the stored messages used to resume work.
 
+### Autonomous continuation ownership
+
+Full-auto schedules, watchdogs, progress and completion are bound to the runtime
+and run that created them. A continuation due during an active run waits for
+that run to finish. Disposal invalidates every callback; goal continuations use
+a separate run lease so an old finalizer cannot finish a replacement goal run.
+Durable enablement and goal status retain their existing restart behavior.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the
@@ -1468,7 +1483,11 @@ content mismatch rejects the replacement without changing the target. Empty
 files require `expected_content: ""`. If the only missing bytes are the final LF or
 CRLF, the error identifies that ending. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
-targeted substitutions.
+targeted substitutions. Replacement text must be a string: omitted or non-string
+`new` / `new_text` values fail without changing the file. An explicit empty string
+still deletes the matched text. Daily memory `write` and `replace` follow the same
+rule for `content` and `new_text`; clearing a whole daily note also requires
+`confirm_overwrite: true`.
 
 Successful `write` and `edit` calls check JSON syntax for `.json` files up to
 256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested
