@@ -1,7 +1,8 @@
 /**
  * Safety settings are a per-turn snapshot of authenticated gateway input.
  * Missing settings reset to all rules enabled; worker memory is never consent.
- * Eval matching ignores path directories; denials report every enabled match.
+ * Eval matching distinguishes known environment operands from executable code;
+ * denials report every enabled match, including independent source-script rules.
  * Unlike approval policy, this module cannot promote or authorize an action.
  */
 import path from 'node:path';
@@ -27,6 +28,17 @@ function evalCheckWords(words: string[]): string[] {
   const command = commandProgram(words);
   const source = codeSource({ words, ...command });
   return words.map((word, i) => {
+    // A direct activation takes one environment operand, never shell source.
+    // Unknown flags, wrappers and other subcommands keep conservative matching.
+    if (
+      !command.unresolvedPrefix &&
+      command.program === 'conda' &&
+      command.args.length === 2 &&
+      command.args[0] === 'activate' &&
+      !command.args[1].startsWith('-') &&
+      i === command.start + 2
+    )
+      return '';
     // Only a command or script filename can use home-path shorthand here.
     // Keep home-prefixed inline code and opaque arguments visible to the rule.
     const fileOperand =

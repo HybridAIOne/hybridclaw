@@ -861,6 +861,13 @@ limits, network policy, or tool argument validation. Patterns are fixed in the
 installed catalog; these controls enable or disable them without accepting
 arbitrary regular expressions.
 
+The `eval` guard treats the single environment operand in a direct
+`conda activate <environment>` command as data. An environment named `eval`
+does not itself request evaluation. Actual `eval` commands, unresolved wrappers,
+and other argument shapes retain conservative matching. A separate
+`source-script` match still blocks sourcing an initialization script; activation
+does not grant that permission.
+
 ### Admin approval modes and firewall
 
 Open **/admin → Security → Approvals & firewall** (`/admin/security`).
