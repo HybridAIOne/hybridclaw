@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## [0.42.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.4) - 2026-11-08
+
+### Changed
+
+- **Model selection**: Show current and recommended models first, fold legacy
+  models and large aggregator catalogs in the console picker, and retain full
+  search. `/model list` and the TUI hide legacy models by default; use `all`
+  to list them. Automatic selections prefer current models (#2214, #2215).
+- **Docker coding tools**: Include `uv`, compiler/build tools and process
+  utilities in gateway and agent images. Gateway user-level installs and CLI
+  settings persist under `/workspace/.data/home` on the data volume (#2220).
+
+### Fixed
+
+- **Command output and search**: Preserve long command output through the
+  existing result-file mechanism, including its ending and build/test summaries.
+  Grep reports missing paths and identifies files skipped for size instead of
+  presenting those cases as an empty search (#2226, #2229).
+- **File preservation and lock recovery**: Browser exports respect existing
+  files and writer locks. Memory and approval-state writes recover locks only
+  when the operating system confirms the owner has died in the same boot and
+  PID namespace; live or unidentifiable owners remain protected
+  (#2219, #2224, #2230).
+- **Python approval checks**: Ignore eval-related comments without relaxing
+  execution checks, recognize supported downloaded-image resizing as data work,
+  and retain provenance for derived files and importable downloaded modules
+  across worker replacement (#2222, #2227, #2228).
+- **Vision source integrity**: Keep inference retries tied to the selected
+  image. Provider failures no longer trigger fallback downloads or another
+  inference sequence; unreadable image sources can still recover (#2231).
+- **Dialog focus**: Preserve a field selected while a console dialog opens
+  (#2217).
+
+### Upgrade Notes
+
+- Docker gateway `HOME` is `/workspace/.data/home`. Before replacing an existing
+  container, copy any needed user-installed tools or CLI settings from its
+  `/root` into the new home on the data volume, or reinstall them there. Custom
+  entrypoints must create the home directory before starting tools.
+- Browser exports require a new destination path. For an intentional
+  replacement, use checked `write`/`edit`. A failed save can follow page effects;
+  inspect the page before retrying its evaluation.
+- Locks without a verifiable owner, including older empty lock directories,
+  require manual recovery only after confirming no writer is running.
+
 ## [0.42.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.3) - 2026-11-08
 
 ### Changed
