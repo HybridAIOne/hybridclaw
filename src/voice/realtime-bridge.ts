@@ -147,7 +147,7 @@ export interface RealtimeBridgeOptions {
   onConsultActivity?: (label: string | null) => void;
   /** Per-utterance VAD telemetry, also logged as `Realtime speech segment`. */
   onSpeechSegment?: (segment: RealtimeSpeechSegment) => void;
-  onError: (message: string) => void;
+  onError: (message: string, code?: string) => void;
   onClosed: () => void;
   /** What the voice knows before it picks up (`RealtimeCallContext`). */
   context?: RealtimeCallContext;
@@ -478,8 +478,8 @@ export class RealtimeCallBridge {
         onFunctionCall: (call) => {
           this.handleFunctionCall(call.callId, call.name, call.arguments);
         },
-        onError: (message) => {
-          this.options.onError(message);
+        onError: (message, code) => {
+          this.options.onError(message, code);
         },
         onClosed: () => {
           this.closed = true;
