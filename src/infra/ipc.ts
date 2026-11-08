@@ -278,12 +278,7 @@ async function readOutputFile(
     idleTimeoutMs === null
       ? null
       : idleTimeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1);
-  const hardTimeoutMs =
-    requestedWallClockMs === null
-      ? derivedWallClockMs
-      : idleTimeoutMs === null
-        ? requestedWallClockMs
-        : Math.max(idleTimeoutMs, requestedWallClockMs);
+  const hardTimeoutMs = requestedWallClockMs ?? derivedWallClockMs;
   const hardDeadline =
     hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
 

@@ -1477,6 +1477,8 @@ verify follow-up input authentication, and keep replies scoped to their request.
 Readers also reconcile from disk once per second, bounded by their idle and
 wall-clock deadlines. This covers missing events and unavailable or failed
 watchers on [Docker and virtualized filesystems](https://nodejs.org/docs/latest-v22.x/api/fs.html#caveats).
+An explicit total wait limit remains independent of the inactivity window and
+can be shorter than it; activity refreshes only the inactivity deadline.
 Worker exit and shutdown state are checked on each wakeup or reconciliation;
 gateway interrupts wake the output wait immediately. Watchers, wait timers, and
 abort listeners close when the read finishes, including timeout and interrupt.
