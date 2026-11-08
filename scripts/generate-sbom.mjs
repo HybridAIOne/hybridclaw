@@ -21,8 +21,7 @@ import path from 'node:path';
 const OUTPUT_DIR = 'sbom';
 
 function fail(message) {
-  console.error(`sbom: ${message}`);
-  process.exit(1);
+  throw new Error(`sbom: ${message}`);
 }
 
 function isIgnoredDir(name) {
@@ -72,6 +71,15 @@ try {
       path.join(dir, 'package.json'),
       path.join(stageDir, 'package.json'),
     );
+    // Preserve workspace dependency roles when npm checks overridden packages.
+    for (const workspace of manifest.workspaces || []) {
+      const workspaceDir = path.join(stageDir, workspace);
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.copyFileSync(
+        path.join(dir, workspace, 'package.json'),
+        path.join(workspaceDir, 'package.json'),
+      );
+    }
     const lockfile = fs.existsSync(path.join(dir, 'npm-shrinkwrap.json'))
       ? 'npm-shrinkwrap.json'
       : 'package-lock.json';
