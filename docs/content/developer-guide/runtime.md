@@ -381,6 +381,16 @@ options, external file lists, hooks and unspecified archive destinations remain
 unresolved for the existing fallback. Archive contents, symlinks and environment
 options are not inspected here.
 
+In-place sed edits include their input operands and backup names in write-target
+inspection. Bare `sed` retains GNU and BSD interpretations of `-i`; `gsed` uses
+GNU's convention. Ambiguous BSD expressions that also name outside files under
+GNU can therefore require approval. An attached backup suffix avoids this
+argument ambiguity. Script-file inputs are distinct from edited files, but
+script contents and symlink effects are not inspected. Computed write names
+also participate in protected-path checks, including backups and nested calls.
+Backup-name expansion substitutes filenames literally and has a 64 KiB
+inspection budget per interpretation; larger batches fail before execution.
+
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
 review even after a worker restart; another session is unaffected. This can
