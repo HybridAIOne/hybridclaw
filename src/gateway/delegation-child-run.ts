@@ -2,6 +2,7 @@
  * Delegated attempts retain the selected model and release callback identity
  * after every agent call, including failures and retries. Nested runs inherit
  * their live parent's workspace and scope; deleted scopes never become unscoped runs.
+ * Terminal policy denials remain blocked; a recovered denial can still complete.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
 import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
@@ -383,8 +384,14 @@ export async function runDelegationTaskWithRetry(
         output,
       });
 
-      // A child cannot ask the user; its approval prompt is not a result.
-      if (output.pendingApproval) {
+      const lastTool = output.toolExecutions?.at(-1);
+      const terminalPolicyDenial =
+        output.status === 'success' &&
+        output.outputPresentation?.segmentKind === 'status' &&
+        lastTool?.blocked === true &&
+        lastTool.approvalDecision === 'denied';
+      // Approval prompts and terminal refusals are blockers, not child results.
+      if (output.pendingApproval || terminalPolicyDenial) {
         stopSessionHostProcess(sessionId);
         const approval = output.pendingApproval;
         return {
@@ -396,7 +403,11 @@ export async function runDelegationTaskWithRetry(
           toolsUsed: output.toolsUsed || [],
           toolExecutions: output.toolExecutions,
           tokenCount: extractDelegationTokenCount(output.tokenUsage),
-          error: `needs user approval to run ${approval.toolName || 'a tool'}: ${approval.intent || approval.reason}`,
+          error: approval
+            ? `needs user approval to run ${approval.toolName || 'a tool'}: ${approval.intent || approval.reason}`
+            : output.result?.trim() ||
+              lastTool?.blockedReason ||
+              'Delegated action was denied by policy.',
           artifacts: output.artifacts,
         };
       }
