@@ -347,3 +347,18 @@ test('gatewayUploadMedia posts raw bytes with filename and content-type headers'
   const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
   expect(Array.from(requestInit.body as Uint8Array)).toEqual(Array.from(body));
 });
+
+test('proactive acknowledgement sends the claim and rendered IDs', async () => {
+  const fetchMock = vi.fn(async () =>
+    new Response(JSON.stringify({ acknowledged: 1 }), { status: 200 }),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  const { gatewayAcknowledgeProactive } = await importGatewayClient();
+  await gatewayAcknowledgeProactive('tui', 'test-claim', [12]);
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe('http://gateway.test/api/proactive/pull');
+  expect(init.method).toBe('POST');
+  expect(JSON.parse(init.body as string)).toEqual({
+    channelId: 'tui', claimToken: 'test-claim', ids: [12],
+  });
+});

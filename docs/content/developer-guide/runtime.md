@@ -24,13 +24,23 @@ Proactive delivery validates the target before queuing outside active hours.
 Signal phone, UUID, and group targets are supported. Teams and Voice targets can
 be classified for session resets and statistics, but their descriptors declare
 `supportsProactive: false`, so proactive sends are rejected. Only `tui` uses the
-local pull queue; unsupported destinations fail
+local pull queue. `GET /api/proactive/pull` leases messages for 60 seconds and
+returns `claimToken` with the batch. After handling it, clients send
+`POST /api/proactive/pull` with `{ channelId, claimToken, ids }`. Only matching
+claims are acknowledged; expired, unacknowledged deliveries can be retried after
+reconnect or restart. An acknowledgement lost in transit can cause redelivery.
+Update gateway and TUI together; custom pull clients must acknowledge batches.
+Unsupported destinations fail
 instead of falling through to that queue. Sender failures remain failures and
 never create a local delivery row.
 
 Admin statistics returns `channelKind` for each destination, or `null` when the
 gateway cannot classify it. The console groups these rows by the supplied kind
 and displays unknown destinations individually.
+
+Background proactive queue flushes do not overlap within one gateway process; a
+pending send keeps ownership until it succeeds or fails. A process crash after
+sending but before deleting a row can still cause redelivery.
 
 ## Container Runtime Image
 
@@ -1446,9 +1456,10 @@ only:
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
   the tool calls that ran and any delegations it had queued. The interrupted
-  read waits up to 2 s for that reply and keeps only its tool history. A reply
-  that lands later stays in the stopped request's own file, which no later
-  request reads; the next request's `cleanupIpc()` deletes it.
+  read waits up to 2 s for that reply and keeps its validated tool history and
+  known usage counters. Late approvals, side effects, and success results are
+  discarded. A reply that lands later stays in the stopped request's own file,
+  which no later request reads; the next request's `cleanupIpc()` deletes it.
 - An interrupted container leaves the pool immediately, so the next turn starts
   a fresh container instead of reusing one that `docker stop` is still shutting
   down.
@@ -1467,6 +1478,8 @@ verify follow-up input authentication, and keep replies scoped to their request.
 Readers also reconcile from disk once per second, bounded by their idle and
 wall-clock deadlines. This covers missing events and unavailable or failed
 watchers on [Docker and virtualized filesystems](https://nodejs.org/docs/latest-v22.x/api/fs.html#caveats).
+An explicit total wait limit remains independent of the inactivity window and
+can be shorter than it; activity refreshes only the inactivity deadline.
 Worker exit and shutdown state are checked on each wakeup or reconciliation;
 gateway interrupts wake the output wait immediately. Watchers, wait timers, and
 abort listeners close when the read finishes, including timeout and interrupt.
@@ -1757,7 +1770,8 @@ each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
 `read` searches PDF text with `query` (literal text, up to 256 characters),
-returning page numbers and snippets before a separate `pages` read. Each search
+returning page numbers and snippets before a separate `pages` read. A PDF query
+cannot be combined with `pages` or `render` in the same call. Each search
 covers at most 500 pages and 20 matching pages, reporting unsearched and sparse
 pages. It does not OCR scans. The model chooses search queries and page selections
 through `read`, using the attachment paths and conversation context. Automatic

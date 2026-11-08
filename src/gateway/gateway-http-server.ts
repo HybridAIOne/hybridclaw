@@ -127,7 +127,6 @@ import {
   upsertAppArtifact,
 } from '../memory/apps.js';
 import {
-  claimQueuedProactiveMessages,
   enqueueProactiveMessage,
   setMessageActivityTrace,
 } from '../memory/db.js';
@@ -461,6 +460,7 @@ import type {
   GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
+import { GATEWAY_PROACTIVE_PATH } from './gateway-types.js';
 import { normalizeHttpOrigin } from './gateway-url-utils.js';
 import {
   extensionToMimeType,
@@ -516,10 +516,11 @@ import {
   previewGatewayAdminOutputGuardProfile,
   updateGatewayAdminOutputGuardProfile,
 } from './output-guard-admin.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
-  isSupportedProactiveChannelId,
-  shouldSuppressProactiveMessage,
-} from './proactive-delivery.js';
+  handleApiProactiveAcknowledge,
+  handleApiProactivePull,
+} from './proactive-pull.js';
 import { renderQrSvg } from './qr-svg.js';
 import { handleRelationshipMemoryRoute } from './relationship-memory-http.js';
 import {
@@ -5017,20 +5018,6 @@ async function handleApiAdminJobsEdgeRevisions(
 function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
   const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
   sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
-}
-
-function handleApiProactivePull(res: ServerResponse, url: URL): void {
-  const channelId = (url.searchParams.get('channelId') || '').trim();
-  if (!channelId) {
-    sendJson(res, 400, { error: 'Missing `channelId` query parameter.' });
-    return;
-  }
-  const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
-  const limit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
-  const messages = claimQueuedProactiveMessages(channelId, limit).filter(
-    (message) => !shouldSuppressProactiveMessage(message),
-  );
-  sendJson(res, 200, { channelId, messages });
 }
 
 function handleApiShutdown(res: ServerResponse): void {
@@ -11602,8 +11589,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             );
             return;
           }
-          if (pathname === '/api/proactive/pull' && method === 'GET') {
-            handleApiProactivePull(res, url);
+          if (
+            pathname === GATEWAY_PROACTIVE_PATH &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            if (method === 'GET') handleApiProactivePull(res, url);
+            else await handleApiProactiveAcknowledge(req, res);
             return;
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
