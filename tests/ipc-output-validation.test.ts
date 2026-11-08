@@ -80,7 +80,11 @@ test('a malformed reply becomes an error without retaining worker side effects',
   expect(fs.existsSync(file)).toBe(false);
 });
 
-test.each(['fileWriteGuardSessionId', 'fileWriteGuardUserPrompt', 'fileWriteGuardProof'])('validates the transported %s field', field => {
+test.each([
+  'fileWriteGuardSessionId',
+  'fileWriteGuardUserPrompt',
+  'fileWriteGuardProof',
+])('validates the transported %s field', (field) => {
   expect(isContainerOutput({ ...valid, [field]: 'test-value' })).toBe(true);
   expect(isContainerOutput({ ...valid, [field]: 42 })).toBe(false);
 });
