@@ -70,7 +70,6 @@ import {
   type FileReferenceExpansion,
   prepareToolArguments,
 } from './file-reference.js';
-import { resolveFileWriteConflict } from './file-write-conflicts.js';
 import {
   type GatewayJsonResponse,
   postGatewayJson,
@@ -123,6 +122,7 @@ import {
   ESTIMATE_COST_TOOL_DEFINITION,
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
+import { replaceEditOccurrences } from './tools/file-edit.js';
 import { fileSyntaxFeedback } from './tools/file-syntax-feedback.js';
 import { runFileWrite, WRITE_TOOL_DEFINITION } from './tools/file-write.js';
 import {
@@ -148,6 +148,7 @@ import {
   runSlideSamplesTool,
   SLIDE_SAMPLES_TOOL_DEFINITION,
 } from './tools/slide-samples.js';
+import { assertTextPayload } from './tools/text-payload.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
 import {
@@ -2280,6 +2281,17 @@ function safeJoin(userPath: string): string {
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
+function writeCheckedFile(args: Record<string, unknown>): Promise<string> {
+  return runFileWrite(
+    args,
+    TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
+    TASK_SANDBOX_FS_ENABLED
+      ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
+      : undefined,
+    currentSessionId,
+  );
+}
+
 function writeWorkspaceFile(userPath: string, contents: string): void {
   if (TASK_SANDBOX_FS_ENABLED) {
     const sandboxPath = resolveTaskSandboxPath(userPath);
@@ -3080,14 +3092,7 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      return await runFileWrite(
-        args,
-        TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
-        TASK_SANDBOX_FS_ENABLED
-          ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
-          : undefined,
-        currentSessionId,
-      );
+      return await writeCheckedFile(args);
     }
 
     case SHOW_WIDGET_TOOL: {
@@ -3129,54 +3134,42 @@ async function executeToolInternal(
             : typeof args.old_text === 'string'
               ? args.old_text
               : '';
-        const newText =
-          typeof args.new === 'string'
-            ? args.new
-            : typeof args.new_text === 'string'
-              ? args.new_text
-              : '';
+        const newText = typeof args.new === 'string' ? args.new : args.new_text;
         if (!oldText) {
           return failTool('Error: old text is required for edit');
         }
+        assertTextPayload(newText, 'new or new_text');
         let content = '';
-        let filePath = '';
-        let sandboxPath = '';
         if (TASK_SANDBOX_FS_ENABLED) {
-          sandboxPath = resolveTaskSandboxPath(args.path) || '';
+          const sandboxPath = resolveTaskSandboxPath(args.path);
           if (!sandboxPath) {
             return failTool(`Error: Path escapes workspace: ${args.path}`);
           }
           const copied = copyTaskSandboxFileToTemp(sandboxPath);
           tempDirToCleanup = copied.tempDir;
-          filePath = copied.localPath;
-          content = fs.readFileSync(filePath, 'utf-8');
+          content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
-          filePath = safeJoin(args.path);
+          const filePath = safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
           content = fs.readFileSync(filePath, 'utf-8');
         }
 
-        const count = args.count || 1;
-        for (let i = 0; i < count; i++) {
-          const idx = content.indexOf(oldText);
-          if (idx === -1) {
-            if (i === 0)
-              return failTool(`Error: Text not found in ${args.path}`);
-            break;
-          }
-          content =
-            content.slice(0, idx) +
-            newText +
-            content.slice(idx + oldText.length);
-        }
-
-        fs.writeFileSync(filePath, content);
-        if (TASK_SANDBOX_FS_ENABLED) {
-          writeTempFileToTaskSandbox(filePath, sandboxPath);
-        }
-        await resolveFileWriteConflict(currentSessionId, args.path);
-        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, content)}`;
+        const edited = replaceEditOccurrences(
+          content,
+          oldText,
+          newText,
+          args.count,
+        );
+        if (!edited.count)
+          return failTool(`Error: Text not found in ${args.path}`);
+        await writeCheckedFile({
+          path: args.path,
+          contents: edited.content,
+          overwrite: true,
+          expected_content: content,
+        });
+        return `Edited ${args.path} (${edited.count} replacement${edited.count > 1 ? 's' : ''})${fileSyntaxFeedback(args.path, edited.content)}`;
       } finally {
         if (tempDirToCleanup) {
           fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
@@ -3346,7 +3339,8 @@ async function executeToolInternal(
               'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
             );
           }
-          const content = typeof args.content === 'string' ? args.content : '';
+          const content = args.content;
+          assertTextPayload(content, 'content');
           const limit = memoryCharLimit(relativePath);
           if (content.length > limit) {
             return failTool(
@@ -3361,8 +3355,8 @@ async function executeToolInternal(
         if (action === 'replace') {
           const oldText =
             typeof args.old_text === 'string' ? args.old_text : '';
-          const newText =
-            typeof args.new_text === 'string' ? args.new_text : '';
+          const newText = args.new_text;
+          assertTextPayload(newText, 'new_text');
           if (!oldText)
             return failTool('Error: old_text is required for memory replace');
           if (!fs.existsSync(filePath))
@@ -3370,7 +3364,7 @@ async function executeToolInternal(
           const content = fs.readFileSync(filePath, 'utf-8');
           if (!content.includes(oldText))
             return failTool(`Error: old_text not found in ${relativePath}`);
-          const next = content.replace(oldText, newText);
+          const next = content.replace(oldText, () => newText);
           const limit = memoryCharLimit(relativePath);
           if (next.length > limit) {
             return failTool(
@@ -4465,8 +4459,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description: 'Alias for new; replacement text',
           },
           count: {
-            type: 'number',
-            description: 'Number of replacements (default: 1)',
+            type: 'integer',
+            description:
+              'Maximum original, nonoverlapping occurrences to replace (positive safe integer; default: 1)',
           },
         },
         required: ['path', 'old', 'new'],

@@ -198,6 +198,13 @@ requires a new eval session; it is not a way to alter an active worker's roots.
 Message inserts require their session to exist in the same database statement.
 A late write after session deletion fails instead of recreating orphaned history.
 
+### Worker lifecycle ownership
+
+Host and Docker runners use `WorkerLifecycle` for spare/session ownership and
+request leases. Stop and exit are terminal for reuse; a late readiness marker
+or request finalizer cannot revive a stopped process or release a newer request.
+These are gateway process handles, not durable session state.
+
 ### Interrupted Turns
 
 Before worker dispatch, the gateway commits the user message and an unfinished
@@ -1386,6 +1393,14 @@ fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
 
+### Autonomous continuation ownership
+
+Full-auto schedules, watchdogs, progress and completion are bound to the runtime
+and run that created them. A continuation due during an active run waits for
+that run to finish. Disposal invalidates every callback; goal continuations use
+a separate run lease so an old finalizer cannot finish a replacement goal run.
+Durable enablement and goal status retain their existing restart behavior.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the
@@ -1464,7 +1479,11 @@ content mismatch rejects the replacement without changing the target. Empty
 files require `expected_content: ""`. If the only missing bytes are the final LF or
 CRLF, the error identifies that ending. After a stale-write error, read again and
 reconsider the change instead of retrying with the old contents. Use `edit` for
-targeted substitutions.
+targeted substitutions. Replacement text must be a string: omitted or non-string
+`new` / `new_text` values fail without changing the file. An explicit empty string
+still deletes the matched text. Daily memory `write` and `replace` follow the same
+rule for `content` and `new_text`; clearing a whole daily note also requires
+`confirm_overwrite: true`.
 
 Successful `write` and `edit` calls check JSON syntax for `.json` files up to
 256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested
@@ -1472,11 +1491,19 @@ bytes remain saved, including intentionally invalid test fixtures. Larger JSON
 files report that the automatic check was skipped. This checks syntax only,
 not schemas or correctness, and does not apply to shell writes or other formats.
 
-Publication is atomic, and cooperative `.lock` directories serialize `write`
-checks and replacements across workers, including task sandboxes. These checks
-use current disk state and survive worker replacement. A crashed writer's lock
+The optional `edit` count is a positive safe integer (default: one) limiting
+replacements among the original, nonoverlapping matches. Inserted text is never
+searched again, and the result reports the actual replacement count. Replacement
+strings are literal in both `edit` and daily-memory `replace`: sequences such as
+`$&` are saved as supplied.
+
+Publication is atomic, and cooperative `.lock` directories serialize `write` and
+`edit` checks and replacements across workers, including task sandboxes. An edit
+uses the complete bytes it read as its expected content. A change detected since
+that read rejects the edit before publication. These checks use current disk
+state and survive worker replacement. A crashed writer's lock
 fails closed until removed after verifying no writer is active. External editors,
-`bash`, `edit`, and generated-artifact tools do not participate in this protocol;
+`bash`, and generated-artifact tools do not participate in this protocol;
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
 

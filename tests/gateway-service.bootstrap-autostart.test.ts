@@ -1111,7 +1111,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   const { upsertRegisteredAgent } = await import(
     '../src/agents/agent-registry.ts'
   );
-  const { initDatabase, storeMessage } = await import('../src/memory/db.ts');
+  const { initDatabase, storeMessage, getOrCreateSession } = await import('../src/memory/db.ts');
   const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -1125,6 +1125,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   ensureBootstrapFiles('research');
 
   const sessionId = 'agent:main:channel:web:chat:dm:peer:existing-bootstrap';
+  getOrCreateSession(sessionId, null, 'web');
   storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'main');
 
   await ensureGatewayBootstrapAutostart({

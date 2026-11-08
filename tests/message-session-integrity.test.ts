@@ -67,3 +67,25 @@ test('stores messages through a canonical session key and its stored ID', async 
     ),
   ).toEqual([{ session_id: session.id }]);
 });
+
+test('scheduled execution creates its session before dispatch and cannot recreate it after deletion', async () => {
+  const db = await setup();
+  vi.doMock('../src/agent/agent.js', () => ({
+    runAgent: async (input: { sessionId: string }) => {
+      expect(db.getSessionById(input.sessionId)).toBeDefined();
+      expect(db.deleteSessionData(input.sessionId).deleted).toBe(true);
+      return { status: 'success', result: 'Late result', toolsUsed: [] };
+    },
+  }));
+  try {
+    const { runIsolatedScheduledTask } = await import('../src/scheduler/scheduled-task-runner.js');
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    await runIsolatedScheduledTask({ taskId: 42, prompt: 'Prepare a report', channelId: 'tui', chatbotId: 'test-bot', model: 'test-model', agentId: 'main', onResult, onError });
+    expect(onResult).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Cannot store a message for a missing session.' }));
+    expect(db.withMemoryDatabase(database => database.prepare('SELECT count(*) AS n FROM messages').get())).toEqual({ n: 0 });
+  } finally {
+    vi.doUnmock('../src/agent/agent.js');
+  }
+});
