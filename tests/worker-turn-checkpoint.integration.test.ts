@@ -7,6 +7,7 @@ import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import {
   checkpointOutput,
   readTurnCheckpoint,
+  turnCheckpointPath,
 } from '../container/shared/turn-checkpoint.js';
 import type {
   ChatMessage,
@@ -35,7 +36,7 @@ afterEach(async () => {
   }
 });
 
-test.each(['completed', 'uncertain'] as const)(
+test.each(['completed', 'uncertain', 'not_started', 'corrupt'] as const)(
   'SIGKILL preserves %s evidence and restarting the same run never repeats the action',
   async (boundary) => {
     const root = temp();
@@ -55,6 +56,11 @@ test.each(['completed', 'uncertain'] as const)(
       res.setHeader('Content-Type', 'application/json');
       res.end(
         JSON.stringify({
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 12,
+            total_tokens: 132,
+          },
           choices: [
             {
               finish_reason: 'tool_calls',
@@ -69,7 +75,7 @@ test.each(['completed', 'uncertain'] as const)(
                       name: 'bash',
                       arguments: JSON.stringify({
                         command:
-                          boundary === 'completed'
+                          boundary !== 'uncertain'
                             ? "printf 'action\\n' >> actions.txt"
                             : "printf 'action\\n' >> actions.txt; while [ ! -f release ]; do sleep 0.05; done; printf done > shell-finished",
                       }),
@@ -108,10 +114,29 @@ test.each(['completed', 'uncertain'] as const)(
       ralphMaxIterations: 0,
     };
     let stderr = '';
+    let starts = 0;
+    const blockedStart = path.join(root, 'blocked-start');
     const start = () => {
       const child = spawn(
         process.execPath,
-        ['--import', 'tsx', 'container/src/index.ts'],
+        [
+          '--import', 'tsx',
+          ...(boundary === 'not_started' && starts++ === 0 ? ['--import',
+            `data:text/javascript,${encodeURIComponent(`
+              import fs from 'node:fs';
+              import path from 'node:path';
+              const rename = fs.renameSync;
+              fs.renameSync = function(from, to) {
+                if (path.basename(String(to)) === 'turn-checkpoint.json' &&
+                    JSON.parse(fs.readFileSync(from, 'utf8')).started.length) {
+                  fs.writeFileSync(${JSON.stringify(blockedStart)}, '');
+                  process.kill(process.pid, 'SIGSTOP');
+                }
+                return rename(from, to);
+              };
+            `)}`] : []),
+          'container/src/index.ts',
+        ],
         {
           cwd: process.cwd(),
           stdio: ['pipe', 'ignore', 'pipe'],
@@ -138,13 +163,13 @@ test.each(['completed', 'uncertain'] as const)(
     try {
       await vi.waitFor(
         () => {
-          expect(fs.existsSync(effect), stderr).toBe(true);
+          expect(fs.existsSync(boundary === 'not_started' ? blockedStart : effect), stderr).toBe(true);
           const saved = readTurnCheckpoint(state, sessionId)!;
-          if (boundary === 'completed')
+          if (boundary === 'completed' || boundary === 'corrupt')
             expect(saved.messages.some((entry) => entry.role === 'tool')).toBe(
               true,
             );
-          else expect(saved.started).toHaveLength(1);
+          else expect(saved.started).toHaveLength(boundary === 'not_started' ? 0 : 1);
         },
         { timeout: 10_000 },
       );
@@ -154,13 +179,20 @@ test.each(['completed', 'uncertain'] as const)(
       first.kill('SIGKILL');
       await exited;
       const evidence = checkpointOutput(readTurnCheckpoint(state, sessionId)!);
+      expect(evidence.tokenUsage).toMatchObject({
+        apiUsageAvailable: true,
+        apiPromptTokens: 120,
+        apiCompletionTokens: 12,
+        apiTotalTokens: 132,
+      });
       expect(evidence.toolHistory).toHaveLength(2);
       expect(evidence.toolHistory[1].is_error === true).toBe(
-        boundary === 'uncertain',
+        boundary === 'uncertain' || boundary === 'not_started',
       );
       if (boundary === 'uncertain')
         expect(evidence.toolHistory[1].content).toContain('unknown');
       const callsBeforeRestart = calls;
+      if (boundary === 'corrupt') fs.writeFileSync(turnCheckpointPath(state, sessionId), '{');
       // Unblock the orphaned shell after the kill; it must not be started again.
       fs.writeFileSync(path.join(root, 'release'), '');
       input.requestId = 'request-b';
@@ -174,11 +206,16 @@ test.each(['completed', 'uncertain'] as const)(
         fs.readFileSync(outputFile, 'utf8'),
       ) as ContainerOutput;
       expect(output.status).toBe('error');
-      expect(output.toolHistory).toEqual(evidence.toolHistory);
+      if (boundary !== 'corrupt') {
+        expect(output.toolHistory).toEqual(evidence.toolHistory);
+        expect(output.tokenUsage).toEqual(evidence.tokenUsage);
+      } else {
+        expect(output.toolHistory).toBeUndefined();
+        expect(output.tokenUsage?.apiUsageAvailable).not.toBe(true);
+      }
       expect(calls).toBe(callsBeforeRestart);
-      expect(fs.readFileSync(effect, 'utf8').trim().split('\n')).toEqual([
-        'action',
-      ]);
+      if (boundary === 'not_started') expect(fs.existsSync(effect)).toBe(false);
+      else expect(fs.readFileSync(effect, 'utf8').trim().split('\n')).toEqual(['action']);
     } finally {
       fs.writeFileSync(path.join(root, 'release'), '');
       if (boundary === 'uncertain' && fs.existsSync(effect)) {

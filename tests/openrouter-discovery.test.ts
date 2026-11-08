@@ -27,6 +27,79 @@ afterEach(() => {
 });
 
 describe('openrouter discovery', () => {
+  test.each<[Record<string, unknown>, boolean | null]>([
+    [{ architecture: { modality: 'text->text' } }, false],
+    [{ architecture: { modality: 'text->image' } }, false],
+    [{ architecture: { modality: 'text+image->text' } }, true],
+    [{ architecture: { input_modalities: ['text', 'image'] } }, true],
+    [{ architecture: { input_modalities: ['text', ' Image '] } }, true],
+    [{ architecture: { input_modalities: ['text'] } }, false],
+    [{ capabilities: ['vision'] }, true],
+    [{ capabilities: ['tools'] }, null],
+    [{ architecture: { input_modalities: [] } }, null],
+    [{ architecture: { modality: 42, input_modalities: [null] } }, null],
+    [{ context_length: 200_000 }, null],
+  ])(
+    'preserves explicit and unknown visual capability: %j',
+    async (metadata, expected) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                data: [{ id: 'example/model', ...metadata }],
+              }),
+            ),
+        ),
+      );
+      const { createOpenRouterDiscoveryStore } = await importFreshDiscovery();
+      const store = createOpenRouterDiscoveryStore();
+      await store.discoverModels();
+      expect(store.getModelVisionCapability('example/model')).toBe(expected);
+      expect(store.getModelVisionCapability('openrouter/example/model')).toBe(
+        expected,
+      );
+      expect(store.getModelVisionCapability('example/missing')).toBeNull();
+      expect(store.isModelVisionCapable('example/model')).toBe(
+        expected === true,
+      );
+    },
+  );
+
+  test('recovers vision metadata on the next lookup after an initial timeout', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new DOMException('Timed out', 'TimeoutError'))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'example/vision-model',
+                architecture: { modality: 'text+image->text' },
+                context_length: 64000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createOpenRouterDiscoveryStore();
+
+    await expect(store.discoverModels()).resolves.toEqual([]);
+    expect(store.isModelVisionCapable('example/vision-model')).toBe(false);
+    await expect(store.discoverModels()).resolves.toEqual([
+      'openrouter/example/vision-model',
+    ]);
+    expect(store.isModelVisionCapable('example/vision-model')).toBe(true);
+    expect(store.getModelContextWindow('example/vision-model')).toBe(64000);
+    await store.discoverModels();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test('normalizes model ids when checking whether a discovered model is free', async () => {
     vi.stubGlobal(
       'fetch',

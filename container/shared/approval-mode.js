@@ -35,3 +35,10 @@ export const APPROVAL_MODE_PRESENTATION = {
 export function isApprovalMode(value) {
   return APPROVAL_MODES.includes(value);
 }
+
+/** Missing configuration preserves the product default; invalid modes fail closed. */
+export function normalizeApprovalMode(value) {
+  if (value === undefined) return DEFAULT_APPROVAL_MODE;
+  if (!isApprovalMode(value)) throw new Error('Unknown approval mode.');
+  return value;
+}

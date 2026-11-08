@@ -103,6 +103,7 @@ test.each(['full', 'starred'] as const)(
         },
       );
       expect(run.output.status).toBe('success');
+      expect(run.requests).toHaveLength(3);
       const read = run.output.toolHistory?.find(
         (message) => message.tool_call_id === 'read_page',
       );

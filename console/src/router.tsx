@@ -33,6 +33,7 @@ import { PublishedToolsPage } from './routes/published-tools';
 import { RelationshipMemoryPage } from './routes/relationship-memory';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
 import { SafetyRulesPage } from './routes/safety-rules';
+import { SecurityPage } from './routes/security';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { TeamsPage } from './routes/teams';
@@ -186,6 +187,16 @@ const networkPolicyRoute = createRoute({
   component: ApprovalsPage,
 });
 
+const securityRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/security',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    return tab ? { tab } : {};
+  },
+  component: SecurityPage,
+});
+
 const safetyRulesRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/safety-rules',
@@ -196,7 +207,7 @@ const legacyApprovalsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/approvals',
   beforeLoad: () => {
-    throw redirect({ to: '/admin/network-policy', replace: true });
+    throw redirect({ to: '/admin/security', replace: true });
   },
 });
 
@@ -620,6 +631,7 @@ const routeTree = rootRoute.addChildren([
     legacyStatisticsRoute,
     networkPolicyRoute,
     safetyRulesRoute,
+    securityRoute,
     legacyApprovalsRoute,
     federationRoute,
     legacyA2AInboxRoute,

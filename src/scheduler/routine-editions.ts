@@ -1,6 +1,7 @@
 /**
  * One scheduled edition per managed routine and local date, including after edits.
- * Saved output is a delivery outbox, never permission to regenerate or act again.
+ * Saved output is immutable delivery evidence; settled editions reject late writes.
+ * This outbox never grants permission to regenerate or act again.
  * Manual tests are ordinary one-shot jobs and do not consume a daily edition.
  */
 import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
@@ -64,34 +65,55 @@ export function claimRoutineEdition(
       .immediate(),
   );
 }
-export function savedEdition(
+export type RoutineEditionState =
+  | { kind: 'unmanaged' }
+  | { kind: 'executing' }
+  | { kind: 'delivery_pending'; result: ProactiveMessagePayload }
+  | { kind: 'settled' };
+
+export function readRoutineEdition(
   run: number | undefined,
-): ProactiveMessagePayload | null {
-  if (!run) return null;
+): RoutineEditionState {
+  if (!run) return { kind: 'unmanaged' };
   return withMemoryDatabase((db) => {
-    const row = queryOne<{ result: string | null }>(
+    const row = queryOne<{ result: string | null; delivered: number }>(
       db,
-      'SELECT result FROM routine_editions WHERE run_id = ?',
+      'SELECT result, delivered FROM routine_editions WHERE run_id = ?',
       run,
     );
-    return row?.result
-      ? (JSON.parse(row.result) as ProactiveMessagePayload)
-      : null;
+    if (!row) return { kind: 'unmanaged' };
+    if (row.delivered) return { kind: 'settled' };
+    return row.result
+      ? {
+          kind: 'delivery_pending',
+          result: JSON.parse(row.result) as ProactiveMessagePayload,
+        }
+      : { kind: 'executing' };
   });
 }
+
 export function saveEdition(
   run: number | undefined,
   result: ProactiveMessagePayload,
-): void {
-  if (!run) return;
-  withMemoryDatabase((db) =>
+): ProactiveMessagePayload {
+  if (!run) return result;
+  return withMemoryDatabase((db) =>
     db
-      .prepare(
-        'UPDATE routine_editions SET result = COALESCE(result, ?) WHERE run_id = ?',
-      )
-      .run(JSON.stringify(result), run),
+      .transaction(() => {
+        const state = readRoutineEdition(run);
+        if (state.kind === 'settled')
+          throw new Error('Routine edition is already settled.');
+        if (state.kind === 'delivery_pending') return state.result;
+        if (state.kind === 'unmanaged') return result;
+        db.prepare(
+          'UPDATE routine_editions SET result = ? WHERE run_id = ? AND delivered = 0 AND result IS NULL',
+        ).run(JSON.stringify(result), run);
+        return result;
+      })
+      .immediate(),
   );
 }
+
 export function deliveredEdition(run: number | undefined): void {
   if (!run) return;
   withMemoryDatabase((db) =>

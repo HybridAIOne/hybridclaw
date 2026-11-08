@@ -853,6 +853,8 @@ test('ContainerExecutor disables internal text streaming when no text callback i
 
   await executor.exec({
     sessionId: 'session-no-stream-ipc',
+    fileWriteGuardSessionId: 'parent-worker',
+    fileWriteGuardUserPrompt: 'Preserve the existing notes.',
     runId: 'bounded-run',
     toolCallLimits: { example__write: 12 },
     messages: [{ role: 'user', content: 'hello' }],
@@ -871,6 +873,8 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     runId: 'bounded-run',
     toolCallLimits: { example__write: 12 },
     approvalUserText: null,
+    fileWriteGuardSessionId: 'parent-worker',
+    fileWriteGuardUserPrompt: 'Preserve the existing notes.',
     streamTextDeltas: false,
   });
 });

@@ -15,8 +15,10 @@ import {
   waitForHealth,
 } from './helpers/docker-test-setup.js';
 import {
+  lastWorkflowMessage,
   type ModelRequestBody,
   startScriptedModelServer,
+  workflowMessages,
 } from './helpers/scripted-model-server.js';
 import { writeZipArchive } from './helpers/zip-archive.js';
 
@@ -188,7 +190,7 @@ function nextCallFromToolResult(
  * result, so the test sees what the agent saw.
  */
 function scriptedAgent(body: ModelRequestBody): Record<string, unknown> {
-  const last = body.messages.at(-1);
+  const last = lastWorkflowMessage(body);
   if (!body.tools?.length || !last) return { role: 'assistant', content: 'ok' };
   if (last.role === 'tool') {
     const result = messageText(last);
@@ -333,7 +335,7 @@ async function expectInstalled(skill: string, agentId: string): Promise<void> {
 
 /** Tool results the model received after the latest user message. */
 function latestTurnToolResults(): string[] {
-  const messages = modelRequests.at(-1)?.messages ?? [];
+  const messages = workflowMessages(modelRequests.at(-1)?.messages ?? []);
   const turnStart = messages.map((message) => message.role).lastIndexOf('user');
   return messages
     .slice(turnStart + 1)

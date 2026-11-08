@@ -1,3 +1,8 @@
+/**
+ * Job storage retains operator enablement while recording execution outcomes.
+ * Failure bookkeeping may pause a job, never resume it; dispatch belongs to
+ * the scheduler rather than this persistence layer.
+ */
 import type Database from 'better-sqlite3';
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
@@ -809,13 +814,13 @@ export function markJobFailure(
       nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
     database
       .prepare(
-        "UPDATE jobs SET last_status = ?, last_error = ?, consecutive_errors = ?, enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        "UPDATE jobs SET last_status = ?, last_error = ?, consecutive_errors = ?, enabled = CASE WHEN ? THEN 0 ELSE enabled END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
       )
       .run(
         'error',
         reason === undefined ? null : describeJobError(reason),
         nextCount,
-        shouldDisable ? 0 : 1,
+        shouldDisable ? 1 : 0,
         normalizedJobId,
       );
     return {

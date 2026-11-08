@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.41.5",
+  "version": "0.42.3",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "publish:dry": "npm publish --dry-run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@mozilla/readability": "0.6.0",
     "@pdf-lib/fontkit": "1.1.1",
     "agent-browser": "0.27.0",
@@ -41,19 +41,22 @@
     "typescript": "5.9.3"
   },
   "overrides": {
-    "@hono/node-server": "2.1.1",
-    "hono": "4.13.9",
-    "fast-uri": "3.1.8",
+    "@hono/node-server": "2.1.5",
+    "hono": "4.13.16",
+    "fast-uri": "3.1.9",
     "fast-xml-parser": "5.11.1",
     "@appium/logger": "2.0.12",
     "lodash": "4.18.1",
     "shell-quote": "1.10.0",
     "webdriver": {
-      "undici": "6.28.1"
+      "undici": "6.29.1"
     },
     "cheerio": {
-      "undici": "7.29.1"
+      "undici": "7.30.1"
     },
-    "ip-address": "10.7.2"
+    "ip-address": "10.7.5",
+    "@modelcontextprotocol/sdk": {
+      "zod": "4.6.7"
+    }
   }
 }

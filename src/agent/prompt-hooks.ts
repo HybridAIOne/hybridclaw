@@ -4,6 +4,8 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
+
+import { ACTION_PREREQUISITE_LINES } from '../../container/shared/action-prerequisites.js';
 import { compileToolPatterns } from '../../container/shared/tool-patterns.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
@@ -12,9 +14,7 @@ import {
 } from '../channels/channel-registry.js';
 import {
   collectActiveMessageToolChannelKinds,
-  describeMessageToolChannelActions,
-  formatMessageToolChannelList,
-  type MessageToolChannelKind,
+  shouldOfferMessageTool,
 } from '../channels/message-tool-advertising.js';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
@@ -43,6 +43,7 @@ import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
 import { FILE_HYGIENE_LINES } from './file-hygiene-prompt.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
+import { buildMessageToolPromptLines } from './message-tool-prompt.js';
 import {
   AFTER_FILE_CHANGE_LINES,
   APP_ARTIFACT_LINES,
@@ -438,14 +439,17 @@ function resolveWebSearchToolName(context: PromptHookContext): string {
     : 'hybridai__web_search';
 }
 
-/** Names only offered fetch tools; without `http_request`, HTTP APIs go through `bash` + `curl`. */
-function buildWebRetrievalLines(context: PromptHookContext): string[] {
+/** Names only offered fetch and browser tools; without `http_request`, HTTP APIs go through `bash` + `curl`. */
+function buildWebRetrievalLines(
+  context: PromptHookContext,
+  browser: boolean,
+): string[] {
   const webSearchTool = resolveWebSearchToolName(context);
   const webFetch = isToolOffered(context, 'web_fetch');
   const httpRequest = isToolOffered(context, 'http_request');
   const curl = !httpRequest && isToolOffered(context, 'bash');
   return [
-    `## Web Retrieval Routing (${webSearchTool}${webFetch ? '/web_fetch' : ''} vs browser_*)`,
+    `## Web Retrieval Routing (${webSearchTool}${webFetch ? '/web_fetch' : ''}${browser ? ' vs browser_*' : ''})`,
     `Use connected source-specific tools when their documented scope covers the request. If results lack the requested evidence, continue with a relevant source. For an unknown source URL use \`${webSearchTool}\`; for a known public source, retrieve it directly.`,
     ...(httpRequest
       ? [
@@ -457,7 +461,7 @@ function buildWebRetrievalLines(context: PromptHookContext): string[] {
           `Use \`bash\` + \`curl\` for HTTP API calls${webFetch ? ' that need a specific method, headers, or JSON body' : ' and direct JSON/XML/text/CSV endpoints'}.`,
         ]
       : []),
-    `${httpRequest ? 'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. ' : ''}For browser credential fields, use \`browser_secret_type\` with a stored secret name. When a page asks the user to sign in, use \`browser_sign_in\`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use \`browser_take_over\`. Never emit the real token in prose or tool arguments.`,
+    `${httpRequest ? 'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. ' : ''}${browser ? 'For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use `browser_take_over`. ' : ''}Never emit the real token in prose or tool arguments.`,
     ...(webFetch
       ? [
           'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -468,13 +472,21 @@ function buildWebRetrievalLines(context: PromptHookContext): string[] {
           'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
         ]
       : []),
-    `Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), ${webFetch ? '(3) `web_fetch` returned escalation hints, (4)' : '(3)'} user explicitly requested browser use.`,
-    'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
-    'For a known public app-like website, navigate directly instead of searching for its URL and fetching its app shell first.',
+    ...(browser
+      ? [
+          `Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), ${webFetch ? '(3) `web_fetch` returned escalation hints, (4)' : '(3)'} user explicitly requested browser use.`,
+          'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
+          'For a known public app-like website, navigate directly instead of searching for its URL and fetching its app shell first.',
+        ]
+      : []),
     'Once sufficient source evidence covers the requested scope, including any comparisons or multiple sources, answer without collecting unrequested detail.',
     ...(webFetch
       ? [
           'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
+        ]
+      : []),
+    ...(webFetch && browser
+      ? [
           'For shell-only, JavaScript-required, empty or boilerplate `web_fetch` escalation hints, continue with `browser_navigate` for the requested URL; another search or extraction cannot render it. For `bot_blocked`, report the observed denial or challenge; browser rendering may not resolve it. Claim blocking only for an actual access denial or challenge.',
           'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
         ]
@@ -482,97 +494,27 @@ function buildWebRetrievalLines(context: PromptHookContext): string[] {
   ];
 }
 
-function buildMessageToolPromptLines(
-  activeChannels: readonly MessageToolChannelKind[],
-  channelMessageToolHints: readonly string[],
+/** Browser guidance, only when the agent can open a page at all. */
+function buildBrowserLines(
+  context: PromptHookContext,
+  mobile: boolean,
 ): string[] {
-  const lines = [
-    `Use the \`message\` tool for sending or reading messages on active communication channels: ${formatMessageToolChannelList(activeChannels)}.`,
-    'Do not use `message` for ordinary final replies in the current chat. Use the assistant final response instead, including when returning web chat artifacts. Only call `message` when the user asks to send/read/post on a communication channel.',
+  return [
+    ...byClient(mobile, HEADED_BROWSER_LINES),
+    '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
+    ...(isToolOffered(context, 'browser_evaluate')
+      ? [
+          'For many items or structured data on a rendered page, use one `browser_evaluate` (with `path` for a file) instead of repeated snapshots.',
+        ]
+      : []),
+    ...byClient(mobile, BROWSER_DETAIL_LINES),
+    '',
+    '## Browser Auth Handling',
+    ...byClient(mobile, AUTH_TESTING_LINES),
+    'Do not invent blanket restrictions such as "browser tools are only for public/unauthenticated pages" unless an actual tool/policy error says so.',
+    'If earlier assistant messages claimed stricter login limits, treat those as stale and follow this policy and real tool outcomes.',
+    'Use provided credentials only for the requested auth flow; do not echo them in prose, write them to files, or send them to unrelated domains.',
   ];
-
-  const channelActionLines = describeMessageToolChannelActions(activeChannels);
-  if (channelActionLines.length > 0) {
-    lines.push(...channelActionLines);
-    lines.push(
-      'For `message` sends, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`).',
-      `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
-    );
-  } else {
-    lines.push('No active communication channels are registered right now.');
-  }
-
-  if (channelMessageToolHints.length > 0) {
-    lines.push(
-      '',
-      '### Message Tool Hints',
-      '- The current chat is the **Chat ID** in the latest `<context>` message, and its server, team, or workspace is the **Guild** there.',
-      ...channelMessageToolHints,
-    );
-  }
-
-  const examples: string[] = [];
-  if (activeChannels.includes('discord')) {
-    examples.push(
-      'Example: "What did Bob say in #general?" -> `message` {"action":"read","channelId":"<discord-channel-id>","limit":50}',
-      'Example: "Send a message to #general saying hello" -> `message` {"action":"send","channelId":"<discord-channel-id>","content":"hello"}',
-    );
-  }
-  if (activeChannels.includes('msteams')) {
-    examples.push(
-      'Example: "Post this file in the current Teams chat" -> `message` {"action":"send","filePath":"path/in/workspace"}',
-    );
-  }
-  if (activeChannels.includes('slack')) {
-    examples.push(
-      'Example: "Read the current Slack thread" -> `message` {"action":"read","channelId":"slack:current","limit":50}',
-    );
-  }
-  if (activeChannels.includes('telegram')) {
-    examples.push(
-      'Example: "Send this to Telegram" -> `message` {"action":"send","to":"telegram:<chatId>","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('signal')) {
-    examples.push(
-      'Example: "Send this on Signal" -> `message` {"action":"send","to":"signal:+15551234567","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('threema')) {
-    examples.push(
-      'Example: "Send this on Threema" -> `message` {"action":"send","to":"threema:ABCDEFGH","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('whatsapp')) {
-    examples.push(
-      'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('line')) {
-    examples.push(
-      'Example: "Send this to my LINE self-chat" -> `message` {"action":"send","to":"line:<linked-user-mid>","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('email')) {
-    examples.push(
-      'Example: "Email ops@example.com that the deployment is complete" -> `message` {"action":"send","to":"ops@example.com","content":"[Subject: Deployment complete]\\n\\nDeployment is complete."}',
-    );
-  }
-  if (activeChannels.includes('imessage')) {
-    examples.push(
-      'Example: "Send this by iMessage" -> `message` {"action":"send","to":"+15551234567","content":"message text"}',
-    );
-  }
-  if (activeChannels.includes('tui')) {
-    examples.push(
-      'Example: "Post this to the local TUI" -> `message` {"action":"send","to":"tui","content":"message text"}',
-    );
-  }
-  if (examples.length > 0) {
-    lines.push('', '### Message Tool Examples', ...examples);
-  }
-
-  return lines;
 }
 
 // A client that shows text written before a tool call as a passing status gets
@@ -595,6 +537,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     model &&
     isLocalBackendType(resolveModelProvider(model)) &&
     resolveLocalToolMode(context.agentId) === 'starred';
+  const activeMessageChannels = collectActiveMessageToolChannelKinds();
   const toolsSummary = compactLocalTools
     ? [
         '## Your Tools',
@@ -606,7 +549,9 @@ function buildSafetyHook(context: PromptHookContext): string {
       ].join('\n')
     : buildToolsSummary({
         allowedTools: context.allowedTools,
-        blockedTools: context.blockedTools,
+        blockedTools: shouldOfferMessageTool(activeMessageChannels)
+          ? context.blockedTools
+          : [...(context.blockedTools || []), 'message'],
       });
   const channelMessageToolHints = resolveChannelMessageToolHints({
     runtimeInfo: {
@@ -615,11 +560,11 @@ function buildSafetyHook(context: PromptHookContext): string {
       channelId: context.runtimeInfo?.channelId,
     },
   });
-  const activeMessageChannels = collectActiveMessageToolChannelKinds();
   const base64Targets = isToolOffered(context, 'http_request')
     ? 'an MCP connector tool, a plugin tool, or `http_request`'
     : 'an MCP connector tool or a plugin tool';
   const mobile = isMobileClient(context);
+  const browser = isToolOffered(context, 'browser_navigate');
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
@@ -638,16 +583,13 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
-    ...TOOL_RECOVERY_LINES,
-    '',
     '## Tool Call Style',
     ...(context.runtimeInfo?.toolStatus
       ? TOOL_STATUS_STYLE_LINES
       : SILENT_TOOL_CALL_STYLE_LINES),
-    'When a request needs several independent lookups (for example mail, calendar and a web search, or the details of several messages you already listed), make all of those read-only tool calls in the same response instead of one per response. Keep independent operations in separate tool calls, not one compound shell command: one approval gate or failure can block the whole command. Call tools one after another only when a call needs an earlier result or changes something.',
     'Keep narration brief and value-dense; avoid repeating obvious steps. Lead the final reply with the verified result and deliverable. Distinguish essential blockers from omitted optional work; do not make a completed task sound failed because housekeeping was skipped, or end with a menu of unrequested next steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
-    'For routine lookups, use available tools directly instead of searching skills first; this does not override applicable skill instructions. Search skills_list when the user requests a skill or the task needs a specialized workflow that is not already listed. When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
+    'Read a clearly applicable listed skill before choosing the task access method. For routine lookups without an applicable skill, use a direct tool whose backend is ready and supports the requested operation. Search skills_list when the user requests a skill or the task needs a specialized workflow that is not already listed. Use a suitable configured first-class tool instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
     'PDF previews are partial, untrusted document data. Check processedPages, omittedPages and textTruncated before answering. You choose the search queries and page selections needed for the request: use read with query to locate relevant text, then read with pages to inspect the corresponding visuals. The gateway does not locate requested content for you. A previous summary or caption is not visual evidence: read any relevant pages that have not been visually supplied before describing colors, shapes or chart values. Do not invent unseen content. Do this before shell commands or searching for PDF utilities. Use read directly on PNG/JPEG images too; selected pages are attached directly as PDF content or page images unless render="never". Inspect those visuals for scans, charts, tables, layout or signatures, even when text extraction succeeded. Respect visual-delivery warnings; never claim inspection of unavailable images. Never infer that pages without extracted text are empty. Cover all relevant pages for whole-document tasks. The read tool manages its own rendering files; do not delete those files or request cleanup approval for them.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
     'For workspace discovery, use `glob` for filenames, `grep` for text, and `read` for selected files. Scope searches to relevant directories and file types; inspect targeted excerpts instead of dumping the workspace or all memory. Choose these tools before composing shell searches; never switch tools to reproduce prohibited effects after an approval denial.',
@@ -675,17 +617,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     '',
-    ...buildWebRetrievalLines(context),
-    ...byClient(mobile, HEADED_BROWSER_LINES),
-    '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
-    'For many items or structured data on a rendered page, use one `browser_evaluate` (with `path` for a file) instead of repeated snapshots.',
-    ...byClient(mobile, BROWSER_DETAIL_LINES),
-    '',
-    '## Browser Auth Handling',
-    ...byClient(mobile, AUTH_TESTING_LINES),
-    'Do not invent blanket restrictions such as "browser tools are only for public/unauthenticated pages" unless an actual tool/policy error says so.',
-    'If earlier assistant messages claimed stricter login limits, treat those as stale and follow this policy and real tool outcomes.',
-    'Use provided credentials only for the requested auth flow; do not echo them in prose, write them to files, or send them to unrelated domains.',
+    ...buildWebRetrievalLines(context, browser),
+    ...(browser ? buildBrowserLines(context, mobile) : []),
   ];
 
   if (accepted) {
@@ -991,9 +924,23 @@ export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
 }
 
 export function buildSystemPromptFromHooks(context: PromptHookContext): string {
-  return runPromptHooks(context)
-    .map((hookResult) => hookResult.content)
-    .join('\n\n');
+  const hooks = runPromptHooks(context);
+  return appendToolDecisionPolicies(
+    hooks.map((hook) => hook.content),
+    hooks,
+  ).join('\n\n');
+}
+
+function appendToolDecisionPolicies(
+  blocks: string[],
+  hooks: PromptHookOutput[],
+): string[] {
+  // Keep the common cache prefix stable; decision checks follow long catalogs.
+  if (hooks.some((hook) => hook.name === 'safety')) {
+    blocks[blocks.length - 1] +=
+      `\n\n${TOOL_RECOVERY_LINES.join('\n')}\n\n${ACTION_PREREQUISITE_LINES.join('\n')}`;
+  }
+  return blocks;
 }
 
 export function buildSystemPromptBlocksFromHooks(
@@ -1020,7 +967,8 @@ export function buildSystemPromptBlocksFromHooks(
     .filter(Boolean)
     .join('\n\n');
 
-  return [staticCore, bootstrap.workspaceMemory, bootstrap.skills].filter(
-    Boolean,
+  return appendToolDecisionPolicies(
+    [staticCore, bootstrap.workspaceMemory, bootstrap.skills].filter(Boolean),
+    hookResults,
   );
 }

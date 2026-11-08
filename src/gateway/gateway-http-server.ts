@@ -127,7 +127,6 @@ import {
   upsertAppArtifact,
 } from '../memory/apps.js';
 import {
-  claimQueuedProactiveMessages,
   enqueueProactiveMessage,
   setMessageActivityTrace,
 } from '../memory/db.js';
@@ -151,6 +150,8 @@ import {
   adminActionClaimList,
   collectAdminActionClaims,
   isAdminActionAllowed,
+  isAgentScopedTokenAction,
+  readAgentScopeClaim,
   resolveAdminRbacAction,
   resolveOpenAICompatibleAccess,
 } from '../security/admin-rbac.js';
@@ -221,6 +222,7 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import { WIDGET_MIME_TYPE } from './app-widgets.js';
 import { approvalAnswerText, parseApprovalAnswer } from './approval-answer.js';
+import { handleApprovalSettingsAdmin } from './approval-settings-admin.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -458,6 +460,7 @@ import type {
   GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
+import { GATEWAY_PROACTIVE_PATH } from './gateway-types.js';
 import { normalizeHttpOrigin } from './gateway-url-utils.js';
 import {
   extensionToMimeType,
@@ -513,10 +516,11 @@ import {
   previewGatewayAdminOutputGuardProfile,
   updateGatewayAdminOutputGuardProfile,
 } from './output-guard-admin.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
-  isSupportedProactiveChannelId,
-  shouldSuppressProactiveMessage,
-} from './proactive-delivery.js';
+  handleApiProactiveAcknowledge,
+  handleApiProactivePull,
+} from './proactive-pull.js';
 import { renderQrSvg } from './qr-svg.js';
 import { handleRelationshipMemoryRoute } from './relationship-memory-http.js';
 import {
@@ -529,6 +533,7 @@ import {
   isJevAvailable,
 } from './routing-evaluator.js';
 import { handleSafetyRulesAdmin } from './safety-rules-admin.js';
+import { approvalSessionId } from './scheduled-approval.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -594,7 +599,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
-const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const HYBRIDAI_SANDBOX_OPEN_PATH = '/hybridclaw/open';
 const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
 const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
@@ -2579,6 +2584,37 @@ function hasFullApiTokenWildcard(context: ResolvedAuthContext): boolean {
   return collectAdminActionClaims(context.payload)?.has('*') === true;
 }
 
+/**
+ * Agent ids an API token is restricted to, or `null` for any non-token caller
+ * and for tokens without an `agentIds` claim.
+ */
+function resolveApiTokenAgentScope(
+  context: ResolvedAuthContext,
+): string[] | null {
+  if (context.kind !== 'apiToken') return null;
+  return readAgentScopeClaim(context.payload);
+}
+
+/**
+ * Agent-scoped tokens may only reach the agent-aware chat and agent-list
+ * routes. `/api/command` shares `chat.send` but can switch or manage agents,
+ * and the full `/api/agents` dashboard exposes every session, so both are
+ * refused explicitly.
+ */
+function isAgentScopedTokenRouteAllowed(
+  context: ResolvedAuthContext,
+  pathname: string,
+  action: AdminRbacAction | null,
+): boolean {
+  if (resolveApiTokenAgentScope(context) === null) return true;
+  if (!action || !isAgentScopedTokenAction(action)) return false;
+  return (
+    pathname === '/api/chat' ||
+    pathname === '/api/chat/rejoin' ||
+    pathname === '/api/agents/list'
+  );
+}
+
 function isApiTokenAllowedForRoute(
   context: ResolvedAuthContext,
   pathname: string,
@@ -2586,6 +2622,7 @@ function isApiTokenAllowedForRoute(
 ): boolean {
   if (context.kind !== 'apiToken') return true;
   const action = resolveAdminRbacAction(pathname, method);
+  if (!isAgentScopedTokenRouteAllowed(context, pathname, action)) return false;
   if (!action) return hasFullApiTokenWildcard(context);
   return isAdminActionAllowed(context.payload, action);
 }
@@ -2616,6 +2653,10 @@ function enforceAdminRouteRbac(
     return false;
   }
   if (authContext.kind === 'apiToken') {
+    if (!isAgentScopedTokenRouteAllowed(authContext, pathname, action)) {
+      sendJson(res, 403, { error: 'Forbidden for agent-scoped token.' });
+      return false;
+    }
     if (!action && hasFullApiTokenWildcard(authContext)) return true;
     if (!action) {
       sendJson(res, 403, { error: 'Forbidden.' });
@@ -2797,10 +2838,11 @@ function buildMobileLaunchUrl(params: {
   return url.toString();
 }
 
-function resolveHybridAILoginUrl(): string | null {
+// HybridAI signs the visitor in if needed and launches them back to returnPath.
+function resolveHybridAISignInUrl(returnPath: string): string | null {
   const baseUrl = HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '');
   if (!baseUrl) return null;
-  return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
+  return `${baseUrl}${HYBRIDAI_SANDBOX_OPEN_PATH}?next=${encodeURIComponent(returnPath)}`;
 }
 
 function isConsoleSpaPath(pathname: string): boolean {
@@ -2859,7 +2901,11 @@ function requiresSessionAuth(pathname: string): boolean {
 function ensureSessionAuth(req: IncomingMessage, res: ServerResponse): boolean {
   if (hasSessionAuth(req)) return true;
 
-  const loginUrl = resolveHybridAILoginUrl();
+  const returnUrl = new URL(req.url || '/', 'http://sandbox.invalid');
+  returnUrl.searchParams.delete('token');
+  const loginUrl = resolveHybridAISignInUrl(
+    `${returnUrl.pathname}${returnUrl.search}`,
+  );
   if (!loginUrl) {
     sendText(
       res,
@@ -3446,6 +3492,54 @@ function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
   );
 }
 
+/**
+ * Resolves and checks the agent for an agent-scoped token's chat request.
+ * Returns the agent id to use, or sends an error response and returns null.
+ */
+function resolveAgentScopedChatAgent(params: {
+  res: ServerResponse;
+  agentScope: string[];
+  requestedAgentId: string | undefined;
+  sessionId: string | undefined;
+  content: string;
+}): string | null {
+  const { res, agentScope } = params;
+  let agentId = params.requestedAgentId;
+  if (!agentId) {
+    if (agentScope.length !== 1) {
+      sendJson(res, 400, {
+        error: '`agentId` is required for tokens scoped to several agents.',
+      });
+      return null;
+    }
+    agentId = agentScope[0];
+  }
+  if (!agentScope.includes(agentId)) {
+    sendJson(res, 403, { error: 'Token is not allowed to use this agent.' });
+    return null;
+  }
+  if (params.sessionId) {
+    const existing = memoryService.getSessionById(params.sessionId);
+    if (existing?.agent_id && !agentScope.includes(existing.agent_id)) {
+      sendJson(res, 403, {
+        error: 'Token is not allowed to use this session.',
+      });
+      return null;
+    }
+  }
+  // Slash commands can switch or manage agents; only approvals stay usable.
+  const slashCommands = resolveTextChannelSlashCommands(params.content);
+  if (
+    slashCommands?.some((args) => parseLowerArg(args, 0) !== 'approve') === true
+  ) {
+    sendJson(res, 403, {
+      error: 'Slash commands are not available for agent-scoped tokens.',
+    });
+    return null;
+  }
+  return agentId;
+}
+
 // `rejoin` reads the body as `/api/chat` would, then only joins that request's
 // turn while it runs (`POST /api/chat/rejoin`): a client whose stream broke
 // off gets the rest of it, and never a second turn.
@@ -3457,6 +3551,7 @@ async function handleApiChat(
   rejoin = false,
 ): Promise<void> {
   const adminActions = adminActionClaimList(authContext.payload);
+  const agentScope = resolveApiTokenAgentScope(authContext);
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
   const media = await normalizeApiChatMediaItems(body.media);
@@ -3486,6 +3581,18 @@ async function handleApiChat(
       error: 'Invalid `reasoningEffort`; expected none, low, medium, or xhigh.',
     });
     return;
+  }
+
+  if (agentScope !== null) {
+    const scopedAgentId = resolveAgentScopedChatAgent({
+      res,
+      agentScope,
+      requestedAgentId: normalizeOptionalString(body.agentId),
+      sessionId: normalizeOptionalString(body.sessionId),
+      content,
+    });
+    if (!scopedAgentId) return;
+    body.agentId = scopedAgentId;
   }
 
   const sessionId =
@@ -3521,6 +3628,7 @@ async function handleApiChat(
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     ...(body.scope !== undefined ? { scope: body.scope } : {}),
+    ...(agentScope !== null ? { allowedAgentIds: agentScope } : {}),
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
@@ -3542,7 +3650,11 @@ async function handleApiChat(
         403,
         'Connector approvals require a human chat session.',
       );
-    await forwardConnectorDecision(approval, sessionId, chatRequest.userId);
+    chatRequest.approvalClaim = await forwardConnectorDecision(
+      approval,
+      approvalSessionId(sessionId, approval.approvalId),
+      chatRequest.userId,
+    );
   }
   if (rejoin) {
     if (
@@ -4695,8 +4807,19 @@ async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
 
-async function handleApiAgentList(res: ServerResponse): Promise<void> {
-  sendJson(res, 200, await getGatewayAgentList());
+async function handleApiAgentList(
+  res: ServerResponse,
+  agentScope: string[] | null = null,
+): Promise<void> {
+  const list = await getGatewayAgentList();
+  if (agentScope === null) {
+    sendJson(res, 200, list);
+    return;
+  }
+  const allowed = new Set(agentScope);
+  sendJson(res, 200, {
+    agents: list.agents.filter((agent) => allowed.has(agent.id)),
+  });
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -4895,20 +5018,6 @@ async function handleApiAdminJobsEdgeRevisions(
 function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
   const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
   sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
-}
-
-function handleApiProactivePull(res: ServerResponse, url: URL): void {
-  const channelId = (url.searchParams.get('channelId') || '').trim();
-  if (!channelId) {
-    sendJson(res, 400, { error: 'Missing `channelId` query parameter.' });
-    return;
-  }
-  const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
-  const limit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
-  const messages = claimQueuedProactiveMessages(channelId, limit).filter(
-    (message) => !shouldSuppressProactiveMessage(message),
-  );
-  sendJson(res, 200, { channelId, messages });
 }
 
 function handleApiShutdown(res: ServerResponse): void {
@@ -11235,6 +11344,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminAudit(res, url);
             return;
           }
+          if (pathname === '/api/admin/approval-settings') {
+            await handleApprovalSettingsAdmin(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
           if (pathname === '/api/admin/safety-rules') {
             await handleSafetyRulesAdmin(
               req,
@@ -11466,11 +11583,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/agents/list' && method === 'GET') {
-            await handleApiAgentList(res);
+            await handleApiAgentList(
+              res,
+              resolveApiTokenAgentScope(authContext),
+            );
             return;
           }
-          if (pathname === '/api/proactive/pull' && method === 'GET') {
-            handleApiProactivePull(res, url);
+          if (
+            pathname === GATEWAY_PROACTIVE_PATH &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            if (method === 'GET') handleApiProactivePull(res, url);
+            else await handleApiProactiveAcknowledge(req, res);
             return;
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
@@ -11660,7 +11784,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {
-            await handleApiShellEnv(res, hasGatewayApiAuth(req));
+            await handleApiShellEnv(res, hasGatewayApiAuth(req), runtimeScope);
             return;
           }
           if (
@@ -11741,7 +11865,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         pathname,
         method,
       );
-      if (openAIAccess === 'denied') {
+      if (
+        openAIAccess === 'denied' ||
+        resolveApiTokenAgentScope(authContext) !== null
+      ) {
         sendJson(res, 403, {
           error: {
             message: 'Forbidden.',

@@ -2,14 +2,16 @@ import { SIDEBAR_NAV_GROUPS, type SidebarNavItem } from './sidebar/navigation';
 
 type AdminNavItemSummary = Pick<SidebarNavItem, 'to' | 'label'>;
 
-const TOP_LEVEL_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> = [
+const NON_SIDEBAR_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> = [
   { to: '/agents', label: 'Agents' },
+  { to: '/admin/network-policy', label: 'Network Policy' },
+  { to: '/admin/safety-rules', label: 'Safety blocks' },
 ];
 
 const ALL_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> =
   SIDEBAR_NAV_GROUPS.flatMap((group) =>
     group.items.map(({ to, label }) => ({ to, label })),
-  ).concat(TOP_LEVEL_NAV_ITEMS);
+  ).concat(NON_SIDEBAR_NAV_ITEMS);
 
 export function resolveCurrentAdminNavItem(
   pathname: string,

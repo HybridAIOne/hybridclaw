@@ -21,6 +21,7 @@ import {
   type ApprovalAnswerDecision,
   approvalAnswerText,
 } from './approval-answer.js';
+import { claimApprovalResponse } from './approval-coordination.js';
 import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -40,8 +41,9 @@ import type {
 } from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,
-  clearPendingApproval,
   getPendingApproval,
+  handoffPendingApprovalClaim,
+  type PendingApprovalClaim,
   rememberPendingApproval,
 } from './pending-approvals.js';
 import { type StructuredReply, structuredReply } from './structured-reply.js';
@@ -128,6 +130,7 @@ export function resolvePendingApprovalSessionId(sessionId: string): string {
 }
 
 export async function handleTextChannelApprovalCommand(params: {
+  approvalClaim?: PendingApprovalClaim;
   msteamsTenantId?: string;
   sessionId: string;
   guildId: string | null;
@@ -259,7 +262,13 @@ export async function handleTextChannelApprovalCommand(params: {
       };
     }
 
-    await clearPendingApproval(pendingSessionId, { disableButtons: true });
+    const claim = claimApprovalResponse(
+      pendingSessionId,
+      approvalId,
+      userId,
+      params.approvalClaim,
+    );
+    handoffPendingApprovalClaim(claim);
     if (
       action === 'no' ||
       action === 'deny' ||
@@ -328,11 +337,12 @@ export async function handleTextChannelApprovalCommand(params: {
               source: 'msteams.approval',
             }
           : {}),
-        sessionId,
+        sessionId: pendingSessionId,
         guildId,
         channelId,
         userId,
         username,
+        approvalClaim: params.approvalClaim,
         content: approvalAnswerText({ approvalId, decision }),
         approval: { approvalId, decision },
         media: [],
@@ -356,7 +366,6 @@ export async function handleTextChannelApprovalCommand(params: {
 
   const approvalSessionId = approvalResult.sessionId || sessionId;
   if (isSilentReply(approvalResult.result)) {
-    await clearPendingApproval(approvalSessionId, { disableButtons: true });
     return {
       handled: true,
       sessionId: approvalSessionId,
@@ -370,7 +379,6 @@ export async function handleTextChannelApprovalCommand(params: {
 
   const approvalResultText = stripSilentToken(String(approvalResult.result));
   if (!approvalResultText.trim()) {
-    await clearPendingApproval(approvalSessionId, { disableButtons: true });
     return {
       handled: true,
       sessionId: approvalSessionId,
@@ -413,7 +421,6 @@ export async function handleTextChannelApprovalCommand(params: {
     };
   }
 
-  await clearPendingApproval(approvalSessionId, { disableButtons: true });
   return {
     handled: true,
     ...structuredReply(approvalResult),

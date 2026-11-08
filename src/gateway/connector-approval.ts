@@ -11,6 +11,8 @@ import type { GatewayChatRequest } from './gateway-types.js';
 import {
   claimPendingApprovalByApprovalId,
   getPendingApproval,
+  type PendingApprovalClaim,
+  rollbackPendingApprovalClaim,
 } from './pending-approvals.js';
 
 export function connectorPending(sessionId: string, approvalId: string) {
@@ -18,7 +20,7 @@ export function connectorPending(sessionId: string, approvalId: string) {
   if (
     !pending ||
     pending.approvalId !== approvalId ||
-    pending.resolvedAt ||
+    pending.state !== 'pending' ||
     pending.expiresAt <= Date.now()
   )
     throw new GatewayRequestError(409, 'This approval is no longer pending.');
@@ -29,7 +31,7 @@ export async function forwardConnectorDecision(
   answer: GatewayApprovalAnswer,
   sessionId: string,
   userId: string,
-): Promise<void> {
+): Promise<PendingApprovalClaim | undefined> {
   const id = platformApprovalId(answer.approvalId);
   if (!id) return;
   const pending = connectorPending(sessionId, answer.approvalId);
@@ -53,6 +55,7 @@ export async function forwardConnectorDecision(
   const proof = createHmac('sha256', WEB_API_TOKEN)
     .update(`hy-connector-approval-v1\n${timestamp}\n${id}\n${decision}`)
     .digest('hex');
+  const claim = claimConnectorDecision(sessionId, answer.approvalId, userId);
   const response = await fetch(
     `${HYBRIDAI_BASE_URL.replace(/\/+$/, '')}/api/v1/connectors/approvals/${id}/runtime`,
     {
@@ -66,12 +69,14 @@ export async function forwardConnectorDecision(
       signal: AbortSignal.timeout(15000),
     },
   );
-  if (!response.ok)
+  if (!response.ok) {
+    rollbackPendingApprovalClaim(claim);
     throw new GatewayRequestError(
       502,
       'The connector approval could not be saved. Try again.',
     );
-  claimConnectorDecision(sessionId, answer.approvalId, userId);
+  }
+  return claim;
 }
 
 export function connectorDecisionRequest(
@@ -116,8 +121,13 @@ export function claimConnectorDecision(
   sessionId: string,
   approvalId: string,
   userId: string,
-): void {
-  const claim = claimPendingApprovalByApprovalId({ approvalId, userId });
+): PendingApprovalClaim {
+  const claim = claimPendingApprovalByApprovalId({
+    sessionId,
+    approvalId,
+    userId,
+  });
   if (claim.status !== 'claimed' || claim.sessionId !== sessionId)
     throw new GatewayRequestError(409, 'This approval is no longer pending.');
+  return claim.claim;
 }

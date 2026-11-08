@@ -9,6 +9,7 @@
  * NOT the ladder or tier choice (`providers/model-routing.ts`,
  * `routing/policy.ts`).
  */
+import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type {
@@ -95,14 +96,10 @@ function providerTrigger(
   return null;
 }
 
-function isRetrySafe(output: ContainerOutput): boolean {
-  return !output.pendingApproval && (output.toolExecutions?.length ?? 0) === 0;
-}
-
 export function classifyModelRoutingOutput(
   output: ContainerOutput,
 ): ModelRoutingEscalationTrigger | null {
-  if (!isRetrySafe(output)) return null;
+  if (!isRetrySafeRun(output, false)) return null;
   const error = String(output.error || '').trim();
   if (MALFORMED_TOOL_CALL_RE.test(error)) return 'malformed_tool_call';
   if (error) {

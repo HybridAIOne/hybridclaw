@@ -59,33 +59,13 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
-function previewToolResult(text: string): string {
-  return truncateAuditText(fullToolResult(text), 4_000);
-}
-
-function fullToolResult(text: string): string {
-  const redacted = redactHighEntropyStrings(
+function redactToolResult(text: string): string {
+  return redactHighEntropyStrings(
     String(redactSecretsDeep(text)).replace(
       URL_SECRET_QUERY_PARAM_RE,
       '$1***REDACTED***',
     ),
   );
-  const toolResultsConfig = getRuntimeConfig().audit?.toolResults;
-  if (toolResultsConfig?.mode === 'truncate') {
-    return truncatePreservingWhitespace(
-      redacted,
-      toolResultsConfig.maxChars || 4_000,
-    );
-  }
-  return redacted;
-}
-
-function truncatePreservingWhitespace(text: string, maxChars: number): string {
-  const safeMaxChars = Number.isFinite(maxChars)
-    ? Math.max(1, Math.trunc(maxChars))
-    : 4_000;
-  if (text.length <= safeMaxChars) return text;
-  return `${text.slice(0, safeMaxChars)}...`;
 }
 
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
@@ -164,6 +144,7 @@ export function emitToolExecutionAuditEvents(input: {
   toolExecutions: ToolExecution[];
 }): void {
   const { sessionId, runId, toolExecutions } = input;
+  const toolResultsConfig = getRuntimeConfig().audit?.toolResults;
   toolExecutions.forEach((execution, index) => {
     const toolCallId = `${runId}:tool:${index + 1}`;
     const effectiveTier = execution.approvalTier || 'green';
@@ -412,6 +393,7 @@ export function emitToolExecutionAuditEvents(input: {
       });
     }
 
+    const result = redactToolResult(execution.result || '');
     recordAuditEvent({
       sessionId,
       runId,
@@ -422,8 +404,12 @@ export function emitToolExecutionAuditEvents(input: {
         isError: Boolean(execution.isError),
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
-        resultPreview: previewToolResult(execution.result || ''),
-        resultFull: fullToolResult(execution.result || ''),
+        resultPreview: truncateAuditText(
+          result,
+          toolResultsConfig?.maxChars ?? 4_000,
+        ),
+        // Results can hold mail and documents: full copies only on opt-in.
+        ...(toolResultsConfig?.mode === 'full' ? { resultFull: result } : {}),
         durationMs: execution.durationMs,
         anomaly,
       },

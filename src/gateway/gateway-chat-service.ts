@@ -1,5 +1,5 @@
 /**
- * Gateway turns persist tool exchanges and routing evidence with assistant results.
+ * Gateway turns hold each resolved session queue through persisted replies and routing evidence.
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
  * The unified policy owns tier selection and privacy eligibility for model calls.
@@ -53,6 +53,7 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
@@ -168,8 +169,10 @@ import {
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from './app-widgets.js';
+import { coordinateGatewayApproval } from './approval-coordination.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { approvalReplyContext, recordApprovalReply } from './chat-approval.js';
+import { rememberChatApprovalDecision } from './chat-approval-review.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -261,12 +264,16 @@ import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import { ReplyFetchGuard } from './reply-fetch-guard.js';
 import { recoverGeneratedMediaArtifactsFromResultText } from './result-text-artifacts.js';
+import { withScheduledApprovalAnswers } from './scheduled-approval-answer.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
-import { gatewaySessionQueue } from './session-worker-release.js';
+import {
+  type BindSessionQueue,
+  gatewaySessionQueue,
+} from './session-worker-release.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsThinking,
@@ -655,8 +662,13 @@ function buildA2AChatThreadId(session: {
 export const GATEWAY_RESTARTING_ERROR =
   'The gateway is restarting. Please resend your message in a moment.';
 
-export async function handleGatewayMessage(
+export const handleGatewayMessage = withScheduledApprovalAnswers(
+  coordinateGatewayApproval(handleGatewayMessageQueued),
+);
+
+async function handleGatewayMessageQueued(
   req: GatewayChatRequest,
+  accept: () => void,
 ): Promise<GatewayChatResult> {
   if (isGatewayShuttingDown()) {
     return {
@@ -666,12 +678,13 @@ export async function handleGatewayMessage(
       error: GATEWAY_RESTARTING_ERROR,
     };
   }
+  accept();
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
   }
   return trackInFlightTurn(() =>
-    gatewaySessionQueue.run(req.sessionId, () =>
+    gatewaySessionQueue.run(req.sessionId, (bindSession) =>
       withSpan(
         'hybridclaw.gateway.handle_message',
         {
@@ -681,7 +694,9 @@ export async function handleGatewayMessage(
           'hybridclaw.model': req.model || '',
         },
         async () =>
-          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
+          withChatRoutingTrace(req, () =>
+            handleGatewayMessageInner(req, bindSession),
+          ),
       ),
     ),
   );
@@ -689,6 +704,7 @@ export async function handleGatewayMessage(
 
 async function handleGatewayMessageInner(
   req: GatewayChatRequest,
+  bindSession: BindSessionQueue,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   // An estimate left by a turn that failed is not this turn's.
@@ -747,6 +763,7 @@ async function handleGatewayMessageInner(
   if (autoResetSession) {
     const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
+    await bindSession(autoResetSession.id);
     if (pluginManager) {
       await pluginManager.handleSessionReset({
         previousSessionId,
@@ -766,6 +783,7 @@ async function handleGatewayMessageInner(
     req.agentId ?? undefined,
     { forceNewCurrent: shouldForceNewTuiSession(req) },
   );
+  await bindSession(session.id);
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
   }
@@ -791,6 +809,21 @@ async function handleGatewayMessageInner(
     !isGoalContinuationSource(source) &&
     resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
     resolveChannelTargetKind(req.channelId) !== 'heartbeat';
+  const allowedAgentIds = req.allowedAgentIds;
+  // Thrown (not returned) so HTTP callers answer 403 rather than 500.
+  const agentScopeError = (agentId: string): never => {
+    throw new GatewayRequestError(
+      403,
+      `Agent \`${agentId}\` is not available to this token.`,
+    );
+  };
+  if (
+    allowedAgentIds &&
+    session.agent_id &&
+    !allowedAgentIds.includes(session.agent_id)
+  ) {
+    return agentScopeError(session.agent_id);
+  }
   const addressed = req.dryRun
     ? ({ kind: 'none', content: req.content } as const)
     : resolveAgentAddressing({
@@ -798,6 +831,20 @@ async function handleGatewayMessageInner(
         currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
         fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
       });
+  if (allowedAgentIds) {
+    if (addressed.kind === 'fanout') {
+      return agentScopeError(`@${addressed.alias}`);
+    }
+    if (addressed.kind === 'remote') {
+      return agentScopeError(addressed.canonicalId);
+    }
+    if (
+      addressed.kind === 'agent' &&
+      !allowedAgentIds.includes(addressed.agentId)
+    ) {
+      return agentScopeError(addressed.agentId);
+    }
+  }
   if (addressed.kind === 'error') {
     return attachSessionIdentity({
       status: 'error',
@@ -825,17 +872,20 @@ async function handleGatewayMessageInner(
         };
         let childText: string;
         try {
-          const childResult = await handleGatewayMessageInner({
-            ...req,
-            content: addressed.content,
-            agentId: targetAgentId,
-            addressEnvelope: childEnvelope,
-            source: `${source}.fanout`,
-            onTextDelta: undefined,
-            onThinkingDelta: undefined,
-            onToolProgress: undefined,
-            onApprovalProgress: undefined,
-          });
+          const childResult = await handleGatewayMessageInner(
+            {
+              ...req,
+              content: addressed.content,
+              agentId: targetAgentId,
+              addressEnvelope: childEnvelope,
+              source: `${source}.fanout`,
+              onTextDelta: undefined,
+              onThinkingDelta: undefined,
+              onToolProgress: undefined,
+              onApprovalProgress: undefined,
+            },
+            bindSession,
+          );
           childText =
             childResult.result ||
             childResult.error ||
@@ -856,6 +906,7 @@ async function handleGatewayMessageInner(
         session.agent_id || DEFAULT_AGENT_ID,
         { forceNewCurrent: shouldForceNewTuiSession(req) },
       );
+      await bindSession(session.id);
     }
     return attachSessionIdentity({
       status: 'success',
@@ -978,6 +1029,17 @@ async function handleGatewayMessageInner(
       };
     }
   }
+  if (allowedAgentIds) {
+    const scopedAgentId = resolveAgentForRequest({
+      agentId: req.agentId,
+      session,
+      model: req.model,
+      chatbotId: req.chatbotId,
+    }).agentId;
+    if (!allowedAgentIds.includes(scopedAgentId)) {
+      return agentScopeError(scopedAgentId);
+    }
+  }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
   if (cliSecretSetCommand) {
     return attachSessionIdentity({
@@ -1003,6 +1065,7 @@ async function handleGatewayMessageInner(
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
+    workspaceOverrides: req,
     abortSignal: req.abortSignal,
     steerInbox,
   });
@@ -1092,6 +1155,7 @@ async function handleGatewayMessageInner(
     if (reboundSession) {
       const previousSessionId = req.sessionId;
       req.sessionId = reboundSession.id;
+      await bindSession(reboundSession.id);
       if (pluginManager) {
         await pluginManager.handleSessionReset({
           previousSessionId,
@@ -1110,6 +1174,7 @@ async function handleGatewayMessageInner(
       agentId,
       { forceNewCurrent: shouldForceNewTuiSession(req) },
     );
+    await bindSession(session.id);
     if (session.id !== req.sessionId) {
       req.sessionId = session.id;
     }
@@ -1217,6 +1282,7 @@ async function handleGatewayMessageInner(
     const rotated = createFreshSessionInstance(req.sessionId);
     req.sessionId = rotated.session.id;
     session = rotated.session;
+    await bindSession(session.id);
     if (pluginManager) {
       await pluginManager.handleSessionReset({
         previousSessionId: rotated.previousSession.id,
@@ -2416,6 +2482,11 @@ async function handleGatewayMessageInner(
     }
     await rememberConnectorApproval(req, output);
     recordApprovalReply(req.sessionId, runId, output);
+    await rememberChatApprovalDecision(
+      req.sessionId,
+      req.userId,
+      output.approvalReply,
+    );
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
@@ -2698,12 +2769,21 @@ async function handleGatewayMessageInner(
       acceptedDelegationPlans.length > 0
         ? enqueueDelegationBatchFromSideEffects({
             plans: acceptedDelegationPlans,
+            fileWriteGuardSessionId:
+              output.fileWriteGuardSessionId ??
+              req.executionSessionId ??
+              req.sessionId,
+            fileWriteGuardUserPrompt: output.fileWriteGuardUserPrompt,
             parentSessionId: req.sessionId,
             channelId: req.channelId,
             chatbotId,
             enableRag,
             agentId,
             parentModel: model,
+            workspaceOverrides: {
+              workspacePathOverride,
+              workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+            },
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
             runParentTurn: ({ content, onTextDelta }) =>
@@ -2721,6 +2801,8 @@ async function handleGatewayMessageInner(
                 onTextDelta,
                 onProactiveMessage: req.onProactiveMessage,
                 source: DELEGATION_RESULTS_SOURCE,
+                workspacePathOverride,
+                workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
               }),
             publicId: req.delegationPublicId,
             ackText: ackText || '',
@@ -2759,6 +2841,7 @@ async function handleGatewayMessageInner(
       });
       recordPendingHatchingTerminalAudit();
       const storedErrorTurn = recordErrorTurn({
+        runId,
         sessionId: req.sessionId,
         agentId,
         channelId: req.channelId,
@@ -3166,6 +3249,7 @@ async function handleGatewayMessageInner(
     if (!turnPersisted) {
       try {
         storedErrorTurn = recordErrorTurn({
+          runId,
           sessionId: req.sessionId,
           agentId,
           channelId: req.channelId,

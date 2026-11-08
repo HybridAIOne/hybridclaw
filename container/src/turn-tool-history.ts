@@ -6,17 +6,19 @@
  * Models and replay see bounded excerpts with durable file references; the
  * gateway restores full evidence only for audit and transcript storage.
  * Call starts and individual results are checkpointed before batch assembly,
- * so an abrupt worker kill cannot erase completed outcomes.
+ * so an abrupt worker kill cannot erase completed outcomes or known usage.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../shared/atomic-write.js';
+import { validateTokenUsage } from '../shared/token-usage.js';
 import {
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
 } from '../shared/tool-history.js';
 import { TurnCheckpoint } from '../shared/turn-checkpoint.js';
+import { createTokenUsageStats, finalizeTokenUsage } from './token-usage.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
 // Engineering choice, 2026-10-30: cap inline evidence at 16k characters;
@@ -35,6 +37,7 @@ export class TurnToolHistory {
   private activeHistory: ChatMessage[] | undefined;
   private readonly checkpoint?: TurnCheckpoint;
   readonly recovered: ContainerOutput | null;
+  readonly tokenUsage = createTokenUsageStats();
 
   constructor(
     private readonly sessionId: string,
@@ -45,6 +48,33 @@ export class TurnToolHistory {
     if (workspaceRoot && turnId)
       this.checkpoint = new TurnCheckpoint(workspaceRoot, sessionId, turnId);
     this.recovered = this.checkpoint?.recovered ?? null;
+  }
+
+  checkpointUsage(): void {
+    this.checkpoint?.usage(finalizeTokenUsage(this.tokenUsage));
+  }
+
+  interruptedOutput(reason: string): ContainerOutput {
+    const saved = this.checkpoint?.snapshot();
+    const recovered = this.recovered ? saved : undefined;
+    const history = recovered?.toolHistory ?? this.finishInterrupted(reason);
+    return this.withSpilledReferences({
+      status: 'error',
+      result: null,
+      toolsUsed: saved?.toolsUsed ?? [],
+      toolExecutions: saved?.toolExecutions ?? [],
+      tokenUsage:
+        recovered?.tokenUsage ??
+        validateTokenUsage(finalizeTokenUsage(this.tokenUsage)),
+      ...(history.length
+        ? {
+            toolHistory: history,
+            toolHistoryForReplay:
+              recovered?.toolHistoryForReplay ??
+              this.finishInterrupted(reason, true),
+          }
+        : {}),
+    });
   }
 
   retain(history: ChatMessage[]): void {
@@ -252,10 +282,23 @@ export class TurnToolHistory {
    * outcome is unknown rather than "not executed".
    */
   finishInterrupted(reason: string, forReplay = false): ChatMessage[] {
-    return this.close(`Tool outcome unknown: ${reason}`, forReplay);
+    const saved = this.checkpoint?.snapshot().toolHistory ?? [];
+    let lastAssistant = saved.length - 1;
+    while (lastAssistant >= 0 && saved[lastAssistant].role !== 'assistant')
+      lastAssistant--;
+    const outcomes = new Map(
+      saved
+        .slice(lastAssistant + 1)
+        .map((message) => [message.tool_call_id, message]),
+    );
+    return this.close(`Tool outcome unknown: ${reason}`, forReplay, outcomes);
   }
 
-  private close(openCallResult: string, forReplay: boolean): ChatMessage[] {
+  private close(
+    openCallResult: string,
+    forReplay: boolean,
+    outcomes?: Map<string | undefined, ChatMessage>,
+  ): ChatMessage[] {
     const completed = structuredClone(
       forReplay
         ? this.replayMessages.filter(
@@ -271,12 +314,14 @@ export class TurnToolHistory {
         pending.delete(message.tool_call_id);
     }
     for (const id of pending) {
-      completed.push({
-        role: 'tool',
-        tool_call_id: id,
-        content: openCallResult,
-        is_error: true,
-      });
+      completed.push(
+        outcomes?.get(id) ?? {
+          role: 'tool',
+          tool_call_id: id,
+          content: openCallResult,
+          is_error: true,
+        },
+      );
     }
     // Fail the turn on a pairing bug: persisting it would corrupt future replay,
     // and silently dropping history could hide tool side effects.

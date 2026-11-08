@@ -62,3 +62,22 @@ export function readWithIdleTimeout(
     );
   });
 }
+
+// A JSON fallback to a streaming request has the same idle bound as SSE chunks.
+export async function readJsonWithIdleTimeout(
+  response: Response,
+): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) return response.json();
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await readWithIdleTimeout(reader);
+      text += decoder.decode(value, { stream: !done });
+      if (done) return JSON.parse(text) as unknown;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

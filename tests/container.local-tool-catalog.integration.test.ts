@@ -258,6 +258,14 @@ test('recovers mixed exposed calls without executing a valid starter sibling', a
   expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', isError: false });
 });
 
+test('recovers a direct call to a tool the request does not admit, e.g. one the prompt named', async () => {
+  const direct = { role: 'assistant', content: null, tool_calls: [{ id: 'direct-navigate', type: 'function', function: { name: 'browser_navigate', arguments: '{"url":"https://example.com"}' } }] };
+  const { output, requests } = await harness([direct, catalog('call', 'read', { path: 'notes.txt' })], { localStarterTools: ['skills_list'], blockedTools: ['browser_navigate'] });
+  expect(output.status).toBe('success');
+  expect(requests[1].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'direct-navigate', content: expect.stringContaining('No tool in this batch was executed') });
+  expect(output.toolExecutions?.map((entry) => [entry.name, entry.blocked ?? false])).toEqual([['browser_navigate', true], ['read', false]]);
+});
+
 test('never recovers a mixed batch containing an unexposed direct function', async () => {
   const direct = { id: 'unexposed-write', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'must-not-exist.txt', contents: 'not executed' }) } };
   const invalid = catalog('call', undefined, {});

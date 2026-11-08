@@ -17,9 +17,9 @@ test.each([
   ['value.json', '42', false],
 ])(
   'writing %s reports syntax without changing requested bytes',
-  (name, contents, invalid) => {
+  async (name, contents, invalid) => {
     const root = makeTempDir('json-feedback-');
-    const result = runFileWrite({ path: name, contents }, (p) =>
+    const result = await runFileWrite({ path: name, contents }, (p) =>
       path.join(root, p),
     );
     expect(result).toMatch(/^Wrote /);
@@ -28,9 +28,9 @@ test.each([
   },
 );
 
-test('syntax feedback does not echo malformed secret-bearing content', () => {
+test('syntax feedback does not echo malformed secret-bearing content', async () => {
   const root = makeTempDir('json-feedback-');
-  const result = runFileWrite(
+  const result = await runFileWrite(
     {
       path: 'config.json',
       contents: '{"token":"private_fixture_value" invalid}',
@@ -43,10 +43,10 @@ test('syntax feedback does not echo malformed secret-bearing content', () => {
 
 test.each(['x'.repeat(1_000_000), '界'.repeat(100_000)])(
   'large JSON writes remain available with explicit unchecked feedback',
-  (data) => {
+  async (data) => {
     const root = makeTempDir('json-feedback-');
     const contents = JSON.stringify({ data });
-    const result = runFileWrite({ path: 'large.json', contents }, (p) =>
+    const result = await runFileWrite({ path: 'large.json', contents }, (p) =>
       path.join(root, p),
     );
     expect(result).toMatch(/not checked/);
@@ -56,9 +56,9 @@ test.each(['x'.repeat(1_000_000), '界'.repeat(100_000)])(
   },
 );
 
-test('the task-sandbox write path reports the same syntax feedback', () => {
+test('the task-sandbox write path reports the same syntax feedback', async () => {
   const run = vi.fn(() => ({ status: 0, stdout: '', stderr: '' }));
-  const result = runFileWrite(
+  const result = await runFileWrite(
     { path: 'fixture.json', contents: '{]' },
     (p) => `/workspace/${p}`,
     { container: 'fixture-worker', run },

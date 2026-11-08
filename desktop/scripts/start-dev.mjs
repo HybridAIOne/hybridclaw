@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -75,18 +76,16 @@ async function prepareDevBundle() {
 }
 
 async function main() {
+  // Electron resolves and installs its executable on first use.
+  const electronExecutable = createRequire(import.meta.url)('electron');
   const preparedExecutablePath = await prepareDevBundle();
 
   if (process.platform !== 'darwin') {
-    const child = spawn(
-      path.join(repoRoot, 'node_modules', '.bin', 'electron'),
-      ['.'],
-      {
-        cwd: desktopDir,
-        stdio: 'inherit',
-        env: process.env,
-      },
-    );
+    const child = spawn(electronExecutable, ['.'], {
+      cwd: desktopDir,
+      stdio: 'inherit',
+      env: process.env,
+    });
     child.on('exit', (code, signal) => {
       if (signal) {
         process.kill(process.pid, signal);

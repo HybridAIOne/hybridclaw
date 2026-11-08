@@ -1461,12 +1461,14 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'budget-tokens',
         taskId: undefined,
-        source: 'scheduler-job',
-        channelId: 'tui',
-        artifactCount: 0,
-        result: idleText,
+        execution: 'completed',
+        delivery: 'queued',
       },
       'Scheduled task completed',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'tui', queued: 1, artifactCount: 0 }),
+      'Proactive message queued for local channel delivery',
     );
   });
 
@@ -1506,12 +1508,14 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'budget-tokens',
         taskId: undefined,
-        source: 'scheduler-job',
-        channelId: 'tui',
-        result: 'HEARTBEAT_OK',
-        artifactCount: 1,
+        execution: 'completed',
+        delivery: 'queued',
       },
       'Scheduled task completed',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'tui', queued: 1, artifactCount: 1 }),
+      'Proactive message queued for local channel delivery',
     );
     expect(state.loggerInfo).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2319,7 +2323,7 @@ describe('gateway bootstrap', () => {
       undefined,
       expect.any(Array),
     );
-    await pendingApprovals.clearPendingApproval('session');
+    await pendingApprovals.clearPendingApproval('session', { ...pendingApprovals.getPendingApproval('session')! });
   });
 
   test('stores Slack pending approvals via the transport notification hook', async () => {
@@ -2399,7 +2403,7 @@ describe('gateway bootstrap', () => {
       },
       disableButtons: cleanup.disableButtons,
     });
-    await pendingApprovals.clearPendingApproval('session-slack');
+    await pendingApprovals.clearPendingApproval('session-slack', { ...pendingApprovals.getPendingApproval('session-slack')! });
   });
 
   test('routes Slack slash-text commands through the gateway command handler', async () => {
@@ -2477,7 +2481,6 @@ describe('gateway bootstrap', () => {
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       userId: 'user-a',
-      resolvedAt: null,
       disableButtons: null,
       disableTimeout: null,
     });
@@ -2500,7 +2503,7 @@ describe('gateway bootstrap', () => {
         }),
       );
     } finally {
-      await pendingApprovals.clearPendingApproval(sessionId);
+      await pendingApprovals.clearPendingApproval(sessionId, { ...pendingApprovals.getPendingApproval(sessionId)! });
     }
   });
 
@@ -2516,7 +2519,6 @@ describe('gateway bootstrap', () => {
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       userId: 'user-a',
-      resolvedAt: null,
       disableButtons: null,
       disableTimeout: null,
       commandAction: { approveArgs: ['second-opinion', 'validate'] },
@@ -2549,7 +2551,7 @@ describe('gateway bootstrap', () => {
         );
       }
     } finally {
-      await pendingApprovals.clearPendingApproval(sessionId);
+      await pendingApprovals.clearPendingApproval(sessionId, { ...pendingApprovals.getPendingApproval(sessionId)! });
     }
   });
 
@@ -2617,7 +2619,7 @@ describe('gateway bootstrap', () => {
     expect(stream.finalize).toHaveBeenCalledWith(
       expect.not.stringContaining('- `4`'),
     );
-    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
+    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id', { ...pendingApprovals.getPendingApproval('teams:dm:user-aad-id')! });
   });
 
   test('routes bare Teams numeric approvals through the approval command flow', async () => {
@@ -2631,7 +2633,6 @@ describe('gateway bootstrap', () => {
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       userId: 'user-aad-id',
-      resolvedAt: null,
       disableButtons: null,
       disableTimeout: null,
     });
@@ -2680,7 +2681,7 @@ describe('gateway bootstrap', () => {
       }),
     );
     expect(reply).toHaveBeenCalledWith('Approved.');
-    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
+    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id', { ...pendingApprovals.getPendingApproval('teams:dm:user-aad-id')! });
   });
 
   test('resolves Teams numeric approvals when the prompt is stored under the session instance id', async () => {
@@ -2698,7 +2699,6 @@ describe('gateway bootstrap', () => {
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       userId: 'user-aad-id',
-      resolvedAt: null,
       disableButtons: null,
       disableTimeout: null,
     });
@@ -2743,13 +2743,13 @@ describe('gateway bootstrap', () => {
           content: 'yes approve123 for all',
           msteamsTenantId: 'tenant-a',
           source: 'msteams.approval',
-          sessionId: sessionKey,
+          sessionId: sessionInstanceId,
         }),
       );
       expect(reply).toHaveBeenCalledWith('Approved.');
     } finally {
       state.currentSession.id = previousSessionId;
-      await pendingApprovals.clearPendingApproval(sessionInstanceId);
+      await pendingApprovals.clearPendingApproval(sessionInstanceId, { ...pendingApprovals.getPendingApproval(sessionInstanceId)! });
     }
   });
 

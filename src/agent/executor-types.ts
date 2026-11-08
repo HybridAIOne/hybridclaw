@@ -1,5 +1,6 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
+import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
@@ -23,6 +24,7 @@ import type { PromptClient } from './prompt-hooks.js';
 export interface ExecutorRequest
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
+    FileWriteGuardContext,
     ToolCallLimits {
   sessionId: string;
   runId?: string;
@@ -83,6 +85,11 @@ export interface ExecutorRequest
   /** Notes the user sends while this request runs; see infra/steer-inbox.ts. */
   steerInbox?: SteerInbox;
 }
+
+export type WorkspaceOverrides = Pick<
+  ExecutorRequest,
+  'workspacePathOverride' | 'workspaceDisplayRootOverride'
+>;
 
 export interface Executor {
   exec(request: ExecutorRequest): Promise<ContainerOutput>;

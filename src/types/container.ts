@@ -3,10 +3,15 @@ import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
 } from '../../container/shared/approval-reply.js';
+import type {
+  FileWriteGuardContext,
+  FileWriteGuardReceipt,
+} from '../../container/shared/file-write-guard.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { RecoveryDisposition } from '../../container/shared/turn-checkpoint.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
@@ -54,6 +59,7 @@ export interface AddressEnvelope {
 export interface ContainerInput
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
+    FileWriteGuardContext,
     ToolCallLimits {
   healthCheck?: {
     nonce: string;
@@ -124,7 +130,10 @@ export interface ContainerInput
   escalationTarget?: EscalationTarget;
 }
 
-export interface ContainerOutput {
+export interface ContainerOutput
+  extends FileWriteGuardContext,
+    FileWriteGuardReceipt {
+  recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;

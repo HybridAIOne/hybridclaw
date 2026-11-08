@@ -118,6 +118,11 @@ describe('bash command classification', () => {
 
   test.each([
     ['cat README.md', 'green'],
+    ['date', 'green'],
+    ['date -u +%FT%TZ', 'green'],
+    ["date -u '+%F %T'", 'green'],
+    ["date -s '2030-01-01'", 'yellow'],
+    ['date +%s -s 2030-01-01', 'yellow'],
     ['cat *', 'green'],
     ["grep -rn --exclude='.env*' TODO src/", 'green'],
     ["grep -r --exclude '.env*' KEY .", 'green'],
@@ -397,17 +402,12 @@ approval:
     'rm -rf build src',
     'rm -rf node_modules/../src',
     'rm -rf $DIR/node_modules',
-    'rm -rf ~/.cache',
-    'rm -rf ../build',
     "find . -name node_modules -prune -exec rm -rf {} +",
     'find build | xargs rm -rf',
     'docker exec box rm -rf node_modules',
-    // Targets resolve through `cd`: these leave the workspace or are unknown.
-    'cd .. && rm -rf node_modules',
-    'cd ~/other && rm -rf node_modules',
+    // Unresolved targets and find deletion keep conservative classification.
     'cd "$DIR" && rm -rf node_modules',
     "cd .. && find dist -name '*.map' -delete",
-    "bash -c 'cd .. && rm -rf build'",
     'find . -name x | xargs -I{} rm {}',
   ])('deletions with any non-cache or unknown target are not promotable: %j', (command) => {
     const evaluation = evaluateBash(command);
@@ -455,7 +455,7 @@ approval:
     ['npm run format', 'bash:other', 'yellow'],
     ['terraform plan', 'bash:other', 'yellow'],
     ['echo "rm notes.txt"', 'bash:other', 'yellow'],
-    ['command -v rm', 'bash:other', 'yellow'],
+    ['command -v rm', 'bash:read-only', 'green'],
     ['pnpm rm lodash', 'bash:other', 'yellow'],
     ['grep -n rmdir src/app.ts', 'bash:read-only', 'green'],
   ])('commands that only mention rm are not deletions: %j', (command, actionKey, tier) => {
@@ -496,6 +496,15 @@ approval:
     "find . -name '*.log' -exec cp {} ../backup/ \\;",
     "cat <<'EOF' > ../out.txt\nhello\nEOF",
     'echo x > /opt/data/out.txt',
+    'rm -f /opt/data/x > /tmp/log.txt',
+    'pip install --target /opt/libs requests > /tmp/pip.log 2>&1',
+    'tar -xzf bundle.tgz -C /opt/data 2>/dev/null',
+    "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
+    'rm -rf ~/.cache',
+    'rm -rf ../build',
+    'cd .. && rm -rf node_modules',
+    'cd ~/other && rm -rf node_modules',
+    "bash -c 'cd .. && rm -rf build'",
   ])('writes that land outside the workspace hit the fence: %j', (command) => {
     const evaluation = evaluateBash(command);
 
@@ -549,10 +558,10 @@ approval:
     ['grep -o PATTERN file', 'bash:read-only'],
     ["grep -oE '[a-z]+' notes.txt | sort", 'bash:other'],
     ['rg -o PATTERN', 'bash:read-only'],
-    ['cd /opt/data && grep -o x y', 'bash:other'],
+    ['cd /opt/data && grep -o x y', 'bash:read-only'],
     // An `-o` output would make these lines writes, which the fence checks;
     // `2>/dev/null` changes nothing.
-    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:other'],
+    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:read-only'],
     [
       'cd /opt/data && grep -o \'"type":"[^"]*"\' wire.jsonl 2>/dev/null | sort | uniq -c',
       'bash:other',
@@ -565,12 +574,12 @@ approval:
     ['cd /opt/data && egrep -o x y 2>/dev/null', 'bash:other'],
     [
       'cd /opt/data && rg -o \'src="[^"]+"\' page.html 2>/dev/null',
-      'bash:other',
+      'bash:read-only',
     ],
     ['ls -o /opt/data > listing.txt', 'bash:write-op'],
     [
       "cd /opt/data && find . -name '*.md' -o \\( -name '*.txt' \\) 2>/dev/null",
-      'bash:other',
+      'bash:read-only',
     ],
     ['cd /opt/data && ps -o pid,comm 2>/dev/null', 'bash:other'],
     [
@@ -583,7 +592,7 @@ approval:
     ],
     [
       "cd /opt/data && find . -name '*.log' | xargs grep -o x 2>/dev/null",
-      'bash:other',
+      'bash:read-only',
     ],
     // Next to a real write, the pattern is still no target.
     ['cd /opt/data && grep -o x y > /tmp/matches.txt', 'bash:write-op'],
@@ -628,6 +637,8 @@ approval:
     'node scripts/fetch.cjs >& /opt/data/log.txt',
     'echo x 2>&1 > /opt/data/out.txt',
     'echo x >| /opt/data/out.txt',
+    'printf x > /dev/null-backup',
+    'touch /dev/null-backup',
   ])('writes outside the workspace stay fenced: %j', (command) => {
     const evaluation = evaluateBash(command);
 
@@ -704,15 +715,5 @@ approval:
     );
   });
 
-  // Known gaps (owner call, 2026-09-29): a scratch target still switches the
-  // absolute-path fallback off, and tar has no write intent of its own. Move a
-  // row to a passing table once the fence sees it.
-  test.fails.each([
-    "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
-    'rm -f /opt/data/x > /tmp/log.txt',
-    'pip install --target /opt/libs requests > /tmp/pip.log 2>&1',
-    'tar -xzf bundle.tgz -C /opt/data 2>/dev/null',
-  ])('outside write the fence does not see yet: %j', (command) => {
-    expect(evaluateBash(command).actionKey).toBe('bash:workspace-fence');
-  });
+
 });

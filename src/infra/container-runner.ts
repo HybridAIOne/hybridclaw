@@ -1,8 +1,7 @@
 /**
- * Runner binds model credentials and per-agent configuration to one request.
- * Optional shell OAuth credentials are resolved at tool execution, not here.
- * Local starter names control schema visibility; the independent allowed/blocked
- * tool lists remain the permission boundary enforced by the worker.
+ * Docker workers keep one session owner and one request lease per process.
+ * Lifecycle transitions reject reuse after stop; host spawning stays in
+ * host-runner. This module does not own durable conversation state.
  */
 /**
  * Container Runner — manages a pool of persistent containers.
@@ -103,6 +102,7 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
+import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -156,7 +156,11 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
-import { recoverWorkerOutput } from './worker-recovery.js';
+import { WorkerLifecycle } from './worker-lifecycle.js';
+import {
+  recoverWorkerFailure,
+  recoverWorkerOutput,
+} from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
@@ -177,8 +181,6 @@ interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   agentId: string;
   startedAt: number;
   lastUsedAt: number;
-  warm: boolean;
-  readyForInputAt: number | null;
   pendingColdStartProbeStartedAt: number | null;
   stderrBuffer: string;
   stderrHistory: string[];
@@ -186,12 +188,10 @@ interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   workerSignature: string;
   /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
   ipcAuthSecret: string;
-  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
-  activity?: import('./ipc.js').ActivityTracker;
   healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
@@ -329,7 +329,7 @@ export function getActiveContainerCount(): number {
 export function getInFlightContainerCount(): number {
   let count = 0;
   for (const entry of pool.values()) {
-    if (entry.activity) count += 1;
+    if (entry.lifecycle.activity) count += 1;
   }
   return count;
 }
@@ -342,7 +342,7 @@ export function getActiveContainerSessionIds(): string[] {
 
 export function getInFlightContainerSessionIds(): string[] {
   return Array.from(pool.entries())
-    .filter(([, entry]) => Boolean(entry.activity))
+    .filter(([, entry]) => Boolean(entry.lifecycle.activity))
     .map(([sessionId]) => sessionId)
     .sort((left, right) => left.localeCompare(right));
 }
@@ -387,7 +387,7 @@ export function stopSessionContainer(sessionId: string): boolean {
     { sessionId, containerName: entry.containerName },
     'Stopping session container',
   );
-  stopContainer(entry.containerName);
+  stopPoolEntry(entry);
   removePoolEntry(entry);
   return true;
 }
@@ -400,7 +400,7 @@ function stopContainer(containerName: string): void {
 }
 
 function stopPoolEntry(entry: PoolEntry): void {
-  stopContainer(entry.containerName);
+  if (entry.lifecycle.stop()) stopContainer(entry.containerName);
 }
 
 function stopWarmEntries(entries: PoolEntry[]): void {
@@ -773,6 +773,7 @@ function getOrSpawnContainer(
   const existing = params.warm ? null : pool.get(sessionId);
   if (
     existing &&
+    existing.lifecycle.reusable &&
     !existing.process.killed &&
     existing.process.exitCode === null
   ) {
@@ -957,22 +958,24 @@ function getOrSpawnContainer(
     id: ipcSessionId,
     process: proc,
     containerName,
-    sessionId,
+    get sessionId() {
+      return entry.lifecycle.owner.kind === 'session'
+        ? entry.lifecycle.owner.sessionId
+        : ipcSessionId;
+    },
     ipcSessionId,
     agentId,
     startedAt: Date.now(),
     lastUsedAt: Date.now(),
-    warm: params.warm === true,
-    readyForInputAt: null,
+    lifecycle: new WorkerLifecycle(params.warm ? null : sessionId),
     pendingColdStartProbeStartedAt: null,
     stderrBuffer: '',
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
     ipcAuthSecret: generateIpcAuthSecret(),
-    terminalError: null,
     isReady() {
-      return entry.readyForInputAt != null;
+      return entry.lifecycle.phase === 'idle';
     },
     stop() {
       stopPoolEntry(entry);
@@ -982,7 +985,9 @@ function getOrSpawnContainer(
   // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
   // without stdio and emits 'error' next tick, fatal if nobody listens.
   proc.on('error', (err) => {
-    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    entry.lifecycle.exit(
+      `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`,
+    );
     removePoolEntry(entry);
     logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
@@ -1001,18 +1006,18 @@ function getOrSpawnContainer(
       if (!line) continue;
       if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
       if (consumeModelResponseDebugFileLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (isStreamActivityLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       emitThinkingDelta(entry, line);
       if (isThinkingDeltaLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (
@@ -1020,16 +1025,16 @@ function getOrSpawnContainer(
           logger.debug({ container: containerName }, message);
         })
       ) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (emitApprovalProgress(entry, line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
-      entry.activity?.notify();
+      entry.lifecycle.activity?.notify();
     }
   });
 
@@ -1039,17 +1044,17 @@ function getOrSpawnContainer(
       if (observeAgentLifecycleLine(entry, tail, warmPool)) {
         entry.stderrBuffer = '';
       } else if (consumeModelResponseDebugFileLine(tail)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         entry.stderrBuffer = '';
       } else if (isStreamActivityLine(tail)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         entry.stderrBuffer = '';
       } else {
         rememberStderrLine(entry, tail);
         emitTextDelta(entry, tail);
         emitThinkingDelta(entry, tail);
         if (isThinkingDeltaLine(tail)) {
-          entry.activity?.notify();
+          entry.lifecycle.activity?.notify();
         } else if (
           !consumeCollapsedStreamDebugLine(
             tail,
@@ -1067,27 +1072,26 @@ function getOrSpawnContainer(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatWarmRunnerTerminalError(
-      entry,
-      'Container runtime',
-      {
+    entry.lifecycle.exit(
+      formatWarmRunnerTerminalError(entry, 'Container runtime', {
         code,
         signal,
         // The sandbox image bakes its own node_modules; the host-side
         // bootstrap script cannot repair it.
         repairHint:
           'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
-      },
+      }),
     );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
     removePoolEntry(entry);
-    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
+    if (entry.lifecycle.isSpare)
+      removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
-  if (entry.warm) {
+  if (entry.lifecycle.isSpare) {
     warmPool.add(entry);
     getObservedContainerMemoryBytes();
   } else {
@@ -1229,6 +1233,8 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
+    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,
@@ -1305,6 +1311,8 @@ async function runContainerInner(
   };
   const workerSignature = computeWorkerSignature({
     agentId,
+    gatewayApiToken: input.gatewayApiToken,
+    webSearch: input.webSearch,
     provider: input.provider,
     providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
@@ -1331,7 +1339,7 @@ async function runContainerInner(
       },
       'Worker routing changed; restarting persistent container',
     );
-    stopContainer(existingEntry.containerName);
+    stopPoolEntry(existingEntry);
     removePoolEntry(existingEntry);
   }
 
@@ -1401,13 +1409,13 @@ async function runContainerInner(
     displayRoot: params.workspaceDisplayRootOverride,
   };
   entry.onApprovalProgress = onApprovalProgress;
-  entry.activity = activity;
+  entry.lifecycle.begin(requestId, activity);
   const onAbort = () => {
     logger.info(
       { sessionId, containerName: entry.containerName },
       'Interrupt requested, stopping container',
     );
-    stopContainer(entry.containerName);
+    stopPoolEntry(entry);
     // `docker stop` keeps the `docker run` client alive until the container
     // exits; drop the entry so the next turn cannot reuse a dying container.
     removePoolEntry(entry);
@@ -1417,6 +1425,7 @@ async function runContainerInner(
     if (abortSignal.aborted) onAbort();
   }
 
+  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
     if (isNewContainer) {
       entry.pendingColdStartProbeStartedAt = Date.now();
@@ -1445,7 +1454,7 @@ async function runContainerInner(
         signal: abortSignal,
         activity,
         maxWallClockMs,
-        terminalError: () => entry.terminalError,
+        terminalError: () => entry.lifecycle.terminalError,
       },
     );
     // Before anything else can run: a note from here on is refused.
@@ -1463,8 +1472,11 @@ async function runContainerInner(
       workspacePath,
       sessionId,
       input.runId || input.requestId,
-      Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
+      Boolean(
+        timedOut || abortSignal?.aborted || entry.lifecycle.terminalError,
+      ),
     );
+    output = reviewContext.finish(output);
     remapOutputArtifacts(
       output,
       workspacePath,
@@ -1514,7 +1526,16 @@ async function runContainerInner(
     );
 
     return output;
+  } catch (error) {
+    stopSessionContainer(sessionId);
+    return recoverWorkerFailure(
+      error,
+      workspacePath,
+      sessionId,
+      input.runId || input.requestId,
+    );
   } finally {
+    reviewContext.close();
     params.steerInbox?.close();
     mlxRelay?.stop();
     abortSignal?.removeEventListener('abort', onAbort);
@@ -1533,7 +1554,7 @@ async function runContainerInner(
     if (entry.onApprovalProgress === onApprovalProgress) {
       entry.onApprovalProgress = undefined;
     }
-    entry.activity = undefined;
+    entry.lifecycle.finish(requestId);
   }
 }
 
@@ -1546,7 +1567,7 @@ export function stopAllContainers(): void {
       { sessionId, containerName: entry.containerName },
       'Stopping container (shutdown)',
     );
-    stopContainer(entry.containerName);
+    stopPoolEntry(entry);
   }
   pool.clear();
   for (const entry of warmPool.clear()) {
@@ -1554,7 +1575,7 @@ export function stopAllContainers(): void {
       { agentId: entry.agentId, containerName: entry.containerName },
       'Stopping warm container (shutdown)',
     );
-    stopContainer(entry.containerName);
+    stopPoolEntry(entry);
   }
 }
 

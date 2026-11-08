@@ -14,9 +14,9 @@ import {
   pauseGoalForAgentBudgetHardStop,
   scheduleGoalContinuation,
   setGoalContinuationRunHandler,
-  setGoalContinuationRunning,
+  beginGoalContinuationRun,
 } from '../src/goals/goal-runtime.js';
-import { initDatabase, storeMessage } from '../src/memory/db.js';
+import { getOrCreateSession, initDatabase, storeMessage } from '../src/memory/db.js';
 import type { ToolExecution } from '../src/types/execution.js';
 import type { Session } from '../src/types/session.js';
 
@@ -224,6 +224,7 @@ test('post-turn goal check hard-stops at max turns', async () => {
 
 test('post-turn goal check sends conversation context to judge', async () => {
   const session = makeSession('judge-context');
+  getOrCreateSession(session.id, null, 'tui', 'agent-a');
   setThreadGoal({
     threadId: session.main_session_key,
     goalText: 'all auth tests pass',
@@ -377,7 +378,7 @@ test('scheduled continuation queues a direct rerun while runner is active', () =
   expect(runHandler).toHaveBeenCalledWith(session.id);
 
   runHandler.mockClear();
-  setGoalContinuationRunning(session.id, true);
+  const token = beginGoalContinuationRun(session.id)!;
   scheduleGoalContinuation({
     session,
     context: {
@@ -388,7 +389,7 @@ test('scheduled continuation queues a direct rerun while runner is active', () =
   });
   expect(runHandler).not.toHaveBeenCalled();
 
-  finishGoalContinuationRun(session.id);
+  finishGoalContinuationRun(session.id, token);
 
   expect(runHandler).toHaveBeenCalledWith(session.id);
   clearScheduledGoalContinuation(session.id);

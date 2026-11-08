@@ -228,3 +228,22 @@ test('a later rung that reported a tool and threw surfaces its own error', async
   ).rejects.toBe(failure);
   expect(invoke).toHaveBeenCalledTimes(2);
 });
+
+test.each([
+  { recovery: { kind: 'refused' as const, turnId: 'run-a' } },
+  { recovery: { kind: 'recovered' as const, turnId: 'run-a', calls: [] } },
+  { toolHistory: [{ role: 'assistant' as const, content: null }] },
+  { sideEffects: { delegations: [{ action: 'delegate' as const, prompt: 'Sample.' }] } },
+])('evidence or queued effects prevent all routing retries even without executions: %j', async evidence => {
+  const candidate = output({ status: 'error', error: 'HTTP 503', ...evidence });
+  const invoke = vi.fn().mockResolvedValue(candidate);
+  const result = await executeModelRouting({
+    ladder: resolveLadder({ ...config, tiers: [
+      { name: 'economy', models: ['local/small', 'local/backup'] },
+      config.tiers[1],
+    ] }),
+    agentId: 'main', resolveRuntime: async ({ model }) => runtime(model), invoke,
+  });
+  expect(result.output).toBe(candidate);
+  expect(invoke).toHaveBeenCalledTimes(1);
+});

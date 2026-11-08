@@ -1,10 +1,6 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.5',
-  highlights: [
-    'Clearer Teams approval requests',
-    'Show only available approval choices',
-    'View commands and details with 0',
-  ],
+  version: '0.42.3',
+  highlights: ['Bug fixes'],
 } as const;
 
 export function getReleaseHighlights(version: string): readonly string[] {

@@ -229,7 +229,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
     'musl libc (Alpine) is refused with a --skip-node hint, no partial install',
     () => {
       const { status, output } = runInContainer({
-        image: 'alpine:3.20',
+        image: 'alpine:3.24',
         shell: 'sh',
         timeoutMs: QUICK_TIMEOUT_MS,
         script: [

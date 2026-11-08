@@ -179,3 +179,18 @@ test('a delegate child that failed transiently before any tool ran is retried', 
   expect(digest).toMatch(/^attempts: 2$/m);
   expect(digest).toMatch(/^status: completed$/m);
 });
+
+
+test.each(['recovered', 'refused'] as const)(
+  'a child with %s evidence and no tool progress is never retried', async kind => {
+    runAgentMock.mockResolvedValue({
+      status: 'error', result: null, toolsUsed: [], error: 'fetch failed',
+      recovery: kind === 'recovered'
+        ? { kind, turnId: 'run-a', calls: [] }
+        : { kind, turnId: 'run-a' },
+    });
+    const digest = await runSingleDelegation();
+    expect(runAgentMock).toHaveBeenCalledTimes(1);
+    expect(digest).toMatch(/^attempts: 1$/m);
+  },
+);

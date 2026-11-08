@@ -262,6 +262,22 @@ token scopes. Pair again to obtain `sign_ins.manage` if the app cannot save a
 sign-in. Update the gateway and agent image together to provide both the
 sign-in API and `browser_sign_in` tool.
 
+## GitHub Through Your HybridAI Account
+
+When HybridClaw signs in to HybridAI with an API key and that HybridAI account
+has GitHub connected (Admin → Connectors), plain `git` and `gh` work against
+github.com in the agent's shell. Each approved `bash` command receives a
+short-lived `GH_TOKEN` for that GitHub account, excluded from persistent shell
+snapshots. The agent images point git's github.com credential helper at
+`gh auth git-credential`, so `git clone`, `git push` and `gh pr create` need no
+setup. A scoped chat gets the token only when its scope lists the GitHub
+connector, and a GitHub CLI login made in the shell's own home takes
+precedence.
+
+A separate `docker exec` bash sandbox (`HYBRIDCLAW_BASH_DOCKER_CONTAINER`) also
+receives `GH_TOKEN`, but `gh` and the git credential helper are there only if
+that image provides them.
+
 ## Google OAuth For Direct Google APIs
 
 Use the `google-oauth` route provider when an agent should call Google APIs

@@ -41,6 +41,20 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  if (process.send && process.argv[2] === '--render-for-read') {
+    const stopWithParent = () => process.exit(1);
+    process.once('disconnect', stopWithParent);
+    try {
+      const result = await renderPdfPages(JSON.parse(process.argv[3]));
+      await new Promise((resolve, reject) => {
+        process.send(result, error => error ? reject(error) : resolve());
+      });
+    } finally {
+      process.off('disconnect', stopWithParent);
+      if (process.connected) process.disconnect();
+    }
+    return;
+  }
   const args = parseArgs(process.argv.slice(2));
   if (!args.inputPath || !args.outputDir) {
     console.error(

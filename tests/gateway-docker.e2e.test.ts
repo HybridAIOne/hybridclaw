@@ -244,22 +244,26 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     );
   });
 
-  test('/chat redirects to login (auth enforced in container)', async () => {
+  test('/chat redirects to HybridAI sign-in and back (auth enforced in container)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toMatch(/login/);
+    expect(res.headers.get('location')).toMatch(
+      /\/hybridclaw\/open\?next=%2Fchat$/,
+    );
   });
 
-  test('/agents redirects to login (auth enforced in container)', async () => {
+  test('/agents redirects to HybridAI sign-in and back (auth enforced in container)', async () => {
     const res = await fetch(`${GATEWAY_URL}/agents`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toMatch(/login/);
+    expect(res.headers.get('location')).toMatch(
+      /\/hybridclaw\/open\?next=%2Fagents$/,
+    );
   });
 
   test('image contains agents SPA with correct title', () => {
@@ -270,13 +274,15 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(result).toBe('<title>HybridClaw Agents</title>');
   });
 
-  test('/admin redirects to login (auth enforced in container)', async () => {
+  test('/admin redirects to HybridAI sign-in and back (auth enforced in container)', async () => {
     const res = await fetch(`${GATEWAY_URL}/admin`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toMatch(/login/);
+    expect(res.headers.get('location')).toMatch(
+      /\/hybridclaw\/open\?next=%2Fadmin$/,
+    );
   });
 
   test('/development redirects to /docs', async () => {

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { expect, test, vi } from 'vitest';
-import { saveVisualSnapshot } from '../container/shared/visual-snapshots.js';
+import { saveVisualSnapshot, validateVisualAttachments } from '../container/shared/visual-snapshots.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -106,6 +106,14 @@ test('a text-only primary gets an actionable durable reference for its configure
     },
     async (request) => {
       sent = request.messages;
+      const schema = request.tools?.find(
+        (tool) => tool.function.name === 'vision_analyze',
+      )?.function.parameters.properties.snapshot;
+      expect(schema?.required).toEqual(['id']);
+      expect(schema?.properties).toMatchObject({
+        id: { type: 'string' },
+        pages: { type: 'array', items: { type: 'integer' } },
+      });
       return {
         choices: [
           {
@@ -143,6 +151,48 @@ test('a text-only primary gets an actionable durable reference for its configure
   );
   expect(JSON.stringify(body.messages)).not.toContain('cGFnZS0z');
 });
+
+test('an image ID alone resolves the same stored pixels as the complete tool reference', async () => {
+  const { ref, analyze, fetch } = await fixture([], ['aW1hZ2U=']);
+  const compact = { id: ref.id };
+  expect(() => validateVisualAttachments([compact])).toThrow();
+  for (const snapshot of [ref, compact]) {
+    expect((await analyze({ snapshot })).isError).toBe(false);
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const bodies = fetch.mock.calls.map(([, init]) =>
+    JSON.parse(String(init?.body)),
+  );
+  expect(bodies[1].messages).toEqual(bodies[0].messages);
+  expect(JSON.stringify(bodies[1].messages)).toContain(
+    'data:image/png;base64,aW1hZ2U=',
+  );
+});
+
+test.each([{ pages: [3] }, { pages: [3, 7] }])(
+  'a PDF snapshot requires its original selection ($pages)',
+  async ({ pages }) => {
+    const { ref, analyze, fetch } = await fixture(
+      pages,
+      pages.map(() => 'cGFnZQ=='),
+    );
+    for (const page of [undefined, pages[0]]) {
+      expect((await analyze({ snapshot: { id: ref.id }, page })).isError).toBe(
+        true,
+      );
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+test.each([null, ''])(
+  'a malformed image page selection is never defaulted (%j)',
+  async (pages) => {
+    const { ref, analyze, fetch } = await fixture([], ['aW1hZ2U=']);
+    expect((await analyze({ snapshot: { ...ref, pages } })).isError).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 
 test('an image snapshot remains usable after worker modules are replaced', async () => {
   const { ref, fetch } = await fixture([], ['aW1hZ2U=']);
@@ -299,8 +349,99 @@ test('a reference from another workspace grants no access', async () => {
     { pdf: '', images: ['b3RoZXI='] },
     [],
   );
-  expect((await analyze({ snapshot: ref, page: undefined })).isError).toBe(
-    true,
-  );
+  for (const snapshot of [ref, { id: ref.id }]) {
+    expect((await analyze({ snapshot, page: undefined })).isError).toBe(true);
+  }
   expect(fetch).not.toHaveBeenCalled();
+});
+
+test.each(['file', 'snapshot', 'browser'] as const)(
+  'a truncated %s analysis retains visible observations as a failed tool result',
+  async (source) => {
+    const { root, ref, fetch, tools } = await fixture([], ['aW1hZ2U=']);
+    const visible = 'The chart has four labeled columns.';
+    const privateReasoning = 'internal reasoning marker';
+    if (source === 'browser') {
+      const { setBrowserGatewayContext } = await import(
+        '../container/src/browser-tools.js'
+      );
+      setBrowserGatewayContext(
+        'https://gateway.example.com',
+        'test-key',
+        'fixture',
+      );
+      fetch.mockResolvedValueOnce(
+        Response.json({ success: true, imageBase64: 'aW1hZ2U=' }),
+      );
+    }
+    fetch.mockResolvedValueOnce(
+      Response.json({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: [
+                { type: 'reasoning', text: privateReasoning },
+                { type: 'text', text: visible },
+              ],
+              reasoning_content: privateReasoning,
+            },
+            finish_reason: 'length',
+          },
+        ],
+      }),
+    );
+    const file = path.join(root, 'chart.png');
+    await fs.writeFile(file, 'image');
+    const input =
+      source === 'snapshot'
+        ? { snapshot: ref }
+        : {
+            image_url: file,
+            fallback_url:
+              'https://cdn.discordapp.com/attachments/1/2/chart.png',
+          };
+    const result =
+      source === 'browser'
+        ? await tools.executeToolWithMetadata(
+            'browser_vision',
+            JSON.stringify({ question: 'Describe the chart.' }),
+          )
+        : await tools.executeToolWithMetadata(
+            'vision_analyze',
+            JSON.stringify({ ...input, question: 'Describe the chart.' }),
+          );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.output)).toMatchObject({
+      success: false,
+      incomplete: true,
+      partial_analysis: visible,
+    });
+    expect(result.output).not.toContain(privateReasoning);
+    expect(fetch).toHaveBeenCalledTimes(source === 'browser' ? 2 : 1);
+  },
+);
+
+test('a reasoning-only capped vision response returns an error without partial analysis', async () => {
+  const { analyze, fetch } = await fixture([], ['aW1hZ2U=']);
+  fetch.mockResolvedValueOnce(
+    Response.json({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            reasoning_content: 'internal reasoning marker',
+          },
+          finish_reason: 'length',
+        },
+      ],
+    }),
+  );
+  const result = await analyze();
+  expect(result.isError).toBe(true);
+  const output = JSON.parse(result.output);
+  expect(output.incomplete).toBe(true);
+  expect(output).not.toHaveProperty('partial_analysis');
+  expect(result.output).not.toContain('internal reasoning marker');
 });

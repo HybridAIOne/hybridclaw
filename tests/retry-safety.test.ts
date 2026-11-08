@@ -2,6 +2,13 @@ import { expect, test } from 'vitest';
 import { isRetrySafeRun } from '../container/shared/retry-safety.js';
 
 test.each([
+  ...[
+    { recovery: { kind: 'refused' } },
+    { recovery: { kind: 'recovered' } },
+    { toolHistory: [{}] },
+    { toolHistoryForReplay: [{}] },
+    { sideEffects: { delegations: [{}] } },
+  ].map(output => ({ label: 'evidence without executions', output, toolProgressReported: false, retrySafe: false })),
   {
     label: 'a thrown run that reported no tool',
     output: null,

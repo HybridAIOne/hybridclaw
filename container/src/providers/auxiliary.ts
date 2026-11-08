@@ -1,13 +1,17 @@
 /**
  * Auxiliary calls retain their configured output budgets across provider routing.
- * Unlike the primary conversation router, vision gets a bounded default rather
- * than the provider's maximum output allowance; no model selection changes here.
+ * Transient failures use the primary call's retry policy without changing models.
+ * Vision gets a bounded output default; neither retries nor output validation
+ * execute model-proposed tools or grant permissions.
  */
+import { setTimeout as delay } from 'node:timers/promises';
 import { getProviderContextError } from '../../shared/provider-context.js';
 import {
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
 } from '../../shared/request-max-tokens.js';
+import { modelRetryDelayMs } from '../model-retry.js';
+import { haltIfShuttingDown } from '../shutdown-latch.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -51,6 +55,25 @@ export interface AuxiliaryTextTaskCallParams {
 type AuxiliaryTaskCallParams =
   | AuxiliaryVisionTaskCallParams
   | AuxiliaryTextTaskCallParams;
+
+async function retryAuxiliaryCall<T>(
+  task: AuxiliaryTask,
+  call: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    await haltIfShuttingDown();
+    try {
+      return await call();
+    } catch (error) {
+      const waitMs = modelRetryDelayMs(attempt, error);
+      if (waitMs === null) throw error;
+      console.error(
+        `[model] auxiliary retry task=${task} attempt=${attempt} delayMs=${waitMs}`,
+      );
+      await delay(waitMs);
+    }
+  }
+}
 
 function cloneAuxiliaryTaskContext(
   context: AuxiliaryTaskContext,
@@ -178,24 +201,26 @@ export async function callAuxiliaryModel(
       normalizeMaxTokens(params.maxTokens) ??
       normalizeMaxTokens(context.maxTokens) ??
       providerMaxTokens;
-    const response = await callRoutedModel({
-      provider: context.provider,
-      providerMethod: context.providerMethod,
-      baseUrl: context.baseUrl,
-      apiKey: context.apiKey,
-      model: context.model,
-      chatbotId: context.chatbotId,
-      enableRag: false,
-      requestHeaders: context.requestHeaders,
-      isLocal: context.isLocal,
-      contextWindow: context.contextWindow,
-      modelBehavior: context.modelBehavior,
-      thinkingFormat: context.thinkingFormat,
-      debugModelResponses: context.debugModelResponses,
-      messages: params.messages,
-      tools: Array.isArray(params.tools) ? params.tools : [],
-      maxTokens,
-    });
+    const response = await retryAuxiliaryCall(params.task, () =>
+      callRoutedModel({
+        provider: context.provider,
+        providerMethod: context.providerMethod,
+        baseUrl: context.baseUrl,
+        apiKey: context.apiKey,
+        model: context.model,
+        chatbotId: context.chatbotId,
+        enableRag: false,
+        requestHeaders: context.requestHeaders,
+        isLocal: context.isLocal,
+        contextWindow: context.contextWindow,
+        modelBehavior: context.modelBehavior,
+        thinkingFormat: context.thinkingFormat,
+        debugModelResponses: context.debugModelResponses,
+        messages: params.messages,
+        tools: Array.isArray(params.tools) ? params.tools : [],
+        maxTokens,
+      }),
+    );
     const content = extractResponseTextContent(
       response.choices[0]?.message?.content,
     );
@@ -213,24 +238,26 @@ export async function callAuxiliaryModel(
   try {
     const maxTokens =
       normalizeMaxTokens(context.maxTokens) ?? DEFAULT_VISION_MAX_TOKENS;
-    return await callVisionProviderModel({
-      provider: context.provider,
-      providerMethod: context.providerMethod,
-      baseUrl: context.baseUrl,
-      apiKey: context.apiKey,
-      model: context.model,
-      chatbotId: context.chatbotId,
-      requestHeaders: context.requestHeaders,
-      isLocal: context.isLocal,
-      contextWindow: context.contextWindow,
-      modelBehavior: context.modelBehavior,
-      thinkingFormat: context.thinkingFormat,
-      debugModelResponses: context.debugModelResponses,
-      question: params.question,
-      imageDataUrl: params.imageDataUrl,
-      maxTokens,
-      toolName,
-    });
+    return await retryAuxiliaryCall(params.task, () =>
+      callVisionProviderModel({
+        provider: context.provider,
+        providerMethod: context.providerMethod,
+        baseUrl: context.baseUrl,
+        apiKey: context.apiKey,
+        model: context.model,
+        chatbotId: context.chatbotId,
+        requestHeaders: context.requestHeaders,
+        isLocal: context.isLocal,
+        contextWindow: context.contextWindow,
+        modelBehavior: context.modelBehavior,
+        thinkingFormat: context.thinkingFormat,
+        debugModelResponses: context.debugModelResponses,
+        question: params.question,
+        imageDataUrl: params.imageDataUrl,
+        maxTokens,
+        toolName,
+      }),
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Surface a clearer error when the model simply cannot handle images.

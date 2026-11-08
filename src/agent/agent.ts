@@ -1,18 +1,19 @@
 /**
  * Validates replayable tool history and applies confidential placeholders.
  * Host state stays agent-owned; pixel permission is independent of model
- * capability. Audit records never become authoritative instructions.
+ * capability. Every caller is subject to the monthly agent budget before
+ * worker execution. Audit records never become authoritative instructions.
  */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
+import { findAgentBudgetHardStop } from '../board/budget-chip.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { hostWorkspaceStateRoot } from '../infra/host-workspace.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
-import { isModelVisionCapable } from '../providers/model-catalog.js';
-import { resolveStaticModelCatalogMetadata } from '../providers/model-metadata.js';
+import { canModelAcceptVisualMedia } from '../providers/model-catalog.js';
 import {
   createConfidentialRuntimeContext,
   getConfidentialRuleSet,
@@ -155,6 +156,15 @@ async function runAgentInner(
   const chatbotId = params.chatbotId;
   const model = params.model || HYBRIDAI_MODEL;
   const agentId = params.agentId || DEFAULT_AGENT_ID;
+  const hardStop = findAgentBudgetHardStop(agentId);
+  if (hardStop) {
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: hardStop.error,
+    };
+  }
   const channelId = params.channelId || '';
   const media = params.media;
   const blockedTools = mergeBlockedToolNames({ explicit: params.blockedTools });
@@ -170,8 +180,7 @@ async function runAgentInner(
   // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
   const visualMediaAllowed = !isConfidentialRedactionEnabled();
   const primaryModelSupportsVisualMedia =
-    isModelVisionCapable(model) ||
-    !resolveStaticModelCatalogMetadata(model).known;
+    await canModelAcceptVisualMedia(model);
   const preparedMessages = await injectPdfContextMessages({
     messages: params.messages,
     workspaceRoot,
@@ -198,6 +207,13 @@ async function runAgentInner(
     ...params,
     sessionId,
     messages: dehydratedMessages,
+    fileWriteGuardUserPrompt:
+      params.fileWriteGuardUserPrompt === undefined
+        ? undefined
+        : confidential.dehydrate(
+            [{ content: params.fileWriteGuardUserPrompt }],
+            'agent.file_write_guard_request',
+          )[0].content,
     visualMediaAllowed,
     primaryModelSupportsVisualMedia,
     chatbotId,
@@ -266,6 +282,12 @@ async function runAgentInner(
     error: output.error
       ? confidential.rehydrate(output.error, 'agent.error')
       : output.error,
+    fileWriteGuardUserPrompt: output.fileWriteGuardUserPrompt
+      ? confidential.rehydrate(
+          output.fileWriteGuardUserPrompt,
+          'agent.file_write_guard_request',
+        )
+      : output.fileWriteGuardUserPrompt,
     effectiveUserPrompt: output.effectiveUserPrompt
       ? confidential.rehydrate(
           output.effectiveUserPrompt,

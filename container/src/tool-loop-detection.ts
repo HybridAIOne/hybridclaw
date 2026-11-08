@@ -1,6 +1,18 @@
+/**
+ * Per-turn no-progress detection, not authorization or durable session state.
+ * Discovery repeats and unchanged HTTP collections stop before another
+ * identical call; asynchronous status payloads keep their existing behavior.
+ * Executed possible writes invalidate prior outcomes, including partial failures;
+ * blocked calls do not.
+ */
 import { createHash } from 'node:crypto';
+import { asRecord } from '../shared/primitive-values.js';
 
 const GUARDED_TOOL_NAMES = new Set(['read', 'glob', 'grep']);
+const LOOP_GUARD_PREFIX = 'Tool loop guard:';
+// 2026-11-04, Codex: unchanged collection polls exhausted a task deadline;
+// general asynchronous status polling is deliberately excluded.
+const HTTP_COLLECTION_RESULT_PREFIX = 'http-collection:';
 
 export const TOOL_CALL_HISTORY_SIZE = 24;
 export const NO_PROGRESS_REPEAT_THRESHOLD = 4;
@@ -14,11 +26,10 @@ export interface ToolCallHistoryEntry {
 }
 
 export function isLoopGuardedToolName(toolName: string): boolean {
-  return GUARDED_TOOL_NAMES.has(
-    String(toolName || '')
-      .trim()
-      .toLowerCase(),
-  );
+  const name = String(toolName || '')
+    .trim()
+    .toLowerCase();
+  return name === 'http_request' || GUARDED_TOOL_NAMES.has(name);
 }
 
 export type ToolLoopDetectionResult =
@@ -89,6 +100,12 @@ function getNoProgressStreak(
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const entry = history[i];
     if (!entry) continue;
+    if (
+      toolName === 'http_request' &&
+      entry.toolName === toolName &&
+      entry.argsHash !== argsHash
+    )
+      break;
     if (entry.toolName !== toolName || entry.argsHash !== argsHash) continue;
     if (!latestResultHash) {
       latestResultHash = entry.resultHash;
@@ -192,17 +209,57 @@ export function hashToolOutcome(output: string, isError: boolean): string {
   });
 }
 
+function httpCollection(output: string, isError: boolean): unknown {
+  if (isError) return undefined;
+  try {
+    const response = asRecord(JSON.parse(output));
+    if (response?.ok !== true) return undefined;
+    const payload =
+      response.json ??
+      (typeof response.body === 'string'
+        ? JSON.parse(response.body)
+        : undefined);
+    const values = Array.isArray(payload)
+      ? [payload]
+      : Object.values(asRecord(payload) ?? {});
+    return values.some((value) => Array.isArray(value)) &&
+      values.every(
+        (value) =>
+          Array.isArray(value) ||
+          (typeof value === 'number' && value >= 0) ||
+          value === null,
+      )
+      ? payload
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function recordToolCallOutcome(
   history: ToolCallHistoryEntry[],
   toolName: string,
   rawArgs: string,
   output: string,
   isError: boolean,
+  mayHaveChangedState: boolean,
 ): void {
+  if (mayHaveChangedState) history.length = 0;
+  if (
+    toolName === 'http_request' &&
+    isError &&
+    output.startsWith(LOOP_GUARD_PREFIX)
+  )
+    return;
+  const collection =
+    toolName === 'http_request' ? httpCollection(output, isError) : undefined;
   history.push({
     toolName,
     argsHash: hashToolCall(toolName, rawArgs),
-    resultHash: hashToolOutcome(output, isError),
+    resultHash:
+      collection === undefined
+        ? hashToolOutcome(output, isError)
+        : `${HTTP_COLLECTION_RESULT_PREFIX}${digestStable(collection)}`,
     timestamp: Date.now(),
   });
   if (history.length > TOOL_CALL_HISTORY_SIZE) {
@@ -221,6 +278,12 @@ export function detectToolCallLoop(
 
   const currentSignature = hashToolCall(toolName, rawArgs);
   const noProgress = getNoProgressStreak(history, toolName, currentSignature);
+  if (
+    toolName === 'http_request' &&
+    !noProgress.latestResultHash?.startsWith(HTTP_COLLECTION_RESULT_PREFIX)
+  ) {
+    return { stuck: false };
+  }
   const repeatedAttemptCount = noProgress.count + 1;
   if (repeatedAttemptCount >= NO_PROGRESS_REPEAT_THRESHOLD) {
     return {
@@ -228,8 +291,10 @@ export function detectToolCallLoop(
       detector: 'generic_repeat',
       count: repeatedAttemptCount,
       message:
-        `Tool loop guard: ${toolName} would repeat identical arguments and ` +
-        `identical output ${repeatedAttemptCount} times. Stop re-discovering and act on the files/content you already have.`,
+        toolName === 'http_request'
+          ? `${LOOP_GUARD_PREFIX} ${noProgress.count} prior identical HTTP requests returned the same collection without new data. Verify query filters, target arguments and source prerequisites. Stop unchanged polling; choose a materially different permitted step or report the unmet dependency.`
+          : `${LOOP_GUARD_PREFIX} ${toolName} would repeat identical arguments and ` +
+            `identical output ${repeatedAttemptCount} times. Stop re-discovering and act on the files/content you already have.`,
     };
   }
 
@@ -240,7 +305,7 @@ export function detectToolCallLoop(
       detector: 'ping_pong',
       count: pingPong.count,
       message:
-        `Tool loop guard: you are alternating between the same discovery ` +
+        `${LOOP_GUARD_PREFIX} you are alternating between the same discovery ` +
         `patterns with no new information (${pingPong.count} consecutive calls). Stop searching again and use the current inputs or report what is missing.`,
     };
   }

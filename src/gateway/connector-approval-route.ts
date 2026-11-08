@@ -21,7 +21,7 @@ export async function handleConnectorDecision(
   )
     throw new GatewayRequestError(403, 'Host authentication required.');
   const request = connectorDecisionRequest(await readJsonBody(req));
-  claimConnectorDecision(
+  request.approvalClaim = claimConnectorDecision(
     request.sessionId,
     request.approval.approvalId,
     request.userId,

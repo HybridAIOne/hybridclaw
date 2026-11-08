@@ -62,7 +62,7 @@ const CUT_OFF_REPLY = completion(
 );
 
 async function runTurn(
-  reply: (messages: ChatMessage[]) => unknown,
+  reply: (messages: ChatMessage[], hasTools: boolean) => unknown,
 ): Promise<{ output: ContainerOutput; requests: ChatMessage[][] }> {
   dir = makeTempDir('hc-invalid-tool-args-');
   const ipc = path.join(dir, 'ipc');
@@ -71,10 +71,13 @@ async function runTurn(
   server = http.createServer(async (req, res) => {
     let text = '';
     for await (const chunk of req) text += chunk;
-    const { messages } = JSON.parse(text) as { messages: ChatMessage[] };
+    const { messages, tools } = JSON.parse(text) as {
+      messages: ChatMessage[];
+      tools?: unknown[];
+    };
     requests.push(messages);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(reply(messages)));
+    res.end(JSON.stringify(reply(messages, Boolean(tools?.length))));
   });
   await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -209,7 +212,19 @@ test('write protection and stale-write errors cross IPC before an intentional re
     { contents: 'intentional', overwrite: true, expected_content: 'original' },
   ];
   let next = 0;
-  const { output } = await runTurn(() => {
+  let reviews = 0;
+  const { output } = await runTurn((_messages, hasTools) => {
+    if (!hasTools) {
+      reviews += 1;
+      return completion(
+        {
+          role: 'assistant',
+          content:
+            '{"decision":"allow","reason":"Continue the fixture report update."}',
+        },
+        'stop',
+      );
+    }
     const args = calls[next++];
     return args
       ? completion(
@@ -232,6 +247,7 @@ test('write protection and stale-write errors cross IPC before an intentional re
       : completion({ role: 'assistant', content: 'done' }, 'stop');
   });
   expect(output.status).toBe('success');
+  expect(reviews).toBe(2);
   expect(output.toolExecutions?.map(({ isError }) => isError)).toEqual([
     false,
     true,

@@ -16,6 +16,7 @@ import { deleteSessionData, sessionHasUserMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { ensurePluginManagerInitialized } from '../plugins/plugin-manager.js';
 import { scopeWorkspaceDir } from '../scopes/scope-paths.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import type { GatewayAdminDeleteSessionResult } from './gateway-types.js';
 import { deleteWebNotificationSession } from './web-notification-store.js';
@@ -112,7 +113,7 @@ export function removeSessionFiles(
   const safe = safeName(sessionId);
   deleteArchives(sessionId);
   for (const target of [
-    path.join(DATA_DIR, 'sessions', safe),
+    path.join(DATA_DIR, 'sessions', sessionDirectoryName(sessionId)),
     path.join(workspace, '.session-transcripts', `${safe}.jsonl`),
     path.join(workspace, '.tool-results', safe),
     path.join(workspace, '.session-exports', safe),

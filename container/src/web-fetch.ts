@@ -1,7 +1,8 @@
 /**
  * Fetch public text within one timeout and the existing SSRF boundary.
  * Body read failures propagate; only explicit size limits allow partial output.
- * Leading main-page context survives article extraction within a bounded excerpt.
+ * HTML comments and non-content elements stay out of readable output.
+ * Short heading groups retain structure; leading main-page context is bounded.
  * Extraction hints distinguish visible challenges from browser-only pages.
  * Unlike browser navigation, this tool never executes page JavaScript.
  */
@@ -133,27 +134,39 @@ function findHtmlTagEnd(value: string, start: number): number {
   return -1;
 }
 
-function removeRawHtmlElement(value: string, tagName: string): string {
+function removeNonContentHtml(value: string): string {
   const lower = value.toLowerCase();
-  const openPrefix = `<${tagName}`;
-  const closePrefix = `</${tagName}`;
+  const commentEnd = /--!?>/g;
   let output = '';
   let cursor = 0;
   while (cursor < value.length) {
-    let openStart = lower.indexOf(openPrefix, cursor);
-    while (
-      openStart >= 0 &&
-      ![' ', '\t', '\r', '\n', '>', '/'].includes(
-        lower[openStart + openPrefix.length] || '',
-      )
-    ) {
-      openStart = lower.indexOf(openPrefix, openStart + openPrefix.length);
-    }
+    const openStart = value.indexOf('<', cursor);
     if (openStart < 0) break;
     output += value.slice(cursor, openStart);
-    const openEnd = findHtmlTagEnd(value, openStart + openPrefix.length);
+    if (value.startsWith('<!--', openStart)) {
+      if (value[openStart + 4] === '>') {
+        cursor = openStart + 5;
+      } else if (value.startsWith('->', openStart + 4)) {
+        cursor = openStart + 6;
+      } else {
+        commentEnd.lastIndex = openStart + 4;
+        const end = commentEnd.exec(value);
+        if (!end) return output;
+        cursor = end.index + end[0].length;
+      }
+      continue;
+    }
+    const openEnd = findHtmlTagEnd(value, openStart + 1);
     if (openEnd < 0) return output;
-
+    const tag = /^<(script|style|noscript)(?=[ \t\r\n\f/>])/i.exec(
+      value.slice(openStart, openEnd + 1),
+    );
+    if (!tag) {
+      output += value.slice(openStart, openEnd + 1);
+      cursor = openEnd + 1;
+      continue;
+    }
+    const closePrefix = `</${tag[1].toLowerCase()}`;
     let closeStart = lower.indexOf(closePrefix, openEnd + 1);
     while (
       closeStart >= 0 &&
@@ -171,14 +184,6 @@ function removeRawHtmlElement(value: string, tagName: string): string {
   return output + value.slice(cursor);
 }
 
-function removeRawHtmlElements(value: string): string {
-  let output = value;
-  for (const tagName of ['script', 'style', 'noscript']) {
-    output = removeRawHtmlElement(output, tagName);
-  }
-  return output;
-}
-
 function normalizeWhitespace(value: string): string {
   return value
     .replace(/\r/g, '')
@@ -193,12 +198,11 @@ function htmlToMarkdown(
   baseUrl: string,
   linksDecoded = false,
 ): { text: string; title?: string } {
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  let text = removeNonContentHtml(html);
+  const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch
     ? normalizeWhitespace(stripTags(titleMatch[1]))
     : undefined;
-
-  let text = removeRawHtmlElements(html);
 
   // Links
   text = text.replace(
@@ -350,6 +354,25 @@ async function extractReadableContent(
         0,
         PAGE_CONTEXT_MAX_CHARS,
       );
+    }
+
+    // Short headings beside inline controls look like link-heavy boilerplate to
+    // Readability's div cleanup. Preserve their structure and visibility metadata.
+    for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+      const group = heading.parentElement;
+      if (
+        group?.tagName !== 'DIV' ||
+        ![...group.children].every(
+          (child) => child === heading || child.matches('a,span,small,button'),
+        )
+      )
+        continue;
+      const header = document.createElement('header');
+      for (const attribute of group.attributes) {
+        header.setAttribute(attribute.name, attribute.value);
+      }
+      header.append(...group.childNodes);
+      group.replaceWith(header);
     }
 
     const reader = new Readability(document, { charThreshold: 0 });
@@ -594,7 +617,7 @@ function detectEscalationHint(params: {
 }): WebFetchEscalationHint | undefined {
   const normalizedBody = normalizeForDetection(params.body);
   const visibleBody = normalizeForDetection(
-    decodeEntities(stripTags(removeRawHtmlElements(params.body))),
+    decodeEntities(stripTags(removeNonContentHtml(params.body))),
   );
   const normalizedExtracted = normalizeForDetection(params.extractedText);
   if (

@@ -1,6 +1,8 @@
 /** Network-free fixture for check-launcher.py; never copied into task images. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
@@ -28,6 +30,10 @@ globalThis.fetch = async (input, init) => {
       ],
     });
   assert.equal(url.pathname, '/api/v1/chat/completions');
+  if (process.env.WCB_CHECK_HOME_RESOURCE) {
+    const marker = path.join(os.homedir(), process.env.WCB_CHECK_HOME_RESOURCE);
+    assert.equal(fs.readFileSync(marker, 'utf8'), 'prepared');
+  }
   const body = JSON.parse(init.body);
   let message = { role: 'assistant', content: 'Fixture response' };
   let finish = 'stop';

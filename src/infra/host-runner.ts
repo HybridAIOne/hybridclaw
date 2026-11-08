@@ -1,8 +1,7 @@
 /**
- * Runner binds request credentials and agent-owned state independently of task cwd.
- * Optional shell OAuth credentials are resolved at tool execution, not here.
- * Local starter names control schema visibility; the independent allowed/blocked
- * tool lists remain the permission boundary enforced by the worker.
+ * Host workers keep one session owner and one request lease per process.
+ * Lifecycle transitions reject reuse after stop; Docker transport stays in
+ * container-runner. Durable conversation and recovery evidence live elsewhere.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -83,6 +82,7 @@ import {
   takeBrowserFrame,
   takeSlideSamples,
 } from './container-runner.js';
+import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -135,7 +135,11 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
-import { recoverWorkerOutput } from './worker-recovery.js';
+import { WorkerLifecycle } from './worker-lifecycle.js';
+import {
+  recoverWorkerFailure,
+  recoverWorkerOutput,
+} from './worker-recovery.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
@@ -215,8 +219,6 @@ interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   agentId: string;
   startedAt: number;
   lastUsedAt: number;
-  warm: boolean;
-  readyForInputAt: number | null;
   pendingColdStartProbeStartedAt: number | null;
   stderrBuffer: string;
   stderrHistory: string[];
@@ -224,13 +226,11 @@ interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   workerSignature: string;
   /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
   ipcAuthSecret: string;
-  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
-  activity?: import('./ipc.js').ActivityTracker;
   healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
@@ -314,7 +314,7 @@ export function getActiveHostSessionIds(): string[] {
 
 export function getInFlightHostSessionIds(): string[] {
   return Array.from(pool.entries())
-    .filter(([, entry]) => Boolean(entry.activity))
+    .filter(([, entry]) => Boolean(entry.lifecycle.activity))
     .map(([sessionId]) => sessionId)
     .sort((left, right) => left.localeCompare(right));
 }
@@ -439,6 +439,7 @@ function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
 }
 
 function stopHostProcess(entry: PoolEntry): void {
+  if (!entry.lifecycle.stop()) return;
   try {
     entry.process.kill('SIGTERM');
   } catch (err) {
@@ -621,6 +622,7 @@ function getOrSpawnHostProcess(
   const existing = params.warm ? null : pool.get(sessionId);
   if (
     existing &&
+    existing.lifecycle.reusable &&
     !existing.process.killed &&
     existing.process.exitCode === null
   ) {
@@ -727,22 +729,24 @@ function getOrSpawnHostProcess(
   const entry: PoolEntry = {
     id: ipcSessionId,
     process: proc,
-    sessionId,
+    get sessionId() {
+      return entry.lifecycle.owner.kind === 'session'
+        ? entry.lifecycle.owner.sessionId
+        : ipcSessionId;
+    },
     ipcSessionId,
     agentId,
     startedAt: Date.now(),
     lastUsedAt: Date.now(),
-    warm: params.warm === true,
-    readyForInputAt: null,
+    lifecycle: new WorkerLifecycle(params.warm ? null : sessionId),
     pendingColdStartProbeStartedAt: null,
     stderrBuffer: '',
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
     ipcAuthSecret: generateIpcAuthSecret(),
-    terminalError: null,
     isReady() {
-      return entry.readyForInputAt != null;
+      return entry.lifecycle.phase === 'idle';
     },
     stop() {
       stopHostProcess(entry);
@@ -752,7 +756,9 @@ function getOrSpawnHostProcess(
   // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
   // without stdio and emits 'error' next tick, fatal if nobody listens.
   proc.on('error', (err) => {
-    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    entry.lifecycle.exit(
+      `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`,
+    );
     removePoolEntry(entry);
     logger.error({ sessionId, error: err }, 'Host agent process error');
   });
@@ -771,18 +777,18 @@ function getOrSpawnHostProcess(
       if (!line) continue;
       if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
       if (consumeModelResponseDebugFileLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (isStreamActivityLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       emitThinkingDelta(entry, line);
       if (isThinkingDeltaLine(line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (
@@ -791,17 +797,17 @@ function getOrSpawnHostProcess(
         })
       ) {
         // Stream debug lines indicate model activity — reset timeout.
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       if (emitApprovalProgress(entry, line)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         continue;
       }
       emitToolProgress(entry, line);
       // Any recognised stderr output (tool progress, model output, etc.)
       // counts as activity and should keep the timeout alive.
-      entry.activity?.notify();
+      entry.lifecycle.activity?.notify();
       logger.debug({ sessionId }, line);
     }
   });
@@ -812,17 +818,17 @@ function getOrSpawnHostProcess(
       if (observeAgentLifecycleLine(entry, tail, warmPool)) {
         entry.stderrBuffer = '';
       } else if (consumeModelResponseDebugFileLine(tail)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         entry.stderrBuffer = '';
       } else if (isStreamActivityLine(tail)) {
-        entry.activity?.notify();
+        entry.lifecycle.activity?.notify();
         entry.stderrBuffer = '';
       } else {
         rememberStderrLine(entry, tail);
         emitTextDelta(entry, tail);
         emitThinkingDelta(entry, tail);
         if (isThinkingDeltaLine(tail)) {
-          entry.activity?.notify();
+          entry.lifecycle.activity?.notify();
         } else if (
           !consumeCollapsedStreamDebugLine(
             tail,
@@ -840,16 +846,18 @@ function getOrSpawnHostProcess(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatWarmRunnerTerminalError(
-      entry,
-      'Host agent process',
-      { code, signal },
+    entry.lifecycle.exit(
+      formatWarmRunnerTerminalError(entry, 'Host agent process', {
+        code,
+        signal,
+      }),
     );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });
     removePoolEntry(entry);
-    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
+    if (entry.lifecycle.isSpare)
+      removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
@@ -864,7 +872,7 @@ function getOrSpawnHostProcess(
     logger.error({ sessionId, error: err }, 'Host agent stdin error');
   });
 
-  if (entry.warm) {
+  if (entry.lifecycle.isSpare) {
     warmPool.add(entry);
     getObservedHostProcessMemoryBytes();
   } else {
@@ -880,7 +888,7 @@ export function getActiveHostProcessCount(): number {
 export function getInFlightHostProcessCount(): number {
   let count = 0;
   for (const entry of pool.values()) {
-    if (entry.activity) count += 1;
+    if (entry.lifecycle.activity) count += 1;
   }
   return count;
 }
@@ -1016,6 +1024,8 @@ async function runHostProcessInner(
 
   const input: ContainerInput = {
     sessionId,
+    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
+    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,
@@ -1091,6 +1101,8 @@ async function runHostProcessInner(
   };
   const workerSignature = computeWorkerSignature({
     agentId,
+    gatewayApiToken: input.gatewayApiToken,
+    webSearch: input.webSearch,
     provider: input.provider,
     providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
@@ -1166,7 +1178,7 @@ async function runHostProcessInner(
     displayRoot: params.workspaceDisplayRootOverride,
   };
   entry.onApprovalProgress = onApprovalProgress;
-  entry.activity = activity;
+  entry.lifecycle.begin(requestId, activity);
 
   const onAbort = () => {
     logger.info(
@@ -1180,6 +1192,7 @@ async function runHostProcessInner(
     if (abortSignal.aborted) onAbort();
   }
 
+  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
     if (abortSignal?.aborted) {
       return interruptedHostOutput();
@@ -1217,7 +1230,7 @@ async function runHostProcessInner(
         signal: abortSignal,
         activity,
         maxWallClockMs,
-        terminalError: () => entry.terminalError,
+        terminalError: () => entry.lifecycle.terminalError,
       },
     );
     // Before anything else can run: a note from here on is refused.
@@ -1235,8 +1248,11 @@ async function runHostProcessInner(
       hostWorkspaceStateRoot(params),
       sessionId,
       input.runId || input.requestId,
-      Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
+      Boolean(
+        timedOut || abortSignal?.aborted || entry.lifecycle.terminalError,
+      ),
     );
+    output = reviewContext.finish(output);
     remapOutputArtifacts(
       output,
       workspacePath,
@@ -1274,7 +1290,16 @@ async function runHostProcessInner(
       }
     }
     return output;
+  } catch (error) {
+    stopSessionHostProcess(sessionId);
+    return recoverWorkerFailure(
+      error,
+      hostWorkspaceStateRoot(params),
+      sessionId,
+      input.runId || input.requestId,
+    );
   } finally {
+    reviewContext.close();
     params.steerInbox?.close();
     abortSignal?.removeEventListener('abort', onAbort);
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
@@ -1288,7 +1313,7 @@ async function runHostProcessInner(
     if (entry.onApprovalProgress === onApprovalProgress) {
       entry.onApprovalProgress = undefined;
     }
-    entry.activity = undefined;
+    entry.lifecycle.finish(requestId);
   }
 }
 

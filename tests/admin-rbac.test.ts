@@ -8,6 +8,7 @@ import {
   collectAdminRoleClaims,
   isAdminActionAllowed,
   isAdminActionClaimed,
+  readAgentScopeClaim,
   resolveAdminRbacAction,
 } from '../src/security/admin-rbac.js';
 
@@ -343,4 +344,12 @@ test('stored claims naming retired actions grant nothing', () => {
   };
   expect(isAdminActionAllowed(payload, 'admin.channels.read')).toBe(false);
   expect(isAdminActionAllowed(payload, 'admin.fleet.read')).toBe(false);
+});
+
+test('agent scope claims fail closed when any entry is malformed', () => {
+  expect(readAgentScopeClaim({ actions: ['chat.send'] })).toBeNull();
+  expect(readAgentScopeClaim({ agentIds: [' helper '] })).toEqual(['helper']);
+  expect(readAgentScopeClaim({ agentIds: 'helper' })).toEqual([]);
+  expect(readAgentScopeClaim({ agentIds: ['helper', 123] })).toEqual([]);
+  expect(readAgentScopeClaim({ agentIds: ['helper', ' '] })).toEqual([]);
 });

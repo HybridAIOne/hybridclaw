@@ -202,6 +202,7 @@ function formatBudgetAmount(value: number, unit: AgentBudgetUnit): string {
 
 // A cap is a hard limit: at 100% the agent takes no new turns until the next
 // UTC billing month or until an operator raises the cap. Enforced by
+// `agent/agent.ts`; chat refusals also pause goals and audit through
 // `gateway/agent-budget-hard-stop.ts`.
 export function findAgentBudgetHardStop(
   agentId: string,

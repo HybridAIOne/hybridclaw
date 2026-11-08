@@ -2,11 +2,13 @@
  * Routed provider calls share response handling without changing model policy.
  * Vision returns a complete textual analysis or an error; a token-limited
  * fragment must never be presented as a successful full analysis.
+ * Context overhead includes schemas even when the API accepts them outside messages.
  */
 import { getProviderContextError } from '../../shared/provider-context.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
+import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -24,6 +26,7 @@ import {
   callHybridAIProvider,
   callHybridAIProviderStream,
 } from './hybridai.js';
+import { IncompleteVisionAnalysisError } from './incomplete-vision-error.js';
 import {
   callOllamaProvider,
   callOllamaProviderStream,
@@ -173,13 +176,19 @@ export async function callProviderModelStream(
 export function estimateRoutedPromptOverheadTokens(
   params: RoutedPromptOverheadParams,
 ): number {
-  if (!isOpenAICompatProviderId(params.provider)) return 0;
-  return estimateLocalOpenAICompatPromptOverheadTokens({
-    provider: params.provider,
-    model: params.model,
-    tools: params.tools,
-    modelBehavior: params.modelBehavior,
-  });
+  const schemas = params.tools?.length
+    ? estimateTextTokens(JSON.stringify(params.tools))
+    : 0;
+  if (!isOpenAICompatProviderId(params.provider)) return schemas;
+  return Math.max(
+    schemas,
+    estimateLocalOpenAICompatPromptOverheadTokens({
+      provider: params.provider,
+      model: params.model,
+      tools: params.tools,
+      modelBehavior: params.modelBehavior,
+    }),
+  );
 }
 
 export async function callRoutedModel(
@@ -325,14 +334,21 @@ export async function callVisionProviderModel(
       })
     : await callRoutedModel(request);
 
-  if (response.choices[0]?.finish_reason === 'length') {
-    throw new Error(
-      'vision API reached its output limit; analysis is incomplete. Increase auxiliaryModels.vision.maxTokens for a longer analysis.',
+  const choice = response.choices[0];
+  const content = choice?.message?.content;
+  if (choice?.finish_reason === 'length') {
+    const visible = Array.isArray(content)
+      ? content.filter(
+          (part) =>
+            typeof part === 'string' ||
+            ['text', 'output_text'].includes(part?.type),
+        )
+      : content;
+    throw new IncompleteVisionAnalysisError(
+      extractResponseTextContent(visible),
     );
   }
-  const analysis = extractResponseTextContent(
-    response.choices[0]?.message?.content,
-  );
+  const analysis = extractResponseTextContent(content);
   if (!analysis) {
     throw new Error('vision API returned empty analysis');
   }

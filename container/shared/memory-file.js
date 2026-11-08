@@ -8,6 +8,11 @@ import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { writeFileAtomic } from './atomic-write.js';
 
+// 5s/25ms (implementation decision, 2026-09-08, issue #1477): bounded
+// contention; automatic stale-lock stealing remains deferred.
+const LOCK_TIMEOUT_MS = 5_000;
+const LOCK_RETRY_MS = 25;
+
 export function lockMemoryFile(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const lockPath = `${filePath}.lock`;
@@ -25,9 +30,7 @@ export function lockMemoryFile(filePath) {
 }
 
 export async function waitForMemoryFileLock(filePath) {
-  // 5s/25ms (implementation decision, 2026-09-08, issue #1477): bound tool
-  // contention without blocking the event loop; automatic stale-lock stealing deferred.
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
   for (;;) {
     try {
       return lockMemoryFile(filePath);
@@ -37,7 +40,25 @@ export async function waitForMemoryFileLock(filePath) {
         Date.now() >= deadline
       )
         throw err;
-      await setTimeout(25);
+      await setTimeout(LOCK_RETRY_MS);
+    }
+  }
+}
+
+// Approval evaluation is synchronous; wait only for another process's writer.
+export function waitForMemoryFileLockSync(filePath) {
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      return lockMemoryFile(filePath);
+    } catch (err) {
+      if (
+        !err.message.startsWith('Memory file is locked:') ||
+        Date.now() >= deadline
+      )
+        throw err;
+      Atomics.wait(pause, 0, 0, LOCK_RETRY_MS);
     }
   }
 }

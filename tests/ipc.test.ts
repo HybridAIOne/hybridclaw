@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,7 +27,7 @@ function ipcDirOf(homeDir: string, sessionId: string): string {
     '.hybridclaw',
     'data',
     'sessions',
-    sessionId,
+    sessionDirectoryName(sessionId),
     'ipc',
   );
 }

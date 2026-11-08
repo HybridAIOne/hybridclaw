@@ -6,6 +6,7 @@
  * one row. Archive flags and deletion records live in `kv_store` under a fixed
  * scope, which agent resets and session rotation leave alone.
  */
+
 import { createHash } from 'node:crypto';
 import { getInFlightExecutorSessionIds } from '../agent/executor.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';

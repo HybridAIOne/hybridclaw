@@ -15,9 +15,14 @@ For the onboarding acceptance document, see [TRUST_MODEL.md](./TRUST_MODEL.md).
 ### 1) Prompt-Level Guardrails
 
 Every system prompt carries a short `Runtime Safety Guardrails` block covering
-untrusted content, secret exfiltration, least privilege, and blocked or denied
-actions. The wording lives only in the safety prompt hook; this document is not
-injected into prompts.
+untrusted content, secret exfiltration, least privilege, TLS verification, and
+blocked or denied actions. The wording lives only in the safety prompt hook;
+this document is not injected into prompts.
+
+Transport guidance keeps certificate and hostname verification enabled in tool
+calls and generated scripts. Certificate failures require trust diagnosis or an
+explicit, scoped exception through the existing tool interface. This is model
+guidance, not inspection or enforcement of arbitrary script networking.
 
 `tests/safety-guardrails.live.test.ts` replays scripted agent turns against a
 live model to check these guardrails (opt-in via `HYBRIDCLAW_RUN_LIVE_SAFETY=1`).
@@ -58,7 +63,7 @@ Before tool execution, HybridClaw applies policy hooks that block known dangerou
 - environment/file exfiltration patterns (`printenv|...|curl`, key-file piping)
 
 All built-in shell and file-content patterns are listed in **Admin → Security →
-Safety blocks** (`/admin/safety-rules`). Rules are enabled by default. An operator
+Approvals & firewall → Safety blocks** (`/admin/security?tab=safety`). Rules are enabled by default. An operator
 with `admin.config.write` may explicitly disable individual rules for the whole
 gateway; this is a security-policy change, not tool consent. Other matching rules
 and the normal approval policy still apply. Enabled rules cannot be bypassed by
@@ -87,6 +92,14 @@ Tool actions are risk-tiered at runtime:
   actions (`.env*`, `~/.ssh/**`, `/etc/**`, force pushes, approval state
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
+
+Operators can set `security.defaultApprovalMode` under **Admin → Security →
+Approvals & firewall**. It defaults to `auto` and is copied only when a conversation
+is created or its settings are explicitly reset. Existing conversations and forks
+retain their stored choice. The same page changes one existing conversation, with
+`admin.policy.write`, stale-edit checks, and `approval.mode_changed` audit events.
+Default changes produce config revisions and `approval.default_changed` events.
+Changing a mode does not answer or replay an already pending approval.
 
 The explicitly selected session mode `learning` records normal approval prompts
 and notices but allows those actions, including pinned-sensitive actions, without

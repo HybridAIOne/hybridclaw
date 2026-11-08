@@ -1,12 +1,15 @@
 /**
- * Denials never execute a call or grant consent. A first shell safety block
- * permits one replan that omits prohibited effects; all new calls face policy.
+ * Denials never execute a call or grant consent. Shell/network blocks share
+ * one replan per turn; file-preservation rejections have per-action recovery.
+ * A full-auto conflict refusal can replan before a human prompt is created.
  * Unlike approval-reply, this cannot resolve a pending human decision.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
 import { BASH_SAFETY_ACTION_KEY } from './bash-safety.js';
 import { statusOutputPresentation } from './chat-segments.js';
 import { emitRuntimeEvent } from './extensions.js';
+import { FILE_WRITE_CONFLICT_ACTION_PREFIX } from './file-write-conflicts.js';
+import { FILE_WRITE_REVIEW_ACTION_PREFIX } from './file-write-review.js';
 import { finalizeTokenUsage } from './token-usage.js';
 import { buildApprovalDeniedToolExecution } from './tool-approval.js';
 import type {
@@ -18,18 +21,30 @@ import type {
   ToolExecution,
 } from './types.js';
 
+const PRESERVATION_PREFIXES = [
+  FILE_WRITE_REVIEW_ACTION_PREFIX,
+  FILE_WRITE_CONFLICT_ACTION_PREFIX,
+];
+
 export function canReplanAfterDenial(
   approval: ToolApprovalEvaluation,
   executions: ToolExecution[],
 ): boolean {
-  // One replan (Codex choice, 2026-10-31, following the owner's autonomy
-  // request): omit optional blocked work; repeated policy negotiation deferred.
-  return (
-    approval.decision === 'denied' &&
-    approval.actionKey === BASH_SAFETY_ACTION_KEY &&
-    !executions.some(
-      (entry) => entry.approvalActionKey === BASH_SAFETY_ACTION_KEY,
+  if (approval.decision !== 'denied') return false;
+  if (
+    PRESERVATION_PREFIXES.some((prefix) =>
+      approval.actionKey.startsWith(prefix),
     )
+  )
+    return !executions.some(
+      (entry) => entry.approvalActionKey === approval.actionKey,
+    );
+  // One shared shell/network replan per turn (Codex choice, 2026-11-04).
+  // Per-file preservation recovery cannot authorize a denied effect.
+  return (
+    (approval.actionKey === BASH_SAFETY_ACTION_KEY ||
+      (!approval.pinned && approval.actionKey.startsWith('network:'))) &&
+    !executions.some((entry) => entry.approvalDecision === 'denied')
   );
 }
 
@@ -47,7 +62,12 @@ export async function handleToolDenial(params: {
   const { approval, toolExecutions } = params;
   const call = params.unrunCalls[0];
   const replan = canReplanAfterDenial(approval, toolExecutions);
-  const denialText = `Approval denied: ${approval.reason}`;
+  const label = PRESERVATION_PREFIXES.some((prefix) =>
+    approval.actionKey.startsWith(prefix),
+  )
+    ? 'File preservation check'
+    : 'Approval denied';
+  const denialText = `${label}: ${approval.reason}`;
   toolExecutions.push(
     buildApprovalDeniedToolExecution({
       toolName: call.function.name,
@@ -57,10 +77,15 @@ export async function handleToolDenial(params: {
     }),
   );
   if (replan) {
+    const recovery = approval.actionKey.startsWith(
+      FILE_WRITE_CONFLICT_ACTION_PREFIX,
+    )
+      ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
+      : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.';
     for (const unrun of params.unrunCalls) {
       const content =
         unrun === call
-          ? `${denialText}\nNothing in this command ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this command or reproduce the blocked effects through another tool. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.`
+          ? `${denialText}\n${recovery}`
           : 'Not executed because an earlier call was blocked. Reconsider this step when replanning.';
       params.history.push(
         params.recordResult({
@@ -83,6 +108,14 @@ export async function handleToolDenial(params: {
     }
     return null;
   }
+  params.history.push(
+    params.recordResult({
+      role: 'tool',
+      tool_call_id: call.id,
+      content: denialText,
+      is_error: true,
+    }),
+  );
   const output: ContainerOutput = {
     status: 'success',
     result: denialText,

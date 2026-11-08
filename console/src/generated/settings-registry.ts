@@ -234,7 +234,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'audit.toolResults.mode',
       section: 'audit',
       kind: 'string',
-      defaultValue: 'full',
+      defaultValue: 'truncate',
     },
     {
       path: 'auxiliaryModels.btw.maxTokens',
@@ -2143,6 +2143,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: false,
     },
     {
+      path: 'security.defaultApprovalMode',
+      section: 'security',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
       path: 'security.disabledSafetyRules',
       section: 'security',
       kind: 'list',
@@ -2710,7 +2716,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 41,
+      defaultValue: 42,
     },
     {
       path: 'voice.allowFrom',

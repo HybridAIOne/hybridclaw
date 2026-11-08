@@ -15,6 +15,7 @@ import {
 } from '../../config/config.js';
 import { deleteSessionData } from '../../memory/db.js';
 import { maybeCompactSession } from '../../session/session-maintenance.js';
+import { sessionDirectoryName } from '../../utils/session-directory.js';
 import { formatDuration } from '../../utils/text-format.js';
 import type { DiagFix, DiagResult, DoctorCheck } from '../types.js';
 import {
@@ -310,6 +311,7 @@ function readDirEntries(dirPath: string): fs.Dirent[] {
 }
 
 function listEphemeralEvalDirectoryCandidates(
+  sessionNames: Set<string>,
   nowMs = Date.now(),
 ): CleanupCandidate[] {
   const candidates: CleanupCandidate[] = [];
@@ -318,7 +320,11 @@ function listEphemeralEvalDirectoryCandidates(
     path.join(DATA_DIR, 'audit'),
   ]) {
     for (const entry of readDirEntries(rootPath)) {
-      if (!EPHEMERAL_EVAL_SESSION_RE.test(entry.name)) continue;
+      if (
+        !sessionNames.has(entry.name) &&
+        !EPHEMERAL_EVAL_SESSION_RE.test(entry.name)
+      )
+        continue;
       const entryPath = path.join(rootPath, entry.name);
       let stat: fs.Stats;
       try {
@@ -1107,7 +1113,10 @@ export async function checkEphemeralEvalArtifacts(
       session.lastActiveMs != null &&
       nowMs - session.lastActiveMs >= EMPTY_SESSION_MAX_AGE_MS,
   );
-  const directoryCandidates = listEphemeralEvalDirectoryCandidates(nowMs);
+  const directoryCandidates = listEphemeralEvalDirectoryCandidates(
+    new Set(staleSessions.map((session) => sessionDirectoryName(session.id))),
+    nowMs,
+  );
 
   if (staleSessions.length === 0 && directoryCandidates.length === 0) {
     return [

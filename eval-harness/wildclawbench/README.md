@@ -5,6 +5,10 @@ This unshipped adapter registers `bash script/run.sh hybridclaw ...` in
 batch runner, shared prompt, timeouts, task warmups, task-provided skills, and
 post-execution grading. It adds no benchmark-specific prompts or skills.
 
+The worker inherits the disposable container's
+home directory so tools and files prepared by warmup resolve in both phases.
+HybridClaw configuration and state live under the separate per-task data root.
+
 A built image or an offline contract check is not a successful benchmark smoke
 test. Keep measurements and raw evidence outside this source tree.
 

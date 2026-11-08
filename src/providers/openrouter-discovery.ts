@@ -1,3 +1,8 @@
+/**
+ * Keeps provider-reported model metadata, including explicit text-only input.
+ * Missing modality stays unknown so callers can negotiate visual delivery;
+ * discovery does not grant permission to send pixels or invoke a model.
+ */
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
 import { parsePositiveInteger } from '../utils/number-normalization.js';
@@ -44,25 +49,39 @@ function readOpenRouterContextWindow(
   );
 }
 
-function isVisionCapableOpenRouterModel(
-  entry: Record<string, unknown>,
-): boolean {
+function readVisionCapability(entry: Record<string, unknown>): boolean | null {
   const architecture = isRecord(entry.architecture) ? entry.architecture : null;
+  let known = false;
   if (architecture) {
-    const modality = String(architecture.modality || '').toLowerCase();
+    const modality =
+      typeof architecture.modality === 'string'
+        ? architecture.modality.toLowerCase()
+        : '';
     // Only the input side indicates whether the model accepts image input.
     const inputSide = modality.includes('->')
       ? (modality.split('->').at(0) ?? '')
       : modality;
     if (inputSide.includes('image')) return true;
+    known = inputSide.trim().length > 0;
+    if (Array.isArray(architecture.input_modalities)) {
+      const inputs = architecture.input_modalities.filter(
+        (input): input is string => typeof input === 'string' && !!input.trim(),
+      );
+      if (inputs.some((input) => input.trim().toLowerCase() === 'image'))
+        return true;
+      known ||= inputs.length > 0;
+    }
   }
   // Some entries expose a top-level capabilities array.
   if (Array.isArray(entry.capabilities)) {
-    return entry.capabilities.some(
-      (cap: unknown) => typeof cap === 'string' && /vision|image/i.test(cap),
-    );
+    if (
+      entry.capabilities.some(
+        (cap: unknown) => typeof cap === 'string' && /vision|image/i.test(cap),
+      )
+    )
+      return true;
   }
-  return false;
+  return known ? false : null;
 }
 
 function isFreeOpenRouterModel(entry: Record<string, unknown>): boolean {
@@ -97,6 +116,7 @@ export interface OpenRouterDiscoveryStore {
     model: string,
   ) => { input: number | null; output: number | null } | null;
   isModelVisionCapable: (model: string) => boolean;
+  getModelVisionCapability: (model: string) => boolean | null;
 }
 
 interface OpenRouterDiscoveryState {
@@ -105,7 +125,7 @@ interface OpenRouterDiscoveryState {
   contextWindowByModel: Map<string, number>;
   maxTokensByModel: Map<string, number>;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
-  visionCapableModels: Set<string>;
+  visionCapabilityByModel: Map<string, boolean>;
 }
 
 const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
@@ -114,7 +134,7 @@ const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
   contextWindowByModel: new Map(),
   maxTokensByModel: new Map(),
   pricingByModel: new Map(),
-  visionCapableModels: new Set(),
+  visionCapabilityByModel: new Map(),
 });
 
 export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
@@ -147,7 +167,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
-    const visionCapable = new Set<string>();
+    const visionCapabilities = new Map<string, boolean>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
       const normalized = normalizeOpenRouterModelName(entry.id);
@@ -183,9 +203,8 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
         if (isFreeOpenRouterModel(entry)) {
           freeDiscovered.add(normalized);
         }
-        if (isVisionCapableOpenRouterModel(entry)) {
-          visionCapable.add(normalized);
-        }
+        const vision = readVisionCapability(entry);
+        if (vision !== null) visionCapabilities.set(normalized, vision);
       }
     }
     return {
@@ -194,7 +213,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       contextWindowByModel: contextWindows,
       maxTokensByModel: maxTokens,
       pricingByModel,
-      visionCapableModels: visionCapable,
+      visionCapabilityByModel: visionCapabilities,
     };
   }
 
@@ -254,7 +273,14 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     isModelVisionCapable: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeOpenRouterModelName(model);
-      return state.visionCapableModels.has(normalized);
+      return state.visionCapabilityByModel.get(normalized) === true;
+    },
+    getModelVisionCapability: (model: string) => {
+      const normalized = normalizeOpenRouterModelName(model);
+      return (
+        discoveryStore.getState().visionCapabilityByModel.get(normalized) ??
+        null
+      );
     },
   };
 }
@@ -297,4 +323,10 @@ export function isDiscoveredOpenRouterModelVisionCapable(
   model: string,
 ): boolean {
   return defaultOpenRouterDiscoveryStore.isModelVisionCapable(model);
+}
+
+export function getDiscoveredOpenRouterModelVisionCapability(
+  model: string,
+): boolean | null {
+  return defaultOpenRouterDiscoveryStore.getModelVisionCapability(model);
 }

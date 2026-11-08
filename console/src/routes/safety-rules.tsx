@@ -35,7 +35,10 @@ export function SafetyRulesPage() {
     draft !== null &&
     JSON.stringify([...draft.before].sort()) !==
       JSON.stringify([...disabled].sort());
-  const { dialog } = useUnsavedChangesGuard({ isDirty: dirty });
+  const { dialog } = useUnsavedChangesGuard({
+    isDirty: dirty,
+    includeSearch: true,
+  });
   const save = useFormMutation({
     mutationFn: (value: NonNullable<typeof draft>) =>
       saveSafetyRules(auth.token, value.disabled, value.before),

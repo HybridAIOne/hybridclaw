@@ -6,12 +6,14 @@ import { canReplanAfterDenial } from '../container/src/tool-denial.js';
 
 useCleanMocks({ restoreAllMocks: true });
 
-test('only the first shell hard denial permits a replan, never other denials or pending approvals', () => {
+test('shell and unpinned network denials share one replan, never pending approvals', () => {
   const denied = evaluateBashSafety({ toolName: 'bash', argsJson: JSON.stringify({ command: 'rm -f scratch.txt' }) })!;
   expect(canReplanAfterDenial(denied, [])).toBe(true);
-  expect(canReplanAfterDenial({ ...denied, actionKey: 'network:example.com' }, [])).toBe(false);
+  expect(canReplanAfterDenial({ ...denied, actionKey: 'network:example.com', pinned: false }, [])).toBe(true);
+  expect(canReplanAfterDenial({ ...denied, actionKey: 'network:example.com', pinned: true }, [])).toBe(false);
+  expect(canReplanAfterDenial({ ...denied, actionKey: 'other' }, [])).toBe(false);
   expect(canReplanAfterDenial({ ...denied, decision: 'required' }, [])).toBe(false);
-  expect(canReplanAfterDenial(denied, [{ name: 'bash', arguments: '{}', result: denied.reason, durationMs: 0, approvalActionKey: denied.actionKey }])).toBe(false);
+  expect(canReplanAfterDenial(denied, [{ name: 'bash', arguments: '{}', result: denied.reason, durationMs: 0, approvalActionKey: denied.actionKey, approvalDecision: 'denied' }])).toBe(false);
 });
 
 test.each([
@@ -29,6 +31,7 @@ test.each([
   const evaluate = vi.spyOn(approvalRuntime, 'evaluateToolCall');
   const before = approvalRuntime.getPendingApprovals();
   const resolve = createToolApprovalResolver({
+    sessionId: 'safety-test',
     latestUserPrompt: 'Create a report.',
     channelId: 'msteams',
     fallbackContext: { provider: 'openai', baseUrl: 'https://example.com', apiKey: 'test-key', model: 'test-model', chatbotId: '' },

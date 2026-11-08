@@ -16,11 +16,12 @@ function deferredState() {
   return { promise, resolve };
 }
 
-test('discovery store caches error fallbacks until the TTL expires', async () => {
+test('discovery store caches refresh error fallbacks until the TTL expires', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-27T12:00:00Z'));
 
   const store = createDiscoveryStore({ models: [] as string[] }, 60_000);
+  await store.discover(async () => ({ models: ['cached-model'] }));
   const fetchFreshState = vi.fn(async () => {
     throw new Error('provider unavailable');
   });
@@ -29,9 +30,9 @@ test('discovery store caches error fallbacks until the TTL expires', async () =>
     models: ['stale-model'],
   }));
 
-  await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
-    models: ['stale-model'],
-  });
+  await expect(
+    store.discover(fetchFreshState, { onError, force: true }),
+  ).resolves.toEqual({ models: ['stale-model'] });
   await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
     models: ['stale-model'],
   });
@@ -45,6 +46,51 @@ test('discovery store caches error fallbacks until the TTL expires', async () =>
   expect(fetchFreshState).toHaveBeenCalledTimes(2);
   await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
 });
+
+test('a successful empty catalog remains cached', async () => {
+  const store = createDiscoveryStore({ models: [] as string[] });
+  const fetchFreshState = vi.fn(async () => ({ models: [] as string[] }));
+
+  await expect(store.discover(fetchFreshState)).resolves.toEqual({ models: [] });
+  await expect(store.discover(fetchFreshState)).resolves.toEqual({ models: [] });
+  expect(fetchFreshState).toHaveBeenCalledTimes(1);
+});
+
+test.each([false, true])(
+  'a failed initial discovery remains retryable and deduplicates callers (tagged=%s)',
+  async (tagged) => {
+    const store = createDiscoveryStore({ models: [] as string[] });
+    const fetchFreshState = vi
+      .fn<() => Promise<{ models: string[] }>>()
+      .mockRejectedValueOnce(new Error('provider unavailable'))
+      .mockResolvedValue({ models: ['recovered-model'] });
+    const onError = (_err: unknown, staleState: { models: string[] }) =>
+      tagged ? { _tag: 'update' as const, state: staleState } : staleState;
+
+    await expect(
+      Promise.all([
+        store.discover(fetchFreshState, { onError }),
+        store.discover(fetchFreshState, { onError }),
+      ]),
+    ).resolves.toEqual([{ models: [] }, { models: [] }]);
+    expect(fetchFreshState).toHaveBeenCalledTimes(1);
+
+    await expect(
+      Promise.all([
+        store.discover(fetchFreshState, { onError }),
+        store.discover(fetchFreshState, { onError }),
+      ]),
+    ).resolves.toEqual([
+      { models: ['recovered-model'] },
+      { models: ['recovered-model'] },
+    ]);
+    expect(fetchFreshState).toHaveBeenCalledTimes(2);
+    await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
+      models: ['recovered-model'],
+    });
+    expect(fetchFreshState).toHaveBeenCalledTimes(2);
+  },
+);
 
 test('discovery store can skip caching an error fallback', async () => {
   vi.useFakeTimers();
