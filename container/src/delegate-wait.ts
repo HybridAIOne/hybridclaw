@@ -5,6 +5,8 @@
  * NOT the background path: a `background: true` call is a turn side effect
  * that the gateway starts after the turn (`tools.ts` queues it).
  */
+
+import { fileWriteGuardProof } from './file-write-review-context.js';
 import { postGatewayJson } from './gateway-json-post.js';
 import type { DelegationSideEffect } from './types.js';
 
@@ -36,7 +38,11 @@ export async function waitForDelegation(params: {
     response = await postGatewayJson(
       `${base}/api/delegate`,
       headers,
-      { sessionId: params.sessionId, effect: params.effect },
+      {
+        sessionId: params.sessionId,
+        effect: params.effect,
+        fileWriteGuardProof: fileWriteGuardProof(),
+      },
       DELEGATE_WAIT_TIMEOUT_MS,
     );
   } catch (err) {

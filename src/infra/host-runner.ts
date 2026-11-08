@@ -82,6 +82,7 @@ import {
   takeBrowserFrame,
   takeSlideSamples,
 } from './container-runner.js';
+import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -1023,6 +1024,7 @@ async function runHostProcessInner(
   const input: ContainerInput = {
     sessionId,
     fileWriteGuardSessionId: params.fileWriteGuardSessionId,
+    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,
@@ -1186,6 +1188,7 @@ async function runHostProcessInner(
     if (abortSignal.aborted) onAbort();
   }
 
+  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
     if (abortSignal?.aborted) {
       return interruptedHostOutput();
@@ -1245,6 +1248,7 @@ async function runHostProcessInner(
         timedOut || abortSignal?.aborted || entry.lifecycle.terminalError,
       ),
     );
+    output = reviewContext.finish(output);
     remapOutputArtifacts(
       output,
       workspacePath,
@@ -1291,6 +1295,7 @@ async function runHostProcessInner(
       input.runId || input.requestId,
     );
   } finally {
+    reviewContext.close();
     params.steerInbox?.close();
     abortSignal?.removeEventListener('abort', onAbort);
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {

@@ -5,7 +5,9 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
+import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
 import { readWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import type { ContainerInput } from '../src/types/container.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-warm-refill-');
@@ -168,6 +170,7 @@ test.each(RUNNERS)(
   '$runner returns the finished turn when the warm-pool refill throws',
   async ({ createExecutor }) => {
     vi.stubEnv('HOME', makeTempDir());
+    const userPrompt = 'delegate the follow-up';
     const turnOutput = {
       status: 'success' as const,
       result: 'Delegated the follow-up.',
@@ -184,9 +187,13 @@ test.each(RUNNERS)(
       code: 'ENOMEM',
     });
     let warmSpawnAttempts = 0;
+    let foreground: ReturnType<typeof makeFakeChildProcess> | undefined;
     const spawn = vi.fn(
       (_command: string, args?: string[], options?: SpawnOptions) => {
-        if (!findWarmIpcPath(args, options)) return makeFakeChildProcess();
+        if (!findWarmIpcPath(args, options)) {
+          foreground = makeFakeChildProcess();
+          return foreground;
+        }
         warmSpawnAttempts += 1;
         throw refillError;
       },
@@ -194,14 +201,25 @@ test.each(RUNNERS)(
     const warn = vi.fn();
     mockRunnerDeps({
       spawn,
-      readOutput: async () => structuredClone(turnOutput),
+      readOutput: async () => {
+        if (!foreground) throw new Error('Fixture worker was not spawned.');
+        const input = JSON.parse(
+          String(foreground.stdin.write.mock.calls[0]?.[0]),
+        ) as ContainerInput & { ipcAuthSecret: string };
+        return {
+          ...structuredClone(turnOutput),
+          fileWriteGuardProof: encodeFileWriteGuardContext(
+            input.ipcAuthSecret, input, userPrompt,
+          ),
+        };
+      },
       warn,
     });
 
     const executor = await createExecutor();
     const output = await executor.exec({
       sessionId: 'session-refill',
-      messages: [{ role: 'user', content: 'delegate the follow-up' }],
+      messages: [{ role: 'user', content: userPrompt }],
       chatbotId: 'bot-a',
       enableRag: false,
       model: 'gpt-5',
@@ -209,7 +227,11 @@ test.each(RUNNERS)(
       channelId: 'tui',
     });
 
-    expect(output).toEqual(turnOutput);
+    expect(output).toEqual({
+      ...turnOutput,
+      fileWriteGuardSessionId: 'session-refill',
+      fileWriteGuardUserPrompt: userPrompt,
+    });
     // The failed refill is abandoned for this turn, not retried in a loop.
     expect(warmSpawnAttempts).toBe(1);
     expect(warn).toHaveBeenCalledWith(

@@ -49,6 +49,10 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { setFileWriteGuardSession } from './file-write-conflicts.js';
+import {
+  fileWriteGuardProof,
+  setFileWriteReviewRequest,
+} from './file-write-review-context.js';
 import { compactInLoopWithModel } from './in-loop-compaction-runtime.js';
 import {
   setIpcAuthSecret,
@@ -371,6 +375,8 @@ async function replyToRequest(
 ): Promise<void> {
   await haltIfShuttingDown();
   output.sideEffects = getPendingSideEffects();
+  if (output.sideEffects?.delegations?.length)
+    output.fileWriteGuardProof = fileWriteGuardProof();
   const steerNoteIds = finishSteerInbox();
   if (steerNoteIds.length > 0) output.steerNoteIds = steerNoteIds;
   writeOutput(output, input.requestId);
@@ -1314,7 +1320,13 @@ async function processRequestInner(
     return true;
   };
 
+  setFileWriteReviewRequest(
+    sessionId,
+    inFlightInput?.requestId,
+    effectiveUserPromptOverride || latestUserRequestText(messages),
+  );
   const resolveToolApproval = createToolApprovalResolver({
+    sessionId,
     latestUserPrompt:
       effectiveUserPromptOverride || latestUserRequestText(messages),
     channelId,
@@ -2368,6 +2380,7 @@ async function main(): Promise<void> {
   await haltIfShuttingDown();
   inFlightInput = firstInput;
   beginSteerInbox(firstInput.requestId);
+  setFileWriteReviewRequest(firstInput.sessionId, firstInput.requestId);
   // The stdin payload is the one input not on a tool-writable path; the secret
   // it carries authenticates every later input.json.
   setIpcAuthSecret(firstInput.ipcAuthSecret || '');
@@ -2400,6 +2413,7 @@ async function main(): Promise<void> {
   setFileWriteGuardSession(
     firstInput.sessionId,
     firstInput.fileWriteGuardSessionId,
+    firstInput.fileWriteGuardUserPrompt,
   );
   setToolCallLimits(firstInput);
   approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
@@ -2545,6 +2559,7 @@ async function main(): Promise<void> {
 
     inFlightInput = input;
     beginSteerInbox(input.requestId);
+    setFileWriteReviewRequest(input.sessionId, input.requestId);
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2576,7 +2591,11 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
-    setFileWriteGuardSession(input.sessionId, input.fileWriteGuardSessionId);
+    setFileWriteGuardSession(
+      input.sessionId,
+      input.fileWriteGuardSessionId,
+      input.fileWriteGuardUserPrompt,
+    );
     setToolCallLimits(input);
     approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);

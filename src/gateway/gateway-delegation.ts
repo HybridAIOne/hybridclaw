@@ -6,6 +6,7 @@
  * parent with a hidden results turn, unless that session was reset meanwhile.
  * Worker aliases are resolved through the active request's conversation owner.
  * Each live child carries its own model and exact callback identity.
+ * File-preservation intent comes from that owner, never model-authored task fields.
  *
  * NOT A2A: peer-agent delegation across instances lives in `src/a2a/`.
  */
@@ -17,6 +18,7 @@ import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { PROACTIVE_DELEGATION_MAX_DEPTH } from '../config/config.js';
+import { resolveFileWriteReviewContext } from '../infra/file-write-review-context.js';
 import { logger } from '../logger.js';
 import {
   completeDelegationJob,
@@ -455,6 +457,7 @@ export function enqueueDelegationBatchFromSideEffects(
   const context: DelegationRunContext = {
     workspaceOverrides: params.workspaceOverrides,
     fileWriteGuardSessionId: params.fileWriteGuardSessionId ?? parentSessionId,
+    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     parentSessionId,
     childDepth,
     channelId,
@@ -619,6 +622,8 @@ export function enqueueDelegationBatchFromSideEffects(
 function resolveWaitingParentContext(
   sessionId: string,
 ): Readonly<DelegationChildContext> | null {
+  const activeChild = getActiveDelegationChildContext(sessionId);
+  if (activeChild) return activeChild;
   const session = memoryService.getSessionById(sessionId);
   if (session) {
     const runtime = resolveAgentForRequest({ session });
@@ -630,15 +635,17 @@ function resolveWaitingParentContext(
       model: runtime.model,
     };
   }
-  return getActiveDelegationChildContext(sessionId) ?? null;
+  return null;
 }
 
 /** Runs a `delegate` call to completion and returns what the parent reads. */
-export async function runDelegationNow(params: {
-  sessionId: string;
-  effect: DelegationSideEffect;
-  abortSignal?: AbortSignal;
-}): Promise<{ result: string } | { error: string; status: number }> {
+export async function runDelegationNow(
+  params: FileWriteGuardContext & {
+    sessionId: string;
+    effect: DelegationSideEffect;
+    abortSignal?: AbortSignal;
+  },
+): Promise<{ result: string } | { error: string; status: number }> {
   const { effect, abortSignal } = params;
   const request = resolveGatewayRequestContext(params.sessionId);
   const sessionId = request?.sessionId;
@@ -659,7 +666,12 @@ export async function runDelegationNow(params: {
   const plans = [normalized.plan];
   const context: DelegationRunContext = {
     parentSessionId: sessionId,
-    fileWriteGuardSessionId: parent.fileWriteGuardSessionId ?? params.sessionId,
+    fileWriteGuardSessionId:
+      params.fileWriteGuardSessionId ??
+      parent.fileWriteGuardSessionId ??
+      params.sessionId,
+    fileWriteGuardUserPrompt:
+      params.fileWriteGuardUserPrompt ?? parent.fileWriteGuardUserPrompt,
     workspaceOverrides:
       request?.workspaceOverrides ?? parent.workspaceOverrides,
     childDepth,
@@ -692,6 +704,7 @@ export async function handleApiDelegate(
   const body = (await readJsonBody(req)) as {
     sessionId?: unknown;
     effect?: unknown;
+    fileWriteGuardProof?: unknown;
   };
   const sessionId =
     typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
@@ -704,12 +717,23 @@ export async function handleApiDelegate(
     sendJson(res, 400, { error: 'Missing `sessionId` or `effect`.' });
     return;
   }
+  const context = resolveFileWriteReviewContext(
+    sessionId,
+    body.fileWriteGuardProof,
+  );
+  if (!context) {
+    sendJson(res, 403, {
+      error: 'Delegation request context could not be authenticated.',
+    });
+    return;
+  }
   // The parent turn was stopped or its worker died: stop the children too.
   const abort = new AbortController();
   res.on('close', () => {
     if (!res.writableFinished) abort.abort();
   });
   const outcome = await runDelegationNow({
+    ...context,
     sessionId,
     effect: body.effect as DelegationSideEffect,
     abortSignal: abort.signal,

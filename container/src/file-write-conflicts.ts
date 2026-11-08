@@ -2,12 +2,12 @@
  * Rejected file writes fence alternate mutations across a delegation family.
  * Unlike write's byte comparison, this preserves the rejection across workers;
  * only a successful checked file mutation or a one-time approval can proceed.
- * A fence lapses an hour after its last change, so a long-lived chat is not
- * kept behind approval by a write that failed in an earlier task.
- * Trusted input selects the root session; workers reload and lock its shared store.
+ * A fence lapses an hour after its last change. Trusted input selects the
+ * root session and request; workers reload and lock its shared store.
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
 import fs from 'node:fs';
+import type { FileWriteGuardContext } from '../shared/file-write-guard.js';
 import type { ClassifiedAction } from './approval-policy.js';
 import {
   isWithinRoot,
@@ -17,14 +17,17 @@ import {
 import { SessionStateSet, sessionStatePath } from './session-state.js';
 
 const STATE_NAME = 'file-write-conflicts.json';
+export const FILE_WRITE_CONFLICT_ACTION_PREFIX = 'file-write-conflict:';
 const conflicts = new SessionStateSet(STATE_NAME, true);
 const CONFLICT_LIFETIME_MS = 60 * 60 * 1000;
 let activeSession = '';
 let guardSession = '';
+let guardUserPrompt: string | undefined;
 
 export function setFileWriteGuardSession(
   sessionId: string,
   rootSessionId?: string,
+  rootUserPrompt?: string,
 ): void {
   if (
     rootSessionId !== undefined &&
@@ -32,8 +35,33 @@ export function setFileWriteGuardSession(
   ) {
     throw new Error('Invalid file-write guard session');
   }
+  if (rootUserPrompt !== undefined && typeof rootUserPrompt !== 'string') {
+    throw new Error('Invalid file-write guard request');
+  }
   activeSession = sessionId;
   guardSession = rootSessionId ?? sessionId;
+  guardUserPrompt = rootUserPrompt;
+}
+
+export function fileWriteReviewPrompt(
+  sessionId: string,
+  currentUserPrompt: string,
+): string | undefined {
+  return fileWriteReviewContext(sessionId, currentUserPrompt)
+    .fileWriteGuardUserPrompt;
+}
+
+export function fileWriteReviewContext(
+  sessionId: string,
+  currentUserPrompt: string,
+): FileWriteGuardContext {
+  return {
+    fileWriteGuardSessionId: stateSession(sessionId),
+    fileWriteGuardUserPrompt:
+      sessionId === activeSession && guardSession !== sessionId
+        ? guardUserPrompt
+        : currentUserPrompt,
+  };
 }
 
 function stateSession(sessionId: string): string {
@@ -78,13 +106,7 @@ export async function resolveFileWriteConflict(
   );
 }
 
-export function guardFileWriteConflict(
-  sessionId: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  action: ClassifiedAction,
-): ClassifiedAction {
-  if (!sessionId) return action;
+function bindConflicts(sessionId: string): boolean {
   const owner = stateSession(sessionId);
   if (fs.existsSync(`${sessionStatePath(owner, STATE_NAME)}.lock`)) {
     throw new Error(
@@ -92,7 +114,25 @@ export function guardFileWriteConflict(
     );
   }
   conflicts.bindSession(owner, true);
-  if (conflicts.size === 0 || lapsed(owner)) return action;
+  return conflicts.size > 0 && !lapsed(owner);
+}
+
+export function getFileWriteConflict(
+  sessionId: string,
+  target: string,
+): string | null {
+  if (!sessionId || !bindConflicts(sessionId)) return null;
+  const key = targetKey(target);
+  return conflicts.has(key) ? key : null;
+}
+
+export function guardFileWriteConflict(
+  sessionId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  action: ClassifiedAction,
+): ClassifiedAction {
+  if (!sessionId || !bindConflicts(sessionId)) return action;
   const shellMutation =
     toolName === 'bash' && (action.tier !== 'green' || action.writeIntent);
   const conflictedDelete =
@@ -106,7 +146,7 @@ export function guardFileWriteConflict(
     ...action,
     tier: 'red',
     pinned: true,
-    actionKey: `file-write-conflict:${action.actionKey}`,
+    actionKey: `${FILE_WRITE_CONFLICT_ACTION_PREFIX}${action.actionKey}`,
     promotableRed: false,
     explicitApprovalRequired: true,
     reason: recoveryReason(),

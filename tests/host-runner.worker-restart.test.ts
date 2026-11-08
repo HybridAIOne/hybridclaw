@@ -476,14 +476,17 @@ test('HostExecutor gives the worker the browser a run asks for, else the configu
   await executor.exec({
     ...request,
     sessionId: 'web:phone',
+    fileWriteGuardSessionId: 'parent-worker',
+    fileWriteGuardUserPrompt: 'Preserve the existing notes.',
     browserProvider: 'local',
   });
   await executor.exec({ ...request, sessionId: 'web:desk' });
 
   const firstInput = (proc: ReturnType<typeof makeFakeChildProcess>) =>
     JSON.parse(String(proc.stdin.write.mock.calls[0]?.[0]));
-  expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local' });
+  expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local', fileWriteGuardSessionId: 'parent-worker', fileWriteGuardUserPrompt: 'Preserve the existing notes.' });
   expect(firstInput(spawned[1])).toMatchObject({ browserProvider: 'mac-cua' });
+  expect(firstInput(spawned[1]).fileWriteGuardUserPrompt).toBeUndefined();
 });
 
 test('HostExecutor keeps the last process for a user turn while background runs fill the rest', async () => {

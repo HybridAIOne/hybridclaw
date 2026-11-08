@@ -5,6 +5,7 @@ export declare function generateIpcAuthSecret(): string;
 export declare function encodeAuthenticatedInput(
   secret: string,
   body: string,
+  purpose?: string,
 ): string;
 
 export type DecodedInput =
@@ -18,4 +19,5 @@ export type DecodedInput =
 export declare function decodeAuthenticatedInput(
   secret: string,
   raw: string,
+  purpose?: string,
 ): DecodedInput;

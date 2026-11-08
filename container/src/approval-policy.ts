@@ -311,6 +311,7 @@ export interface ToolCallContext {
     channelId?: string;
     escalationTarget?: EscalationTarget;
     now?: Date;
+    fileWriteReplanAvailable?: boolean;
   };
   args: Record<string, unknown>;
   policy: ApprovalPolicyConfig;
@@ -2516,14 +2517,7 @@ export class TrustedAgentApprovalRuntime {
     return promptCard;
   }
 
-  evaluateToolCall(params: {
-    toolName: string;
-    argsJson: string;
-    latestUserPrompt: string;
-    channelId?: string;
-    escalationTarget?: EscalationTarget;
-    now?: Date;
-  }): ToolApprovalEvaluation {
+  evaluateToolCall(params: ToolCallContext['params']): ToolApprovalEvaluation {
     const context: ToolCallContext = {
       params,
       args: parseJsonObject(params.argsJson),
