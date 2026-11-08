@@ -2,8 +2,10 @@
  * Native benchmark tasks share one admitted resource budget and cancellation scope.
  * This orchestrates task environments; gateway execution and shared-engine
  * maintenance remain outside the runner's ownership.
- * Run failures survive cleanup failures; completed task results are retained.
+ * Task cleanup shares the resource guard: original engine, confirmed absence,
+ * and retained admission on failure. Primary failures and completed results survive.
  */
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stopSessionExecution } from '../../src/agent/executor.js';
@@ -329,15 +331,10 @@ async function startTaskEnvironment(
   await resources.check(1, 1);
   fs.mkdirSync(workspaceDir, { recursive: true });
 
-  const containerName = `hybridclaw-tb2-${sanitizeName(task.task_name)}-${Date.now().toString(36)}`;
-  const cleanup = async () => {
-    await benchmarkCommand({
-      command: 'docker',
-      args: ['rm', '-f', containerName],
-      timeout: 10_000,
-      allowFailure: true,
-    });
-  };
+  const containerName = `hybridclaw-tb2-${sanitizeName(task.task_name)}-${randomUUID()}`;
+  resources.registerContainer(containerName);
+  let removal: Promise<void> | undefined;
+  const cleanup = () => (removal ??= resources.removeContainer(containerName));
   try {
     await runDocker(
       [
@@ -365,7 +362,15 @@ async function startTaskEnvironment(
       resources.signal,
     );
   } catch (error) {
-    await cleanup();
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Task startup failed: ${String(error)}; container cleanup failed: ${String(cleanupError)}`,
+        { cause: error },
+      );
+    }
     throw error;
   }
 
@@ -482,10 +487,10 @@ async function runTask(
   const stop = () => {
     stopSessionExecution(executionSessionId);
     stopSessionExecution(sessionId);
-    void env?.cleanup();
+    void env?.cleanup().catch(() => {});
   };
   resources.signal.addEventListener('abort', stop, { once: true });
-  try {
+  const execute = async () => {
     resources.signal.throwIfAborted();
     env = await startTaskEnvironment(task, jobDir, resources);
     resources.signal.throwIfAborted();
@@ -572,12 +577,27 @@ async function runTask(
       'utf-8',
     );
     return summary;
-  } finally {
-    stopSessionExecution(executionSessionId);
-    stopSessionExecution(sessionId);
-    resources.signal.removeEventListener('abort', stop);
+  };
+  const outcome = await execute().then(
+    (summary) => ({ ok: true as const, summary }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  stopSessionExecution(executionSessionId);
+  stopSessionExecution(sessionId);
+  resources.signal.removeEventListener('abort', stop);
+  try {
     await env?.cleanup();
+  } catch (cleanupError) {
+    if (!outcome.ok)
+      throw new AggregateError(
+        [outcome.error, cleanupError],
+        `Task failed: ${String(outcome.error)}; container cleanup failed: ${String(cleanupError)}`,
+        { cause: outcome.error },
+      );
+    throw cleanupError;
   }
+  if (!outcome.ok) throw outcome.error;
+  return outcome.summary;
 }
 
 async function mapLimit<T, R>(
