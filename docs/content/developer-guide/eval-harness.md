@@ -159,6 +159,12 @@ share one removal attempt. An already absent container counts as confirmed
 removal, even if the remove command fails. If execution and cleanup both fail,
 both errors are retained with the execution failure as the cause.
 
+Each job has a new directory even when two runs start in the same clock tick.
+Within it, each task has a `task-<uuid>` directory and unique execution, container
+and image identities. Dataset names remain labels in `result.json` and each
+task's `summary.json`; punctuation, case differences and repeated names cannot
+make tasks share files or sessions.
+
 Checks run before each task and every five seconds during builds, execution,
 copies and verification. Crossing a resource floor or losing engine health
 cancels benchmark commands and sessions and removes only the runner's own

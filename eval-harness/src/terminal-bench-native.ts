@@ -4,6 +4,8 @@
  * maintenance remain outside the runner's ownership.
  * Task cleanup shares the resource guard: original engine, confirmed absence,
  * and retained admission on failure. Primary failures and completed results survive.
+ * Jobs, task files, images and sessions use unique run identities; dataset names
+ * are report labels, never filesystem paths or execution identities.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -225,10 +227,6 @@ async function runDockerAllowFailure(args: string[], signal?: AbortSignal) {
   });
 }
 
-function sanitizeName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
 function readDatasetHelperPath(installDir: string): string {
   return path.join(installDir, 'hybridclaw_terminal_bench_dataset.py');
 }
@@ -309,21 +307,19 @@ async function buildDockerImageForTask(
   }
   const buildDir = path.join(taskDir, 'environment');
   await writeBase64TarToDirectory(environmentTar, buildDir, signal);
-  const tag = `hybridclaw-tb2-${sanitizeName(task.task_name)}-${Date.now().toString(36)}`;
+  const tag = `hybridclaw-tb2-${path.basename(taskDir)}`;
   await runDocker(['build', '-t', tag, buildDir], signal);
   return tag;
 }
 
 async function startTaskEnvironment(
   task: TerminalBenchTask,
-  jobDir: string,
+  taskRoot: string,
   resources: BenchmarkResources,
 ): Promise<TaskEnvironment> {
-  const taskRoot = path.join(jobDir, sanitizeName(task.task_name));
   const workspaceDir = path.join(taskRoot, 'workspace');
   const testsDir = path.join(taskRoot, 'tests');
   const verifierDir = path.join(taskRoot, 'verifier');
-  fs.mkdirSync(taskRoot, { recursive: true });
   fs.mkdirSync(testsDir, { recursive: true });
   fs.mkdirSync(verifierDir, { recursive: true });
 
@@ -331,7 +327,7 @@ async function startTaskEnvironment(
   await resources.check(1, 1);
   fs.mkdirSync(workspaceDir, { recursive: true });
 
-  const containerName = `hybridclaw-tb2-${sanitizeName(task.task_name)}-${randomUUID()}`;
+  const containerName = `hybridclaw-tb2-${path.basename(taskRoot)}`;
   resources.registerContainer(containerName);
   let removal: Promise<void> | undefined;
   const cleanup = () => (removal ??= resources.removeContainer(containerName));
@@ -481,9 +477,10 @@ async function runTask(
   resources: BenchmarkResources,
 ): Promise<TaskResultSummary> {
   let env: TaskEnvironment | undefined;
-  const sessionId = `tb2:${sanitizeName(task.task_name)}:${Date.now().toString(36)}`;
-  const executionSessionId = `tb2-exec:${sanitizeName(task.task_name)}:${Date.now().toString(36)}`;
-  const taskDir = path.join(jobDir, sanitizeName(task.task_name));
+  const taskId = randomUUID();
+  const sessionId = `tb2:${taskId}`;
+  const executionSessionId = `tb2-exec:${taskId}`;
+  const taskDir = path.join(jobDir, `task-${taskId}`);
   const stop = () => {
     stopSessionExecution(executionSessionId);
     stopSessionExecution(sessionId);
@@ -492,7 +489,8 @@ async function runTask(
   resources.signal.addEventListener('abort', stop, { once: true });
   const execute = async () => {
     resources.signal.throwIfAborted();
-    env = await startTaskEnvironment(task, jobDir, resources);
+    fs.mkdirSync(taskDir);
+    env = await startTaskEnvironment(task, taskDir, resources);
     resources.signal.throwIfAborted();
     const promptPath = path.join(taskDir, 'prompt.txt');
     fs.writeFileSync(
@@ -626,8 +624,8 @@ export async function runTerminalBenchNativeCli(argv: string[]): Promise<void> {
   const options = parseArgs(argv);
   const jobsRoot = path.join(options.installDir, 'jobs');
   const jobId = new Date().toISOString().replace(/[:.]/g, '-');
-  const jobDir = path.join(jobsRoot, jobId);
-  fs.mkdirSync(jobDir, { recursive: true });
+  fs.mkdirSync(jobsRoot, { recursive: true });
+  const jobDir = fs.mkdtempSync(path.join(jobsRoot, `${jobId}-`));
   console.log(`Job dir: ${jobDir}`);
   // Admission precedes dataset download/extraction, builds and task image pulls.
   const resources = new BenchmarkResources(
