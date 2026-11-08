@@ -97,3 +97,33 @@ test('refuses the download when its guard cannot persist and latches the failure
     decision: 'denied',
   });
 });
+
+test.each([
+  `env -C cache curl -o setup.sh ${INSTALLER}`,
+  `env -S 'curl -o cache/setup.sh ${INSTALLER}'`,
+  `/usr/bin/env curl -o cache/setup.sh ${INSTALLER}`,
+])(
+  'unknown download locations survive worker replacement: %s',
+  async (download) => {
+    const workspace = makeTempDir();
+    const firstWorker = await startWorker(workspace, 'session-a');
+    expect(firstWorker(download)).toMatchObject({
+      actionKey: 'bash:fetched-code',
+      decision: 'required',
+    });
+    const restarted = await startWorker(workspace, 'session-a');
+    expect(restarted('sh cache/setup.sh')).toMatchObject({
+      actionKey: 'bash:fetched-code',
+      decision: 'required',
+    });
+    expect(restarted('printf hello').decision).toBe('approved_fullauto');
+    expect(restarted('python3 -c "print(7)"').actionKey).not.toBe(
+      'bash:fetched-code',
+    );
+    const otherSession = await startWorker(workspace, 'session-b');
+    expect(otherSession('sh cache/setup.sh')).toMatchObject({
+      actionKey: 'bash:script',
+      decision: 'approved_fullauto',
+    });
+  },
+);
