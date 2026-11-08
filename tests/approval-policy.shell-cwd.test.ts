@@ -71,7 +71,8 @@ test.each([
     baseTier: 'red',
   });
   expect(next.classify('rm -rf node_modules')).toMatchObject({
-    actionKey: 'bash:delete',
+    actionKey: 'bash:workspace-fence',
+    decision: 'required',
   });
   expect(next.classify('cat etc/shadow')).toMatchObject({ pinned: true });
 });

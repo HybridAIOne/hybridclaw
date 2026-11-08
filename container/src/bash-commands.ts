@@ -45,8 +45,11 @@ export const DELETE_RE =
   /(?<!\bgit\s+)\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
 const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
-// Programs that write every path operand they are given.
+const OPERAND_DELETERS = new Set(['rm', 'unlink']);
+// Programs that mutate every path operand they are given. Deletions count as
+// writes so a redirected log cannot hide the removed file from the fence.
 export const OPERAND_WRITERS = new Set([
+  ...OPERAND_DELETERS,
   'chmod',
   'chown',
   'mkdir',
@@ -400,7 +403,7 @@ function gitSubcommandIndex(args: string[]): number {
 // only removes empty directories.
 export function deletesFiles(words: string[]): boolean {
   const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') return true;
+  if (OPERAND_DELETERS.has(program)) return true;
   if (program === 'find') return args.includes('-delete');
   return (
     program === 'git' &&
@@ -433,7 +436,7 @@ function commandDeletionTargets(
   depth: number,
 ): string[] | null {
   const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') {
+  if (OPERAND_DELETERS.has(program)) {
     const operands = commandOperands(args);
     return operands.length > 0 ? resolveTargets(operands, cwd) : null;
   }
@@ -628,7 +631,7 @@ function copyDestination(args: string[]): string | undefined {
 
 // What one command writes, as written: redirect targets, `-o`/`--out` values
 // unless the program's `-o` names no file, option writes, the operands of
-// tee/mkdir/touch/chmod/chown, cp/mv destinations, and what xargs or
+// operand writers (including deletions), cp/mv destinations, and what xargs or
 // `find -exec` runs. /dev/null is never one (owner call, 2026-09-29): output
 // sent there is discarded, so `rm -f /opt/x 2>/dev/null` writes what
 // `rm -f /opt/x` writes.
