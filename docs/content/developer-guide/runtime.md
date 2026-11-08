@@ -373,6 +373,14 @@ scratch space does not hide an outside destination. Package and requirement
 inputs are not treated as install destinations. This is static argument
 inspection, not a sandbox for installation hooks or configuration-driven writes.
 
+Tar inspection separates extraction directories from archive inputs, and archive
+output files from source directories. Short, long and traditional option forms
+retain write intent when logs are redirected or discarded. Recognized listing
+and stdout modes do not turn archive inputs into write destinations. Unknown
+options, external file lists, hooks and unspecified archive destinations remain
+unresolved for the existing fallback. Archive contents, symlinks and environment
+options are not inspected here.
+
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
 review even after a worker restart; another session is unaffected. This can
