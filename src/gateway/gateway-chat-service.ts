@@ -1,5 +1,5 @@
 /**
- * Gateway turns persist tool exchanges and routing evidence with assistant results.
+ * Gateway turns hold each resolved session queue through persisted replies and routing evidence.
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
  * The unified policy owns tier selection and privacy eligibility for model calls.
@@ -270,7 +270,10 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
-import { gatewaySessionQueue } from './session-worker-release.js';
+import {
+  type BindSessionQueue,
+  gatewaySessionQueue,
+} from './session-worker-release.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsThinking,
@@ -681,7 +684,7 @@ async function handleGatewayMessageQueued(
     preemptRunningFullAutoTurn(req.sessionId, source);
   }
   return trackInFlightTurn(() =>
-    gatewaySessionQueue.run(req.sessionId, () =>
+    gatewaySessionQueue.run(req.sessionId, (bindSession) =>
       withSpan(
         'hybridclaw.gateway.handle_message',
         {
@@ -691,7 +694,9 @@ async function handleGatewayMessageQueued(
           'hybridclaw.model': req.model || '',
         },
         async () =>
-          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
+          withChatRoutingTrace(req, () =>
+            handleGatewayMessageInner(req, bindSession),
+          ),
       ),
     ),
   );
@@ -699,6 +704,7 @@ async function handleGatewayMessageQueued(
 
 async function handleGatewayMessageInner(
   req: GatewayChatRequest,
+  bindSession: BindSessionQueue,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   // An estimate left by a turn that failed is not this turn's.
@@ -757,6 +763,7 @@ async function handleGatewayMessageInner(
   if (autoResetSession) {
     const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
+    await bindSession(autoResetSession.id);
     if (pluginManager) {
       await pluginManager.handleSessionReset({
         previousSessionId,
@@ -776,6 +783,7 @@ async function handleGatewayMessageInner(
     req.agentId ?? undefined,
     { forceNewCurrent: shouldForceNewTuiSession(req) },
   );
+  await bindSession(session.id);
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
   }
@@ -862,17 +870,20 @@ async function handleGatewayMessageInner(
         };
         let childText: string;
         try {
-          const childResult = await handleGatewayMessageInner({
-            ...req,
-            content: addressed.content,
-            agentId: targetAgentId,
-            addressEnvelope: childEnvelope,
-            source: `${source}.fanout`,
-            onTextDelta: undefined,
-            onThinkingDelta: undefined,
-            onToolProgress: undefined,
-            onApprovalProgress: undefined,
-          });
+          const childResult = await handleGatewayMessageInner(
+            {
+              ...req,
+              content: addressed.content,
+              agentId: targetAgentId,
+              addressEnvelope: childEnvelope,
+              source: `${source}.fanout`,
+              onTextDelta: undefined,
+              onThinkingDelta: undefined,
+              onToolProgress: undefined,
+              onApprovalProgress: undefined,
+            },
+            bindSession,
+          );
           childText =
             childResult.result ||
             childResult.error ||
@@ -893,6 +904,7 @@ async function handleGatewayMessageInner(
         session.agent_id || DEFAULT_AGENT_ID,
         { forceNewCurrent: shouldForceNewTuiSession(req) },
       );
+      await bindSession(session.id);
     }
     return attachSessionIdentity({
       status: 'success',
@@ -1141,6 +1153,7 @@ async function handleGatewayMessageInner(
     if (reboundSession) {
       const previousSessionId = req.sessionId;
       req.sessionId = reboundSession.id;
+      await bindSession(reboundSession.id);
       if (pluginManager) {
         await pluginManager.handleSessionReset({
           previousSessionId,
@@ -1159,6 +1172,7 @@ async function handleGatewayMessageInner(
       agentId,
       { forceNewCurrent: shouldForceNewTuiSession(req) },
     );
+    await bindSession(session.id);
     if (session.id !== req.sessionId) {
       req.sessionId = session.id;
     }
@@ -1266,6 +1280,7 @@ async function handleGatewayMessageInner(
     const rotated = createFreshSessionInstance(req.sessionId);
     req.sessionId = rotated.session.id;
     session = rotated.session;
+    await bindSession(session.id);
     if (pluginManager) {
       await pluginManager.handleSessionReset({
         previousSessionId: rotated.previousSession.id,
