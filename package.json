@@ -213,6 +213,9 @@
     "@modelcontextprotocol/sdk": {
       "zod": "4.6.7"
     },
-    "minimatch@>=7 <11.0.1": "11.0.3"
+    "minimatch@>=7 <11.0.1": "11.0.3",
+    "pdfjs-dist": {
+      "@napi-rs/canvas": "1.0.9"
+    }
   }
 }
