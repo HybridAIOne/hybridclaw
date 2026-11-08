@@ -14,9 +14,9 @@
  * `readOutput` always settles, with the reply to its own request id, a
  * timeout, or an interrupt, so a stopped agent's late reply never answers a
  * later request. Replies must be bounded, regular files opened without following
- * links, and their reply shapes are validated before use. An interrupted read keeps only the tool history the agent
- * flushed while shutting down. Starting and stopping the agent belongs to
- * host-runner / container-runner, not here.
+ * links, and their reply shapes are validated before use. An interrupted read
+ * keeps validated tool history and known usage flushed during shutdown.
+ * Host-runner and container-runner own worker startup and shutdown.
  */
 
 import fs from 'node:fs';
@@ -441,7 +441,7 @@ function readOutputFiles(
 
 /**
  * The stopped agent flushes the tool calls it already ran (see
- * container/src/shutdown-output.ts). Keep only that history: the turn stays
+ * container/src/shutdown-output.ts). Keep history and known usage: the turn stays
  * interrupted, and its late results and side effects are not honored.
  */
 async function collectInterruptedOutput(
@@ -456,6 +456,7 @@ async function collectInterruptedOutput(
     if (late) {
       return {
         ...interruptedOutput(),
+        ...(late.tokenUsage ? { tokenUsage: late.tokenUsage } : {}),
         ...(late.toolHistory?.length ? { toolHistory: late.toolHistory } : {}),
         ...(late.toolHistoryForReplay?.length
           ? { toolHistoryForReplay: late.toolHistoryForReplay }
