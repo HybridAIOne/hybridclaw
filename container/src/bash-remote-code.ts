@@ -16,6 +16,7 @@ import {
   commandProgram,
   commandWriteTargets,
   MAX_NESTED_SCRIPT_DEPTH,
+  PYTHON_PROGRAM_RE,
   redirectWidth,
   resolvePath,
   type ScriptCommand,
@@ -45,7 +46,7 @@ const INTERPRETERS: Array<{
     stdin: /^-[a-zA-Z]*s/,
   },
   {
-    program: /^python\d*(?:\.\d+)?$/,
+    program: PYTHON_PROGRAM_RE,
     inline: /^-[a-zA-Z]*[cm]$/,
     value: /^-[a-zA-Z]*[WX]$/,
   },
