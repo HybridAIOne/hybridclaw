@@ -1,7 +1,8 @@
 /**
  * Benchmark admission protects shared engine capacity, including VM backing disk.
  * This harness guard owns only its probe and run lock; it never prunes Docker or
- * restarts services. Estimates and polling cannot enforce a disk write quota.
+ * restarts services. Ownership remains until probe absence is verified.
+ * Estimates and polling cannot enforce a disk write quota.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -294,7 +295,15 @@ export class BenchmarkResources {
         if (!this.checking) void this.check(0, 0).catch(() => {});
       }, POLL_MS);
     } catch (error) {
-      await this.close();
+      try {
+        await this.close();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Benchmark startup failed and probe cleanup is unconfirmed.',
+          { cause: error },
+        );
+      }
       throw error;
     }
   }
@@ -351,6 +360,24 @@ export class BenchmarkResources {
         timeout: PROBE_TIMEOUT_MS,
         allowFailure: true,
       });
+      const state = await benchmarkCommand({
+        command: 'docker',
+        args: [
+          'ps',
+          '-a',
+          '--filter',
+          `name=^/${this.probeName}$`,
+          '--format',
+          '{{.Names}}',
+        ],
+        timeout: PROBE_TIMEOUT_MS,
+        allowFailure: true,
+      });
+      if (state.status !== 0 || state.stdout.trim()) {
+        throw new Error(
+          `Benchmark probe cleanup is unconfirmed: ${this.probeName}; engine lock retained.`,
+        );
+      }
       this.probeStarted = false;
     }
     if (this.lockPath) {

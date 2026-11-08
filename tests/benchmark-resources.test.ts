@@ -203,3 +203,69 @@ test('serializes simultaneous dispatch checks rather than racing their probes', 
   await Promise.all([resources.check(1, 1), resources.check(1, 1), resources.check(1, 1)]);
   expect(peak).toBe(1);
 });
+
+function startedProbe(): string {
+  const run = mocks.command.mock.calls.find(([params]) => params.args[0] === 'run')?.[0];
+  if (!run) throw new Error('Fixture probe was not created.');
+  return run.args[run.args.indexOf('--name') + 1];
+}
+
+test.each(['remove-failed', 'remove-acknowledged', 'query-failed'])(
+  'retains ownership until probe absence is verified: %s', async (failure) => {
+    const { resources } = guard();
+    await resources.start(1, 1);
+    const probe = startedProbe();
+    const original = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation(async (params) => {
+      if (params.args[0] === 'rm') return { status: failure === 'remove-failed' ? 1 : 0, stdout: '', stderr: '' };
+      if (params.args[0] === 'ps') return { status: failure === 'query-failed' ? 1 : 0, stdout: failure === 'query-failed' ? '' : probe + '\n', stderr: '' };
+      return original(params);
+    });
+    try {
+      await expect(resources.close()).rejects.toThrow(probe);
+      expect(fs.readdirSync(root).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
+      await expect(guard().resources.start(1, 1)).rejects.toThrow(/Another benchmark/);
+      const removals = mocks.command.mock.calls.filter(([params]) => params.args[0] === 'rm');
+      expect(removals.every(([params]) => params.args[2] === probe)).toBe(true);
+    } finally { mocks.command.mockImplementation(original); }
+    await resources.close();
+    expect(fs.readdirSync(root)).toEqual([]);
+  },
+);
+
+test('an already absent probe releases the lock even when remove reports failure', async () => {
+  const { resources } = guard();
+  await resources.start(1, 1);
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.args[0] === 'rm'
+    ? { status: 1, stdout: '', stderr: 'Fixture probe is already absent.' } : original(params));
+  try {
+    await resources.close();
+    expect(fs.readdirSync(root)).toEqual([]);
+    const commands = mocks.command.mock.calls.length;
+    await resources.close();
+    expect(mocks.command.mock.calls).toHaveLength(commands);
+  } finally { mocks.command.mockImplementation(original); }
+});
+
+test('startup retains the original failure and the cleanup failure', async () => {
+  const { resources } = guard();
+  const startup = new Error('Fixture Docker startup failed.');
+  const original = mocks.command.getMockImplementation()!;
+  let probe = '';
+  mocks.command.mockImplementation(async (params) => {
+    if (params.args[0] === 'run') {
+      probe = params.args[params.args.indexOf('--name') + 1];
+      throw startup;
+    }
+    if (params.args[0] === 'rm') return { status: 1, stdout: '', stderr: '' };
+    if (params.args[0] === 'ps') return { status: 0, stdout: probe + '\n', stderr: '' };
+    return original(params);
+  });
+  try {
+    await expect(resources.start(1, 1)).rejects.toMatchObject({
+      cause: startup, errors: [startup, expect.any(Error)],
+    });
+    expect(fs.readdirSync(root).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
+  } finally { mocks.command.mockImplementation(original); }
+});

@@ -148,6 +148,12 @@ An exclusive lock permits one native benchmark run per engine on this host;
 ordinary services continue to run. After an unclean process exit, verify the
 PID in the reported lock has exited before removing that lock manually.
 
+Cleanup removes only the runner's named probe and then queries Docker to
+confirm it is absent. A failed query or a remaining probe reports failure and
+retains the engine lock; cleanup can be retried after the engine recovers.
+An already absent probe permits lock release. If the run and cleanup both
+fail, both errors are retained, with the run failure as the cause.
+
 Checks run before each task and every five seconds during builds, execution,
 copies and verification. Crossing a resource floor or losing engine health
 cancels benchmark commands and sessions and removes only the runner's own
