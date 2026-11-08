@@ -1,17 +1,24 @@
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { type RefObject, useCallback, useRef, useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FocusGuard } from './FocusGuard';
 import { useFocusTrap } from './useFocusTrap';
 
-function TrapHarness(props: { active: boolean }) {
+function TrapHarness(props: { active: boolean; explicitInitial?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref as RefObject<HTMLElement>, props.active);
+  const preferred = useRef<HTMLButtonElement>(null);
+  useFocusTrap(
+    ref as RefObject<HTMLElement>,
+    props.active,
+    props.explicitInitial ? preferred : undefined,
+  );
   return (
     <div ref={ref} data-testid="trap">
       <button type="button">First</button>
       <button type="button">Second</button>
-      <button type="button">Third</button>
+      <button type="button" ref={preferred}>
+        Third
+      </button>
     </div>
   );
 }
@@ -56,9 +63,56 @@ function ToggleHarness() {
   );
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('useFocusTrap', () => {
+  it.each([false, true])(
+    'preserves a focus choice made before the deferred callback, explicit target: %s',
+    (explicitInitial) => {
+      let initialize: FrameRequestCallback | undefined;
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+        (callback) => {
+          initialize = callback;
+          return 123;
+        },
+      );
+      vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+      const { getByRole } = render(
+        <TrapHarness active={true} explicitInitial={explicitInitial} />,
+      );
+      const chosen = getByRole('button', { name: 'Second' });
+      chosen.focus();
+      expect(initialize).toBeTypeOf('function');
+      act(() => initialize?.(0));
+      expect(document.activeElement).toBe(chosen);
+    },
+  );
+
+  it.each([false, true])(
+    'sets default focus when focus remains outside, explicit target: %s',
+    (explicitInitial) => {
+      let initialize: FrameRequestCallback | undefined;
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+        (callback) => {
+          initialize = callback;
+          return 123;
+        },
+      );
+      vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+      const { getByRole } = render(
+        <TrapHarness active={true} explicitInitial={explicitInitial} />,
+      );
+      expect(initialize).toBeTypeOf('function');
+      act(() => initialize?.(0));
+      expect(document.activeElement).toBe(
+        getByRole('button', { name: explicitInitial ? 'Third' : 'First' }),
+      );
+    },
+  );
+
   it('wraps Tab from last element to first', async () => {
     render(<TrapHarness active={true} />);
     // Let the rAF initial focus run

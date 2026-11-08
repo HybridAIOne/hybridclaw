@@ -15,7 +15,8 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
  * Traps keyboard focus inside `containerRef` while `active` is true.
  *
  * On activation: moves focus to the first focusable element inside the
- * container (deferred one frame so CSS enter-transitions don't interfere).
+ * container if focus has not already entered it (deferred one frame so CSS
+ * enter-transitions do not interfere). A focus choice made during opening wins.
  *
  * While active: Tab / Shift+Tab cycle within the container. Pair with
  * `FocusGuard` sentinels rendered before and after the content to catch
@@ -39,6 +40,7 @@ export function useFocusTrap(
     // Defer initial focus one frame so the element is visible after any
     // CSS transition that runs synchronously with the state change.
     const raf = requestAnimationFrame(() => {
+      if (container.contains(document.activeElement)) return;
       const target = initialFocusRef?.current ?? getFocusable(container)[0];
       target?.focus({ preventScroll: true });
     });
