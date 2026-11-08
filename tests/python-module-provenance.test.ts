@@ -133,3 +133,10 @@ test('a real script in another directory keeps its ordinary decision', () => {
   fs.writeFileSync(path.join(root, 'json.py'), '# fixture');
   expect(analyze(`python3 ${JSON.stringify(path.join(root, 'safe', 'local.py'))}`, [path.join(root, 'json.py')]).runs).toBe(false);
 });
+
+test.each([
+  `python3 -c "import sys; sys.path.insert(0, 'downloads'); import json"`,
+  `python3 -c "__import__('downloads.json')"`,
+])('explicit loaders retain provenance from another directory: %s', command => {
+  expect(analyze(command, ['downloads/json.py']).runs).toBe(true);
+});

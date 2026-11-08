@@ -418,7 +418,7 @@ export function pythonImportRisk(
     if (file.includes('\0')) return true;
     if (!PYTHON_IMPORTABLE.test(file)) continue;
     if (isolated && !inspection?.changesPath) continue;
-    if (isolated || importRoot === null) return true;
+    if (isolated || inspection?.changesPath || importRoot === null) return true;
     const root = importRoot || '.';
     const actualRoot =
       resolveWorkspacePath(root) ??
