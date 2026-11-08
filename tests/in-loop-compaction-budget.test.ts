@@ -73,6 +73,7 @@ async function compact(
     history: messages,
     tools: [],
     tokenUsage: usage,
+    checkpointUsage: vi.fn(),
     fallbackContext: context,
     taskModels:
       options.configuredMax === undefined

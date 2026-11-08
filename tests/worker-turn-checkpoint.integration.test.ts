@@ -56,6 +56,11 @@ test.each(['completed', 'uncertain', 'not_started', 'corrupt'] as const)(
       res.setHeader('Content-Type', 'application/json');
       res.end(
         JSON.stringify({
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 12,
+            total_tokens: 132,
+          },
           choices: [
             {
               finish_reason: 'tool_calls',
@@ -174,6 +179,12 @@ test.each(['completed', 'uncertain', 'not_started', 'corrupt'] as const)(
       first.kill('SIGKILL');
       await exited;
       const evidence = checkpointOutput(readTurnCheckpoint(state, sessionId)!);
+      expect(evidence.tokenUsage).toMatchObject({
+        apiUsageAvailable: true,
+        apiPromptTokens: 120,
+        apiCompletionTokens: 12,
+        apiTotalTokens: 132,
+      });
       expect(evidence.toolHistory).toHaveLength(2);
       expect(evidence.toolHistory[1].is_error === true).toBe(
         boundary === 'uncertain' || boundary === 'not_started',
@@ -195,8 +206,13 @@ test.each(['completed', 'uncertain', 'not_started', 'corrupt'] as const)(
         fs.readFileSync(outputFile, 'utf8'),
       ) as ContainerOutput;
       expect(output.status).toBe('error');
-      if (boundary !== 'corrupt') expect(output.toolHistory).toEqual(evidence.toolHistory);
-      else expect(output.toolHistory).toBeUndefined();
+      if (boundary !== 'corrupt') {
+        expect(output.toolHistory).toEqual(evidence.toolHistory);
+        expect(output.tokenUsage).toEqual(evidence.tokenUsage);
+      } else {
+        expect(output.toolHistory).toBeUndefined();
+        expect(output.tokenUsage?.apiUsageAvailable).not.toBe(true);
+      }
       expect(calls).toBe(callsBeforeRestart);
       if (boundary === 'not_started') expect(fs.existsSync(effect)).toBe(false);
       else expect(fs.readFileSync(effect, 'utf8').trim().split('\n')).toEqual(['action']);

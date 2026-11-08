@@ -1,5 +1,5 @@
 /**
- * Failed worker IPC can still have durable tool outcomes in the workspace.
+ * Failed worker IPC can still have durable tool outcomes and known usage.
  * This reader preserves authoritative replies. Recovery after interruption
  * returns evidence only, never success, approvals or queued side effects;
  * it never starts a replacement worker or repeats a call.
@@ -20,16 +20,17 @@ export function recoverWorkerOutput(
     return output;
   // An authoritative reply can retain its authority. Interrupted/recovered
   // replies are evidence only, even if a partial IPC reply included controls.
-  if (
+  const authoritative =
     !interrupted &&
     !output.recovery &&
-    (typeof output.result === 'string' ||
-      output.toolHistory?.length ||
-      output.toolExecutions?.length ||
-      output.pendingApproval ||
-      output.sideEffects)
-  )
-    return output;
+    Boolean(
+      typeof output.result === 'string' ||
+        output.toolHistory?.length ||
+        output.toolExecutions?.length ||
+        output.pendingApproval ||
+        output.sideEffects,
+    );
+  if (authoritative && output.tokenUsage) return output;
   const {
     pendingApproval: _approval,
     sideEffects: _effects,
@@ -45,6 +46,10 @@ export function recoverWorkerOutput(
         CONTAINER_MAX_OUTPUT_SIZE,
       )
     : { kind: 'refused' as const, reason: 'missing' as const };
+  if (authoritative)
+    return recovered.kind === 'recovered' && recovered.evidence.tokenUsage
+      ? { ...output, tokenUsage: recovered.evidence.tokenUsage }
+      : output;
   if (recovered.kind === 'refused')
     return {
       ...failure,
@@ -56,10 +61,13 @@ export function recoverWorkerOutput(
     !output.recovery &&
     !recovered.evidence.toolHistory.length
   )
-    return output;
+    return !output.tokenUsage && recovered.evidence.tokenUsage
+      ? { ...output, tokenUsage: recovered.evidence.tokenUsage }
+      : output;
   return {
     ...failure,
     ...recovered.evidence,
+    ...(output.tokenUsage ? { tokenUsage: output.tokenUsage } : {}),
     error: `${output.error || 'Worker stopped.'}\n${recovered.evidence.error}`,
   };
 }

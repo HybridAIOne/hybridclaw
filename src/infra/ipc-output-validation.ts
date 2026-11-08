@@ -3,6 +3,8 @@
  * File safety belongs to ipc.ts; this boundary rejects malformed payloads
  * without logging their content or granting authority to valid tool history.
  */
+
+import { validateTokenUsage } from '../../container/shared/token-usage.js';
 import { validateToolHistory } from '../../container/shared/tool-history.js';
 import type { ContainerOutput } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -112,19 +114,14 @@ const fields = {
   toolHistory: history,
   toolHistoryForReplay: history,
   pendingApproval: approval,
-  tokenUsage: shape({
-    modelCalls: number,
-    apiUsageAvailable: boolean,
-    apiPromptTokens: number,
-    apiCompletionTokens: number,
-    apiTotalTokens: number,
-    apiCacheUsageAvailable: boolean,
-    apiCacheReadTokens: number,
-    apiCacheWriteTokens: number,
-    estimatedPromptTokens: number,
-    estimatedCompletionTokens: number,
-    estimatedTotalTokens: number,
-  }),
+  tokenUsage: (value) => {
+    try {
+      validateTokenUsage(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
   outputPresentation: shape({
     segmentKind: oneOf('draft', 'final', 'tool_request', 'approval', 'status'),
     visible: boolean,

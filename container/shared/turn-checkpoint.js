@@ -1,7 +1,7 @@
 /**
  * Durable turn evidence, shared by worker and gateway. A started call without
  * a result is uncertain and is never replayed here. Unlike IPC replies this
- * journal survives worker replacement; it grants no authority to execute tools.
+ * journal survives worker replacement with known usage; it grants no tool authority.
  * Executed calls progress proposed → started → result_recorded. Terminal
  * receipts without a start (denials/rejections) never authorize a later start.
  */
@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { writeFileAtomic } from './atomic-write.js';
+import { validateTokenUsage } from './token-usage.js';
 import { validateToolHistory } from './tool-history.js';
 
 export function sessionStateKey(sessionId) {
@@ -163,6 +164,9 @@ export function checkpointOutput(data) {
     toolExecutions: executions,
     toolHistory: history,
     toolHistoryForReplay: history,
+    ...(data.tokenUsage === undefined
+      ? {}
+      : { tokenUsage: validateTokenUsage(data.tokenUsage) }),
   };
 }
 
@@ -190,6 +194,14 @@ export class TurnCheckpoint {
         : null;
     this.data = { version: 1, turnId, messages: [], started: [] };
     if (!this.recovered) this.persist();
+  }
+
+  usage(stats) {
+    this.persist({ ...this.data, tokenUsage: validateTokenUsage(stats) });
+  }
+
+  snapshot() {
+    return structuredClone(this.recovered ?? checkpointOutput(this.data));
   }
 
   assistant(message) {

@@ -1,3 +1,8 @@
+/**
+ * Worker protocol data shares usage snapshots with gateway recovery.
+ * Provider parsing belongs to token-usage.ts; these types grant no tool
+ * authority and do not define a second accounting schema.
+ */
 import type {
   ApprovalMode,
   ApprovalObservation,
@@ -21,6 +26,10 @@ import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
 } from '../shared/stakes-classifier.js';
+import type {
+  ModelCallTiming,
+  TokenUsageStats,
+} from '../shared/token-usage.js';
 import type { ToolCallLimits } from '../shared/tool-call-limits.js';
 import type { RecoveryDisposition } from '../shared/turn-checkpoint.js';
 import type {
@@ -30,6 +39,12 @@ import type {
 import type { WebSearchConfig } from '../shared/web-search-config.js';
 import type { McpServerConfig } from './mcp/types.js';
 import type { ModelBehavior } from './model-behavior.js';
+
+export type {
+  ModelCallPerformanceSample,
+  ModelCallTiming,
+  TokenUsageStats,
+} from '../shared/token-usage.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -403,32 +418,6 @@ export interface PendingApproval {
   escalationTarget?: EscalationTarget;
   /** Set when the question is whether to spend one of the user's boosts. */
   boost?: BoostPrompt;
-}
-
-export interface TokenUsageStats {
-  modelCalls: number;
-  apiUsageAvailable: boolean;
-  apiPromptTokens: number;
-  apiCompletionTokens: number;
-  apiTotalTokens: number;
-  apiCacheUsageAvailable: boolean;
-  apiCacheReadTokens: number;
-  apiCacheWriteTokens: number;
-  estimatedPromptTokens: number;
-  estimatedCompletionTokens: number;
-  estimatedTotalTokens: number;
-  performanceSamples?: ModelCallPerformanceSample[];
-}
-
-export interface ModelCallTiming {
-  durationMs: number;
-  firstTextDeltaMs?: number;
-}
-
-export interface ModelCallPerformanceSample extends ModelCallTiming {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
 }
 
 export interface ArtifactMetadata {
