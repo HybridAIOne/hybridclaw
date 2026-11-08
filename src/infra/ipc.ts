@@ -14,7 +14,7 @@
  * `readOutput` always settles, with the reply to its own request id, a
  * timeout, or an interrupt, so a stopped agent's late reply never answers a
  * later request. Replies must be bounded, regular files opened without following
- * links. An interrupted read keeps only the tool history the agent
+ * links, and their reply shapes are validated before use. An interrupted read keeps only the tool history the agent
  * flushed while shutting down. Starting and stopping the agent belongs to
  * host-runner / container-runner, not here.
  */
@@ -38,6 +38,7 @@ import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
 import { sessionDirectoryName } from '../utils/session-directory.js';
+import { isContainerOutput } from './ipc-output-validation.js';
 
 /**
  * Get session directory, creating it if needed.
@@ -401,9 +402,16 @@ function readOutputFiles(
       ) {
         throw new Error('Output file changed while reading');
       }
-      const output: ContainerOutput = JSON.parse(
-        buffer.toString('utf8', 0, bytes),
-      );
+      const output: unknown = JSON.parse(buffer.toString('utf8', 0, bytes));
+      if (!isContainerOutput(output)) {
+        fs.unlinkSync(outputPath);
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: 'Invalid agent output payload',
+        };
+      }
       fs.unlinkSync(outputPath);
       logger.debug({ sessionId }, 'Read IPC output');
       return output;

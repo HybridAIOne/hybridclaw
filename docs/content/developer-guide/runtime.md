@@ -147,6 +147,10 @@ recurrence timers exclude active jobs until their execution settles, then rearm
 using the saved schedule and outcome. This in-process guard does not claim jobs
 across multiple gateways.
 
+Worker reply files are checked for valid response shapes before gateway use.
+Malformed replies become errors without applying their side effects. Tool replay
+history uses the shared exchange validator; valid structure grants no authority.
+
 ## Worker State
 
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
