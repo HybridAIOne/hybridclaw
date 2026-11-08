@@ -460,7 +460,7 @@ approval:
     ['npm run format', 'bash:other', 'yellow'],
     ['terraform plan', 'bash:other', 'yellow'],
     ['echo "rm notes.txt"', 'bash:other', 'yellow'],
-    ['command -v rm', 'bash:other', 'yellow'],
+    ['command -v rm', 'bash:read-only', 'green'],
     ['pnpm rm lodash', 'bash:other', 'yellow'],
     ['grep -n rmdir src/app.ts', 'bash:read-only', 'green'],
   ])('commands that only mention rm are not deletions: %j', (command, actionKey, tier) => {
@@ -554,10 +554,10 @@ approval:
     ['grep -o PATTERN file', 'bash:read-only'],
     ["grep -oE '[a-z]+' notes.txt | sort", 'bash:other'],
     ['rg -o PATTERN', 'bash:read-only'],
-    ['cd /opt/data && grep -o x y', 'bash:other'],
+    ['cd /opt/data && grep -o x y', 'bash:read-only'],
     // An `-o` output would make these lines writes, which the fence checks;
     // `2>/dev/null` changes nothing.
-    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:other'],
+    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:read-only'],
     [
       'cd /opt/data && grep -o \'"type":"[^"]*"\' wire.jsonl 2>/dev/null | sort | uniq -c',
       'bash:other',
@@ -570,12 +570,12 @@ approval:
     ['cd /opt/data && egrep -o x y 2>/dev/null', 'bash:other'],
     [
       'cd /opt/data && rg -o \'src="[^"]+"\' page.html 2>/dev/null',
-      'bash:other',
+      'bash:read-only',
     ],
     ['ls -o /opt/data > listing.txt', 'bash:write-op'],
     [
       "cd /opt/data && find . -name '*.md' -o \\( -name '*.txt' \\) 2>/dev/null",
-      'bash:other',
+      'bash:read-only',
     ],
     ['cd /opt/data && ps -o pid,comm 2>/dev/null', 'bash:other'],
     [
@@ -588,7 +588,7 @@ approval:
     ],
     [
       "cd /opt/data && find . -name '*.log' | xargs grep -o x 2>/dev/null",
-      'bash:other',
+      'bash:read-only',
     ],
     // Next to a real write, the pattern is still no target.
     ['cd /opt/data && grep -o x y > /tmp/matches.txt', 'bash:write-op'],

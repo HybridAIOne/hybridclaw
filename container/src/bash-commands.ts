@@ -242,6 +242,24 @@ export function splitShellCommands(input: string): ShellCommand[] {
   return commands;
 }
 
+/** Literal command lookups never execute their operands, including combined flags. */
+export function isCommandLookup(words: string[], start = 0): boolean {
+  if (words[start] !== 'command') return false;
+  let lookup = false;
+  for (let index = start + 1; index < words.length; index++) {
+    const option = words[index];
+    const width = redirectWidth(option);
+    if (width) {
+      index += width - 1;
+      continue;
+    }
+    if (option === '--' || !option.startsWith('-') || option === '-') break;
+    if (!/^-[pvV]+$/.test(option)) return false;
+    if (/[vV]/.test(option)) lookup = true;
+  }
+  return lookup;
+}
+
 // The program a simple command runs (lowercased base name), past assignments,
 // keywords, and wrappers such as `timeout 5`; `command -v rm` only looks rm up.
 export function commandProgram(words: string[]): {
@@ -253,7 +271,7 @@ export function commandProgram(words: string[]): {
   let wrapped = false;
   for (; start < words.length; start += 1) {
     const word = words[start];
-    if (word === 'command' && /^-[vV]$/.test(words[start + 1] ?? '')) {
+    if (isCommandLookup(words, start)) {
       return { start: words.length, program: '', args: [] };
     }
     if (COMMAND_PREFIX_WORDS.has(word)) wrapped = true;

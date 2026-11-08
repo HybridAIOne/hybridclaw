@@ -273,6 +273,14 @@ approval requirements while preserving unconditional denials.
 | Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, also when the command's own output is discarded (`rm -f /opt/data/x 2>/dev/null`), but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` and `browser_evaluate` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
+Literal navigation, command lookup, file-format display, PDF metadata and byte
+inspection can run as read-only shell diagnostics, including after a filename
+conflict. Only recognized argument forms qualify; compilation, timestamp
+restoration, indirect file lists, password options and unknown diagnostic flags
+retain normal classification. Every command in a chain must be read-only, and
+redirects, script execution, fetched code and sensitive paths still face their
+existing checks. Inspecting a file does not clear its write-conflict state.
+
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
 files matching the built-in pinned paths (`.env*`, `~/.ssh/**`, `/etc/**`)

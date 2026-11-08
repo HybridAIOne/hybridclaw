@@ -32,7 +32,7 @@ test('a relative write waits at the workspace fence after an earlier call moved 
       entry.approvalDecision,
     ]),
   ).toEqual([
-    ['bash:other', 'implicit'],
+    ['bash:read-only', 'auto'],
     ['bash:workspace-fence', 'required'],
   ]);
   expect(output.pendingApproval?.intent).toContain('/notes.txt');
