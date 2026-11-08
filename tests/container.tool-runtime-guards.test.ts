@@ -628,7 +628,7 @@ describe.sequential('container tool runtime guards', () => {
     const argsJson = JSON.stringify({ path: 'same.md' });
 
     for (let i = 0; i < 3; i += 1) {
-      recordToolCallOutcome(history, 'read', argsJson, 'same output', false);
+      recordToolCallOutcome(history, 'read', argsJson, 'same output', false, false);
     }
 
     const result = detectToolCallLoop(history, 'read', argsJson);
@@ -644,11 +644,11 @@ describe.sequential('container tool runtime guards', () => {
     const readArgs = JSON.stringify({ path: 'a.md' });
     const globArgs = JSON.stringify({ pattern: '*.md' });
 
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
-    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false);
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
-    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false);
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
+    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false, false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
+    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false, false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
 
     const result = detectToolCallLoop(history, 'glob', globArgs);
 
@@ -663,7 +663,7 @@ describe.sequential('container tool runtime guards', () => {
     const argsJson = JSON.stringify({ command: 'python script.py' });
 
     for (let i = 0; i < 6; i += 1) {
-      recordToolCallOutcome(history, 'bash', argsJson, 'same output', false);
+      recordToolCallOutcome(history, 'bash', argsJson, 'same output', false, false);
     }
 
     const result = detectToolCallLoop(history, 'bash', argsJson);
