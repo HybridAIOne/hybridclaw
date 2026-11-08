@@ -348,6 +348,7 @@ export function inspectPythonInline(
 ): {
   data: { reads: string[]; writes: string[]; pathHints: string[] } | null;
   literals: string[];
+  recognized: boolean;
   imports: string[];
   changesPath: boolean;
 } | null {
@@ -370,6 +371,7 @@ export function inspectPythonInline(
     )
       return null;
     const metadata = {
+      recognized: value.recognized,
       literals: value.literals as string[],
       imports: value.imports as string[],
       changesPath: value.changesPath,
@@ -415,7 +417,10 @@ export function pythonImportRisk(
   inspection: ReturnType<typeof inspectPythonInline>,
 ): boolean {
   for (const file of fetchedFiles) {
-    if (file.includes('\0')) return true;
+    if (file.includes('\0')) {
+      if (!inspection?.recognized || inspection.imports.length > 0) return true;
+      continue;
+    }
     if (!PYTHON_IMPORTABLE.test(file)) continue;
     if (isolated && !inspection?.changesPath) continue;
     if (isolated || inspection?.changesPath || importRoot === null) return true;

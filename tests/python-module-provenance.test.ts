@@ -140,3 +140,11 @@ test.each([
 ])('explicit loaders retain provenance from another directory: %s', command => {
   expect(analyze(command, ['downloads/json.py']).runs).toBe(true);
 });
+
+test.each([
+  {source: 'print(7)', review: false},
+  {source: 'import json', review: true},
+  {source: `exec(open("local.py").read())`, review: true},
+])('unknown origins retain review without blocking import-free data: $source', ({source, review}) => {
+  expect(analyze(`python3 -c '${source}'`, ['\0unknown-fetch-location']).runs).toBe(review);
+});
