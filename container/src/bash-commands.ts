@@ -13,6 +13,7 @@ import {
   redirectWidth,
 } from './bash-command-prefix.js';
 import { installWriteTargets } from './bash-install-targets.js';
+import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
 import { expandUserPath } from './runtime-paths.js';
 
 export {
@@ -61,11 +62,13 @@ export const OPERAND_WRITERS = new Set([
 // Programs whose `-o` names no file: grep and rg print only the match, find's
 // `-o` is OR, ls's a long listing, ps's picks columns, `set -o` sets a shell
 // option, ssh, scp, and sftp take a config option, and xargs reopens the tty
-// (the command it runs is checked on its own). Every other program's
+// (the command it runs is checked on its own); tar's controls ownership/format.
+// Every other program's
 // `-o`/`--out` value counts as a write (owner call, 2026-09-29): an allow list
 // of programs that write through `-o` was rejected, since a program it lacks
 // writes unchecked while a false positive shows up as a prompt.
 const NON_OUTPUT_O_PROGRAMS = new Set([
+  ...TAR_PROGRAMS,
   'egrep',
   'fgrep',
   'find',
@@ -373,7 +376,7 @@ export function scriptCommands(
 }
 
 // Shell redirects are not part of the program's argument list.
-function commandArguments(args: string[]): string[] {
+export function commandArguments(args: string[]): string[] {
   const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -574,12 +577,14 @@ function fetchWriteTargets(program: string, args: string[]): string[] {
 
 // Files a command writes through an option instead of a redirect: git's
 // `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
-// curl and wget save, and pip's explicit install target.
+// curl and wget save, pip's explicit install target, and archive destinations.
 function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   if (program === 'curl' || program === 'wget') {
     return fetchWriteTargets(program, args);
   }
+  if (TAR_PROGRAMS.has(program))
+    return tarWriteTargets(commandArguments(args)).targets;
   if (program !== 'git' && program !== 'find')
     return installWriteTargets(program, commandArguments(args));
   const targets: string[] = [];
