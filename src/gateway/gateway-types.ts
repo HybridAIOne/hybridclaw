@@ -431,7 +431,10 @@ export interface GatewayProactiveMessage {
   queued_at: string;
 }
 
+export const GATEWAY_PROACTIVE_PATH = '/api/proactive/pull';
+
 export interface GatewayProactivePullResponse {
+  claimToken: string | null;
   channelId: string;
   messages: GatewayProactiveMessage[];
 }

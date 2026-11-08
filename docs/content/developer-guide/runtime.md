@@ -24,7 +24,13 @@ Proactive delivery validates the target before queuing outside active hours.
 Signal phone, UUID, and group targets are supported. Teams and Voice targets can
 be classified for session resets and statistics, but their descriptors declare
 `supportsProactive: false`, so proactive sends are rejected. Only `tui` uses the
-local pull queue; unsupported destinations fail
+local pull queue. `GET /api/proactive/pull` leases messages for 60 seconds and
+returns `claimToken` with the batch. After handling it, clients send
+`POST /api/proactive/pull` with `{ channelId, claimToken, ids }`. Only matching
+claims are acknowledged; expired, unacknowledged deliveries can be retried after
+reconnect or restart. An acknowledgement lost in transit can cause redelivery.
+Update gateway and TUI together; custom pull clients must acknowledge batches.
+Unsupported destinations fail
 instead of falling through to that queue. Sender failures remain failures and
 never create a local delivery row.
 
