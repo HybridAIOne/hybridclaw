@@ -22,8 +22,11 @@ test('authenticated worker inputs preserve a family conflict and allow checked r
   const replies = [
     call('reject', 'write', { path: 'report.md', contents: 'Replacement' }),
     call('child-shell', 'bash', { command: 'printf changed > report.md' }),
+    call('child-shell-again', 'bash', { command: 'printf changed > report.md' }),
     call('parent-shell', 'bash', { command: 'printf changed > report.md' }),
+    call('parent-shell-again', 'bash', { command: 'printf changed > report.md' }),
     call('checked', 'write', { path: 'report.md', contents: 'Revised', overwrite: true, expected_content: 'Original\n' }),
+    { role: 'assistant', content: '{"decision":"allow","reason":"Requested update"}' },
     call('restored', 'bash', { command: 'printf completed > completion.txt' }),
     { role: 'assistant', content: 'Completed.' },
   ];
@@ -33,7 +36,7 @@ test('authenticated worker inputs preserve a family conflict and allow checked r
   const parent = await run.followup({ sessionId: 'parent', fileWriteGuardSessionId: undefined, messages: [{ role: 'user', content: 'Continue.' }] });
   expect(parent.pendingApproval?.toolName).toBe('bash');
   expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Original\n');
-  const sibling = await run.followup({ sessionId: 'sibling', fileWriteGuardSessionId: 'parent', messages: [{ role: 'user', content: 'Apply a checked replacement.' }] });
+  const sibling = await run.followup({ sessionId: 'sibling', fileWriteGuardSessionId: 'parent', fileWriteGuardUserPrompt: 'Apply a checked replacement.', messages: [{ role: 'user', content: 'Apply a checked replacement.' }] });
   expect(sibling.status).toBe('success');
   expect(sibling.pendingApproval).toBeUndefined();
   expect(fs.readFileSync(path.join(run.dir, 'report.md'), 'utf8')).toBe('Revised');
@@ -50,7 +53,11 @@ test('the real dispatcher stops a shell overwrite after failed replacement preco
         overwrite: true,
         expected_content: 'Stale',
       }),
+      { role: 'assistant', content: '{"decision":"allow","reason":"Requested update"}' },
       call('shell-1', 'bash', {
+        command: "cat > report.md <<'EOF'\nReplacement\nEOF",
+      }),
+      call('shell-2', 'bash', {
         command: "cat > report.md <<'EOF'\nReplacement\nEOF",
       }),
     ],
@@ -104,6 +111,11 @@ test('the first rejected write exposes recovery and a checked replacement restor
   let step = 0;
   const run = await runAgent(async (body) => {
     const last = body.messages.at(-1);
+    if ((body.tools ?? []).length === 0 && typeof last?.content === 'string') {
+      const review = JSON.parse(last.content);
+      expect(review).toMatchObject({ path: 'report.md', existing_content: original });
+      return { role: 'assistant', content: '{"decision":"allow","reason":"Requested update"}' };
+    }
     switch (step++) {
       case 0:
         return call('create', 'write', { path: 'report.md', contents: 'Revised\n' });
@@ -137,8 +149,10 @@ test('one-time approval still executes a fenced script and a later run needs a n
   const replies: Array<Record<string, unknown>> = [
     call('failed-write', 'write', { path: 'report.md', contents: 'Replacement' }),
     call('first-script', 'bash', { command }),
+    call('first-script-again', 'bash', { command }),
     { role: 'assistant', content: 'Generated the output.' },
     call('second-script', 'bash', { command }),
+    call('second-script-again', 'bash', { command }),
   ];
   let interpretations = 0;
   const run = await runAgent(async (body) => {

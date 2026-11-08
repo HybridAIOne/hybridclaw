@@ -3,7 +3,10 @@ import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
 } from '../../container/shared/approval-reply.js';
-import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
+import type {
+  FileWriteGuardContext,
+  FileWriteGuardReceipt,
+} from '../../container/shared/file-write-guard.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
@@ -125,7 +128,9 @@ export interface ContainerInput
   escalationTarget?: EscalationTarget;
 }
 
-export interface ContainerOutput {
+export interface ContainerOutput
+  extends FileWriteGuardContext,
+    FileWriteGuardReceipt {
   recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';

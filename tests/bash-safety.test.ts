@@ -31,6 +31,7 @@ test.each([
   const evaluate = vi.spyOn(approvalRuntime, 'evaluateToolCall');
   const before = approvalRuntime.getPendingApprovals();
   const resolve = createToolApprovalResolver({
+    sessionId: 'safety-test',
     latestUserPrompt: 'Create a report.',
     channelId: 'msteams',
     fallbackContext: { provider: 'openai', baseUrl: 'https://example.com', apiKey: 'test-key', model: 'test-model', chatbotId: '' },

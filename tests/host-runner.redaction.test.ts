@@ -4,14 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-host-runner-redaction-'),
-  );
-}
+const makeTempHome = useTempDir('hybridclaw-host-runner-redaction-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -860,7 +857,7 @@ test('HostExecutor uses discovered maxTokens for Anthropic OpenRouter models', a
   expect(firstInput.maxTokens).toBe(64_000);
 });
 
-test('HostExecutor exposes the bundled agent-browser binary to host agent processes', async () => {
+test.each(['nested', 'hoisted'] as const)('HostExecutor exposes the %s agent-browser binary to host agent processes', async (layout) => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -926,6 +923,16 @@ test('HostExecutor exposes the bundled agent-browser binary to host agent proces
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const { resolveInstallRoot } = await import('../src/infra/install-root.js');
   const executor = new HostExecutor();
+  vi.stubEnv('AGENT_BROWSER_BIN', '');
+  const binName = process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser';
+  const nested = path.join(resolveInstallRoot(), 'container', 'node_modules', '.bin', binName);
+  const hoisted = path.join(resolveInstallRoot(), 'node_modules', '.bin', binName);
+  const expected = layout === 'nested' ? nested : hoisted;
+  const exists = fs.existsSync;
+  vi.spyOn(fs, 'existsSync').mockImplementation((file) => {
+    if (file === nested || file === hoisted) return file === expected;
+    return exists(file);
+  });
 
   await executor.exec({
     sessionId: 'session-agent-browser-bin',
@@ -940,15 +947,7 @@ test('HostExecutor exposes the bundled agent-browser binary to host agent proces
   const spawnEnv = spawn.mock.calls[0]?.[2]?.env as
     | NodeJS.ProcessEnv
     | undefined;
-  expect(spawnEnv?.AGENT_BROWSER_BIN).toBe(
-    path.join(
-      resolveInstallRoot(),
-      'container',
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser',
-    ),
-  );
+  expect(spawnEnv?.AGENT_BROWSER_BIN).toBe(expected);
 });
 
 test('HostExecutor treats interrupted stdin EPIPE as a user interrupt', async () => {

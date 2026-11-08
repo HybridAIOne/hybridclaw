@@ -103,6 +103,7 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
+import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -1232,6 +1233,7 @@ async function runContainerInner(
   const input: ContainerInput = {
     sessionId,
     fileWriteGuardSessionId: params.fileWriteGuardSessionId,
+    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     runId: params.runId,
     toolCallLimits: params.toolCallLimits,
     requestId,
@@ -1419,6 +1421,7 @@ async function runContainerInner(
     if (abortSignal.aborted) onAbort();
   }
 
+  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
     if (isNewContainer) {
       entry.pendingColdStartProbeStartedAt = Date.now();
@@ -1467,6 +1470,7 @@ async function runContainerInner(
       input.runId || input.requestId,
       Boolean(timedOut || abortSignal?.aborted || entry.terminalError),
     );
+    output = reviewContext.finish(output);
     remapOutputArtifacts(
       output,
       workspacePath,
@@ -1525,6 +1529,7 @@ async function runContainerInner(
       input.runId || input.requestId,
     );
   } finally {
+    reviewContext.close();
     params.steerInbox?.close();
     mlxRelay?.stop();
     abortSignal?.removeEventListener('abort', onAbort);

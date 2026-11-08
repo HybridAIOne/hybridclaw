@@ -207,6 +207,13 @@ async function runAgentInner(
     ...params,
     sessionId,
     messages: dehydratedMessages,
+    fileWriteGuardUserPrompt:
+      params.fileWriteGuardUserPrompt === undefined
+        ? undefined
+        : confidential.dehydrate(
+            [{ content: params.fileWriteGuardUserPrompt }],
+            'agent.file_write_guard_request',
+          )[0].content,
     visualMediaAllowed,
     primaryModelSupportsVisualMedia,
     chatbotId,
@@ -275,6 +282,12 @@ async function runAgentInner(
     error: output.error
       ? confidential.rehydrate(output.error, 'agent.error')
       : output.error,
+    fileWriteGuardUserPrompt: output.fileWriteGuardUserPrompt
+      ? confidential.rehydrate(
+          output.fileWriteGuardUserPrompt,
+          'agent.file_write_guard_request',
+        )
+      : output.fileWriteGuardUserPrompt,
     effectiveUserPrompt: output.effectiveUserPrompt
       ? confidential.rehydrate(
           output.effectiveUserPrompt,

@@ -2,12 +2,15 @@
  * Prompt creation and learning observations preserve the classifier's decision.
  * Learning suppresses prompts and implicit waits, never policy denials or trust
  * boundaries. Unlike approval-policy, this module does not classify actions.
+ * A full-auto collision recovery denies one call before creating a prompt;
+ * it never executes that call or grants consent for a later retry.
  */
 import type { ApprovalMode } from '../shared/approval-mode.js';
 import type {
   ToolApprovalEvaluation,
   ToolCallContext,
 } from './approval-policy.js';
+import { FILE_WRITE_CONFLICT_ACTION_PREFIX } from './file-write-conflicts.js';
 
 export function observeLearningApproval(
   evaluation: ToolApprovalEvaluation,
@@ -64,6 +67,17 @@ export function resolveApprovalPrompt(
     context.helpers.approvalMode(),
   );
   if (observed.approvalObservation) return observed;
+  if (
+    context.helpers.approvalMode() === 'full' &&
+    context.params.fileWriteReplanAvailable === true &&
+    evaluation.actionKey.startsWith(FILE_WRITE_CONFLICT_ACTION_PREFIX)
+  ) {
+    return {
+      ...evaluation,
+      decision: 'denied',
+      escalationRoute: 'policy_denial',
+    };
+  }
   if (context.helpers.approvalUserIsBot() && !context.escalationTarget) {
     return {
       ...evaluation,

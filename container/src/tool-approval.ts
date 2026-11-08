@@ -8,6 +8,8 @@
  * saved executable arguments.
  * Reviews use the original request plus verified steering already shown before
  * each call; waiting or unverified notes cannot supply review intent.
+ * One full-auto conflict replan refuses execution before asking for consent;
+ * delegated preservation checks use the gateway-owned root request.
  */
 
 import { approvalRuleFor } from '../shared/approval-rules.js';
@@ -20,6 +22,8 @@ import {
 import { approvalReviewArguments } from './approval-review.js';
 import { evaluateBashSafety } from './bash-safety.js';
 import { emitRuntimeEvent } from './extensions.js';
+import { FILE_WRITE_CONFLICT_ACTION_PREFIX } from './file-write-conflicts.js';
+import { reviewFileWriteIntent } from './file-write-review.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import { steeredUserPrompt } from './steer-inbox.js';
 import type {
@@ -162,6 +166,7 @@ export function buildApprovalDeniedToolExecution(params: {
 }
 
 export function createToolApprovalResolver(params: {
+  sessionId: string;
   latestUserPrompt: string;
   channelId: string;
   escalationTarget?: EscalationTarget;
@@ -185,6 +190,9 @@ export function createToolApprovalResolver(params: {
   toolName: string;
   argsJson: string;
 }) => Promise<ToolApprovalEvaluation> {
+  // One per turn (Codex, 2026-11-07): allow a safe alternative before asking
+  // for consent. Worker replacement may repeat the refusal, never grant consent.
+  let fileWriteReplanAvailable = true;
   return async (input) => {
     await haltIfShuttingDown();
     const blocked = evaluateBashSafety(input);
@@ -197,6 +205,7 @@ export function createToolApprovalResolver(params: {
       channelId: params.channelId,
       escalationTarget: params.escalationTarget,
       now: approvalEvaluatedAt,
+      fileWriteReplanAvailable,
     });
     const resolved = await resolveBorderlineAnomalyWithTraceJudge({
       evaluation,
@@ -220,8 +229,19 @@ export function createToolApprovalResolver(params: {
         channelId: params.channelId,
         escalationTarget: params.escalationTarget,
         now: approvalEvaluatedAt,
+        fileWriteReplanAvailable,
       });
     }
-    return evaluation;
+    if (
+      evaluation.decision === 'denied' &&
+      evaluation.actionKey.startsWith(FILE_WRITE_CONFLICT_ACTION_PREFIX)
+    )
+      fileWriteReplanAvailable = false;
+    return reviewFileWriteIntent({
+      ...params,
+      ...input,
+      latestUserPrompt,
+      evaluation,
+    });
   };
 }

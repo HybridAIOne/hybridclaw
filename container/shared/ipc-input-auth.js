@@ -22,19 +22,22 @@ export function generateIpcAuthSecret() {
   return randomBytes(32).toString('hex');
 }
 
-function computeMac(secret, body) {
-  return createHmac('sha256', secret).update(body, 'utf8').digest('hex');
+function computeMac(secret, body, purpose) {
+  const mac = createHmac('sha256', secret);
+  if (purpose) mac.update(`${purpose}\0`, 'utf8');
+  return mac.update(body, 'utf8').digest('hex');
 }
 
 /**
  * Wrap a serialized ContainerInput body in an authenticity envelope. `body` is
  * the exact JSON string the agent will parse, so the mac covers the exact bytes
  * and no re-serialization (with its key-ordering hazards) is needed to verify.
+ * An explicit purpose separates controller receipts from executable input MACs.
  */
-export function encodeAuthenticatedInput(secret, body) {
+export function encodeAuthenticatedInput(secret, body, purpose) {
   return JSON.stringify({
     v: IPC_INPUT_AUTH_VERSION,
-    mac: computeMac(secret, body),
+    mac: computeMac(secret, body, purpose),
     body,
   });
 }
@@ -47,7 +50,7 @@ export function encodeAuthenticatedInput(secret, body) {
  * - `{ status: 'rejected', reason }` — a complete file that is not an authentic
  *   envelope; the caller should drop it. Fails closed when no secret is set.
  */
-export function decodeAuthenticatedInput(secret, raw) {
+export function decodeAuthenticatedInput(secret, raw, purpose) {
   let envelope;
   try {
     envelope = JSON.parse(raw);
@@ -66,7 +69,7 @@ export function decodeAuthenticatedInput(secret, raw) {
   if (!secret) {
     return { status: 'rejected', reason: 'no-secret' };
   }
-  const expected = computeMac(secret, envelope.body);
+  const expected = computeMac(secret, envelope.body, purpose);
   const actualBuf = Buffer.from(envelope.mac, 'hex');
   const expectedBuf = Buffer.from(expected, 'hex');
   if (

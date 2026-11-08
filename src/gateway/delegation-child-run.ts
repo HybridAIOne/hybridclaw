@@ -341,6 +341,7 @@ export async function runDelegationTaskWithRetry(
         {
           channelId,
           fileWriteGuardSessionId,
+          fileWriteGuardUserPrompt: input.fileWriteGuardUserPrompt,
           chatbotId,
           enableRag,
           agentId,
@@ -352,6 +353,7 @@ export async function runDelegationTaskWithRetry(
           runAgent({
             sessionId,
             fileWriteGuardSessionId,
+            fileWriteGuardUserPrompt: input.fileWriteGuardUserPrompt,
             messages: requestMessages,
             chatbotId,
             enableRag,

@@ -293,13 +293,17 @@ grants. These files use the existing pinned approval-state protections.
 
 Rejected `write` preconditions persist canonical file paths in
 `.hybridclaw-runtime/sessions/<session-key>/file-write-conflicts.json`.
-Until a checked write or edit succeeds for that file, non-green or write-intent
+While the conflict is active, non-green or write-intent
 Bash calls and deletion of that file or its parent require one-time approval,
 including in full-auto and evaluation sessions. This deliberately fences opaque
 scripts as well as direct redirects; unrelated shell mutations may also pause.
 Read-only diagnostics, including an `echo` fallback after a read-only command,
 and writing a separate deliverable remain available. File redirections and
 opaque script execution still require approval while a conflict is unresolved.
+In full-auto, the first fenced call is refused without creating a pending prompt,
+and the model gets one chance to continue with permitted work. The refused call
+never runs. Repeating a fenced mutation follows the normal one-time approval path;
+`auto` and `ask` still prompt on the first fenced call.
 The failed write immediately reports recovery diagnostics from the same store
 used by subsequent approval decisions. They list the unresolved paths; writing a separate file leaves
 the script-execution restriction in place. A checked mutation resolves only its
@@ -312,6 +316,33 @@ writer finishes or the operator removes a verified abandoned lock.
 Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
+
+An automatic checked `write` or `edit` to a conflicted file also receives an
+independent preservation review from the active primary model. It compares the
+user request with the supplied current/replacement text; edits supply their
+matching span, not the entire file. It performs no extra filesystem reads.
+Requested updates can proceed, while unrelated new deliverables use a separate
+path. Invalid, truncated or unavailable verdicts refuse the mutation and leave
+the fence intact. New files do not receive this additional review. The check adds
+latency and model usage; it is a semantic veto, not permission or a guarantee
+against adversarial content. Byte checks, path restrictions and approvals still
+apply, and an exact one-time human approval retains its normal authority.
+
+Delegated reviews use the controller’s complete root request after approval
+replay, including verified steering already shown to the model. Model-authored
+task text and lineage fields cannot replace it. The controller authenticates this
+context with the per-worker IPC secret in a separate MAC domain; both executors
+bind receipts to the exact live worker, request and root conflict owner. Waiting
+callbacks verify the receipt before starting a child; queued outputs lose their
+receipt and receive verified context before leaving the executor. Invalid queued
+context reports an error and starts no child. Completion, failure and worker
+replacement revoke the live binding. This also covers scheduled workers outside
+the chat request registry. Missing delegated root intent
+refuses the protected change. The root text receives the same confidential
+redaction as the task messages, follows waiting and queued children, and is
+replaced on each authenticated worker input. Ambiguous live conversation owners fail closed.
+Review verdicts are not stored consent and cannot clear a conflict; only a
+successful checked mutation resolves its path.
 
 File-delivery guidance asks the agent to parse structured data and check the
 requested structure after its final edit. This read-only QA is part of completing
@@ -1385,10 +1416,12 @@ every note of the turn again.
 
 Tool approvals and intent reviews receive the complete current user request,
 including trailing constraints and text parts. The bounded status excerpt is
-not their source of intent. Verified steering enters that context only after
-the worker shows it to the model; queued, forged and previous-request notes do
-not. Shown notes are held for the active request and reset when it ends or a
-new worker starts. The gateway owns the stored messages used to resume work.
+not their source of intent. A worker adds verified steering to its local
+approval context only after showing it to the model; queued, forged and
+previous-request notes do not enter that local context. Shown notes are held for
+the active request and reset when it ends or a new worker starts. Delegated file
+preservation instead uses the gateway-owned root context described above. The
+gateway owns the stored messages used to resume work.
 
 ## Agent Shutdown
 

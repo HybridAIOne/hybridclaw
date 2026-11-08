@@ -21,6 +21,10 @@
 import { hash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  encodeFileWriteGuardContext,
+  type FileWriteGuardRequest,
+} from '../shared/file-write-guard.js';
 
 import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../shared/ipc-output-files.js';
@@ -46,6 +50,15 @@ const consumedInputs = new Set<string>();
 export function setIpcAuthSecret(secret: string): void {
   if (ipcAuthSecret !== (secret || '')) consumedInputs.clear();
   ipcAuthSecret = secret || '';
+}
+
+export function authenticateFileWriteGuardContext(
+  request: FileWriteGuardRequest,
+  userPrompt: string,
+): string | undefined {
+  return ipcAuthSecret
+    ? encodeFileWriteGuardContext(ipcAuthSecret, request, userPrompt)
+    : undefined;
 }
 
 /** A steering note, verified with the same secret as follow-up inputs. */

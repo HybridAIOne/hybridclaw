@@ -10,7 +10,14 @@ test('a real worker preserves a locked file and can recover with an authorized e
   let step = 0;
   let workspace = '';
   const run = await runAgent(
-    async () => {
+    async (body) => {
+      if ((body.tools ?? []).length === 0) {
+        return {
+          role: 'assistant',
+          content:
+            '{"decision":"allow","reason":"Requested status update preserves the other content."}',
+        };
+      }
       if (step === 1) {
         expect(
           fs.readFileSync(path.join(workspace, 'report.txt'), 'utf8'),

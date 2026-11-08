@@ -2745,7 +2745,11 @@ async function handleGatewayMessageInner(
       acceptedDelegationPlans.length > 0
         ? enqueueDelegationBatchFromSideEffects({
             plans: acceptedDelegationPlans,
-            fileWriteGuardSessionId: req.executionSessionId || req.sessionId,
+            fileWriteGuardSessionId:
+              output.fileWriteGuardSessionId ??
+              req.executionSessionId ??
+              req.sessionId,
+            fileWriteGuardUserPrompt: output.fileWriteGuardUserPrompt,
             parentSessionId: req.sessionId,
             channelId: req.channelId,
             chatbotId,
