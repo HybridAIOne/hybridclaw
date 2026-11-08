@@ -179,6 +179,45 @@ describe('real Teams SDK JWT boundary with local signing keys', () => {
     expect(good.next).toHaveBeenCalledOnce();
     expect((await authorize(undefined, '')).res.statusCode).toBe(401);
   });
+
+  it.each([
+    ['https://smba.trafficmanager.net/amer/', 200, 1],
+    ['https://attacker.example.com/', 400, 0],
+  ])(
+    'binds activity serviceUrl %s to the token claim',
+    async (serviceUrl, status, logicCalls) => {
+      vi.spyOn(MsalTokenProvider.prototype, 'getAccessToken').mockResolvedValue(
+        'example-access-token',
+      );
+      const adapter = createMSTeamsAdapter(credentials);
+      const req: TeamsRequest = {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${await token({
+            iss: 'https://api.botframework.com',
+            serviceurl: 'https://smba.trafficmanager.net/amer/',
+          })}`,
+        },
+        body: {
+          type: 'message',
+          id: 'activity-id',
+          channelId: 'msteams',
+          serviceUrl,
+          conversation: { id: 'conversation-id' },
+          from: { id: 'user-id' },
+          recipient: { id: 'bot-id' },
+        },
+      };
+      const res = response();
+      const next = vi.fn();
+      await adapter.authorizeRequest(req, res, next);
+      expect(next).toHaveBeenCalledOnce();
+      const logic = vi.fn(async () => {});
+      await adapter.process(req, res, logic);
+      expect(res.statusCode).toBe(status);
+      expect(logic).toHaveBeenCalledTimes(logicCalls);
+    },
+  );
 });
 
 it.each([tenantId, 'botframework.com'])(

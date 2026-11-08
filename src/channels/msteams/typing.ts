@@ -1,4 +1,4 @@
-import { type Activity, ActivityTypes } from '@microsoft/agents-activity';
+import { Activity, ActivityTypes } from '@microsoft/agents-activity';
 import type { TurnContext } from '@microsoft/agents-hosting';
 import { logger } from '../../logger.js';
 
@@ -13,9 +13,7 @@ export function createMSTeamsTypingController(
 
   const sendTyping = async (): Promise<void> => {
     try {
-      await turnContext.sendActivity({
-        type: ActivityTypes.Typing,
-      } as Activity);
+      await turnContext.sendActivity(new Activity(ActivityTypes.Typing));
     } catch (error) {
       logger.debug({ error }, 'Teams typing indicator failed');
     }

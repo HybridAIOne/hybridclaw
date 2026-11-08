@@ -617,7 +617,7 @@ async function fetchMSTeamsMemberEmail(
       turnContext,
     ).getConversationMember(
       normalizeValue(turnContext.activity.from?.id) || userId,
-      extractTeamsTeamId(turnContext.activity as Activity) ||
+      extractTeamsTeamId(turnContext.activity) ||
         normalizeValue(turnContext.activity.conversation?.id),
     );
     return isRecord(member)
@@ -892,4 +892,10 @@ export async function handleMSTeamsWebhook(
     if (await maybeHandleMSTeamsMessageReaction(turnContext)) return;
     await handleIncomingMessage(turnContext);
   });
+  if (res.statusCode === 400) {
+    logger.warn(
+      { statusCode: res.statusCode },
+      'Rejected invalid Teams webhook activity',
+    );
+  }
 }

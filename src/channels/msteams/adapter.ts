@@ -41,8 +41,7 @@ export async function authorizeMSTeamsWebhook(
   response: WebResponse,
 ): Promise<boolean> {
   let authorized = false;
-  await adapter.authorizeRequest(request, response, (error?: unknown) => {
-    if (error) throw error;
+  await adapter.authorizeRequest(request, response, () => {
     authorized = true;
   });
   if (!authorized) return false;

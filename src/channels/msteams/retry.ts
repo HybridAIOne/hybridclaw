@@ -137,7 +137,7 @@ export function sendMSTeamsActivityWithRetry(
   activity: Partial<Activity>,
   label: string,
 ) {
-  return withMSTeamsRetry(label, () =>
+  return withMSTeamsRetry(label, async () =>
     turnContext.sendActivity(activity as Activity),
   );
 }
@@ -147,7 +147,7 @@ export function updateMSTeamsActivityWithRetry(
   activity: Partial<Activity>,
   label: string,
 ) {
-  return withMSTeamsRetry(label, () =>
+  return withMSTeamsRetry(label, async () =>
     turnContext.updateActivity(activity as Activity),
   );
 }
