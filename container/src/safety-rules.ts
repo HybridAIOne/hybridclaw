@@ -19,7 +19,7 @@ import {
   shellCommandsRun,
 } from './bash-commands.js';
 import { codeSource } from './bash-remote-code.js';
-import { withoutPythonComments } from './python-data-reader.js';
+import { withoutPythonComments } from './python-data-inspection.js';
 
 let disabledRuleIds: string[] = [];
 export function configureSafetyRules(value: unknown): void {

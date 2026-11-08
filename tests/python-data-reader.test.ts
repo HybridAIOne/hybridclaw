@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { isReadOnlyPythonInline } from '../container/src/python-data-reader.js';
+import { inspectPythonInline } from '../container/src/python-data-inspection.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }));
@@ -17,6 +17,7 @@ useCleanMocks({
 });
 const temporary = useTempDir('python-data-reader-');
 const saved = ['/tmp/records.data'];
+const inspectPythonData = (source: string, files: Iterable<string>) => inspectPythonInline(source, files)?.data ?? null;
 
 test.each([
   "import json; print(json.load(open('/tmp/records.data')))",
@@ -31,7 +32,7 @@ test.each([
   "data={'a': 1}\nfor key, value in data.items():\n print(f'{key}: {value + 1}')",
   'x=3\nif x>2:\n print(str(x))\nelse:\n print(0)',
 ])('recognizes data-only syntax without reading the input: %s', (source) => {
-  expect(isReadOnlyPythonInline(source, saved)).toBe(true);
+  expect(inspectPythonData(source, saved)).not.toBeNull();
 });
 
 test.each([
@@ -57,7 +58,7 @@ test.each([
   'class Item:\n pass',
   "import json; globals()['json']=None",
 ])('keeps unsupported or executable syntax conservative: %s', (source) => {
-  expect(isReadOnlyPythonInline(source, saved)).toBe(false);
+  expect(inspectPythonData(source, saved)).toBeNull();
 });
 
 test.each([
@@ -69,11 +70,11 @@ test.each([
   'downloaded code or unknown provenance prevents a data-only exemption: %s',
   (file) => {
     expect(
-      isReadOnlyPythonInline(
+      inspectPythonData(
         "import json; print(json.load(open('/tmp/records.data')))",
         [file, ...saved],
       ),
-    ).toBe(false);
+    ).toBeNull();
     expect(spawn).not.toHaveBeenCalled();
   },
 );
@@ -81,21 +82,21 @@ test.each([
 test('parsing never executes the supplied program', () => {
   const marker = path.join(temporary(), 'unexpected');
   expect(
-    isReadOnlyPythonInline(
+    inspectPythonData(
       `open(${JSON.stringify(marker)}, 'w').write('executed')`,
       [],
     ),
-  ).toBe(false);
+  ).toBeNull();
   expect(fs.existsSync(marker)).toBe(false);
 });
 
 test('bounds parser input before creating a process', () => {
-  expect(isReadOnlyPythonInline('#'.repeat(32769), [])).toBe(false);
+  expect(inspectPythonData('#'.repeat(32769), [])).toBeNull();
   expect(spawn).not.toHaveBeenCalled();
 });
 
 test('bounds AST size inside the parser', () => {
-  expect(isReadOnlyPythonInline('1\n'.repeat(2500), [])).toBe(false);
+  expect(inspectPythonData('1\n'.repeat(2500), [])).toBeNull();
 });
 
 test.each([
@@ -106,10 +107,10 @@ test.each([
   { status: 0, stdout: null },
 ])('a failed or malformed parser response is not permission: %j', (result) => {
   spawn.mockReturnValueOnce(result);
-  expect(isReadOnlyPythonInline("print('data')", [])).toBe(false);
+  expect(inspectPythonData("print('data')", [])).toBeNull();
 });
 
 test('the input limit counts UTF-8 bytes', () => {
-  expect(isReadOnlyPythonInline('#' + 'é'.repeat(16384), [])).toBe(false);
+  expect(inspectPythonData('#' + 'é'.repeat(16384), [])).toBeNull();
   expect(spawn).not.toHaveBeenCalled();
 });
