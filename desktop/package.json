@@ -25,7 +25,7 @@
     "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
   },
   "devDependencies": {
-    "electron": "41.10.7",
+    "electron": "42.11.18",
     "electron-builder": "26.16.1"
   },
   "build": {
