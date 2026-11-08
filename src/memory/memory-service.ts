@@ -3,6 +3,7 @@
  * query embedding and retrieval when none exist. Unlike the storage layer,
  * this service assembles prompt context; it does not render client activity.
  * Access notifications precede retrieval and assembly of the returned context.
+ * A stored turn commits its messages, counters, and semantic memory atomically.
  */
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
@@ -38,6 +39,7 @@ import type {
   StoredMessage,
 } from '../types/session.js';
 import { compactConversation } from './compaction.js';
+import { withMemoryDatabase } from './database.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
   addKnowledgeRelation as dbAddKnowledgeRelation,
@@ -97,6 +99,7 @@ export interface CompactionCandidate {
 }
 
 export interface MemoryBackend {
+  transaction: <T>(operation: () => T) => T;
   resetSessionIfExpired: (
     sessionId: string,
     opts: {
@@ -316,6 +319,8 @@ const DEFAULT_CONFIG: MemoryServiceConfig = {
 };
 
 const DEFAULT_BACKEND: MemoryBackend = {
+  transaction: (operation) =>
+    withMemoryDatabase((db) => db.transaction(operation)()),
   resetSessionIfExpired: dbResetSessionIfExpired,
   getOrCreateSession: dbGetOrCreateSession,
   getSessionById: dbGetSessionById,
@@ -818,63 +823,65 @@ export class MemoryService {
     userMessageId: number;
     assistantMessageId: number;
   } {
-    const userMessageId = this.storeMessage({
-      sessionId: params.sessionId,
-      userId: params.user.userId,
-      username: params.user.username,
-      role: 'user',
-      content: params.user.content,
-      media: params.user.media,
-      dynamicContext: params.user.dynamicContext,
-      source: params.user.source,
-    });
-    for (const content of params.steerNotes ?? []) {
-      this.storeMessage({
+    return this.backend.transaction(() => {
+      const userMessageId = this.storeMessage({
         sessionId: params.sessionId,
         userId: params.user.userId,
         username: params.user.username,
         role: 'user',
-        content,
+        content: params.user.content,
+        media: params.user.media,
+        dynamicContext: params.user.dynamicContext,
+        source: params.user.source,
       });
-    }
-    const assistantMessageId = this.storeMessage({
-      sessionId: params.sessionId,
-      userId: params.assistant.userId || 'assistant',
-      username: params.assistant.username || null,
-      role: 'assistant',
-      content: params.assistant.content,
-      agentId: params.assistant.agentId,
-      artifacts: params.assistant.artifacts,
-      toolHistory: params.assistant.toolHistory,
-      source: params.assistant.source,
-    });
+      for (const content of params.steerNotes ?? []) {
+        this.storeMessage({
+          sessionId: params.sessionId,
+          userId: params.user.userId,
+          username: params.user.username,
+          role: 'user',
+          content,
+        });
+      }
+      const assistantMessageId = this.storeMessage({
+        sessionId: params.sessionId,
+        userId: params.assistant.userId || 'assistant',
+        username: params.assistant.username || null,
+        role: 'assistant',
+        content: params.assistant.content,
+        agentId: params.assistant.agentId,
+        artifacts: params.assistant.artifacts,
+        toolHistory: params.assistant.toolHistory,
+        source: params.assistant.source,
+      });
 
-    const interactionText = this.normalizeSemanticContent(
-      `User asked: ${params.user.content.trim()}\nI responded: ${params.assistant.content.trim()}`,
-    );
-    if (!interactionText) {
+      const interactionText = this.normalizeSemanticContent(
+        `User asked: ${params.user.content.trim()}\nI responded: ${params.assistant.content.trim()}`,
+      );
+      if (!interactionText) {
+        return {
+          userMessageId,
+          assistantMessageId,
+        };
+      }
+
+      this.storeSemanticMemory({
+        sessionId: params.sessionId,
+        role: 'assistant',
+        source: 'conversation',
+        scope: 'episodic',
+        metadata: {},
+        content: interactionText,
+        confidence: 1,
+        embeddingProvider: undefined,
+        sourceMessageId: assistantMessageId,
+      });
+
       return {
         userMessageId,
         assistantMessageId,
       };
-    }
-
-    this.storeSemanticMemory({
-      sessionId: params.sessionId,
-      role: 'assistant',
-      source: 'conversation',
-      scope: 'episodic',
-      metadata: {},
-      content: interactionText,
-      confidence: 1,
-      embeddingProvider: undefined,
-      sourceMessageId: assistantMessageId,
     });
-
-    return {
-      userMessageId,
-      assistantMessageId,
-    };
   }
 
   buildPromptMemoryContext(

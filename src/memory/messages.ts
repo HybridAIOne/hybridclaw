@@ -4,6 +4,7 @@
  * rows are conversation context and never confer execution authority. Routing
  * evidence is separate metadata that survives history retrieval and branching.
  * New messages require an existing session, including after deletion races.
+ * A message and its session counter commit together.
  * A user row keeps the local paths of its attachments beside the readable
  * "Attached file" summary, so later turns can find the files again; whether a
  * path still exists is decided at prompt time, never here.
@@ -234,9 +235,10 @@ export function storeMessage(
   const mediaJson = storedMedia.length ? JSON.stringify(storedMedia) : null;
   if (dynamicContext && role !== 'user')
     throw new Error('Dynamic context requires a user message.');
-  const result = getMessageDatabase()
-    .prepare(
-      `INSERT INTO messages (
+  return getMessageDatabase().transaction(() => {
+    const result = getMessageDatabase()
+      .prepare(
+        `INSERT INTO messages (
          session_id,
          user_id,
          username,
@@ -251,31 +253,32 @@ export function storeMessage(
          created_at
        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
          WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`,
-    )
-    .run(
-      resolvedSessionId,
-      userId,
-      username,
-      role,
-      normalizedAgentId,
-      content,
-      artifactsJson,
-      source?.trim() || null,
-      toolHistoryJson,
-      mediaJson,
-      dynamicContext || null,
-      resolvedSessionId,
-    );
-  if (result.changes === 0)
-    throw new Error('Cannot store a message for a missing session.');
+      )
+      .run(
+        resolvedSessionId,
+        userId,
+        username,
+        role,
+        normalizedAgentId,
+        content,
+        artifactsJson,
+        source?.trim() || null,
+        toolHistoryJson,
+        mediaJson,
+        dynamicContext || null,
+        resolvedSessionId,
+      );
+    if (result.changes === 0)
+      throw new Error('Cannot store a message for a missing session.');
 
-  getMessageDatabase()
-    .prepare(
-      "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
-    )
-    .run(resolvedSessionId);
+    getMessageDatabase()
+      .prepare(
+        "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
+      )
+      .run(resolvedSessionId);
 
-  return result.lastInsertRowid as number;
+    return result.lastInsertRowid as number;
+  })();
 }
 
 /**
