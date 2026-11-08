@@ -12,7 +12,7 @@ import {
   listQueuedProactiveMessages,
   markQueuedProactiveMessageFailed,
   pruneFailedProactiveMessages,
-} from '../memory/proactive-queue.js';
+} from '../memory/db.js';
 import {
   hasImmediateProactiveDeliveryPath,
   shouldDropQueuedProactiveMessage,
