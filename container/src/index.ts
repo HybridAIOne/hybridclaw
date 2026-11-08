@@ -125,7 +125,6 @@ import {
 import {
   accumulateApiUsage,
   createTokenEstimateCache,
-  createTokenUsageStats,
   estimateTextTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -1249,7 +1248,7 @@ async function processRequestInner(
   const toolCallHistory: ToolCallHistoryEntry[] = [];
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
-  const tokenUsage = createTokenUsageStats();
+  const tokenUsage = turnToolHistory.tokenUsage;
   const effectiveUserPrompt =
     effectiveUserPromptOverride || latestUserPrompt(messages);
   const ralphMaxExtraIterations = normalizeRalphMaxExtraIterations(
@@ -1331,6 +1330,7 @@ async function processRequestInner(
     onModelResponse: (response) => {
       tokenUsage.modelCalls += 1;
       accumulateApiUsage(tokenUsage, response);
+      turnToolHistory.checkpointUsage();
     },
   });
   // A boost offer is never a result for the model: it ends the turn as a
@@ -1489,6 +1489,7 @@ async function processRequestInner(
         taskModels,
         tools: availableTools,
         tokenUsage,
+        checkpointUsage: () => turnToolHistory.checkpointUsage(),
         fallbackContext: {
           provider,
           providerMethod,
@@ -1536,6 +1537,7 @@ async function processRequestInner(
       ) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
+    turnToolHistory.checkpointUsage();
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     // Ralph drafts need end-of-turn classification. Ordinary turns can stream
@@ -1613,6 +1615,7 @@ async function processRequestInner(
     // Only an accepted loop request resets recovery; summaries are maintenance.
     consecutiveContextErrors = 0;
     accumulateApiUsage(tokenUsage, response);
+    turnToolHistory.checkpointUsage();
 
     const choice = response.choices[0];
     if (!choice) {
@@ -1659,6 +1662,7 @@ async function processRequestInner(
         : {}),
     });
 
+    turnToolHistory.checkpointUsage();
     let toolCalls = choice.message.tool_calls || [];
     const malformedToolCallError = validateStructuredToolCalls(toolCalls);
     let invalidToolCallError = malformedToolCallError;

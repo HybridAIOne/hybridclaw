@@ -62,6 +62,7 @@ export async function compactInLoopWithModel(params: {
   fallbackContext: AuxiliaryTaskContext;
   tools: ToolDefinition[];
   tokenUsage: TokenUsageStats;
+  checkpointUsage: () => void;
 }) {
   const budgetFor = (messages: ChatMessage[]) => {
     const context = resolveAuxiliaryTaskContext({
@@ -108,6 +109,7 @@ export async function compactInLoopWithModel(params: {
       const { context, tools, inputTokens, maxTokens } = budgetFor(messages);
       params.tokenUsage.modelCalls += 1;
       params.tokenUsage.estimatedPromptTokens += inputTokens;
+      params.checkpointUsage();
       console.error(
         `[context] compression request inputTokens=${inputTokens} windowTokens=${context.contextWindow ?? 'unknown'} maxOutputTokens=${maxTokens} historicalTools=${tools.length}`,
       );
@@ -123,6 +125,7 @@ export async function compactInLoopWithModel(params: {
       params.tokenUsage.estimatedCompletionTokens += estimateTextTokens(
         result.content,
       );
+      params.checkpointUsage();
       return result.response;
     },
   });

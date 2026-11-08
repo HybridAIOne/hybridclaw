@@ -1,3 +1,4 @@
+import type { TokenUsageStats } from './token-usage.js';
 import type { HistoryMessage } from './tool-history.js';
 
 type CheckpointMessage = Omit<HistoryMessage, 'content'> & { content: unknown };
@@ -8,6 +9,7 @@ export interface TurnCheckpointData {
   messages: HistoryMessage[];
   started: string[];
   assistantText?: string;
+  tokenUsage?: TokenUsageStats;
 }
 export function sessionStateKey(sessionId: string): string;
 export function sessionStatePath(
@@ -46,6 +48,7 @@ export interface TurnRecoveryEvidence {
   result: null;
   error: string;
   toolsUsed: string[];
+  tokenUsage?: TokenUsageStats;
   toolHistory: HistoryMessage[];
   toolHistoryForReplay: HistoryMessage[];
   toolExecutions: Array<{
@@ -72,6 +75,8 @@ export function readTurnRecovery(
 export class TurnCheckpoint {
   constructor(workspaceRoot: string, sessionId: string, turnId: string);
   readonly recovered: ReturnType<typeof checkpointOutput> | null;
+  usage(stats: TokenUsageStats): void;
+  snapshot(): TurnRecoveryEvidence;
   assistant(message: CheckpointMessage): void;
   start(id: string): void;
   result(message: CheckpointMessage): void;

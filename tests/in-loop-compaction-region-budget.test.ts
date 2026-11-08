@@ -121,6 +121,7 @@ test('fits a complete subregion to the compression model and retains every other
     history,
     tools: [],
     tokenUsage: createTokenUsageStats(),
+    checkpointUsage: vi.fn(),
     taskModels: {
       compression: {
         provider: 'openrouter',

@@ -234,13 +234,20 @@ calling the model or tools. Runs with no proposed tools remain safe to retry.
 A new run starts a fresh checkpoint; recovered exchanges are conversation context,
 never executable instructions or approval grants.
 
+Available per-attempt usage counters are saved alongside this evidence: reported
+API tokens and cache usage remain separate from token estimates. Shutdown replies
+and gateway crash recovery preserve these snapshots, including available timing
+samples. An authoritative IPC reply's own usage takes precedence over a checkpoint.
+A provider fallback starts fresh counters because the gateway records attempts
+separately. Charges for calls without a reported response remain unknown.
+
 The shared journal validates call identities, unique starts, matching immutable
 results, and completion of an exchange before another exchange begins. Identical
 result acknowledgements from batch assembly are idempotent; conflicting results
 are refused. Denials and rejections may record a terminal receipt without a start,
 but that receipt prevents later execution of the call. Failed writes leave the
 writer's last persisted state intact. A recovered journal instance accepts no
-further writes or starts. The version 1 journal format is unchanged.
+further writes or starts. Usage snapshots are optional in the version 1 journal.
 
 A started call without a saved result has an **unknown outcome**: its side effects
 may already have occurred. Recovery marks it explicitly and asks for external-state
