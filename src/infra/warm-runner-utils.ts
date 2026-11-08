@@ -1,3 +1,8 @@
+/**
+ * Shared worker health, claiming and eviction obey each worker's lifecycle lease.
+ * Host and Docker runners own their processes; these helpers never persist
+ * session state or choose tool permissions.
+ */
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { encodeWarmWorkerFrame } from '../../container/shared/warm-worker-frame.js';
@@ -18,6 +23,7 @@ import {
   type WarmProcessPool,
   type WarmProcessPoolEntry,
 } from './warm-process-pool.js';
+import type { WorkerLifecycle } from './worker-lifecycle.js';
 
 export const AGENT_OUTPUT_TIMEOUT_PREFIX =
   'Timeout waiting for agent output after ';
@@ -32,12 +38,10 @@ export const MEMORY_SAMPLE_TTL_MS = 5_000;
 export const IDLE_SESSION_EVICTION_MIN_AGE_MS = 10_000;
 
 export interface WarmRunnerEntry extends WarmProcessPoolEntry {
-  sessionId: string;
-  warm: boolean;
-  readyForInputAt: number | null;
+  readonly sessionId: string;
+  lifecycle: WorkerLifecycle;
   pendingColdStartProbeStartedAt: number | null;
   stderrHistory: string[];
-  activity?: import('./ipc.js').ActivityTracker;
 }
 
 export type WarmRunnerMode = 'container' | 'host';
@@ -48,7 +52,6 @@ export interface WarmRunnerHealthEntry extends WarmRunnerEntry {
   agentId: string;
   startedAt: number;
   lastUsedAt: number;
-  terminalError: string | null;
   healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
@@ -153,12 +156,14 @@ function buildRunnerHealthSnapshot(
     agentId: entry.agentId,
     responsive:
       params?.responsive ??
-      (processAlive && !entry.terminalError && Boolean(entry.activity)),
+      (processAlive &&
+        !entry.lifecycle.terminalError &&
+        Boolean(entry.lifecycle.activity)),
     startedAt: entry.startedAt,
     lastUsedAt: entry.lastUsedAt,
-    readyForInputAt: entry.readyForInputAt,
-    busy: Boolean(entry.activity),
-    terminalError: entry.terminalError,
+    readyForInputAt: entry.lifecycle.readyForInputAt,
+    busy: Boolean(entry.lifecycle.activity),
+    terminalError: entry.lifecycle.terminalError,
     healthError: params?.healthError ?? null,
   };
 }
@@ -185,7 +190,7 @@ async function pingIdleRunnerEntry(
     ensureSessionDirs(entry.ipcSessionId);
     writeHealthInput(entry.ipcSessionId, input);
     const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
-      terminalError: () => entry.terminalError,
+      terminalError: () => entry.lifecycle.terminalError,
     });
     const expected = `HEALTH_OK:${nonce}`;
     const responsive =
@@ -210,11 +215,11 @@ export async function pingWarmRunnerHealthEntry(
   entry: WarmRunnerHealthEntry,
 ): Promise<ExecutorSessionHealthSnapshot> {
   if (entry.healthProbe) return entry.healthProbe;
-  if (entry.activity) return buildRunnerHealthSnapshot(mode, entry);
+  if (entry.lifecycle.activity) return buildRunnerHealthSnapshot(mode, entry);
   if (
     entry.process.killed ||
     entry.process.exitCode !== null ||
-    entry.terminalError
+    entry.lifecycle.terminalError
   ) {
     return buildRunnerHealthSnapshot(mode, entry, { responsive: false });
   }
@@ -236,8 +241,7 @@ export function observeAgentLifecycleLine<T extends WarmRunnerEntry>(
   warmPool: WarmProcessPool<T>,
 ): boolean {
   if (line === AGENT_READY_FOR_INPUT_LINE) {
-    entry.readyForInputAt = Date.now();
-    entry.activity?.notify();
+    entry.lifecycle.ready(Date.now());
     return true;
   }
   if (line === AGENT_REQUEST_START_LINE) {
@@ -246,7 +250,7 @@ export function observeAgentLifecycleLine<T extends WarmRunnerEntry>(
       warmPool.recordColdStart(Date.now() - startedAt);
       entry.pendingColdStartProbeStartedAt = null;
     }
-    entry.activity?.notify();
+    entry.lifecycle.activity?.notify();
     return true;
   }
   return false;
@@ -398,8 +402,8 @@ export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
   if (!canUseWarmPool(params.warmPool, params.eligibility)) return null;
   const entry = params.warmPool.claim(params.agentId);
   if (!entry) return null;
-  entry.sessionId = params.sessionId;
-  entry.warm = false;
+  if (!entry.lifecycle.reusable) return null;
+  entry.lifecycle.claim(params.sessionId);
   entry.lastUsedAt = Date.now();
   params.pool.set(params.sessionId, entry);
   params.logClaim(entry);
@@ -420,7 +424,7 @@ export function collectIdleSessionEvictions<
   const now = Date.now();
   const candidates = Array.from(params.pool.values()).filter(
     (entry) =>
-      !entry.activity &&
+      entry.lifecycle.reusable &&
       !entry.process.killed &&
       entry.process.exitCode === null &&
       now - entry.lastUsedAt >= IDLE_SESSION_EVICTION_MIN_AGE_MS,
@@ -442,7 +446,11 @@ export async function sendWarmWorkerFrame(
 ): Promise<void> {
   try {
     const mcpServers = await resolveMcpServers();
-    if (!entry.warm || entry.process.killed || entry.process.exitCode !== null)
+    if (
+      !entry.lifecycle.isSpare ||
+      entry.process.killed ||
+      entry.process.exitCode !== null
+    )
       return;
     if (Object.keys(mcpServers).length === 0) return;
     entry.process.stdin?.write(encodeWarmWorkerFrame(mcpServers));
