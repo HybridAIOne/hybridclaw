@@ -25,6 +25,7 @@ async function importFreshDiscovery() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/config/config.js');
@@ -173,7 +174,7 @@ describe('mistral discovery', () => {
     );
   });
 
-  test('filters deprecated and archived Mistral models from discovery results', async () => {
+  test('drops retired Mistral models and lists scheduled deprecations as legacy', async () => {
     process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
     vi.stubGlobal(
       'fetch',
@@ -194,7 +195,13 @@ describe('mistral discovery', () => {
                 max_context_length: 131_072,
               },
               {
-                id: 'mistral-small-2603',
+                id: 'mistral-small-2506',
+                deprecation: '2099-01-01T00:00:00Z',
+                deprecation_replacement_model: 'mistral-small-latest',
+              },
+              {
+                id: 'mistral-small-latest',
+                name: 'mistral-small-2603',
                 max_context_length: 131_072,
               },
             ]),
@@ -205,15 +212,21 @@ describe('mistral discovery', () => {
           ),
       ),
     );
+    vi.useFakeTimers({ now: new Date('2026-11-08T00:00:00Z'), toFake: ['Date'] });
 
     const discovery = await importFreshDiscovery();
     const store = discovery.createMistralDiscoveryStore();
 
     await expect(store.discoverModels()).resolves.toEqual([
+      'mistral/mistral-small-2506',
       'mistral/mistral-small-2603',
     ]);
-    expect(store.isModelDeprecated('mistral/codestral-2501')).toBe(true);
-    expect(store.isModelDeprecated('mistral/pixtral-large-2411')).toBe(true);
+    expect(store.getModelLifecycle('mistral/mistral-small-2506')).toEqual({
+      status: 'legacy',
+      replacement: 'mistral/mistral-small-2603',
+    });
+    expect(store.getModelLifecycle('mistral/mistral-small-latest')).toBeNull();
+    expect(store.getModelLifecycle('mistral/codestral-2501')).toBeNull();
   });
 
   test('logs a warning and returns stale models when discovery refresh fails', async () => {

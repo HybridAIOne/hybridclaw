@@ -54,6 +54,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { ModelStatus } from '../providers/model-status.js';
 import type { LocalBackendType } from '../providers/provider-ids.js';
 import type { ScopeErrorCode } from '../scopes/scope-session.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
@@ -98,6 +99,7 @@ export interface GatewayModelCatalogEntry {
   label: string;
   isFree: boolean;
   recommended?: boolean;
+  legacy?: boolean;
 }
 
 export interface GatewaySessionSwitcherEntry {
@@ -1543,6 +1545,9 @@ export type { GatewayModelProviderKey } from './model-provider-keys.js';
 export interface GatewayAdminModelCatalogEntry {
   id: string;
   provider: GatewayModelProviderKey;
+  status: ModelStatus;
+  replacement: string | null;
+  recommended: boolean;
   zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
   backend: LocalBackendType | null;

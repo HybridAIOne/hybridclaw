@@ -3424,6 +3424,7 @@ test('model list includes discovered OpenRouter models', async () => {
   vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
     discoverHybridAIModels: vi.fn(async () => []),
     getDiscoveredHybridAIModelContextWindow: vi.fn(() => null),
+    getDiscoveredHybridAIModelLifecycle: vi.fn(() => null),
     getDiscoveredHybridAIModelNames: vi.fn(() => []),
   }));
 
@@ -4567,6 +4568,7 @@ test('model list refreshes local backend health before filtering models', async 
   vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
     discoverHybridAIModels: vi.fn(async () => []),
     getDiscoveredHybridAIModelContextWindow: vi.fn(() => null),
+    getDiscoveredHybridAIModelLifecycle: vi.fn(() => null),
     getDiscoveredHybridAIModelNames: vi.fn(() => []),
   }));
   vi.doMock('../src/providers/local-discovery.ts', async () => {
