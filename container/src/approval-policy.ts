@@ -2035,7 +2035,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly agentTrust: DurableTrust;
   private readonly workspaceTrust: DurableTrust;
   private readonly seenNetworkHosts = new Set<string>();
-  // Files curl/wget calls saved this session; running one is fetched code.
+  // Fetched paths and unresolved-location markers for this session.
   // Persisted per session: a worker restart between `curl -o f` and `sh f`
   // must not forget the download.
   private readonly fetchedFiles = new SessionStateSet(
@@ -3679,10 +3679,12 @@ export class TrustedAgentApprovalRuntime {
       return {
         tier: 'red',
         actionKey: 'bash:fetched-code',
-        intent: `run code fetched from the network (\`${normalizePreview(command)}\`)`,
+        intent: `${fetchedCode.uncertain ? 'run a command with unresolved code provenance' : 'run code fetched from the network'} (\`${normalizePreview(command)}\`)`,
         consequenceIfDenied:
           'I will not run downloaded code and will ask how to proceed.',
-        reason: 'the command runs code that curl or wget fetched',
+        reason: fetchedCode.uncertain
+          ? 'a shell wrapper prevents verifying how potentially fetched code is used'
+          : 'the command runs code that curl or wget fetched',
         commandPreview: normalizePreview(command),
         pathHints,
         hostHints: hosts,

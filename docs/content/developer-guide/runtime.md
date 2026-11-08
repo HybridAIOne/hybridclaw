@@ -358,6 +358,23 @@ replaced mid-take-over loses it, and the gateway drops it after 10 minutes.
 
 ### Shell Execution
 
+Static shell inspection consumes recognized wrapper-option values before
+classifying the executable, including separated and attached values and short
+option clusters. A path such as `./env` remains an executable path. Modes that
+change arguments or directories stay unresolved instead of being guessed.
+When an unresolved wrapper receives fetched input or feeds an interpreter,
+execution requires explicit approval. This can also pause a data pipeline whose
+wrapper cannot be interpreted; known data-only consumers keep their ordinary
+policy decisions.
+
+If a proposed wrapper command hides a download's destination, the fetched-code
+guard records that uncertainty before execution. Later file execution requires provenance
+review even after a worker restart; another session is unaffected. This can
+include local files whose origin cannot be established. Unreadable guard state
+or a failed provenance write stops the operation. Session reset clears these
+records with the rest of the session state. A denied proposal can consequently
+leave a conservative record until reset; the record does not grant permission.
+
 Bash commands run asynchronously so tool activity heartbeats and worker signal
 handlers remain responsive. The worker retains at most 4 MiB of combined stdout
 and stderr; exceeding that limit cancels the command and returns partial output
@@ -400,7 +417,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
 | Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
-| Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
+| Fetched paths and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |

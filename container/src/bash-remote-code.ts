@@ -5,21 +5,28 @@
  * file a fetch saved, earlier in the same script or (through the caller's
  * `savedBefore`) in an earlier call.
  *
+ * Opaque wrappers retain uncertainty; hidden download locations are recorded
+ * across workers so later file execution still needs provenance review.
  * NOT a policy: the approval policy decides the tier, and tools.ts still
  * hard-blocks `curl | sh`. Copies of a saved file (`cp`, `tar x`) and code the
  * model re-types through the write tool are not followed.
  */
 import {
   type Cwd,
+  commandProgram,
   commandWriteTargets,
   MAX_NESTED_SCRIPT_DEPTH,
   redirectWidth,
   resolvePath,
   type ScriptCommand,
   scriptCommands,
+  splitShellCommands,
 } from './bash-commands.js';
 
 const FETCH_PROGRAMS = new Set(['curl', 'wget']);
+// NUL cannot be a filesystem path. Persist this provenance marker when a
+// wrapper hides download locations, so worker replacement cannot erase it.
+const UNKNOWN_FETCH_LOCATION = '\0unknown-fetch-location';
 // Interpreters, with the options whose value is the program text or a module
 // (so neither a file operand nor stdin runs) and the options that take some
 // other value; shells also run stdin under `-s` (`sh -s -- args`). Letters
@@ -54,22 +61,31 @@ const INTERPRETERS: Array<{
 const STDIN_PATH_RE = /^(?:-|\/dev\/stdin|\/dev\/fd\/0|\/proc\/self\/fd\/0)$/;
 
 // Where a command takes code from. `substituted` is a `$(…)`, `<(…)`, or
-// `<<<` result the parser cannot see into.
+// `<<<` result the parser cannot see into. `opaque` is a wrapper whose argv or
+// working directory cannot be interpreted; its executable path stays visible.
 type CodeSource =
   | { inline: string }
-  | { file: string }
+  | { file: string; opaque?: true }
   | { stdin: true }
-  | { substituted: true };
+  | { substituted: true }
+  | { opaque: true };
 
 export function codeSource({
   words,
   start,
   program,
   args,
+  unresolvedPrefix,
 }: Pick<
   ScriptCommand,
-  'words' | 'start' | 'program' | 'args'
+  'words' | 'start' | 'program' | 'args' | 'unresolvedPrefix'
 >): CodeSource | null {
+  if (unresolvedPrefix) {
+    const programWord = words[start] ?? '';
+    return programWord.includes('/')
+      ? { file: programWord, opaque: true }
+      : { opaque: true };
+  }
   if (program === 'eval') return { inline: args.join(' ') };
   const interpreter = INTERPRETERS.find((entry) => entry.program.test(program));
   if (!interpreter) {
@@ -112,12 +128,15 @@ export function findFetchedCode(
   commands: ScriptCommand[],
   savedBefore: ReadonlySet<string>,
   depth = 0,
-): { saved: string[]; runs: boolean } {
+): { saved: string[]; runs: boolean; uncertain: boolean } {
   const saved: string[] = [];
   let runs = false;
+  let uncertain = false;
+  let unknownLocation = savedBefore.has(UNKNOWN_FETCH_LOCATION);
   // Whether the current pipeline carries fetched bytes: a fetch, or a command
   // naming a saved file (`cat install.sh | sh`).
   let pipelineFetched = false;
+  let pipelineOpaque = false;
   const isSaved = (word: string, cwd: Cwd): boolean => {
     const resolved = resolvePath(word, cwd);
     return (
@@ -142,12 +161,40 @@ export function findFetchedCode(
         if (resolved !== null) saved.push(resolved);
       }
     }
+    const programPath = words[command.start] ?? '';
+    if (programPath.includes('/') && isSaved(programPath, cwd)) runs = true;
     const source = codeSource(command);
+    if (
+      source &&
+      'opaque' in source &&
+      words.some((word) =>
+        splitShellCommands(word).some((part) =>
+          FETCH_PROGRAMS.has(commandProgram(part.words).program),
+        ),
+      )
+    ) {
+      if (!unknownLocation) saved.push(UNKNOWN_FETCH_LOCATION);
+      unknownLocation = true;
+    }
     if (!source) {
       // Not running code.
+    } else if ('opaque' in source) {
+      // A wrapper may reinterpret argv or change the base of a saved path.
+      // Do not assert a data-only consumer when fetched input is available.
+      if (
+        unknownLocation ||
+        substitutesFetched ||
+        savedBefore.size > 0 ||
+        saved.length > 0 ||
+        (piped && pipelineFetched)
+      ) {
+        runs = true;
+        uncertain = true;
+      }
     } else if ('inline' in source) {
       if (source.inline.includes('$()')) {
-        runs ||= substitutesFetched;
+        runs ||= substitutesFetched || unknownLocation;
+        uncertain ||= unknownLocation;
       } else if (depth < MAX_NESTED_SCRIPT_DEPTH) {
         const nested = findFetchedCode(
           scriptCommands(source.inline, cwd),
@@ -155,19 +202,27 @@ export function findFetchedCode(
           depth + 1,
         );
         saved.push(...nested.saved);
+        unknownLocation ||= nested.saved.includes(UNKNOWN_FETCH_LOCATION);
         runs ||= nested.runs;
+        uncertain ||= nested.uncertain;
       }
     } else if ('substituted' in source) {
-      runs ||= substitutesFetched;
+      runs ||= substitutesFetched || unknownLocation;
+      uncertain ||= unknownLocation;
     } else if ('stdin' in source) {
-      runs ||= piped && pipelineFetched;
+      runs ||=
+        unknownLocation || (piped && (pipelineFetched || pipelineOpaque));
+      uncertain ||= unknownLocation || (piped && pipelineOpaque);
     } else {
-      runs ||= isSaved(source.file, cwd);
+      runs ||= unknownLocation || isSaved(source.file, cwd);
+      uncertain ||= unknownLocation;
     }
     pipelineFetched =
       (piped && pipelineFetched) ||
       FETCH_PROGRAMS.has(program) ||
       args.some((arg) => isSaved(arg, cwd));
+    pipelineOpaque =
+      (piped && pipelineOpaque) || Boolean(source && 'opaque' in source);
   }
-  return { saved, runs };
+  return { saved, runs, uncertain };
 }

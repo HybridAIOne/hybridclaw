@@ -2,38 +2,24 @@
  * What a bash script does, read statically: the commands it runs (including
  * what `xargs`, `find -exec`, `sh -c`, and `eval` run), the paths they write
  * or delete, and the directory each runs in after `cd`. Variables and
- * substitution results stay unknown. NOT a policy: the approval policy and
+ * substitution results and unsupported prefix boundaries stay unknown.
+ * NOT a policy: the approval policy and
  * bash-pinned-reach.ts decide what needs approval.
  */
 import path from 'node:path';
+import {
+  type CommandProgram,
+  commandProgram,
+  redirectWidth,
+} from './bash-command-prefix.js';
 import { expandUserPath } from './runtime-paths.js';
 
-// Words before the program itself: keywords and wrappers such as `env -i`.
-const COMMAND_PREFIX_WORDS = new Set([
-  '!',
-  '{',
-  'builtin',
-  'command',
-  'do',
-  'doas',
-  'elif',
-  'else',
-  'env',
-  'exec',
-  'if',
-  'nice',
-  'nohup',
-  'stdbuf',
-  'sudo',
-  'then',
-  'time',
-  'timeout',
-  'until',
-  'while',
-]);
-const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const REDIRECT_RE = /^(?:\d+|&)?[<>]/;
-const BARE_REDIRECT_RE = /^(?:\d+|&)?[<>]+&?$/;
+export {
+  commandProgram,
+  isCommandLookup,
+  redirectWidth,
+} from './bash-command-prefix.js';
+
 const XARGS_VALUE_FLAGS = new Set([
   '-E',
   '-I',
@@ -242,57 +228,6 @@ export function splitShellCommands(input: string): ShellCommand[] {
   return commands;
 }
 
-/** Literal command lookups never execute their operands, including combined flags. */
-export function isCommandLookup(words: string[], start = 0): boolean {
-  if (words[start] !== 'command') return false;
-  let lookup = false;
-  for (let index = start + 1; index < words.length; index++) {
-    const option = words[index];
-    const width = redirectWidth(option);
-    if (width) {
-      index += width - 1;
-      continue;
-    }
-    if (option === '--' || !option.startsWith('-') || option === '-') break;
-    if (!/^-[pvV]+$/.test(option)) return false;
-    if (/[vV]/.test(option)) lookup = true;
-  }
-  return lookup;
-}
-
-// The program a simple command runs (lowercased base name), past assignments,
-// keywords, and wrappers such as `timeout 5`; `command -v rm` only looks rm up.
-export function commandProgram(words: string[]): {
-  start: number;
-  program: string;
-  args: string[];
-} {
-  let start = 0;
-  let wrapped = false;
-  for (; start < words.length; start += 1) {
-    const word = words[start];
-    if (isCommandLookup(words, start)) {
-      return { start: words.length, program: '', args: [] };
-    }
-    if (COMMAND_PREFIX_WORDS.has(word)) wrapped = true;
-    else if (!ASSIGNMENT_RE.test(word) && !(wrapped && /^[-\d]/.test(word))) {
-      break;
-    }
-  }
-  return {
-    start,
-    program: path.posix.basename(words[start] ?? '').toLowerCase(),
-    args: words.slice(start + 1),
-  };
-}
-
-// Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
-// the next word as its target.
-export function redirectWidth(word: string): number {
-  if (!REDIRECT_RE.test(word)) return 0;
-  return BARE_REDIRECT_RE.test(word) ? 2 : 1;
-}
-
 // find's starting points: the words before its first expression token, past
 // the -H/-L/-P/-O/-D options. None means the current directory.
 export function findStartingPoints(args: string[]): {
@@ -403,11 +338,8 @@ export function directoryAfter(cwd: Cwd, program: string, args: string[]): Cwd {
   return target === '-' ? null : resolvePath(target ?? '~', cwd);
 }
 
-export interface ScriptCommand {
+export interface ScriptCommand extends CommandProgram {
   words: string[];
-  start: number;
-  program: string;
-  args: string[];
   // Reads the previous command's output through `|`.
   piped: boolean;
   // Its output feeds the next command.
@@ -426,9 +358,10 @@ export function scriptCommands(
   const commands = splitShellCommands(script);
   let cwd = startCwd;
   return commands.map(({ words, piped }, position) => {
-    const { start, program, args } = commandProgram(words);
+    const parsed = commandProgram(words);
+    const { program, args } = parsed;
     const pipesOut = commands[position + 1]?.piped === true;
-    const command = { words, start, program, args, piped, pipesOut, cwd };
+    const command = { words, ...parsed, piped, pipesOut, cwd };
     cwd = directoryAfter(cwd, program, args);
     return command;
   });
