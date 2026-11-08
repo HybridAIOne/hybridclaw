@@ -7,6 +7,7 @@ export function createProactiveClaimSchema(database: Database.Database): void {
   const columns = database
     .prepare('PRAGMA table_info(proactive_message_queue)')
     .all() as Array<{ name: string }>;
+  if (columns.length === 0) return;
   for (const name of ['claim_token', 'claim_expires_at']) {
     if (!columns.some((column) => column.name === name))
       database.exec(
