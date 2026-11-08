@@ -103,6 +103,8 @@ export async function runIsolatedScheduledTask(params: {
   } = params;
   const cronSessionId = scheduledRunSessionKey(agentId, taskId, sessionKey);
   const activeSessionId = String(sessionId || '').trim() || cronSessionId;
+  if (!memoryService.getSessionById(activeSessionId))
+    memoryService.getOrCreateSession(activeSessionId, null, channelId, agentId);
   const runId = makeAuditRunId('cron');
   const startedAt = Date.now();
   const provider = resolveModelProvider(model);

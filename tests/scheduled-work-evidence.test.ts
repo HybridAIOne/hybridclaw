@@ -20,6 +20,7 @@ test.each([false, true])('a run links evidence, actions, files and chat even if 
     channelId: 'web', cronExpr: '*/30 * * * *', prompt: 'Prepare a brief', ownerUserId: 'alice' });
   let workId = '';
   runAgent.mockImplementation(async input => {
+    expect(db.getSessionById(input.sessionId)).toBeDefined();
     const answer = tool.runWorkTool({ sessionId: input.sessionId, action: 'record', rationale: 'The invitation asks for a decision.',
       evidence: [{ reference: 'calendar:event-42', summary: 'Launch review needs a decision.' }] });
     expect(answer.ok).toBe(true);

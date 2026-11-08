@@ -4,6 +4,7 @@
  */
 import type { PendingApproval } from '../types/execution.js';
 import { withMemoryDatabase } from './database.js';
+import { resolveSessionIdCompat } from './sessions.js';
 import { queryOne } from './sqlite.js';
 
 export interface MessageApproval extends PendingApproval {
@@ -21,7 +22,11 @@ export function setMessageApproval(
       .prepare(
         "UPDATE messages SET approval_json = ? WHERE session_id = ? AND id = ? AND role = 'assistant'",
       )
-      .run(JSON.stringify(approval), sessionId, messageId),
+      .run(
+        JSON.stringify(approval),
+        resolveSessionIdCompat(sessionId),
+        messageId,
+      ),
   );
 }
 
@@ -37,7 +42,7 @@ export function decideMessageApproval(
      WHERE session_id = ? AND json_extract(approval_json, '$.approvalId') = ?
        AND json_extract(approval_json, '$.decision') IS NULL`,
       )
-      .run(decision, Date.now(), sessionId, approvalId),
+      .run(decision, Date.now(), resolveSessionIdCompat(sessionId), approvalId),
   );
 }
 
@@ -51,7 +56,7 @@ export function findMessageApproval(
       queryOne<{ id: number; source: string | null }>(
         db,
         "SELECT id, source FROM messages WHERE session_id = ? AND role = 'assistant' AND json_extract(approval_json, '$.approvalId') = ? ORDER BY id DESC LIMIT 1",
-        sessionId,
+        resolveSessionIdCompat(sessionId),
         approvalId,
       ) ?? null,
   );

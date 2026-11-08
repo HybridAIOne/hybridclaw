@@ -195,6 +195,9 @@ clients cannot select this path. The agent retains its default bootstrap and
 skills, and the execution workspace fence remains enabled. Changing this setting
 requires a new eval session; it is not a way to alter an active worker's roots.
 
+Message inserts require their session to exist in the same database statement.
+A late write after session deletion fails instead of recreating orphaned history.
+
 ### Worker lifecycle ownership
 
 Host and Docker runners use `WorkerLifecycle` for spare/session ownership and

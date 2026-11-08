@@ -3,6 +3,7 @@
  * row so retrieval/deletion cannot split pairs. Unlike audit storage, these
  * rows are conversation context and never confer execution authority. Routing
  * evidence is separate metadata that survives history retrieval and branching.
+ * New messages require an existing session, including after deletion races.
  * A user row keeps the local paths of its attachments beside the readable
  * "Attached file" summary, so later turns can find the files again; whether a
  * path still exists is decided at prompt time, never here.
@@ -248,7 +249,8 @@ export function storeMessage(
          media_json,
          dynamic_context,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
+         WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`,
     )
     .run(
       resolvedSessionId,
@@ -262,7 +264,10 @@ export function storeMessage(
       toolHistoryJson,
       mediaJson,
       dynamicContext || null,
+      resolvedSessionId,
     );
+  if (result.changes === 0)
+    throw new Error('Cannot store a message for a missing session.');
 
   getMessageDatabase()
     .prepare(
