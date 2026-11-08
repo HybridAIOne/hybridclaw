@@ -286,6 +286,10 @@ retain normal classification. Every command in a chain must be read-only, and
 redirects, script execution, fetched code and sensitive paths still face their
 existing checks. Inspecting a file does not clear its write-conflict state.
 
+Deletion operands of `rm` and `unlink` count as mutation targets. Redirecting
+their output to a workspace or temporary log does not remove those operands
+from the workspace-fence check, including after `cd` or inside a recognized wrapper.
+
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
 files matching the built-in pinned paths (`.env*`, `~/.ssh/**`, `/etc/**`)

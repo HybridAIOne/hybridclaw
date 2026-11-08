@@ -402,17 +402,12 @@ approval:
     'rm -rf build src',
     'rm -rf node_modules/../src',
     'rm -rf $DIR/node_modules',
-    'rm -rf ~/.cache',
-    'rm -rf ../build',
     "find . -name node_modules -prune -exec rm -rf {} +",
     'find build | xargs rm -rf',
     'docker exec box rm -rf node_modules',
-    // Targets resolve through `cd`: these leave the workspace or are unknown.
-    'cd .. && rm -rf node_modules',
-    'cd ~/other && rm -rf node_modules',
+    // Unresolved targets and find deletion keep conservative classification.
     'cd "$DIR" && rm -rf node_modules',
     "cd .. && find dist -name '*.map' -delete",
-    "bash -c 'cd .. && rm -rf build'",
     'find . -name x | xargs -I{} rm {}',
   ])('deletions with any non-cache or unknown target are not promotable: %j', (command) => {
     const evaluation = evaluateBash(command);
@@ -501,6 +496,12 @@ approval:
     "find . -name '*.log' -exec cp {} ../backup/ \\;",
     "cat <<'EOF' > ../out.txt\nhello\nEOF",
     'echo x > /opt/data/out.txt',
+    'rm -f /opt/data/x > /tmp/log.txt',
+    'rm -rf ~/.cache',
+    'rm -rf ../build',
+    'cd .. && rm -rf node_modules',
+    'cd ~/other && rm -rf node_modules',
+    "bash -c 'cd .. && rm -rf build'",
   ])('writes that land outside the workspace hit the fence: %j', (command) => {
     const evaluation = evaluateBash(command);
 
@@ -716,7 +717,6 @@ approval:
   // row to a passing table once the fence sees it.
   test.fails.each([
     "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
-    'rm -f /opt/data/x > /tmp/log.txt',
     'pip install --target /opt/libs requests > /tmp/pip.log 2>&1',
     'tar -xzf bundle.tgz -C /opt/data 2>/dev/null',
   ])('outside write the fence does not see yet: %j', (command) => {
