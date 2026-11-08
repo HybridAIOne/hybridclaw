@@ -1,11 +1,12 @@
 /**
- * Summarizes a caller's web chat with the configured compression auxiliary
- * model. Only that session's owner and agent may receive its history.
+ * Summarizes a caller's web chat with the compression auxiliary model, or
+ * the chat's own model when none is configured. Only that session's owner and agent may receive its history.
  * The summary is conversation data, never system instructions.
  * NOT semantic recall: consult_agent retains the full runtime memory/tool path.
  */
 
 import { isSilentReply } from '../agent/silent-reply.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
@@ -79,14 +80,17 @@ export async function loadWebchatVoiceHistory(
   }
   const previous = [...messages, ...recent.reverse()];
   if (previous.length === 0) return [];
-  // The summary is a courtesy: without it the call still works, and consult
-  // still reads the full chat. A failed one is never replaced by a fake.
+  // The summary is a courtesy: a failed one leaves the call the recent turns
+  // themselves, and consult still reads the full chat.
+  const { model, chatbotId } = resolveAgentForRequest({ agentId, session });
   let result: Awaited<ReturnType<typeof callAuxiliaryModel>>;
   try {
     result = await callAuxiliaryModel({
       task: 'compression',
       traceReason: 'voice_history_summary',
       agentId,
+      fallbackModel: model,
+      fallbackChatbotId: chatbotId,
       messages: [
         {
           role: 'system',
@@ -102,9 +106,9 @@ export async function loadWebchatVoiceHistory(
     });
   } catch (err) {
     logger.warn({ err, agentId }, 'Voice call starts without a chat summary');
-    return [];
+    return previous;
   }
-  if (!result.content.trim()) return [];
+  if (!result.content.trim()) return previous;
   return [
     {
       role: 'user',
