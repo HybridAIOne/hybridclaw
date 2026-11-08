@@ -613,9 +613,7 @@ describe('slack runtime', () => {
     });
     const commandHandler = vi.fn(async (_1, _2, _3, _4, _5, _6, reply) => {
       await reply('Approval recorded.');
-      await pendingApprovals.clearPendingApproval(
-        'agent:main:channel:slack:chat:dm:peer:u1234567890',
-      );
+      await pendingApprovals.clearPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890', { ...pendingApprovals.getPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890')! });
     });
 
     await state.runtime.initSlack(async () => {}, commandHandler);
@@ -649,6 +647,7 @@ describe('slack runtime', () => {
       'HybridClaw Dev',
       ['approve', 'yes', 'approve123'],
       expect.any(Function),
+      expect.objectContaining({ approvalId: 'approve123', claimId: expect.any(String) }),
     );
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -704,9 +703,7 @@ describe('slack runtime', () => {
       user: 'U0000000001',
       text: 'Only the requesting user can respond.',
     });
-    await pendingApprovals.clearPendingApproval(
-      'agent:main:channel:slack:chat:dm:peer:u1234567890',
-    );
+    await pendingApprovals.clearPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890', { ...pendingApprovals.getPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890')! });
   });
 
   test('reopens a Slack approval after command-handler failure so the user can retry', async () => {
@@ -728,9 +725,7 @@ describe('slack runtime', () => {
         throw new Error('approval failed');
       }
       await reply('Approval recorded.');
-      await pendingApprovals.clearPendingApproval(
-        'agent:main:channel:slack:chat:dm:peer:u1234567890',
-      );
+      await pendingApprovals.clearPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890', { ...pendingApprovals.getPendingApproval('agent:main:channel:slack:chat:dm:peer:u1234567890')! });
     });
 
     await state.runtime.initSlack(async () => {}, commandHandler);

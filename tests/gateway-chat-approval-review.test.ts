@@ -20,8 +20,8 @@ test('restores complete approval facts after restart only for the owner', async 
   expect(pendingChatApproval('mail-session', 'pat')).toEqual({ ...approval, type: 'approval' });
   expect(pendingChatApproval('mail-session', 'lee')).toBeNull();
   expect(pendingChatApproval('other-session', 'pat')).toBeNull();
-  const { clearPendingApproval } = await import('../src/gateway/pending-approvals.js');
-  await clearPendingApproval('mail-session');
+  const { clearPendingApproval, getPendingApproval } = await import('../src/gateway/pending-approvals.js');
+  await clearPendingApproval('mail-session', { ...getPendingApproval('mail-session')! });
   expect(pendingChatApproval('mail-session', 'pat')).toBeNull();
 });
 
@@ -29,12 +29,12 @@ test('does not restore expired, claimed or externally escalated reviews', async 
   const { rememberChatApproval, pendingChatApproval } = await import('../src/gateway/chat-approval-review.js');
   await rememberChatApproval(request, { ...result, pendingApproval: { ...approval, expiresAt: Date.now() - 1 } });
   expect(pendingChatApproval('mail-session', 'pat')).toBeNull();
-  const { clearPendingApproval, claimPendingApprovalByApprovalId } = await import('../src/gateway/pending-approvals.js');
-  await clearPendingApproval('mail-session');
+  const { clearPendingApproval, getPendingApproval, claimPendingApprovalByApprovalId } = await import('../src/gateway/pending-approvals.js');
+  await clearPendingApproval('mail-session', { ...getPendingApproval('mail-session')! });
   await rememberChatApproval(request, result);
   claimPendingApprovalByApprovalId({ approvalId: approval.approvalId, userId: 'pat' });
   expect(pendingChatApproval('mail-session', 'pat')).toBeNull();
-  await clearPendingApproval('mail-session');
+  await clearPendingApproval('mail-session', { ...getPendingApproval('mail-session')! });
   await rememberChatApproval(request, { ...result, pendingApproval: { ...approval, escalationTarget: { channel: 'discord', recipient: 'reviewer' } } });
   expect(pendingChatApproval('mail-session', 'pat')).toBeNull();
 });

@@ -321,6 +321,39 @@ export const ADMIN_RBAC_ROLE_BUNDLES = {
 
 export type AdminRbacRole = keyof typeof ADMIN_RBAC_ROLE_ACTIONS;
 
+/**
+ * Actions an agent-scoped API token (one carrying an `agentIds` claim) may
+ * hold. Everything else is either not agent-aware (admin, apps, media) or can
+ * reach other agents (commands, OpenAI-compatible, voice), so it is refused.
+ */
+export const AGENT_SCOPED_TOKEN_ACTIONS = [
+  'chat.send',
+  'agents.read',
+] as const satisfies readonly AdminRbacAction[];
+
+/**
+ * Agent ids an API token is restricted to, or `null` when the token carries no
+ * `agentIds` claim (unrestricted). A malformed claim, including a single
+ * non-string or blank entry, yields an empty list so it fails closed.
+ */
+export function readAgentScopeClaim(
+  payload: Record<string, unknown> | null,
+): string[] | null {
+  if (!payload || !Object.hasOwn(payload, 'agentIds')) return null;
+  const value = payload.agentIds;
+  if (!Array.isArray(value)) return [];
+  const agentIds: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.trim()) return [];
+    agentIds.push(entry.trim());
+  }
+  return agentIds;
+}
+
+export function isAgentScopedTokenAction(action: string): boolean {
+  return (AGENT_SCOPED_TOKEN_ACTIONS as readonly string[]).includes(action);
+}
+
 function readClaimValue(
   payload: Record<string, unknown>,
   key: 'actions' | 'scope' | 'role' | 'roles',
@@ -758,7 +791,10 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/connectors/logout' && method === 'POST') {
     return 'secret.unset';
   }
-  if (pathname === '/api/admin/config') {
+  if (
+    pathname === '/api/admin/config' ||
+    pathname === '/api/admin/safety-rules'
+  ) {
     if (method === 'GET') return 'admin.config.read';
     if (method === 'PUT') return 'admin.config.write';
     return null;
@@ -818,6 +854,11 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/audit' && method === 'GET') {
     return 'admin.audit.read';
+  }
+  if (pathname === '/api/admin/approval-settings') {
+    if (method === 'GET') return 'admin.approvals.read';
+    if (method === 'PUT') return 'admin.policy.write';
+    return null;
   }
   if (pathname === '/api/admin/approvals' && method === 'GET') {
     return 'admin.approvals.read';

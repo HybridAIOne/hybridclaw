@@ -36,7 +36,7 @@ hybridclaw config get <key>
 hybridclaw config set <key> <value>
 hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw token list
-hybridclaw token create --label <label> (--role <role>|--actions <a,b>) [--expires-at <iso>]
+hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>) [--expires-at <iso>]
 hybridclaw token revoke <id>
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
@@ -81,6 +81,7 @@ operator workflows that should not share a broad `WEB_API_TOKEN` or
 hybridclaw token list
 hybridclaw token create --label "local evals" --role admin.viewer --expires-at 2026-08-01T00:00:00Z
 hybridclaw token create --label "chat client" --actions openai.api,chat.send
+hybridclaw token create --label "support widget" --agents support
 hybridclaw token revoke <token-id>
 ```
 
@@ -92,6 +93,8 @@ hybridclaw token revoke <token-id>
 - `--actions` accepts explicit action names such as `openai.api`,
   `chat.send`, `voice.session`, `status.read`, `admin.tokens.read`,
   `admin.tokens.create`, and `admin.tokens.revoke`
+- `--agents` restricts a token to the listed agents; see
+  [Agent-scoped tokens](../developer-guide/admin-access-control.md#agent-scoped-tokens)
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
 
@@ -809,7 +812,9 @@ created in messaging channels remain scoped to their original session; the
 web-chat task list reports how many of them exist for the agent, so they can
 be managed from **Automation → Scheduler** instead of being created again.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
-tasks that never ran are retained. The list is read when the tool is called,
+tasks that never ran are retained. At startup, a one-shot whose execution was
+interrupted is retained as a paused failure: review its effects and reschedule
+it before retrying. The list is read when the tool is called,
 so it includes what the turn changed through `track` or `todo`. A goal's
 check-in and a todo's reminder are listed as such, and the `cron` tool cannot
 update or remove them: they move with their item, so they change through

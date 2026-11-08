@@ -1,28 +1,13 @@
-export interface TokenUsageStats {
-  modelCalls: number;
-  apiUsageAvailable: boolean;
-  apiPromptTokens: number;
-  apiCompletionTokens: number;
-  apiTotalTokens: number;
-  apiCacheUsageAvailable: boolean;
-  apiCacheReadTokens: number;
-  apiCacheWriteTokens: number;
-  estimatedPromptTokens: number;
-  estimatedCompletionTokens: number;
-  estimatedTotalTokens: number;
-  performanceSamples?: ModelCallPerformanceSample[];
-}
-
-export interface ModelCallTiming {
-  durationMs: number;
-  firstTextDeltaMs?: number;
-}
-
-export interface ModelCallPerformanceSample extends ModelCallTiming {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-}
+/**
+ * Gateway reports aggregate the worker's shared usage snapshot shape.
+ * Unlike provider accounting, these types group stored counters; they do not
+ * normalize provider responses or estimate missing charges.
+ */
+export type {
+  ModelCallPerformanceSample,
+  ModelCallTiming,
+  TokenUsageStats,
+} from '../../container/shared/token-usage.js';
 
 export type UsageWindow = 'daily' | 'monthly' | 'all';
 

@@ -100,6 +100,7 @@ RUN --mount=type=cache,target=/root/.npm \
     cd /opt/hybridclaw-tools \
     && npm ci --ignore-scripts --omit=dev --no-audit --fund=false \
     && rm -f node_modules/.package-lock.json
+RUN sh /opt/hybridclaw-tools/install-github-cli.sh
 
 # Chromium for the browser tools. This image runs the agent in host sandbox
 # mode, and without a browser every browser_* call fails with "Chrome not

@@ -405,6 +405,20 @@ export function AuditPage(
               </button>
             );
           })}
+          <button
+            type="button"
+            className={styles.categoryChip}
+            data-category="approval"
+            aria-pressed={parsed.eventType === 'approval.observed'}
+            data-active={parsed.eventType === 'approval.observed' || undefined}
+            onClick={() =>
+              setSearchInput((current) =>
+                setAuditField(current, 'type', 'approval.observed'),
+              )
+            }
+          >
+            Learning flags
+          </button>
         </div>
 
         {/*

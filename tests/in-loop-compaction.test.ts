@@ -1,13 +1,14 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
-import { useCleanMocks } from './test-utils.js';
+import { ProviderRequestError } from '../container/src/providers/shared.js';
 import { estimateMessageTokens } from '../container/src/token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolCall,
 } from '../container/src/types.js';
+import { useCleanMocks } from './test-utils.js';
 
 useCleanMocks({ restoreAllMocks: true });
 
@@ -62,6 +63,119 @@ function buildHistory(): ChatMessage[] {
 }
 
 describe('compactInLoop', () => {
+  test('retains provider failure status without logging the body or changing history', async () => {
+    const history = buildHistory();
+    const original = structuredClone(history);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const archive = vi.fn();
+    const result = await compactInLoop({
+      history,
+      archive: { path: 'archive.json', write: archive },
+      summarize: async () => {
+        throw new ProviderRequestError(413, 'private request evidence');
+      },
+    });
+    expect(result.changed).toBe(false);
+    expect(history).toEqual(original);
+    expect(archive).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('[context] in-loop summarizer failed status=413');
+    expect(log).toHaveBeenLastCalledWith('[context] in-loop compaction skipped reason=summarizer_failed');
+    expect(log.mock.calls.flat().join(' ')).not.toContain('private request evidence');
+  });
+
+  test.each([
+    { contextWindowTokens: 26_000, promptOverheadTokens: 0, visual: false },
+    { contextWindowTokens: 43_000, promptOverheadTokens: 4_000, visual: false },
+    { contextWindowTokens: 200_000, promptOverheadTokens: 4_000, visual: true },
+  ])(
+    'compacts an older parallel batch when retained history exceeds $contextWindowTokens tokens (overhead=$promptOverheadTokens)',
+    async ({ contextWindowTokens, promptOverheadTokens, visual }) => {
+      const batch = (prefix: string): ChatMessage[] => {
+        const calls = Array.from({ length: 5 }, (_, index) =>
+          toolCall(`${prefix}_${index}`),
+        );
+        return [
+          { role: 'assistant', content: null, tool_calls: calls },
+          ...calls.map((call): ChatMessage => ({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: `${prefix} evidence ${'x'.repeat(8_000)}`,
+            ...(visual
+              ? {
+                  visualAttachments: [
+                    { id: 'a'.repeat(64), pages: [1, 2, 3, 4] },
+                  ],
+                }
+              : {}),
+          })),
+        ];
+      };
+      const older = batch('older');
+      const latest = batch('latest');
+      const history: ChatMessage[] = [
+        { role: 'system', content: 'System instructions' },
+        ...Array.from({ length: 8 }, (_, index): ChatMessage => ({
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: `Setup ${index}`,
+        })),
+        ...older,
+        ...latest,
+      ];
+      const original = structuredClone(history);
+      const archived = vi.fn();
+      const summarize = vi.fn(async () => completion('Older batch findings.'));
+      const result = await compactInLoop({
+        history,
+        contextWindowTokens,
+        promptOverheadTokens,
+        summarize,
+        archive: { path: 'archive.json', write: archived },
+      });
+
+      expect(result.changed).toBe(true);
+      expect(summarize).toHaveBeenCalledOnce();
+      const originals = archived.mock.calls[0][0] as ChatMessage[];
+      expect(
+        originals.filter((message) => message.role === 'tool'),
+      ).toHaveLength(5);
+      for (const message of older) expect(originals).toContainEqual(message);
+      expect(result.history.slice(-latest.length)).toEqual(latest);
+      expect(result.history.slice(0, 5)).toEqual(original.slice(0, 5));
+      expect(
+        estimateMessageTokens(result.history) + promptOverheadTokens,
+      ).toBeLessThan(contextWindowTokens);
+      expect(history).toEqual(original);
+    },
+  );
+
+  test('keeps the only oversized exchange intact for saved-result recovery', async () => {
+    const calls = Array.from({ length: 5 }, (_, index) =>
+      toolCall(`latest_${index}`),
+    );
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'System instructions' },
+      { role: 'user', content: 'Continue the task.' },
+      { role: 'assistant', content: null, tool_calls: calls },
+      ...calls.map((call): ChatMessage => ({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: 'x'.repeat(4_000),
+      })),
+    ];
+    const summarize = vi.fn(async () => completion('Summary'));
+    const archive = vi.fn();
+    const result = await compactInLoop({
+      history,
+      contextWindowTokens: 1_024,
+      summarize,
+      archive: { path: 'archive.json', write: archive },
+    });
+    expect(result.changed).toBe(false);
+    expect(result.history).toBe(history);
+    expect(summarize).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+  });
+
   test('preserves the protected prefix and suffix and inserts a summary', async () => {
     const history = buildHistory();
     const result = await compactInLoop({
@@ -248,7 +362,6 @@ describe('compactInLoop', () => {
         throw new Error('maximum context length exceeded: sensitive payload');
       },
     },
-    ,
   ])(
     'preserves history when summarization $name',
     async ({ summarize, reason }) => {

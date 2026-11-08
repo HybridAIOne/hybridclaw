@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll } from 'vitest';
+import { afterAll, beforeEach } from 'vitest';
+import { useTempDir } from '../test-utils.js';
 
 const isolatedHome = fs.mkdtempSync(
   path.join(os.tmpdir(), 'hybridclaw-test-home-'),
@@ -21,6 +22,12 @@ const isolatedHome = fs.mkdtempSync(
 process.env.HOME = isolatedHome;
 process.env.USERPROFILE = isolatedHome;
 delete process.env.HYBRIDCLAW_DATA_DIR;
+// Worker persistence must fail closed; tests need a writable, isolated owner root.
+const workerStateRoot = path.join(isolatedHome, 'worker-state');
+process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workerStateRoot;
+delete process.env.HYBRIDCLAW_AGENT_STATE_ROOT;
+const workerStateDirs = useTempDir('hy-worker-state-');
+beforeEach(() => workerStateDirs.track(workerStateRoot));
 
 afterAll(() => {
   fs.rmSync(isolatedHome, { recursive: true, force: true });

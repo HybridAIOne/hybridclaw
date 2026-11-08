@@ -1,3 +1,8 @@
+/**
+ * Worker estimates and provider-response counters reuse the shared snapshot
+ * schema. Unlike snapshot validation, this module interprets provider payloads;
+ * it does not price requests or infer charges for unfinished calls.
+ */
 import { isRecord } from '../shared/primitive-values.js';
 import type {
   ChatCompletionResponse,
@@ -39,22 +44,10 @@ function firstDefined(values: unknown[]): unknown {
   return undefined;
 }
 
-export function createTokenUsageStats(): TokenUsageStats {
-  return {
-    modelCalls: 0,
-    apiUsageAvailable: false,
-    apiPromptTokens: 0,
-    apiCompletionTokens: 0,
-    apiTotalTokens: 0,
-    apiCacheUsageAvailable: false,
-    apiCacheReadTokens: 0,
-    apiCacheWriteTokens: 0,
-    estimatedPromptTokens: 0,
-    estimatedCompletionTokens: 0,
-    estimatedTotalTokens: 0,
-    performanceSamples: [],
-  };
-}
+export {
+  createTokenUsageStats,
+  finalizeTokenUsage,
+} from '../shared/token-usage.js';
 
 export function createTokenEstimateCache(): TokenEstimateCache {
   return new WeakMap<ChatMessage, number>();
@@ -304,19 +297,4 @@ export function recordPerformanceSample(
       ? { firstTextDeltaMs: Math.max(0, Math.floor(sample.firstTextDeltaMs)) }
       : {}),
   });
-}
-
-export function finalizeTokenUsage(stats: TokenUsageStats): TokenUsageStats {
-  const estimatedTotalTokens =
-    stats.estimatedPromptTokens + stats.estimatedCompletionTokens;
-  let apiTotalTokens = stats.apiTotalTokens;
-  if (stats.apiUsageAvailable && apiTotalTokens === 0) {
-    apiTotalTokens = stats.apiPromptTokens + stats.apiCompletionTokens;
-  }
-
-  return {
-    ...stats,
-    apiTotalTokens,
-    estimatedTotalTokens,
-  };
 }

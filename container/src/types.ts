@@ -1,4 +1,12 @@
-import type { ApprovalMode } from '../shared/approval-mode.js';
+/**
+ * Worker protocol data shares usage snapshots with gateway recovery.
+ * Provider parsing belongs to token-usage.ts; these types grant no tool
+ * authority and do not define a second accounting schema.
+ */
+import type {
+  ApprovalMode,
+  ApprovalObservation,
+} from '../shared/approval-mode.js';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -6,6 +14,10 @@ import type {
 import type { ApprovalRule } from '../shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
+import type {
+  FileWriteGuardContext,
+  FileWriteGuardReceipt,
+} from '../shared/file-write-guard.js';
 import type { RuntimeProviderId } from '../shared/provider-ids.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
@@ -14,7 +26,12 @@ import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
 } from '../shared/stakes-classifier.js';
+import type {
+  ModelCallTiming,
+  TokenUsageStats,
+} from '../shared/token-usage.js';
 import type { ToolCallLimits } from '../shared/tool-call-limits.js';
+import type { RecoveryDisposition } from '../shared/turn-checkpoint.js';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
@@ -22,6 +39,12 @@ import type {
 import type { WebSearchConfig } from '../shared/web-search-config.js';
 import type { McpServerConfig } from './mcp/types.js';
 import type { ModelBehavior } from './model-behavior.js';
+
+export type {
+  ModelCallPerformanceSample,
+  ModelCallTiming,
+  TokenUsageStats,
+} from '../shared/token-usage.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -208,6 +231,7 @@ export interface AddressEnvelope {
 export interface ContainerInput
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
+    FileWriteGuardContext,
     ToolCallLimits {
   healthCheck?: {
     nonce: string;
@@ -243,6 +267,7 @@ export interface ContainerInput
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
+  disabledSafetyRules?: string[];
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
@@ -327,6 +352,7 @@ export function normalizeEscalationTarget(
 }
 
 export interface ToolExecution {
+  approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;
   result: string;
@@ -394,32 +420,6 @@ export interface PendingApproval {
   boost?: BoostPrompt;
 }
 
-export interface TokenUsageStats {
-  modelCalls: number;
-  apiUsageAvailable: boolean;
-  apiPromptTokens: number;
-  apiCompletionTokens: number;
-  apiTotalTokens: number;
-  apiCacheUsageAvailable: boolean;
-  apiCacheReadTokens: number;
-  apiCacheWriteTokens: number;
-  estimatedPromptTokens: number;
-  estimatedCompletionTokens: number;
-  estimatedTotalTokens: number;
-  performanceSamples?: ModelCallPerformanceSample[];
-}
-
-export interface ModelCallTiming {
-  durationMs: number;
-  firstTextDeltaMs?: number;
-}
-
-export interface ModelCallPerformanceSample extends ModelCallTiming {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-}
-
 export interface ArtifactMetadata {
   path: string;
   filename: string;
@@ -440,7 +440,10 @@ export interface OutputPresentationMetadata {
   displaySurface: OutputDisplaySurface;
 }
 
-export interface ContainerOutput {
+export interface ContainerOutput
+  extends FileWriteGuardContext,
+    FileWriteGuardReceipt {
+  recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
   result: string | null;

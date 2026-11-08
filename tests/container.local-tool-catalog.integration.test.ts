@@ -78,14 +78,25 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(output.toolExecutions?.[0]).toMatchObject({ name: 'write', blocked: true, isError: true, blockedReason: expect.stringContaining('binary Office/PDF') });
     expect(fs.existsSync(path.join(dir, 'bad.pdf'))).toBe(false);
   });
-  test('presents approval for the real destructive action', async () => {
-    const { output, followup, requests } = await harness([catalog('call', 'bash', { command: 'rm -rf scratch' })]);
+  test('presents approval for a protected underlying action', async () => {
+    const { output, followup, requests } = await harness([catalog('call', 'bash', { command: 'cat .env' })]);
     expect(output.pendingApproval).toMatchObject({ toolName: 'bash', approvalTier: 'red' });
     expect(output.toolExecutions?.[0]).toMatchObject({ name: 'bash', blocked: true, approvalDecision: 'required' });
     expect(output.toolsUsed).toEqual([]);
     const replay = await followup({ messages: [{ role: 'user', content: 'yes' }], blockedTools: ['bash'] });
     expect(replay.error).toContain('no longer available');
     expect(requests).toHaveLength(1);
+  });
+  test('blocks an unconditional shell rule through the catalog before approval and permits replanning', async () => {
+    const { output, requests, dir } = await harness([
+      catalog('call', 'bash', { command: 'rm -rf notes.txt' }),
+      catalog('call', 'read', { path: 'notes.txt' }),
+    ]);
+    expect(output.pendingApproval).toBeUndefined();
+    expect(output.toolExecutions?.[0]).toMatchObject({ name: 'bash', blocked: true, approvalDecision: 'denied' });
+    expect(output.toolExecutions?.[1]).toMatchObject({ name: 'read', isError: false, result: expect.stringContaining('synthetic tool result') });
+    expect(fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8')).toBe('synthetic tool result');
+    expect(requests).toHaveLength(3);
   });
 });
 
@@ -245,6 +256,14 @@ test('recovers mixed exposed calls without executing a valid starter sibling', a
   expect(output.toolExecutions?.slice(0, 2).map((tool) => [tool.name, tool.blocked, tool.isError])).toEqual([['write', true, true], ['tool_catalog', true, true]]);
   expect(requests[1].messages.slice(-2).every((message) => String(message.content).includes('No tool in this batch was executed'))).toBe(true);
   expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', isError: false });
+});
+
+test('recovers a direct call to a tool the request does not admit, e.g. one the prompt named', async () => {
+  const direct = { role: 'assistant', content: null, tool_calls: [{ id: 'direct-navigate', type: 'function', function: { name: 'browser_navigate', arguments: '{"url":"https://example.com"}' } }] };
+  const { output, requests } = await harness([direct, catalog('call', 'read', { path: 'notes.txt' })], { localStarterTools: ['skills_list'], blockedTools: ['browser_navigate'] });
+  expect(output.status).toBe('success');
+  expect(requests[1].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'direct-navigate', content: expect.stringContaining('No tool in this batch was executed') });
+  expect(output.toolExecutions?.map((entry) => [entry.name, entry.blocked ?? false])).toEqual([['browser_navigate', true], ['read', false]]);
 });
 
 test('never recovers a mixed batch containing an unexposed direct function', async () => {

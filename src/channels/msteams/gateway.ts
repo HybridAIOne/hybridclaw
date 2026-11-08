@@ -241,7 +241,11 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
               buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
               sendText: (text) => context.stream.finalize(text),
               formatTextPrompt: ({ approval }) =>
-                formatMSTeamsApprovalPrompt(approval),
+                formatMSTeamsApprovalPrompt(
+                  approval,
+                  Date.now(),
+                  result.approvalReply,
+                ),
             });
             return;
           }

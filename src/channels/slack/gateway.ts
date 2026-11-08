@@ -3,6 +3,7 @@
  * The descriptor selects targets and lifecycle; this module connects the runtime
  * to execution without starting it on import or owning queue policy.
  */
+
 import { isSilentReply, stripSilentToken } from '../../agent/silent-reply.js';
 import {
   getConfigSnapshot,
@@ -21,6 +22,7 @@ import {
   formatGatewayErrorReply,
 } from '../../gateway/gateway-error-service.js';
 import { withInFlightTurn } from '../../gateway/in-flight-turns.js';
+import type { PendingApprovalClaim } from '../../gateway/pending-approvals.js';
 import { deliverProactiveMessage } from '../../gateway/proactive-dispatch.js';
 import {
   normalizeSessionShowMode,
@@ -179,7 +181,16 @@ export async function startSlackIntegration(): Promise<boolean> {
           }
         },
       ),
-      async (sessionId, guildId, channelId, userId, username, args, reply) => {
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        args,
+        reply,
+        approvalClaim?: PendingApprovalClaim,
+      ) => {
         try {
           await handleTextChannelCommand({
             sessionId,
@@ -189,6 +200,7 @@ export async function startSlackIntegration(): Promise<boolean> {
             username,
             args,
             reply,
+            approvalClaim,
           });
         } catch (error) {
           logger.error(

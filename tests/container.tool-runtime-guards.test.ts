@@ -93,9 +93,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -176,9 +177,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -231,9 +233,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -310,9 +313,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext, setTaskModelPolicies } = await import(
       '../container/src/model-context.js'
     );
@@ -367,9 +371,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -441,9 +446,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -502,9 +508,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext, setTaskModelPolicies } = await import(
       '../container/src/model-context.js'
     );
@@ -549,7 +556,7 @@ describe.sequential('container tool runtime guards', () => {
     expect(requestBody).toMatchObject({
       model: 'qwen/qwen2.5-vl',
     });
-    expect(requestBody.max_tokens).toBeUndefined();
+    expect(requestBody.max_tokens).toBe(321);
     expect(result.output).toContain('Detected via task model policy.');
   });
 
@@ -587,9 +594,10 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata } = await import(
+    const { executeToolWithMetadata, setMediaContext } = await import(
       '../container/src/tools.js'
     );
+    setMediaContext([], [], true);
     const { setModelContext } = await import(
       '../container/src/model-context.js'
     );
@@ -620,7 +628,7 @@ describe.sequential('container tool runtime guards', () => {
     const argsJson = JSON.stringify({ path: 'same.md' });
 
     for (let i = 0; i < 3; i += 1) {
-      recordToolCallOutcome(history, 'read', argsJson, 'same output', false);
+      recordToolCallOutcome(history, 'read', argsJson, 'same output', false, false);
     }
 
     const result = detectToolCallLoop(history, 'read', argsJson);
@@ -636,11 +644,11 @@ describe.sequential('container tool runtime guards', () => {
     const readArgs = JSON.stringify({ path: 'a.md' });
     const globArgs = JSON.stringify({ pattern: '*.md' });
 
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
-    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false);
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
-    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false);
-    recordToolCallOutcome(history, 'read', readArgs, 'same read', false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
+    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false, false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
+    recordToolCallOutcome(history, 'glob', globArgs, 'same glob', false, false);
+    recordToolCallOutcome(history, 'read', readArgs, 'same read', false, false);
 
     const result = detectToolCallLoop(history, 'glob', globArgs);
 
@@ -655,7 +663,7 @@ describe.sequential('container tool runtime guards', () => {
     const argsJson = JSON.stringify({ command: 'python script.py' });
 
     for (let i = 0; i < 6; i += 1) {
-      recordToolCallOutcome(history, 'bash', argsJson, 'same output', false);
+      recordToolCallOutcome(history, 'bash', argsJson, 'same output', false, false);
     }
 
     const result = detectToolCallLoop(history, 'bash', argsJson);

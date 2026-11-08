@@ -336,7 +336,16 @@ saved revision history directly.
   soft warning fires at 80%, and at 100% the gateway refuses new turns for the
   agent (user, scheduled, goal, and full-auto) and pauses its active goals
   until the next UTC billing month or until the cap is raised. A turn already
-  running when the cap is crossed finishes.
+  running when the cap is crossed finishes. The shared agent entry point checks
+  the cap before worker startup, including for isolated scheduled tasks.
+- `auxiliaryModels.<task>.maxTokens` limits that task's output across providers,
+  independently of the model's advertised output capacity. A positive configured
+  limit also applies when the task uses the session model. Vision defaults to
+  8,192 output tokens when no positive limit is configured; set
+  `auxiliaryModels.vision.maxTokens` for longer OCR or image analyses. This does
+  not change the primary conversation's output budget. A vision response cut
+  off by its output limit is reported as incomplete rather than a successful
+  full analysis.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";

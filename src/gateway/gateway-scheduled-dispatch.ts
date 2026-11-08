@@ -1,12 +1,18 @@
 /**
  * Scheduled runs fail when their delivery target fails. Web conversations are
- * durable targets and reuse the runner's stored message; channel transports
+ * durable targets and reuse the runner's stored message. Execution and delivery
+ * settle independently; completed editions never redispatch. Channel transports
  * retain their active-hours policy. This dispatcher does not own scheduling.
  */
 
+import type { ProactiveDeliveryOutcome } from '../channels/channel-descriptor.js';
 import { logger } from '../logger.js';
 import { getJob } from '../memory/jobs.js';
-import { savedEdition, saveEdition } from '../scheduler/routine-editions.js';
+import {
+  readRoutineEdition,
+  saveEdition,
+} from '../scheduler/routine-editions.js';
+import { ScheduledDeliveryLifecycle } from '../scheduler/scheduled-delivery-lifecycle.js';
 import type { SchedulerDispatchRequest } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
@@ -23,10 +29,7 @@ interface ScheduledDeliveryDependencies {
     text: string,
     source: string,
     artifacts?: ArtifactMetadata[],
-  ) => Promise<{
-    status: 'delivered' | 'queued' | 'suppressed' | 'failed';
-    reason?: string;
-  }>;
+  ) => Promise<ProactiveDeliveryOutcome>;
   deliverWebhookMessage: (
     url: string,
     text: string,
@@ -126,20 +129,28 @@ export async function runScheduledTask(
         : undefined;
 
   let runError: unknown = null;
-  let reachedDelivery = false;
   const managed = request.routine;
-  const deliver = async (result: ProactiveMessagePayload) => {
-    if (managed) {
-      const current = getJob(request.taskId!, { kind: 'scheduled_task' });
-      if (
-        !current?.enabled ||
-        current.managed_key !== managed.key ||
-        current.managed_scope !== managed.scope
-      )
-        throw new Error('The routine was stopped before delivery.');
-    }
-    saveEdition(request.taskRunId, result);
-    reachedDelivery = true;
+  const ensureCurrentRoutine = () => {
+    if (!managed) return;
+    const current = getJob(request.taskId!, { kind: 'scheduled_task' });
+    if (
+      !current?.enabled ||
+      current.managed_key !== managed.key ||
+      current.managed_scope !== managed.scope
+    )
+      throw new Error('The routine was stopped before delivery.');
+  };
+  ensureCurrentRoutine();
+  const edition = readRoutineEdition(request.taskRunId);
+  if (edition.kind === 'settled') return;
+  if (request.routine && edition.kind === 'unmanaged')
+    throw new Error('Managed routine edition is missing; execution refused.');
+  const saved = edition.kind === 'delivery_pending' ? edition.result : null;
+  const lifecycle = new ScheduledDeliveryLifecycle(saved);
+  const deliver = async (candidate: ProactiveMessagePayload) => {
+    ensureCurrentRoutine();
+    if (!saved) lifecycle.prepare(saveEdition(request.taskRunId, candidate));
+    const result = lifecycle.beginDelivery();
     if (request.delivery.kind === 'webhook') {
       await deliverWebhookMessage(
         request.delivery.webhookUrl,
@@ -158,6 +169,7 @@ export async function runScheduledTask(
         },
         'Scheduled task completed',
       );
+      lifecycle.settle('delivered');
       return;
     }
 
@@ -179,6 +191,7 @@ export async function runScheduledTask(
         },
         'Scheduled task completed without TUI delivery',
       );
+      lifecycle.settle('suppressed');
       return;
     }
     const outcome =
@@ -202,19 +215,12 @@ export async function runScheduledTask(
         `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
       );
     }
+    lifecycle.settle(outcome.status);
     logger.info(
-      {
-        jobId: request.jobId,
-        taskId: request.taskId,
-        source: request.source,
-        channelId: resolvedDeliveryChannelId,
-        result: result.text,
-        artifactCount: result.artifacts?.length || 0,
-      },
+      { jobId: request.jobId, taskId: request.taskId, ...lifecycle.finish() },
       'Scheduled task completed',
     );
   };
-  const saved = savedEdition(request.taskRunId);
   if (saved) {
     await deliver(saved);
     return;
@@ -248,7 +254,7 @@ export async function runScheduledTask(
     const error =
       runError instanceof Error ? runError : new Error(String(runError));
     // A failed delivery already reached the target, or the target is down.
-    if (!reachedDelivery) {
+    if (lifecycle.failureStage === 'execution') {
       await notifyRunFailure(error, {
         request,
         channelId: resolvedDeliveryChannelId,
@@ -260,6 +266,10 @@ export async function runScheduledTask(
     }
     throw error;
   }
+  logger.info(
+    { jobId: request.jobId, taskId: request.taskId, ...lifecycle.finish() },
+    'Scheduled run settled',
+  );
 }
 
 /**

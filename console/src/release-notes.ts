@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.41.5',
+  version: '0.42.2',
   highlights: [
-    'Clearer Teams approval requests',
-    'Show only available approval choices',
-    'View commands and details with 0',
+    'Scheduled approvals in chat',
+    'Safer interrupted-turn recovery',
+    'Agent-scoped API tokens',
+    'Git and gh with connected GitHub accounts',
   ],
 } as const;
 

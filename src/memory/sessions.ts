@@ -1,9 +1,11 @@
+/**
+ * Sessions retain their approval choice independently of later default changes.
+ * Creation and explicit settings resets copy the gateway default; forks retain
+ * their source choice. Unlike worker state, these settings survive restarts.
+ */
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import {
-  type ApprovalMode,
-  DEFAULT_APPROVAL_MODE,
-} from '../../container/shared/approval-mode.js';
+import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
@@ -518,8 +520,9 @@ export function getOrCreateSession(
        channel_id,
        agent_id,
        legacy_session_id,
-       enable_rag
-     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+       enable_rag,
+       approval_mode
+     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       nextSessionId,
@@ -533,6 +536,7 @@ export function getOrCreateSession(
         ? requestedSessionId
         : null,
       resolveInitialSessionRag(sessionAgentId),
+      getRuntimeConfig().security.defaultApprovalMode,
     );
 
   return requireSessionById(nextSessionId);
@@ -829,7 +833,7 @@ export function createFreshSessionInstance(
         params?.resetSettings ? null : previousSession.full_auto_started_at,
         params?.resetSettings ? 'all' : previousSession.show_mode,
         params?.resetSettings
-          ? DEFAULT_APPROVAL_MODE
+          ? getRuntimeConfig().security.defaultApprovalMode
           : previousSession.approval_mode,
         nowIso,
         nowIso,

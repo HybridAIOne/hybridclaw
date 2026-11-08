@@ -5,7 +5,9 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
+import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
 import { readWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import type { ContainerInput } from '../src/types/container.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-warm-refill-');
@@ -21,13 +23,14 @@ useCleanMocks({
   ],
 });
 
-// Refill spawns run under a `warm_<agent>_…` IPC session: the container runner
-// bind-mounts that dir, the host runner passes it in the child env.
-const WARM_IPC_DIR = `${path.sep}sessions${path.sep}warm_`;
+// Track the runner's assigned IPC paths; directory names no longer expose IDs.
+const warmIpcPaths = new Set<string>();
 
-function isWarmSpawn(args: string[] = [], options?: SpawnOptions): boolean {
+function findWarmIpcPath(args: string[] = [], options?: SpawnOptions): string | undefined {
   const ipcRefs = [...args, options?.env?.HYBRIDCLAW_AGENT_IPC_DIR ?? ''];
-  return ipcRefs.some((ref) => ref.includes(WARM_IPC_DIR));
+  return [...warmIpcPaths].find((ipcPath) =>
+    ipcRefs.includes(ipcPath) || ipcRefs.includes(`${ipcPath}:/ipc:rw`),
+  );
 }
 
 function makeFakeChildProcess() {
@@ -58,16 +61,25 @@ function mockRunnerDeps(params: {
     ...(await importOriginal<typeof import('node:child_process')>()),
     spawn: params.spawn,
   }));
-  vi.doMock('../src/infra/ipc.js', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../src/infra/ipc.js')>()),
-    readOutput:
-      params.readOutput ??
-      (async () => ({
-        status: 'success' as const,
-        result: 'done',
-        toolsUsed: [],
-      })),
-  }));
+  warmIpcPaths.clear();
+  vi.doMock('../src/infra/ipc.js', async (importOriginal) => {
+    const ipc = await importOriginal<typeof import('../src/infra/ipc.js')>();
+    return {
+      ...ipc,
+      getSessionPaths: (sessionId: string, agentId: string) => {
+        const paths = ipc.getSessionPaths(sessionId, agentId);
+        if (sessionId.startsWith('warm_')) warmIpcPaths.add(paths.ipcPath);
+        return paths;
+      },
+      readOutput:
+        params.readOutput ??
+        (async () => ({
+          status: 'success' as const,
+          result: 'done',
+          toolsUsed: [],
+        })),
+    };
+  });
   vi.doMock('../src/providers/factory.js', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../src/providers/factory.js')>()),
     resolveModelRuntimeCredentials: async () => ({
@@ -98,7 +110,7 @@ function spawnCollectingWarm(
 ) {
   return vi.fn((_command: string, args?: string[], options?: SpawnOptions) => {
     const proc = makeFakeChildProcess();
-    if (isWarmSpawn(args, options)) warmProcesses.push(proc);
+    if (findWarmIpcPath(args, options)) warmProcesses.push(proc);
     return proc;
   });
 }
@@ -158,6 +170,7 @@ test.each(RUNNERS)(
   '$runner returns the finished turn when the warm-pool refill throws',
   async ({ createExecutor }) => {
     vi.stubEnv('HOME', makeTempDir());
+    const userPrompt = 'delegate the follow-up';
     const turnOutput = {
       status: 'success' as const,
       result: 'Delegated the follow-up.',
@@ -174,9 +187,13 @@ test.each(RUNNERS)(
       code: 'ENOMEM',
     });
     let warmSpawnAttempts = 0;
+    let foreground: ReturnType<typeof makeFakeChildProcess> | undefined;
     const spawn = vi.fn(
       (_command: string, args?: string[], options?: SpawnOptions) => {
-        if (!isWarmSpawn(args, options)) return makeFakeChildProcess();
+        if (!findWarmIpcPath(args, options)) {
+          foreground = makeFakeChildProcess();
+          return foreground;
+        }
         warmSpawnAttempts += 1;
         throw refillError;
       },
@@ -184,14 +201,25 @@ test.each(RUNNERS)(
     const warn = vi.fn();
     mockRunnerDeps({
       spawn,
-      readOutput: async () => structuredClone(turnOutput),
+      readOutput: async () => {
+        if (!foreground) throw new Error('Fixture worker was not spawned.');
+        const input = JSON.parse(
+          String(foreground.stdin.write.mock.calls[0]?.[0]),
+        ) as ContainerInput & { ipcAuthSecret: string };
+        return {
+          ...structuredClone(turnOutput),
+          fileWriteGuardProof: encodeFileWriteGuardContext(
+            input.ipcAuthSecret, input, userPrompt,
+          ),
+        };
+      },
       warn,
     });
 
     const executor = await createExecutor();
     const output = await executor.exec({
       sessionId: 'session-refill',
-      messages: [{ role: 'user', content: 'delegate the follow-up' }],
+      messages: [{ role: 'user', content: userPrompt }],
       chatbotId: 'bot-a',
       enableRag: false,
       model: 'gpt-5',
@@ -199,7 +227,11 @@ test.each(RUNNERS)(
       channelId: 'tui',
     });
 
-    expect(output).toEqual(turnOutput);
+    expect(output).toEqual({
+      ...turnOutput,
+      fileWriteGuardSessionId: 'session-refill',
+      fileWriteGuardUserPrompt: userPrompt,
+    });
     // The failed refill is abandoned for this turn, not retried in a loop.
     expect(warmSpawnAttempts).toBe(1);
     expect(warn).toHaveBeenCalledWith(
@@ -223,14 +255,10 @@ test.each(RUNNERS)(
       const spawn = vi.fn(
         (_command: string, args?: string[], options?: SpawnOptions) => {
           const proc = makeFakeChildProcess();
-          if (isWarmSpawn(args, options)) {
+          const ipcPath = findWarmIpcPath(args, options);
+          if (ipcPath) {
             warmProcesses.push(proc);
-            const ipcRef = [
-              ...(args ?? []),
-              options?.env?.HYBRIDCLAW_AGENT_IPC_DIR ?? '',
-            ].find((ref) => ref.includes(WARM_IPC_DIR));
-            // Container args carry `host:container` bind specs.
-            warmSessionDir = path.dirname(String(ipcRef).split(':')[0]);
+            warmSessionDir = path.dirname(ipcPath);
           }
           return proc;
         },

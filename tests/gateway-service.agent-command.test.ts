@@ -139,7 +139,7 @@ test.each([false, true])('agent switch starts BOOTSTRAP hatching and attributes 
   const { upsertRegisteredAgent } = await import(
     '../src/agents/agent-registry.ts'
   );
-  const { initDatabase, storeMessage } = await import('../src/memory/db.ts');
+  const { initDatabase, storeMessage, getOrCreateSession } = await import('../src/memory/db.ts');
   const { handleGatewayCommand, getGatewayHistory } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -167,6 +167,7 @@ test.each([false, true])('agent switch starts BOOTSTRAP hatching and attributes 
     });
   }
   const sessionId = 'session-agent-switch-bootstrap';
+  getOrCreateSession(sessionId, null, 'web');
   storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'bob');
 
   const result = await handleGatewayCommand({

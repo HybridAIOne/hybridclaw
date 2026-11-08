@@ -1,8 +1,10 @@
 /**
- * Teams approvals show one decision and only the scopes the runtime permits.
+ * Teams approvals preserve clarification replies and only offer permitted scopes.
  * The stored prompt remains available for review; this view neither interprets
  * consent nor changes approval policy, unlike the worker's approval runtime.
  */
+
+import type { ApprovalReplyInterpretation } from '../../../container/shared/approval-reply.js';
 import {
   type ApprovalPauseCause,
   parseApprovalRule,
@@ -32,6 +34,7 @@ function plainApprovalText(text: string): string {
 export function formatMSTeamsApprovalPrompt(
   approval: PendingApproval,
   now = Date.now(),
+  reply?: ApprovalReplyInterpretation,
 ): string {
   // Boosts ask whether to spend a credit, rather than authorize a tool action.
   if (approval.boost) return approval.prompt;
@@ -58,6 +61,9 @@ export function formatMSTeamsApprovalPrompt(
   replies.push('- `5` — Deny this action', '- `0` — Show details');
 
   const lines = [
+    reply?.decision === 'unclear' || reply?.decision === 'error'
+      ? plainApprovalText(approval.prompt)
+      : '',
     '**Permission needed**',
     action ? plainApprovalText(action) : '',
     plainApprovalText(explanation),

@@ -3,6 +3,8 @@
  * row so retrieval/deletion cannot split pairs. Unlike audit storage, these
  * rows are conversation context and never confer execution authority. Routing
  * evidence is separate metadata that survives history retrieval and branching.
+ * New messages require an existing session, including after deletion races.
+ * A message and its session counter commit together.
  * A user row keeps the local paths of its attachments beside the readable
  * "Attached file" summary, so later turns can find the files again; whether a
  * path still exists is decided at prompt time, never here.
@@ -32,6 +34,7 @@ import type {
 } from '../types/session.js';
 import { normalizeNonNegativeInteger } from '../utils/number-normalization.js';
 import { withMemoryDatabase } from './database.js';
+import { parseMessageApproval } from './message-approval.js';
 import { ensureSessionBranchesTable } from './schema/migrations.js';
 import { resolveSessionIdCompat } from './sessions.js';
 import { queryAll, queryOne } from './sqlite.js';
@@ -52,6 +55,7 @@ interface ConversationHistoryPageRow {
   routing_trace_json: string | null;
   reaction: string | null;
   email_draft_json: string | null;
+  approval_json: string | null;
   source: string | null;
   created_at: string | null;
 }
@@ -231,9 +235,10 @@ export function storeMessage(
   const mediaJson = storedMedia.length ? JSON.stringify(storedMedia) : null;
   if (dynamicContext && role !== 'user')
     throw new Error('Dynamic context requires a user message.');
-  const result = getMessageDatabase()
-    .prepare(
-      `INSERT INTO messages (
+  return getMessageDatabase().transaction(() => {
+    const result = getMessageDatabase()
+      .prepare(
+        `INSERT INTO messages (
          session_id,
          user_id,
          username,
@@ -246,29 +251,34 @@ export function storeMessage(
          media_json,
          dynamic_context,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
-    )
-    .run(
-      resolvedSessionId,
-      userId,
-      username,
-      role,
-      normalizedAgentId,
-      content,
-      artifactsJson,
-      source?.trim() || null,
-      toolHistoryJson,
-      mediaJson,
-      dynamicContext || null,
-    );
+       ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
+         WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`,
+      )
+      .run(
+        resolvedSessionId,
+        userId,
+        username,
+        role,
+        normalizedAgentId,
+        content,
+        artifactsJson,
+        source?.trim() || null,
+        toolHistoryJson,
+        mediaJson,
+        dynamicContext || null,
+        resolvedSessionId,
+      );
+    if (result.changes === 0)
+      throw new Error('Cannot store a message for a missing session.');
 
-  getMessageDatabase()
-    .prepare(
-      "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
-    )
-    .run(resolvedSessionId);
+    getMessageDatabase()
+      .prepare(
+        "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
+      )
+      .run(resolvedSessionId);
 
-  return result.lastInsertRowid as number;
+    return result.lastInsertRowid as number;
+  })();
 }
 
 /**
@@ -451,6 +461,7 @@ export function getSessionAssistantMessage(
   | 'artifacts'
   | 'source'
   | 'emailDraft'
+  | 'approval'
   | 'routingTrace'
   | 'created_at'
 > | null {
@@ -463,13 +474,14 @@ export function getSessionAssistantMessage(
       artifacts_json: string | null;
       source: string | null;
       email_draft_json: string | null;
+      approval_json: string | null;
       routing_trace_json: string | null;
       created_at: string;
     },
     [number, string]
   >(
     getMessageDatabase(),
-    `SELECT id, session_id, agent_id, content, artifacts_json, source, email_draft_json, routing_trace_json, created_at
+    `SELECT id, session_id, agent_id, content, artifacts_json, source, email_draft_json, approval_json, routing_trace_json, created_at
      FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'`,
     messageId,
     resolveSessionIdCompat(sessionId),
@@ -483,6 +495,7 @@ export function getSessionAssistantMessage(
     artifacts: parseMessageArtifacts(row.artifacts_json),
     source: row.source,
     emailDraft: parseEmailDraft(row.email_draft_json) ?? undefined,
+    approval: parseMessageApproval(row.approval_json),
     routingTrace: parseRoutingTrace(row.routing_trace_json) ?? undefined,
     created_at: row.created_at,
   };
@@ -833,6 +846,7 @@ export function getConversationHistoryPage(
          m.routing_trace_json,
          m.reaction,
          m.email_draft_json,
+         m.approval_json,
          m.source,
          m.created_at
        FROM sessions s
@@ -891,6 +905,9 @@ export function getConversationHistoryPage(
       ...(routingTrace ? { routingTrace } : {}),
       ...(row.reaction ? { reaction: row.reaction } : {}),
       ...(emailDraft ? { emailDraft } : {}),
+      ...(row.approval_json
+        ? { approval: parseMessageApproval(row.approval_json) }
+        : {}),
       ...(row.source ? { source: row.source } : {}),
       created_at: row.created_at,
     });

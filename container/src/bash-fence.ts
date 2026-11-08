@@ -1,7 +1,7 @@
 /**
  * Paths the workspace fence checks for one bash line. Every write target the
  * parser resolves counts. When none is absolute and some command writes in
- * ways the parser does not follow (`rm`, `sed -i`, installers, interpreters,
+ * ways the parser does not follow (sed scripts, installers, interpreters,
  * unknown programs), every absolute path the line names counts too, except
  * files the line only runs. Reading from outside is never a write.
  *
@@ -10,6 +10,7 @@
  */
 import path from 'node:path';
 import {
+  commandArguments,
   deletesFiles,
   OPERAND_WRITERS,
   type ScriptCommand,
@@ -18,6 +19,7 @@ import {
 } from './bash-commands.js';
 import { NAME_ONLY_PROGRAMS } from './bash-pinned-reach.js';
 import { codeSource } from './bash-remote-code.js';
+import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
 
 // Programs whose writes writeTargets() resolves in full unless an operand
 // hides behind a variable or substitution. mv is not one: it removes its
@@ -27,7 +29,9 @@ const PARSED_WRITERS = new Set([...OPERAND_WRITERS, 'cd', 'cp', 'pushd']);
 // Whether writeTargets() sees everything a command writes. Read-only commands
 // (as the green tier judges them) and programs that print names or text write
 // only through redirects and write options, which the parser follows. What
-// xargs, `find -exec`, or `sh -c` runs counts as the command's own.
+// xargs, `find -exec`, or `sh -c` runs counts as the command's own. Recognized
+// tar arguments distinguish its archive/source inputs from output destinations;
+// opaque option values retain the fallback. Archive contents remain uninspected.
 function writesParsed(
   command: ScriptCommand,
   isReadOnly: (words: string[]) => boolean,
@@ -38,6 +42,12 @@ function writesParsed(
   }
   if (run.length > 1) return false;
   if (NAME_ONLY_PROGRAMS.has(command.program)) return true;
+  if (
+    TAR_PROGRAMS.has(command.program) &&
+    !command.words.some((word) => word.includes('$'))
+  ) {
+    return tarWriteTargets(commandArguments(command.args)).parsed;
+  }
   return (
     PARSED_WRITERS.has(command.program) &&
     !command.words.some((word) => word.includes('$'))

@@ -1,7 +1,11 @@
 import { expect, test, vi } from 'vitest';
+import { ACTION_PREREQUISITE_LINES } from '../container/shared/action-prerequisites.js';
+import { FILE_HYGIENE_LINES } from '../src/agent/file-hygiene-prompt.js';
+import { AFTER_FILE_CHANGE_LINES } from '../src/agent/mobile-prompt.js';
 
 import {
   buildRetrievedContextPrompt,
+  buildSystemPromptBlocksFromHooks,
   buildSystemPromptFromHooks,
   SILENT_TOOL_CALL_STYLE_LINES,
   TOOL_STATUS_STYLE_LINES,
@@ -112,6 +116,19 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   };
 }
 
+test('prerequisites follow a large skill catalog in the production block composition', () => {
+  const blocks = buildSystemPromptBlocksFromHooks({
+    agentId: 'catalog-order-test',
+    skills: Array.from({ length: 80 }, (_, i) => makeSkill({ name: `fixture-${i}` })),
+  });
+  const policy = ACTION_PREREQUISITE_LINES.join('\n');
+  expect(blocks.length).toBeGreaterThan(1);
+  expect(blocks[0]).not.toContain(policy);
+  expect(blocks.at(-1)).toContain('fixture-79');
+  expect(blocks.at(-1)?.endsWith(policy)).toBe(true);
+  expect(blocks.join('\n').split(policy)).toHaveLength(2);
+});
+
 test('buildSystemPromptFromHooks adds mandatory routing instructions for available skills', () => {
   const prompt = buildSystemPromptFromHooks({
     agentId: 'test-agent',
@@ -139,9 +156,6 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
-  );
-  expect(prompt).toContain(
-    'For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
   );
   expect(prompt).toContain(
     'Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
@@ -174,15 +188,8 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
-  expect(prompt).toContain(
-    'Use the `message` tool for sending or reading messages on active communication channels: none.',
-  );
-  expect(prompt).toContain(
-    'Do not use `message` for ordinary final replies in the current chat.',
-  );
-  expect(prompt).toContain(
-    'No active communication channels are registered right now.',
-  );
+  expect(prompt).not.toContain('**Communication**: `message`');
+  expect(prompt).not.toContain('### Message Tool Examples');
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
   );
@@ -206,9 +213,6 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Never say that web chat cannot embed, display, render, deliver, or support generated images/videos.',
-  );
-  expect(prompt).toContain(
-    'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
   );
   expect(prompt).toContain(
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context',
@@ -775,7 +779,7 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   const dropped = [
     'shell heredocs, echo redirects, sed, or awk',
     'For `bash`:',
-    'After file changes, run commands only when asked',
+    ...AFTER_FILE_CHANGE_LINES,
     'from a folder of source files',
     'In web chat, image, PDF, and video artifacts can be previewed',
     'Do not hand-write `/api/artifact` links',
@@ -787,6 +791,10 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   for (const text of dropped) {
     expect(web).toContain(text);
     expect(mobile).not.toContain(text);
+  }
+  for (const text of FILE_HYGIENE_LINES) {
+    expect(web.split(text)).toHaveLength(2);
+    expect(mobile.split(text)).toHaveLength(2);
   }
 
   const kept = [
@@ -958,6 +966,15 @@ test('with fetch tools disabled, web guidance never names them and routes HTTP t
   } finally {
     spy.mockRestore();
   }
+});
+
+test('browser guidance names only the browser tools the agent is allowed', () => {
+  const allowedTools = ['bash', 'web_fetch', 'browser_click', 'browser_snapshot'];
+  const noNavigate = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [], allowedTools });
+  expect(noNavigate).not.toMatch(/browser_navigate|browser_evaluate|browser_sign_in|browser_take_over|browser_\*/);
+  const noEvaluate = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [], allowedTools: [...allowedTools, 'browser_navigate'] });
+  expect(noEvaluate).toContain('continue with `browser_navigate` for the requested URL');
+  expect(noEvaluate).not.toContain('browser_evaluate');
 });
 
 test('with fetch tools enabled, web guidance keeps naming them', () => {

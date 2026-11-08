@@ -1,11 +1,14 @@
 /**
  * Executes one stored task at a time, retaining the scheduler's run history.
  * Managed editions are claimed durably; a retry delivers saved output only.
+ * Interrupted one-shots are paused for review rather than replayed blindly.
  * This module never chooses a routine's schedule or policy.
  */
 import { logger } from '../logger.js';
 import {
   deleteJob,
+  disableJobWithError,
+  getAllJobs,
   getJob,
   markJobFailure,
   markJobRunStarted,
@@ -153,4 +156,24 @@ export function fireDbTask(
       }
     })
     .finally(() => active.delete(task.id));
+}
+
+/** An interrupted one-shot may already have produced side effects. */
+export function recoverInterruptedOneShotTasks(): void {
+  for (const task of getAllJobs({
+    kind: 'scheduled_task',
+    enabledOnly: true,
+  })) {
+    if (
+      task.run_at &&
+      task.last_run &&
+      task.last_status === null &&
+      !active.has(task.id)
+    ) {
+      disableJobWithError(
+        task.id,
+        'One-shot task interrupted by runtime shutdown; review its effects and reschedule it before retrying.',
+      );
+    }
+  }
 }

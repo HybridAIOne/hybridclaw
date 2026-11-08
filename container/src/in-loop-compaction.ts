@@ -1,12 +1,13 @@
 /**
- * Replaces a complete, tool-safe region only with a smaller model summary.
- * Every selected message reaches the summarizer intact and is archived before
- * replacement. Unlike gateway session compaction, this changes only loop input;
- * failed or empty summaries never authorize a lossy heuristic replacement.
+ * Archives a complete, tool-safe region before replacing it with a smaller summary.
+ * Unlike gateway session compaction, this changes only loop input; selected
+ * evidence stays intact. Failed summaries never authorize a lossy replacement.
+ * Under pressure, older batches compact while the newest whole exchange stays live.
  */
 import { extractResponseTextContent } from '../shared/response-text.js';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import { isContextWindowExceededError } from './model-retry.js';
+import { ProviderRequestError } from './providers/shared.js';
 import { estimateMessageTokens } from './token-usage.js';
 import type { ChatCompletionResponse, ChatMessage } from './types.js';
 
@@ -89,7 +90,10 @@ function normalizeSummary(summary: string): string {
   return normalized.trim();
 }
 
-function buildCompactionRegion(history: ChatMessage[]): {
+function buildCompactionRegion(
+  history: ChatMessage[],
+  protectedTail = PROTECT_TAIL_MESSAGES,
+): {
   prefix: ChatMessage[];
   middle: ChatMessage[];
   suffix: ChatMessage[];
@@ -102,17 +106,18 @@ function buildCompactionRegion(history: ChatMessage[]): {
   }
 
   let headCount = Math.min(PROTECT_HEAD_MESSAGES, body.length);
-  let tailCount = Math.min(
-    PROTECT_TAIL_MESSAGES,
-    Math.max(0, body.length - headCount),
-  );
+  let tailCount = Math.min(protectedTail, Math.max(0, body.length - headCount));
   const safeBoundaries = findSafeToolExchangeBoundaries(body);
   if (headCount + tailCount >= body.length) {
     // If the default protected slices would consume the whole body, fall back
-    // to a smaller 2+4 split so the compaction region still has something to
+    // to at most a 2+4 split so the compaction region still has something to
     // summarize instead of collapsing to an empty middle.
     headCount = Math.min(2, Math.max(0, body.length - 1));
-    tailCount = Math.min(4, Math.max(1, body.length - headCount - 1));
+    tailCount = Math.min(
+      4,
+      protectedTail,
+      Math.max(1, body.length - headCount - 1),
+    );
   }
 
   let middleStart = findSafeBoundaryAtOrAfter(safeBoundaries, headCount);
@@ -122,7 +127,11 @@ function buildCompactionRegion(history: ChatMessage[]): {
   );
   if (middleStart >= middleEnd) {
     headCount = Math.min(2, Math.max(0, body.length - 1));
-    tailCount = Math.min(4, Math.max(1, body.length - headCount - 1));
+    tailCount = Math.min(
+      4,
+      protectedTail,
+      Math.max(1, body.length - headCount - 1),
+    );
     middleStart = findSafeBoundaryAtOrAfter(safeBoundaries, headCount);
     middleEnd = findSafeBoundaryAtOrBefore(
       safeBoundaries,
@@ -139,7 +148,10 @@ function buildCompactionRegion(history: ChatMessage[]): {
   };
 }
 
-function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
+function buildSummaryPromptMessages(
+  compacted: ChatMessage[],
+  summaryTargetTokens: number,
+): ChatMessage[] {
   return [
     ...compacted,
     {
@@ -148,6 +160,7 @@ function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
         'Summarize the preceding conversation region so the agent can continue working without losing state.',
         'Preserve the user goal, active plan, tool outputs that still matter, file paths, commands, URLs, errors, decisions, and unresolved follow-ups.',
         'Drop filler and repetitive detail.',
+        `Target at most ${summaryTargetTokens} tokens of summary text; reasoning is separate from this target.`,
         'Return a concise plain markdown summary only. Do not execute tools or continue the task.',
       ].join('\n'),
     },
@@ -157,13 +170,17 @@ function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
 export async function compactInLoop(params: {
   history: ChatMessage[];
   contextWindowTokens?: number;
+  promptOverheadTokens?: number;
   summarize: (
     messages: ChatMessage[],
-    maxTokens: number,
+    summaryTargetTokens: number,
   ) => Promise<ChatCompletionResponse>;
   archive: InLoopCompactionArchive;
+  inputFits?: (messages: ChatMessage[]) => boolean;
+  estimateTokens?: (messages: ChatMessage[]) => number;
 }): Promise<InLoopCompactionResult> {
-  const region = buildCompactionRegion(params.history);
+  const estimateTokens = params.estimateTokens ?? estimateMessageTokens;
+  let region = buildCompactionRegion(params.history);
   const unchanged = (reason: string): InLoopCompactionResult => {
     console.error(`[context] in-loop compaction skipped reason=${reason}`);
     return {
@@ -173,16 +190,61 @@ export async function compactInLoop(params: {
       summarySource: 'none',
     };
   };
-  if (region.middle.length === 0) return unchanged('no_region');
-
   const contextWindowTokens = Math.max(
     1_024,
     Math.floor(params.contextWindowTokens || 128_000),
   );
-  const maxSummaryTokens = Math.max(
+  const summaryTargetTokens = Math.max(
     256,
     Math.min(1_024, Math.floor(contextWindowTokens * 0.08)),
   );
+
+  try {
+    const retainedTokens =
+      estimateTokens([...region.prefix, ...region.suffix]) +
+      (params.promptOverheadTokens ?? 0) +
+      summaryTargetTokens;
+    if (retainedTokens > contextWindowTokens) {
+      // A large parallel exchange can pull several older batches into the tail.
+      // Preserve the newest whole exchange, rather than repeatedly summarize setup.
+      const expanded = buildCompactionRegion(params.history, 1);
+      if (expanded.middle.length > region.middle.length) region = expanded;
+    }
+    if (region.middle.length === 0) return unchanged('no_region');
+    if (
+      params.inputFits &&
+      !params.inputFits(
+        buildSummaryPromptMessages(region.middle, summaryTargetTokens),
+      )
+    ) {
+      const boundaries = findSafeToolExchangeBoundaries(region.middle).flatMap(
+        (safe, index) => (safe && index > 0 ? [index] : []),
+      );
+      let low = 0;
+      let high = boundaries.length - 1;
+      let end = 0;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = boundaries[mid];
+        if (
+          params.inputFits(
+            buildSummaryPromptMessages(
+              region.middle.slice(0, candidate),
+              summaryTargetTokens,
+            ),
+          )
+        ) {
+          end = candidate;
+          low = mid + 1;
+        } else high = mid - 1;
+      }
+      if (!end) return unchanged('summary_input_budget');
+      region.suffix = [...region.middle.slice(end), ...region.suffix];
+      region.middle = region.middle.slice(0, end);
+    }
+  } catch {
+    return unchanged('summary_budget_failed');
+  }
 
   // Keep the archive independent of any provider-side message normalization.
   let originals: ChatMessage[];
@@ -193,12 +255,20 @@ export async function compactInLoop(params: {
   }
   let response: ChatCompletionResponse;
   try {
-    const messages = buildSummaryPromptMessages(structuredClone(originals));
-    console.error(
-      `[context] in-loop summarizer inputTokens=${estimateMessageTokens(messages)} maxOutputTokens=${maxSummaryTokens}`,
+    const messages = buildSummaryPromptMessages(
+      structuredClone(originals),
+      summaryTargetTokens,
     );
-    response = await params.summarize(messages, maxSummaryTokens);
+    console.error(
+      `[context] in-loop summarizer inputTokens=${estimateTokens(messages)} summaryTargetTokens=${summaryTargetTokens}`,
+    );
+    response = await params.summarize(messages, summaryTargetTokens);
   } catch (error) {
+    // Provider bodies can contain request data; retain only the HTTP status.
+    if (error instanceof ProviderRequestError)
+      console.error(
+        `[context] in-loop summarizer failed status=${error.status}`,
+      );
     return unchanged(
       isContextWindowExceededError(error)
         ? 'summary_context_overflow'
@@ -218,9 +288,7 @@ export async function compactInLoop(params: {
     role: 'assistant',
     content: `${SUMMARY_LABEL}\n${summary}\n\nOriginal messages: ${params.archive.path}`,
   };
-  if (
-    estimateMessageTokens([summaryMessage]) >= estimateMessageTokens(originals)
-  ) {
+  if (estimateTokens([summaryMessage]) >= estimateTokens(originals)) {
     return unchanged('no_shrink');
   }
 

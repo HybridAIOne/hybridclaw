@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import { saveVisualSnapshot } from '../shared/visual-snapshots.js';
 import { readPdfFile } from './pdf-read.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 
 export async function readDocumentFile(
@@ -69,7 +69,7 @@ export async function readDocumentFile(
   );
   canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
   const ref = await saveVisualSnapshot(
-    WORKSPACE_ROOT,
+    WORKSPACE_STATE_ROOT,
     {
       pdf: '',
       images: [(await canvas.encode('png')).toString('base64')],
@@ -86,7 +86,7 @@ export async function readDocumentFile(
       deliveredWidth: canvas.width,
       deliveredHeight: canvas.height,
       visualDelivery:
-        'Image queued for direct model delivery; dispatch reports availability. No separate vision tool or temporary-file cleanup is needed.',
+        'Image prepared for model delivery; dispatch reports whether the selected model received pixels and which permitted analysis paths remain available. No temporary-file cleanup is needed.',
       ...(header.subarray(0, 3).toString() === 'GIF'
         ? { coverage: 'First frame only' }
         : {}),

@@ -64,6 +64,7 @@ async function startAgent(
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
+        usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132 },
         choices: [
           {
             message,
@@ -247,6 +248,7 @@ test.each([
   await expect(agent.takeReply('request-1')).resolves.toMatchObject({
     status: 'error',
     error: expect.stringContaining('received SIGTERM'),
+    tokenUsage: { modelCalls: 1, apiUsageAvailable: false, apiTotalTokens: 0 },
   });
   // The stopped turn's model call returns while the gateway already writes
   // the next request for the replacement agent.
@@ -291,6 +293,7 @@ test('a stop during the implicit approval delay cancels the tool', async () => {
   await agent.stopAgent();
   await expect(agent.takeReply('request-1')).resolves.toMatchObject({
     status: 'error',
+    tokenUsage: { modelCalls: 1, apiUsageAvailable: true, apiTotalTokens: 132 },
   });
   const stoppedAt = Date.now();
 
@@ -331,6 +334,7 @@ test.each(['SIGINT', 'SIGTERM'] as const)(
     await expect(agent.takeReply('shell-request')).resolves.toMatchObject({
       status: 'error',
       error: expect.stringContaining(`received ${signal}`),
+      tokenUsage: { modelCalls: 1, apiUsageAvailable: true, apiTotalTokens: 132 },
     });
     await agent.exited;
     await expectProcessStopped(pid);

@@ -2,18 +2,23 @@
  * Agent loop keeps request schemas stable while concrete actions pass policy.
  * Local wrappers resolve before approval; rejected batches never execute.
  * Full tool exchanges and surviving model context are retained separately;
- * durable storage lives in the gateway or mounted workspace. Instructions and
+ * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
+ * Tool reviews retain full user text; bounded output excerpts are not review intent.
  */
 
 import './node-version-guard.js';
 
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import type { ConnectorApproval } from '../shared/connector-approval.js';
+import { CONTEXT_GUARD_DEFAULTS } from '../shared/context-guard-config.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
+import { shouldOfferMessageTool } from '../shared/message-tool-channels.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { compileToolPatterns } from '../shared/tool-patterns.js';
+import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
 import {
@@ -43,6 +48,11 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
+import { setFileWriteGuardSession } from './file-write-conflicts.js';
+import {
+  fileWriteGuardProof,
+  setFileWriteReviewRequest,
+} from './file-write-review-context.js';
 import { compactInLoopWithModel } from './in-loop-compaction-runtime.js';
 import {
   setIpcAuthSecret,
@@ -61,8 +71,7 @@ import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isContextWindowExceededError,
-  isRetryableModelError,
-  retryDelayMs,
+  modelRetryDelayMs,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
@@ -82,13 +91,16 @@ import {
   summarizeHybridAICompletionForDebug,
   withHybridAICorrelationHeaders,
 } from './providers/shared.js';
+import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
+import { configureSafetyRules } from './safety-rules.js';
 import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
@@ -113,8 +125,6 @@ import {
 import {
   accumulateApiUsage,
   createTokenEstimateCache,
-  createTokenUsageStats,
-  estimateMessageTokens,
   estimateTextTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -127,7 +137,6 @@ import {
 import {
   type ApprovalPrelude,
   approvalRuntime,
-  buildApprovalDeniedToolExecution,
   buildApprovalRequiredToolExecution,
   buildPendingApproval,
   createToolApprovalResolver,
@@ -147,6 +156,7 @@ import {
   resolveToolCountLimit,
   toolCountLimitFailure,
 } from './tool-count-limit.js';
+import { canReplanAfterDenial, handleToolDenial } from './tool-denial.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -198,24 +208,12 @@ import {
   type ToolDefinition,
   type ToolExecution,
 } from './types.js';
+import { latestUserRequestText } from './user-request-text.js';
 
 const IDLE_TIMEOUT_MS = parseInt(
   process.env.CONTAINER_IDLE_TIMEOUT || '300000',
   10,
 ); // 5 min
-const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
-const RETRY_MAX_ATTEMPTS = Math.max(
-  1,
-  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10),
-);
-const RETRY_BASE_DELAY_MS = Math.max(
-  100,
-  parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10),
-);
-const RETRY_MAX_DELAY_MS = Math.max(
-  RETRY_BASE_DELAY_MS,
-  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
-);
 const MAX_PARALLEL_TOOL_CALLS = 8;
 const RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
   process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0',
@@ -362,6 +360,8 @@ async function replyToRequest(
 ): Promise<void> {
   await haltIfShuttingDown();
   output.sideEffects = getPendingSideEffects();
+  if (output.sideEffects?.delegations?.length)
+    output.fileWriteGuardProof = fileWriteGuardProof();
   const steerNoteIds = finishSteerInbox();
   if (steerNoteIds.length > 0) output.steerNoteIds = steerNoteIds;
   writeOutput(output, input.requestId);
@@ -450,16 +450,10 @@ function emitStreamActivity(): void {
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== 'user') continue;
-    const text = normalizeMessageContentToText(message.content)
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) continue;
-    return text.slice(0, 1_200);
-  }
-  return 'Continue the task';
+  return (
+    latestUserRequestText(messages).replace(/\s+/g, ' ').slice(0, 1_200) ||
+    'Continue the task'
+  );
 }
 
 function cloneMessageWithTextContent(
@@ -694,6 +688,8 @@ function appendCompletedToolCall(params: {
     params.completed.argsJson,
     params.completed.result,
     params.completed.isError,
+    params.completed.execution.writeIntent === true &&
+      !params.completed.execution.blocked,
   );
 }
 
@@ -706,7 +702,7 @@ function buildContextOverflowOutput(params: {
   effectiveUserPrompt: string;
 }): ContainerOutput {
   const overflowMessage =
-    'Context window exhausted inside the container tool loop after repeated in-loop compaction attempts. Compact or reset the session and retry.';
+    'Context window exhausted: compaction and saved-result recovery could not make enough room. Reduce the current request or use a model with a larger context window.';
   if (params.latestFinalAssistantText) {
     return {
       status: 'success',
@@ -739,6 +735,9 @@ async function executePreparedToolCall(
   toolCatalog?: ToolCatalog,
 ): Promise<CompletedToolCallExecution> {
   const { call, approval } = prepared;
+  const turnToolHistory = activeTurnToolHistory;
+  if (!turnToolHistory)
+    throw new Error('Tool execution requires an active turn.');
   const toolName = call.function.name;
   const argsJson = call.function.arguments;
   const toolStart = Date.now();
@@ -769,7 +768,10 @@ async function executePreparedToolCall(
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
-          () => executeToolWithMetadata(toolName, argsJson, prepared.boost),
+          () =>
+            turnToolHistory.checkpointExecution(call.id, () =>
+              executeToolWithMetadata(toolName, argsJson, prepared.boost),
+            ),
           emitStreamActivity,
         )));
   const toolDuration = Date.now() - toolStart;
@@ -826,6 +828,7 @@ async function executePreparedToolCall(
       approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
+      approvalObservation: approval.approvalObservation,
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
@@ -910,7 +913,6 @@ async function callModelWithRetry(params: {
     reasoningEffort,
   } = params;
   let attempt = 0;
-  let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
     await haltIfShuttingDown();
@@ -1030,16 +1032,12 @@ async function callModelWithRetry(params: {
       return response;
     } catch (err) {
       const formattedError = formatModelErrorForLog(err, baseUrl);
-      const retryDelay =
-        RETRY_ENABLED &&
-        isRetryableModelError(err) &&
-        canReplayModelRequestAfterStreamError({
-          receivedTextDelta,
-          textDeltasVisible,
-        }) &&
-        attempt < RETRY_MAX_ATTEMPTS
-          ? retryDelayMs(delayMs, err)
-          : null;
+      const retryDelay = canReplayModelRequestAfterStreamError({
+        receivedTextDelta,
+        textDeltasVisible,
+      })
+        ? modelRetryDelayMs(attempt, err)
+        : null;
       const retryable = retryDelay !== null;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
@@ -1052,7 +1050,6 @@ async function callModelWithRetry(params: {
       );
       if (retryDelay === null) throw err;
       await sleep(retryDelay);
-      delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
     }
   }
 }
@@ -1097,7 +1094,13 @@ interface ProcessRequestParams {
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
-  const turnToolHistory = new TurnToolHistory(params.sessionId, WORKSPACE_ROOT);
+  const turnToolHistory = new TurnToolHistory(
+    params.sessionId,
+    WORKSPACE_STATE_ROOT,
+    WORKSPACE_ROOT,
+    inFlightInput?.runId || inFlightInput?.requestId || randomUUID(),
+  );
+  if (turnToolHistory.recovered) return turnToolHistory.recovered;
   activeTurnToolHistory = turnToolHistory;
   const output = await processRequestInner(params, turnToolHistory).finally(
     () => {
@@ -1245,7 +1248,7 @@ async function processRequestInner(
   const toolCallHistory: ToolCallHistoryEntry[] = [];
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
-  const tokenUsage = createTokenUsageStats();
+  const tokenUsage = turnToolHistory.tokenUsage;
   const effectiveUserPrompt =
     effectiveUserPromptOverride || latestUserPrompt(messages);
   const ralphMaxExtraIterations = normalizeRalphMaxExtraIterations(
@@ -1261,7 +1264,7 @@ async function processRequestInner(
   let latestFinalAssistantText: string | null = null;
   // The reply written before a steering note, kept as the reply's start.
   let steeredReplyPrefix = '';
-  let compactionRetries = 0;
+  let consecutiveContextErrors = 0;
   // Drops below any estimate the provider rejects as too long.
   let guardContextWindow = contextWindow;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1280,7 +1283,10 @@ async function processRequestInner(
     thinkingFormat,
     tools,
   });
-  const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const maxContextGuardRetries = Math.max(
+    0,
+    contextGuard?.maxRetries ?? CONTEXT_GUARD_DEFAULTS.maxRetries,
+  );
   const recordToolResult = (message: ChatMessage) =>
     turnToolHistory.recordResult(message);
   // Where the turn would end: notes the user sent meanwhile go to the model,
@@ -1295,8 +1301,15 @@ async function processRequestInner(
     return true;
   };
 
+  setFileWriteReviewRequest(
+    sessionId,
+    inFlightInput?.requestId,
+    effectiveUserPromptOverride || latestUserRequestText(messages),
+  );
   const resolveToolApproval = createToolApprovalResolver({
-    latestUserPrompt: effectiveUserPrompt,
+    sessionId,
+    latestUserPrompt:
+      effectiveUserPromptOverride || latestUserRequestText(messages),
     channelId,
     escalationTarget,
     taskModels,
@@ -1317,6 +1330,7 @@ async function processRequestInner(
     onModelResponse: (response) => {
       tokenUsage.modelCalls += 1;
       accumulateApiUsage(tokenUsage, response);
+      turnToolHistory.checkpointUsage();
     },
   });
   // A boost offer is never a result for the model: it ends the turn as a
@@ -1456,39 +1470,42 @@ async function processRequestInner(
   }
 
   while (stalledTurns < maxStalledTurns || continueForSteer(null)) {
+    appendActionPrerequisiteCheckpoint(history);
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: guardContextWindow,
       promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
+      providerMethod,
+      tools,
     });
     if (guardResult.tier3Triggered) {
-      const compacted =
-        compactionRetries < maxContextGuardRetries
-          ? await compactInLoopWithModel({
-              history,
-              sessionId,
-              contextWindowTokens: guardContextWindow,
-              taskModels,
-              tools: availableTools,
-              tokenUsage,
-              fallbackContext: {
-                provider,
-                providerMethod,
-                baseUrl,
-                apiKey,
-                model,
-                chatbotId,
-                requestHeaders,
-                isLocal,
-                contextWindow,
-                modelBehavior,
-                thinkingFormat,
-              },
-            })
-          : null;
-      if (!compacted?.changed) {
+      const compacted = await compactInLoopWithModel({
+        history,
+        sessionId,
+        contextWindowTokens: guardContextWindow,
+        promptOverheadTokens,
+        taskModels,
+        tools: availableTools,
+        tokenUsage,
+        checkpointUsage: () => turnToolHistory.checkpointUsage(),
+        fallbackContext: {
+          provider,
+          providerMethod,
+          baseUrl,
+          apiKey,
+          model,
+          chatbotId,
+          requestHeaders,
+          isLocal,
+          contextWindow,
+          modelBehavior,
+          thinkingFormat,
+        },
+      });
+      if (!compacted.changed) {
+        if (turnToolHistory.boundContext(history, guardContextWindow)) continue;
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,
@@ -1506,17 +1523,21 @@ async function processRequestInner(
       }
       history = compacted.history;
       turnToolHistory.retain(history);
-      compactionRetries += 1;
       console.error(
-        `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
+        `[context] in-loop compaction compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
       );
       continue;
     }
 
     const estimatedPromptTokensForCall =
-      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
+      estimateVisualMessageTokens(
+        history,
+        { providerMethod, tools },
+        tokenEstimateCache,
+      ) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
+    turnToolHistory.checkpointUsage();
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     // Ralph drafts need end-of-turn classification. Ordinary turns can stream
@@ -1558,16 +1579,16 @@ async function processRequestInner(
     } catch (err) {
       if (
         contextGuard?.enabled !== false &&
-        compactionRetries < maxContextGuardRetries &&
+        consecutiveContextErrors < maxContextGuardRetries &&
         isContextWindowExceededError(err)
       ) {
         // The estimate undercounted this prompt: budget the guard below it so
         // the next pass shrinks history. 0.9 (2026-09-26 call): any factor
         // under 1 forces progress; parsing providers' token counts deferred.
         guardContextWindow = Math.floor(estimatedPromptTokensForCall * 0.9);
-        compactionRetries += 1;
+        consecutiveContextErrors += 1;
         console.error(
-          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${compactionRetries}`,
+          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${consecutiveContextErrors}`,
         );
         continue;
       }
@@ -1591,7 +1612,10 @@ async function processRequestInner(
       return failed;
     }
 
+    // Only an accepted loop request resets recovery; summaries are maintenance.
+    consecutiveContextErrors = 0;
     accumulateApiUsage(tokenUsage, response);
+    turnToolHistory.checkpointUsage();
 
     const choice = response.choices[0];
     if (!choice) {
@@ -1638,6 +1662,7 @@ async function processRequestInner(
         : {}),
     });
 
+    turnToolHistory.checkpointUsage();
     let toolCalls = choice.message.tool_calls || [];
     const malformedToolCallError = validateStructuredToolCalls(toolCalls);
     let invalidToolCallError = malformedToolCallError;
@@ -1654,10 +1679,13 @@ async function processRequestInner(
       } catch (error) {
         invalidToolCallError =
           error instanceof Error ? error.message : 'Invalid local tool call.';
+        // An unadmitted name has nothing to bypass: correct it like an unavailable catalog target.
         if (
           tools === toolCatalog.tools &&
-          toolCalls.every((call) =>
-            tools.some((tool) => tool.function.name === call.function.name),
+          toolCalls.every(
+            (call) =>
+              tools.some((tool) => tool.function.name === call.function.name) ||
+              !toolCatalog.permits(call.function.name),
           )
         ) {
           catalogCorrection =
@@ -2050,6 +2078,8 @@ async function processRequestInner(
                   completed.argsJson,
                   completed.result,
                   completed.isError,
+                  completed.execution.writeIntent === true &&
+                    !completed.execution.blocked,
                 );
                 return completed;
               } finally {
@@ -2103,7 +2133,7 @@ async function processRequestInner(
           history,
           unrunCalls: toolCalls.slice(callIndex),
           recordResult: recordToolResult,
-          closeIfEmpty: true,
+          closeIfEmpty: !canReplanAfterDenial(approval, toolExecutions),
         });
         if (steered) break;
       }
@@ -2146,31 +2176,19 @@ async function processRequestInner(
       }
 
       if (approval.decision === 'denied') {
-        const denialText = `Approval denied: ${approval.reason}`;
-        toolExecutions.push(
-          buildApprovalDeniedToolExecution({
-            toolName,
-            argsJson: call.function.arguments,
-            denialText,
-            approval,
-          }),
-        );
-        const denied: ContainerOutput = {
-          status: 'success',
-          result: denialText,
-          toolsUsed: [...new Set(toolsUsed)],
-          outputPresentation: statusOutputPresentation(true),
-          ...(artifacts.length > 0 ? { artifacts } : {}),
+        const denied = await handleToolDenial({
+          approval,
+          unrunCalls: toolCalls.slice(callIndex),
+          history,
+          recordResult: recordToolResult,
           toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
+          toolsUsed,
+          artifacts,
+          tokenUsage,
           effectiveUserPrompt,
-        };
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: denied.status,
-          toolsUsed: denied.toolsUsed,
         });
-        return denied;
+        if (denied) return denied;
+        break;
       }
 
       const completed = await executePreparedToolCall(
@@ -2273,6 +2291,11 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     const isBlocked = compileToolPatterns(input.blockedTools);
     tools = tools.filter((tool) => !isBlocked(tool.function.name));
   }
+  tools = tools.filter(
+    (tool) =>
+      tool.function.name !== 'message' ||
+      shouldOfferMessageTool(input.activeMessageChannels),
+  );
   tools = adjustInboxCleanupTools(tools);
   setUserMailContext({
     toolNames: tools.map((tool) => tool.function.name),
@@ -2345,6 +2368,7 @@ async function main(): Promise<void> {
   await haltIfShuttingDown();
   inFlightInput = firstInput;
   beginSteerInbox(firstInput.requestId);
+  setFileWriteReviewRequest(firstInput.sessionId, firstInput.requestId);
   // The stdin payload is the one input not on a tool-writable path; the secret
   // it carries authenticates every later input.json.
   setIpcAuthSecret(firstInput.ipcAuthSecret || '');
@@ -2374,6 +2398,11 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  setFileWriteGuardSession(
+    firstInput.sessionId,
+    firstInput.fileWriteGuardSessionId,
+    firstInput.fileWriteGuardUserPrompt,
+  );
   setToolCallLimits(firstInput);
   approvalRuntime.setSession(firstInput.sessionId, firstInput.approvalUserId);
   approvalRuntime.setBrowserProvider(firstInput.browserProvider);
@@ -2411,6 +2440,7 @@ async function main(): Promise<void> {
     firstInput.media,
     firstInput.readableMediaPaths,
     firstInput.visualMediaAllowed,
+    firstInput.primaryModelSupportsVisualMedia,
   );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -2430,6 +2460,7 @@ async function main(): Promise<void> {
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
   const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
+  configureSafetyRules(firstInput.disabledSafetyRules);
   approvalRuntime.setApprovalMode({
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
@@ -2516,6 +2547,7 @@ async function main(): Promise<void> {
 
     inFlightInput = input;
     beginSteerInbox(input.requestId);
+    setFileWriteReviewRequest(input.sessionId, input.requestId);
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2547,6 +2579,11 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    setFileWriteGuardSession(
+      input.sessionId,
+      input.fileWriteGuardSessionId,
+      input.fileWriteGuardUserPrompt,
+    );
     setToolCallLimits(input);
     approvalRuntime.setSession(input.sessionId, input.approvalUserId);
     approvalRuntime.setBrowserProvider(input.browserProvider);
@@ -2587,6 +2624,7 @@ async function main(): Promise<void> {
       input.media,
       input.readableMediaPaths,
       input.visualMediaAllowed,
+      input.primaryModelSupportsVisualMedia,
     );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,
@@ -2599,6 +2637,7 @@ async function main(): Promise<void> {
       media: input.media,
       audioTranscriptsPrepended: input.audioTranscriptsPrepended,
     });
+    configureSafetyRules(input.disabledSafetyRules);
     approvalRuntime.setApprovalMode({
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,

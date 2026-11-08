@@ -125,6 +125,7 @@ function detectPdfReferences(prompt: string): string[] {
 export async function injectPdfContextMessages(params: {
   messages: ChatMessage[];
   workspaceRoot: string;
+  stateRoot?: string;
   media?: MediaContextItem[];
   visualMediaAllowed?: boolean;
 }): Promise<ChatMessage[]> {
@@ -175,7 +176,9 @@ export async function injectPdfContextMessages(params: {
         render: params.visualMediaAllowed ? 'always' : 'never',
         maxChars: PDF_PREVIEW_MAX_CHARS,
         runtimeUrl: PDF_RUNTIME_URL,
-        workspaceRoot: params.visualMediaAllowed ? workspaceRoot : undefined,
+        workspaceRoot: params.visualMediaAllowed
+          ? params.stateRoot || workspaceRoot
+          : undefined,
         outputDir,
       });
       visualAttachments.push(...(attachments || []));

@@ -24,7 +24,7 @@ export function toolResultFilePath(sessionId, toolCallId) {
   return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
 }
 
-/** File references bound IPC only; model and replay messages retain full text. */
+/** IPC references identify full evidence; model excerpts are managed separately. */
 export function toolResultForTransport(message, resultPath) {
   if (message.role !== 'tool' || !resultPath) return message;
   return {

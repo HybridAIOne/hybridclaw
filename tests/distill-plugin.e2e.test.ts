@@ -10,7 +10,7 @@ import {
   getAvailablePort,
   waitForHealth,
 } from './helpers/docker-test-setup.js';
-import { startScriptedModelServer } from './helpers/scripted-model-server.js';
+import { lastWorkflowMessage, startScriptedModelServer } from './helpers/scripted-model-server.js';
 import { cleanupTrackedTempDirs } from './test-utils.js';
 
 // Full-binary e2e: a real gateway (host sandbox, isolated data dir, broken
@@ -242,7 +242,7 @@ function writeNeighbourPlugin(dataDir: string, id: string, manifest: string) {
 async function startCoworkerAgentModel() {
   return startScriptedModelServer(
     (body) => {
-      const last = body.messages.at(-1);
+      const last = lastWorkflowMessage(body);
       if (!body.tools?.length) return { role: 'assistant', content: 'ok' };
       if (last?.role === 'tool') {
         return { role: 'assistant', content: String(last.content) };

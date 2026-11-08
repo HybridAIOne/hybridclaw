@@ -1,3 +1,9 @@
+/**
+ * Browser handles die with a worker; durable runtime files belong to agent state.
+ * User-visible artifacts stay in the execution workspace. Screenshot analysis
+ * requires gateway-owned visual-data permission, independent of model capability.
+ * Unlike browser providers this owns tool lifecycle and artifact placement.
+ */
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -29,6 +35,7 @@ import {
 } from './browser-take-over.js';
 import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import { IncompleteVisionAnalysisError } from './providers/incomplete-vision-error.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -36,6 +43,7 @@ import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
+  WORKSPACE_STATE_ROOT,
 } from './runtime-paths.js';
 import type { ToolDefinition } from './types.js';
 
@@ -50,7 +58,10 @@ const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 // Long calendars and filter forms can put their submit button beyond 12k.
 const BROWSER_MAX_SNAPSHOT_CHARS = 48_000;
 const TWO_FACTOR_SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024;
-const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
+const BROWSER_RUNTIME_ROOT = path.join(
+  WORKSPACE_STATE_ROOT,
+  '.hybridclaw-runtime',
+);
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
 const BROWSER_XDG_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'cache');
@@ -2109,6 +2120,10 @@ async function callVisionModel(
   imageBase64: string,
 ): Promise<{ model: string; analysis: string }> {
   const runtimeContext = captureAuxiliaryRuntimeContext();
+  if (!runtimeContext.visualMediaAllowed)
+    throw new Error(
+      'Visual analysis is disabled by visual-data delivery policy.',
+    );
   const vision = await callAuxiliaryModel({
     task: 'vision',
     ...runtimeContext,
@@ -3691,6 +3706,7 @@ async function runBrowserTool(
         return failure(`Unknown browser tool: ${name}`);
     }
   } catch (err) {
+    if (err instanceof IncompleteVisionAnalysisError) return err.output;
     return failure(err instanceof Error ? err.message : String(err));
   }
 }

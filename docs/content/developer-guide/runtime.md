@@ -24,13 +24,23 @@ Proactive delivery validates the target before queuing outside active hours.
 Signal phone, UUID, and group targets are supported. Teams and Voice targets can
 be classified for session resets and statistics, but their descriptors declare
 `supportsProactive: false`, so proactive sends are rejected. Only `tui` uses the
-local pull queue; unsupported destinations fail
+local pull queue. `GET /api/proactive/pull` leases messages for 60 seconds and
+returns `claimToken` with the batch. After handling it, clients send
+`POST /api/proactive/pull` with `{ channelId, claimToken, ids }`. Only matching
+claims are acknowledged; expired, unacknowledged deliveries can be retried after
+reconnect or restart. An acknowledgement lost in transit can cause redelivery.
+Update gateway and TUI together; custom pull clients must acknowledge batches.
+Unsupported destinations fail
 instead of falling through to that queue. Sender failures remain failures and
 never create a local delivery row.
 
 Admin statistics returns `channelKind` for each destination, or `null` when the
 gateway cannot classify it. The console groups these rows by the supplied kind
 and displays unknown destinations individually.
+
+Background proactive queue flushes do not overlap within one gateway process; a
+pending send keeps ownership until it succeeds or fails. A process crash after
+sending but before deleting a row can still cause redelivery.
 
 ## Container Runtime Image
 
@@ -119,7 +129,192 @@ it records the resulting memory content so dream's own rewrite does not trigger
 another cleanup. The first run without a fingerprint establishes this baseline.
 Daily notes are preserved. Failed model calls use deterministic consolidation.
 
+Private tool-history replay preserves short, nonliteral Python sorting
+callbacks such as `key=ranker.get` and `key=lambda item: item.score`. Public
+logs and exports keep strict credential masking; quoted key values, URL
+credentials and structured authentication fields remain redacted in replay.
+
+## Session storage isolation
+
+Gateway IPC and audit directories use `~` followed by the SHA-256 digest of the
+JSON-encoded session ID. Punctuation, whitespace and case remain distinct, including
+on case-insensitive filesystems. Agent workspaces and session IDs do not change.
+
+Stop the gateway before upgrading to this layout, then start the updated version;
+do not run old and new gateway/CLI versions against the same data directory.
+IPC files are disposable and are recreated in the new directory. On first access,
+a legacy audit directory is moved only if every record names the requested
+session. Its bytes and hash chain stay unchanged. A directory owned by another
+session is never claimed. Mixed-session, missing-identity or malformed legacy
+logs fail closed and remain untouched for manual recovery (including historical
+renames whose records span multiple session IDs); preserve a backup
+and resolve ownership before resuming affected sessions. The legacy migration
+is scheduled for removal after v0.43, so access/verify existing audits before
+upgrading beyond that version.
+
+Scheduler jobs have at most one pending run per gateway process. Retry and
+recurrence timers exclude active jobs until their execution settles, then rearm
+using the saved schedule and outcome. This in-process guard does not claim jobs
+across multiple gateways.
+
+Worker reply files are checked for valid response shapes before gateway use.
+Malformed replies become errors without applying their side effects. Tool replay
+history uses the shared exchange validator; valid structure grants no authority.
+
+Audit appends separate an unterminated tail from the next record without
+removing bytes. A damaged fragment remains visible to chain verification; a
+new acknowledged record is never merged into that fragment.
+
 ## Worker State
+
+The fetched-code guard refuses unreadable or invalid saved history. Downloads
+are refused if their history cannot be persisted; that worker retains the failure
+for the session instead of allowing later downloads without durable tracking.
+
+Workers remember hashes of consumed authenticated follow-up inputs and reject
+replays for the lifetime of their stdin secret. These hashes stay in memory:
+a replacement worker receives a fresh secret, so old envelopes cannot verify.
+Repeating a user message with a new gateway request ID remains a new turn.
+
+Host workers keep managed state in their owning agent's workspace, or the scope's
+workspace for scoped chats. An execution workspace override changes tool paths
+and the shell's working directory without moving bootstrap files, approval
+stores, session state, visual snapshots or spilled tool results into task output.
+The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
+Docker workers continue to use their mounted workspace for both purposes.
+Transcript and compaction archive references use absolute paths when their files
+live outside the execution workspace, so the read tool can still resolve them.
+
+HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
+against the worker state root, independently of its execution directory. Reads,
+vision analysis and attachment validation use the same resolver. The alias
+rejects traversal, links and roots outside the existing allowlist; it grants no
+write access and never searches another state directory or project cache.
+
+Visual reads retain content-addressed snapshots in the owning state directory.
+When the primary model cannot receive pixels, dispatch offers the existing
+`vision_analyze` tool a durable `snapshot` reference. For a standalone image, its full `id` is sufficient.
+For a PDF, include the original `pages` array and select one original `page` per call. The helper uses
+the configured vision policy and requires visual-data delivery permission.
+It validates snapshot ownership, selection, integrity and the existing image
+size limit. When a vision response reaches its output limit, the tool reports
+a failure. Any visible observations returned before the cutoff appear in
+`partial_analysis` with `incomplete: true`.
+
+Temporary render files can be removed before analysis, and a
+replacement worker can use the same reference. Missing or changed evidence
+requires reading the original file again.
+
+For isolated host evaluations, an operator can set
+`HYBRIDCLAW_EVAL_WORKSPACE_ROOT` to an existing absolute task directory. Only
+OpenAI-compatible requests with an explicit eval profile use it. The directory
+must be separate from the agent workspace, including through symlinks. HTTP
+clients cannot select this path. The agent retains its default bootstrap and
+skills, and the execution workspace fence remains enabled. Changing this setting
+requires a new eval session; it is not a way to alter an active worker's roots.
+
+Message inserts require their session to exist in the same database statement.
+A late write after session deletion fails instead of recreating orphaned history.
+Each message and its session counter commit together. Stored turns also commit
+the user, steering and assistant messages with their semantic memory atomically.
+
+### Worker lifecycle ownership
+
+Host and Docker runners use `WorkerLifecycle` for spare/session ownership and
+request leases. Stop and exit are terminal for reuse; a late readiness marker
+or request finalizer cannot revive a stopped process or release a newer request.
+These are gateway process handles, not durable session state. Gateway runtime
+token or web-search configuration changes invalidate worker reuse on the next
+turn, so process-cached credentials are refreshed.
+
+### Interrupted Turns
+
+Before worker dispatch, the gateway commits the user message and an unfinished
+assistant placeholder to SQLite. Normal completion replaces those provisional
+rows and removes the pending marker in one transaction. After a gateway restart,
+the next turn recovers that session's checkpoint before building model context.
+
+Workers write `turn-checkpoint.json` in the protected session state directory
+under `.hybridclaw-runtime/sessions/<session-key>/`. The checkpoint records model
+tool requests before execution, execution starts before invoking tools, and each
+completed result immediately, including individual results in concurrent batches.
+Large completed results retain a bounded excerpt and their durable full-result path,
+so recovery preserves evidence without restoring oversized model context.
+The last complete assistant message is retained too. Once a run has proposed tools,
+a killed worker's replacement returns its evidence for the same run ID without
+calling the model or tools. Runs with no proposed tools remain safe to retry.
+A new run starts a fresh checkpoint; recovered exchanges are conversation context,
+never executable instructions or approval grants.
+
+Available per-attempt usage counters are saved alongside this evidence: reported
+API tokens and cache usage remain separate from token estimates. Shutdown replies
+and gateway crash recovery preserve these snapshots, including available timing
+samples. An authoritative IPC reply's own usage takes precedence over a checkpoint.
+A provider fallback starts fresh counters because the gateway records attempts
+separately. Charges for calls without a reported response remain unknown.
+
+The shared journal validates call identities, unique starts, matching immutable
+results, and completion of an exchange before another exchange begins. Identical
+result acknowledgements from batch assembly are idempotent; conflicting results
+are refused. Denials and rejections may record a terminal receipt without a start,
+but that receipt prevents later execution of the call. Failed writes leave the
+writer's last persisted state intact. A recovered journal instance accepts no
+further writes or starts. Usage snapshots are optional in the version 1 journal.
+
+A started call without a saved result has an **unknown outcome**: its side effects
+may already have occurred. Recovery marks it explicitly and asks for external-state
+verification before retrying. A proposed call that never started is marked **not
+executed**. Recovery after interruption never applies queued gateway side effects;
+authoritative error replies retain their results and queued effects. Missing or
+corrupt journals retain the gateway's uncertainty placeholder;
+unreadable journals refuse worker replay. Recovery readers reject links and enforce
+the configured IPC output size limit. These atomic checkpoints cover abrupt process
+termination, not power-loss durability or exactly-once execution of external APIs.
+
+Risk boundary: checkpoint persistence must succeed before a tool starts. A crash
+between an external effect and its result checkpoint cannot prove success or failure,
+so recovery must never automatically repeat that call. The protected state remains
+subject to the existing approval-state guard; it confers no execution authority.
+
+
+Recovery returns typed evidence with a per-call `result_recorded`,
+`outcome_unknown`, or `not_executed` outcome, or a refusal reason (`missing`,
+`run_mismatch`, `unreadable`). Executable approvals, approval replies, and queued
+side effects are excluded from recovered evidence. An interruption wins over a
+late success reply. The output carries a recovery marker even when no tool-start
+progress or execution record survived.
+
+Retry audit:
+- Whole-run model routing and delegation retries use the shared retry guard.
+  Recovery markers, tool history, executions, approvals, or queued effects stop
+  retries, provider fallback, and ladder escalation.
+- Host and container exceptions after dispatch use the same evidence reader as
+  lost IPC replies. Missing or mismatched journals refuse retries.
+- Worker native-media retries also use the shared guard. Ordinary model-request,
+  context-window, and empty-response retries continue the existing conversation;
+  they do not dispatch an earlier tool call again. Replacement workers return
+  same-run journal evidence before entering that loop.
+- OpenAI-compatible provider fallback only generates model responses; client tools
+  execute outside the gateway. Streaming fallback stops once bytes are emitted.
+
+Gateway finalization stores a receipt keyed by session and run ID in SQLite's
+existing key/value store. Replacing provisional rows, clearing the pending marker,
+and recording the final message IDs commit together. A storage or receipt failure
+rolls all three back. Repeating finalization, including after restart or recovery,
+returns those IDs without adding messages, canonical-memory entries, or transcript
+entries; a wrong run cannot finalize another pending turn. Receipts persist with
+session runtime state. Canonical-memory and transcript file appends remain
+best-effort after the SQLite commit: a crash there can omit a file append, but
+repeating finalization does not duplicate it. This is not exactly-once delivery
+of external side effects or file appends.
+
+Large tool results live in `.tool-results/` in the owning state workspace.
+Their file paths travel with bounded model excerpts, so a replacement worker
+can read or search the complete text without restoring it into model context.
+
+The shell/network-denial replan budget uses the current request's tool execution records.
+It grants one replan per request, not per session; it does not persist across
+requests or authorize execution after worker replacement.
 
 Trusted dispatches can set `toolCallLimits`, a map from exact tool names to
 maximum execution attempts. The worker reserves each attempt synchronously
@@ -135,12 +330,80 @@ A replacement worker reloads them; switching sessions clears the prior session's
 grants. These files use the existing pinned approval-state protections.
 
 
+Rejected `write` preconditions persist canonical file paths in
+`.hybridclaw-runtime/sessions/<session-key>/file-write-conflicts.json`.
+While the conflict is active, non-green or write-intent
+Bash calls and deletion of that file or its parent require one-time approval,
+including in full-auto and evaluation sessions. This deliberately fences opaque
+scripts as well as direct redirects; unrelated shell mutations may also pause.
+Read-only diagnostics, including an `echo` fallback after a read-only command,
+and writing a separate deliverable remain available. File redirections and
+opaque script execution still require approval while a conflict is unresolved.
+In full-auto, the first fenced call is refused without creating a pending prompt,
+and the model gets one chance to continue with permitted work. The refused call
+never runs. Repeating a fenced mutation follows the normal one-time approval path;
+`auto` and `ask` still prompt on the first fenced call.
+The failed write immediately reports recovery diagnostics from the same store
+used by subsequent approval decisions. They list the unresolved paths; writing a separate file leaves
+the script-execution restriction in place. A checked mutation resolves only its
+own path. The gateway binds delegated workers to their root worker's conflict
+store through authenticated input. Parents, children and siblings reload that
+store before each decision; unrelated conversations retain separate stores.
+Shared updates use the existing cooperative file lock, preserving concurrent
+additions and resolutions. An active or abandoned lock fails closed until its
+writer finishes or the operator removes a verified abandoned lock.
+Replacement workers reload the conflicts. Corrupt or unreadable guard
+state and persistence errors fail closed; these records contain paths, never file contents.
+The existing pinned approval-state rules protect this directory.
+
+An automatic checked `write` or `edit` to a conflicted file also receives an
+independent preservation review from the active primary model. It compares the
+user request with the supplied current/replacement text; edits supply their
+matching span, not the entire file. It performs no extra filesystem reads.
+Requested updates can proceed, while unrelated new deliverables use a separate
+path. Invalid, truncated or unavailable verdicts refuse the mutation and leave
+the fence intact. New files do not receive this additional review. The check adds
+latency and model usage; it is a semantic veto, not permission or a guarantee
+against adversarial content. Byte checks, path restrictions and approvals still
+apply, and an exact one-time human approval retains its normal authority.
+
+Delegated reviews use the controller’s complete root request after approval
+replay, including verified steering already shown to the model. Model-authored
+task text and lineage fields cannot replace it. The controller authenticates this
+context with the per-worker IPC secret in a separate MAC domain; both executors
+bind receipts to the exact live worker, request and root conflict owner. Waiting
+callbacks verify the receipt before starting a child; queued outputs lose their
+receipt and receive verified context before leaving the executor. Invalid queued
+context reports an error and starts no child. Completion, failure and worker
+replacement revoke the live binding. This also covers scheduled workers outside
+the chat request registry. Missing delegated root intent
+refuses the protected change. The root text receives the same confidential
+redaction as the task messages, follows waiting and queued children, and is
+replaced on each authenticated worker input. Ambiguous live conversation owners fail closed.
+Review verdicts are not stored consent and cannot clear a conflict; only a
+successful checked mutation resolves its path.
+
+File-delivery guidance asks the agent to parse structured data and check the
+requested structure after its final edit. This read-only QA is part of completing
+the requested deliverable; optional builds, tests and generated-code execution
+still require a request. This is model guidance, not automatic format enforcement
+by the text-editing tools, and existing command permissions continue to apply.
+
 ### Auxiliary Model Routing
+
+Model discovery retries on the next lookup if its initial request fails. An
+empty error fallback is not cached as a successful catalog, so a temporary
+startup outage does not hide model capabilities for the catalog's cache lifetime.
+Concurrent lookups share one request; populated catalogs keep their existing
+stale-cache and background-refresh behavior.
 
 Browser vision and auxiliary tools share one model context and task-policy store
 in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
 including the provider method, model behavior, and local-model parsing settings.
 Tool calls capture routing and header snapshots before calling auxiliary models.
+Disabled auxiliary tasks carry an explicit denial through worker IPC. Their
+calls stop before provider fallback or network access; primary conversation
+routing remains a separate setting.
 This state lives in worker memory and is rebuilt when a worker is replaced.
 
 ### Browser Live Frames
@@ -164,6 +427,60 @@ tool call. The worker restores its viewport when the take-over ends; a worker
 replaced mid-take-over loses it, and the gateway drops it after 10 minutes.
 
 ### Shell Execution
+
+Static shell inspection consumes recognized wrapper-option values before
+classifying the executable, including separated and attached values and short
+option clusters. A path such as `./env` remains an executable path. Modes that
+change arguments or directories stay unresolved instead of being guessed.
+When an unresolved wrapper receives fetched input or feeds an interpreter,
+execution requires explicit approval. This can also pause a data pipeline whose
+wrapper cannot be interpreted; known data-only consumers keep their ordinary
+policy decisions.
+
+Explicit pip `--target`/`-t` destinations participate in the workspace fence,
+including `python -m pip` and supported command wrappers. Redirecting logs into
+scratch space does not hide an outside destination. Package and requirement
+inputs are not treated as install destinations. This is static argument
+inspection, not a sandbox for installation hooks or configuration-driven writes.
+
+Tar inspection separates extraction directories from archive inputs, and archive
+output files from source directories. Short, long and traditional option forms
+retain write intent when logs are redirected or discarded. Recognized listing
+and stdout modes do not turn archive inputs into write destinations. Unknown
+options, external file lists, hooks and unspecified archive destinations remain
+unresolved for the existing fallback. Archive contents, symlinks and environment
+options are not inspected here.
+
+In-place sed edits include their input operands and backup names in write-target
+inspection. Bare `sed` retains GNU and BSD interpretations of `-i`; `gsed` uses
+GNU's convention. Ambiguous BSD expressions that also name outside files under
+GNU can therefore require approval. An attached backup suffix avoids this
+argument ambiguity. Script-file inputs are distinct from edited files, but
+script contents and symlink effects are not inspected. Computed write names
+also participate in protected-path checks, including backups and nested calls.
+Backup-name expansion substitutes filenames literally and has a 64 KiB
+inspection budget per interpretation; larger batches fail before execution.
+
+Inline Python data reads use a bounded, non-executing AST recognizer instead
+of treating their filenames as shell executables. The supported subset reads
+files or stdin, parses JSON and performs ordinary data transformations. It does
+not admit arbitrary imports, callbacks, evaluation or write modes. Explicit
+interactive/import-customizing startup options, downloaded importable code,
+unknown provenance, unsupported syntax or parser failures retain conservative
+inspection. Unsupported inline Python that can consume fetched operands or
+stdin requires provenance review. This does not validate arbitrary ambient interpreter state or
+import hooks and does not replace other approval and protected-path checks.
+The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
+timeout and four parser invocations shared across nested shells per tool call.
+Reading data does not remove its saved download provenance.
+
+If a proposed wrapper command hides a download's destination, the fetched-code
+guard records that uncertainty before execution. Later file execution requires provenance
+review even after a worker restart; another session is unaffected. This can
+include local files whose origin cannot be established. Unreadable guard state
+or a failed provenance write stops the operation. Session reset clears these
+records with the rest of the session state. A denied proposal can consequently
+leave a conservative record until reset; the record does not grant permission.
 
 Bash commands run asynchronously so tool activity heartbeats and worker signal
 handlers remain responsive. The worker retains at most 4 MiB of combined stdout
@@ -201,18 +518,20 @@ agent archives skip and `reset yes` removes with the workspace.
 
 | State | Lives in | When the worker exits |
 | --- | --- | --- |
+| Safety-rule configuration | Gateway runtime config; authenticated snapshot on every worker input | Rebuilt each turn; absent settings restore all guards |
 | Conversation, session settings, usage, audit trail | Gateway SQLite and data dir | Kept |
 | Agent files, memory, transcripts, artifacts | Workspace | Kept |
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
 | Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
-| Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
+| Fetched paths and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
 | PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Original in-loop compaction messages | Session state dir `in-loop-compactions/` | Kept; replacement summaries carry the file path |
 | Background processes, `/tmp` files | Worker | Lost |
+| Tool no-progress history | Worker, current turn | Reset between turns/workers; the gateway execution deadline remains authoritative |
 | IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
@@ -264,6 +583,9 @@ Core details:
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
   to an agent, and that agent owns the workspace under
   `~/.hybridclaw/data/agents/<workspace>/workspace/`.
+HybridAI streaming calls require a completion marker or finish reason. A stream
+error or premature EOF fails the call even if text deltas were already shown.
+
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
   runtime start. In non-interactive shells, `HYBRIDCLAW_ACCEPT_TRUST=true` can
@@ -299,6 +621,7 @@ Common advanced areas:
 - Scheduler jobs: SQLite-backed jobs with cron, every, at, or `one_shot`
   delivery targets (`one_shot` jobs run immediately, retry up to
   `maxRetries`, and land in review on success or terminal failure).
+  Pausing a scheduled task remains effective if an active run later fails.
   `webhook` delivery posts only to public `https://` URLs, never follows
   redirects, and signs every body with the stored `SCHEDULER_WEBHOOK_SECRET`
   in `X-HybridClaw-Signature: t=<unix seconds>, v1=<hex HMAC-SHA256 of
@@ -399,15 +722,85 @@ package and the Docker image ship source maps beside them (desktop packages
 strip them), but they are off because they slow startup; run with
 `NODE_OPTIONS=--enable-source-maps` to get `src/` file and line numbers.
 
+## Approval Explanations
+
+Pinned-sensitive approval explanations identify policy pinning and the one-time
+approval requirement, including for read-only operations. An unclassified shell
+command is described as unclassified rather than asserted to mutate state.
+The same reason is retained in the pending approval and returned evaluation;
+this wording does not alter approval tiers or grant access.
+
+Shell network approvals compare explicit curl request methods and implicit
+data/form POST requests against the configured method and path rules. A request
+method declaration does not grant access by itself.
+A first shell-safety or unpinned network-policy denial permits one replan per turn that
+omits the prohibited effects. The denied call and remaining calls in its batch
+do not execute; every new call faces policy again. Repeated denials stop the
+turn, and required human approvals still pause execution.
+
 ## Tool Recovery
 
 The system prompt distinguishes a failed method from a blocked task. It uses
 current capability readiness, directs the model to investigate inconclusive
 results and try materially different permitted methods, and bounds recovery by
-useful progress and the remaining execution budget. Missing configuration does
-not grant permission to obtain credentials or broaden access. Runtime blocks
-and denied approvals must never be bypassed. Unread source content must not be
-replaced with invented findings.
+useful progress and the remaining execution budget. Transient service failures
+permit bounded retries of read-only or idempotent operations; a read throttled by
+HTTP 429 honors the server delay and retries before filesystem discovery.
+Mutations require outcome verification before retrying. Empty results require
+checking query filters and target arguments before polling again; unchanged
+output is not progress.
+The per-turn loop guard stops a fourth identical HTTP request after three
+successful, unchanged collection responses, ignoring volatile headers and
+intervening waits. Collections may contain existing records; new or changed records
+break the streak, as does a different HTTP operation. Asynchronous status payloads
+and errors keep their existing behavior.
+Scalar target fields take one ID or address; packing recipients into a string
+requires documented separator syntax, otherwise the model uses separate calls.
+Readiness is specific to the backend: a disabled built-in channel does not establish that a separate
+service described by an applicable skill is unavailable. An explicitly empty
+message-backend snapshot removes the built-in `message` tool from the request
+schemas and catalog, and from the gateway's tool summary and usage examples.
+The shared channel predicate keeps both sides aligned; missing snapshots retain
+context-based inference. Independent API tools remain available. The model reads a
+clearly applicable listed skill before selecting the access method and checks
+its permitted method before reporting a capability blocker. Missing configuration
+does not grant permission to obtain credentials or broaden access. Runtime blocks
+and denied approvals must never be bypassed. SSRF and network-policy errors are
+access denials, including when reported as ordinary tool errors; changing a host
+alias or switching to shell code does not authorize the denied destination.
+Unread source content must not be replaced with invented findings. Recovery may
+repair dependencies but must not
+manufacture or replace authoritative messages, events, records or source
+fixtures. Missing local files do not establish that a running service has no
+data. Recovery must not restart, reset or change a source service without
+operator authorization, since that can discard authoritative in-memory state.
+Cached or exported data supports only its demonstrated scope and freshness;
+reports must distinguish supported partial findings from complete
+coverage and identify inaccessible sources. Recovery and prerequisite sections
+follow the skill catalog in both prompt composition paths while preserving the
+shared cache prefix. The prerequisite section distinguishes confirmed constraints
+from tentative exceptions and conflicting
+statements. For agreement-dependent actions, unresolved prerequisites require a
+focused clarification and reading its answer before deriving or proposing the
+action. A conservative interpretation is not verification, and the clarification
+must not be bundled with a revised proposal. A definitely scheduled competing
+event does not itself withdraw an earlier open availability window when its
+impact is tentative. A correction avoids a redundant question only when the
+source explicitly retracts the earlier claim and states its confirmed replacement.
+A proposal
+alone does not establish confirmation. Actions that depend on others' agreement
+require reading every required party's relevant replies and checking the exact action
+against known constraints before finalizing.
+Material changes require fresh confirmation before committing the revised action.
+Those confirmations must be read before invoking the committing tool.
+After a batch of tool results, the worker appends a labeled, generated policy
+checkpoint before its next model request. It reuses the selected coordination
+rules and documented argument cardinality, including scalar target fields;
+user and tool text cannot enable it when safety guidance is omitted. Earlier
+messages and tool schemas remain unchanged. The checkpoint is derived from the
+request history, so it needs no worker-local state or additional permissions.
+These are model instructions, not runtime validation
+of arbitrary business data or connector coverage.
 
 `tests/tool-recovery-prompt.test.ts` checks policy inclusion across prompt modes.
 `tests/media-tools-readiness.test.ts` checks configuration snapshots and their
@@ -484,9 +877,14 @@ rejected at the boundary rather than being treated as legacy ids.
 For the routing rules and operator guidance, see
 [Session Routing](./session-routing.md).
 
-Gateway chat serializes turns by session id, and the host/container runners
-apply the same per-session guard at their execution boundary. Different
-sessions can still run concurrently. Interactive input preempts an active
+Gateway chat queues each turn by its known stored session or unresolved request
+key. After creating or rotating a session, the turn also holds that stored
+session queue until its reply has been processed. Later calls through a resolved
+alias or stored ID wait on the same lease. Separate session instances remain
+concurrent, including replacements sharing a session key with an active old turn.
+Releasing an existing session pins its stored ID before waiting, so a reset cannot
+redirect the release to its replacement. The host/container runners also apply
+their per-session guard at the execution boundary. Interactive input preempts an active
 full-auto turn before it waits on the session queue, so operator intervention
 does not sit behind the autonomous run it is meant to stop.
 
@@ -609,6 +1007,12 @@ callbacks act only for that scope's chats. Scoped chats do not use the warm
 pool. The main chat's `memory` search and `session_search` also read
 `scopes/*/`.
 
+Delegated children inherit the scope workspace, connector limits and runtime
+token at every nesting level. While a child is running, its exact gateway-issued
+ID can make a waiting delegation callback for that scope. This identity grants
+no other session routes and expires when the call finishes, including failures.
+Deleting the scope refuses further callbacks and nested execution.
+
 ## Persistent Browser Profiles
 
 HybridClaw can reuse a real logged-in browser session for later automation:
@@ -676,8 +1080,46 @@ config changes can change exposure on the next request, invalidating cached
 tool prefixes; a failed replacement never grants the old connection new trust.
 Routine lookups use
 available tools directly; skill discovery is for requested skills or specialized
-workflows. Tools that accept multiple identifiers should fetch independent
-items in one request within the tool's limits.
+workflows. An applicable listed skill is read before its first operation,
+including when a workbook or document is an input to a broader task. Workspace
+discovery uses scoped `glob`, `grep`, and `read` calls. Independent reads stay in
+separate tool calls so a shell approval gate cannot hold up an unrelated read.
+This is planning guidance, not an approval exemption: required approvals still
+pause execution, and recursive shell searches that can reach pinned files
+still require approval. Tools that accept multiple identifiers should fetch
+independent items in one request within the tool's limits.
+
+Shell safety hard blocks run before approval resolution and again at execution.
+The denial reports every enabled matching rule, once per rule, so a compound
+command does not hide an independent blocker behind the first match. No part of
+the blocked command executes; reporting more matches does not grant approval.
+They cannot be overridden by a user approval, so prohibited commands produce a
+denial without creating a pending approval. The first such denial in a request
+returns to the model once to plan work that omits prohibited effects. Remaining
+calls in that batch are marked unexecuted; every new call still faces the same
+policy. Shell-safety and unpinned network denials share one replan budget;
+a second denial ends the turn. Other policy denials remain terminal.
+Pending human approvals still pause execution.
+
+The eval block checks parsed shell words and nested shell commands, so an `eval`
+directory inside a simple path does not block unrelated tools. Command and script
+filenames may also start with `~/` or `$HOME/`. Executables named
+`eval` and eval text in inline code remain blocked. Heredoc input retains the
+conservative text check; other safety matchers and normal approval policy still
+apply.
+
+When a denial ends the turn, the transcript and replay history retain the reason
+on the denied tool call. Later calls in the same batch are marked unexecuted.
+
+Generation and verification run separately from necessary cleanup. Agents leave
+disposable scratch files alone unless cleanup was requested or is needed for the
+result; ordinary housekeeping does not delay delivery or turn success into a
+failure message.
+Approval clarification replies retain their text in Teams alongside the existing
+choices and expiry; asking a question neither grants consent nor extends expiry.
+The hard-block patterns are unchanged and commands are never rewritten or split
+by this check. Clarification text is escaped for display and cannot alter the
+stored executable call, allowed scopes, or permission decision.
 
 MCP calls are serial barriers by default. Operators can declare trusted read
 behavior under a server's `toolBehavior` configuration:
@@ -731,33 +1173,107 @@ Descriptions shorten before names are omitted, and `skills_list` retains the
 complete directory. Always-on skill bodies keep their separate 10,000-character
 budget. System prompt and tool schemas stay stable throughout a request.
 
-The model receives complete tool results, and stored exchanges replay complete
-results. Large results cross IPC as file references, restored by the gateway;
-this transport threshold does not shorten model input. Whole-context compaction
-and model context-window recovery still apply to the combined conversation.
-The context guard measures pressure without rewriting tool results. In-loop
-compaction sends every selected message intact to the compression model,
+Tool results above 16,000 characters are saved in full under
+`.tool-results/<session>/<tool-call>.txt` in the owning state workspace. Model
+input and replay receive an 8,000-character head/tail excerpt plus the saved
+path. Full evidence still crosses IPC by reference and is restored for audit
+and transcript storage. Results remain available until workspace reset; worker
+replacement and compaction do not remove them.
+
+Use `read` with `path`, `char_offset` (zero-based), and `max_chars` to page
+through saved text, including single-line JSON. `read` with a literal `query`
+returns a matching excerpt and its character offset; use `char_offset` to
+continue searching. These reads return at most 2,000 excerpt characters.
+The existing workspace and approval checks apply to every read.
+
+The context guard measures pressure without rewriting tool results. It includes
+tool schemas and estimates visuals according to the active delivery route. A
+text-only route counts the text handoff and durable snapshot references rather
+than reserving image tokens for pixels it will not send. Handoff wording, call
+IDs, snapshots, page lists, visual-data permissions, and available tools are
+unchanged.
+
+In-loop compaction sends every selected message intact to the compression model,
 including tool calls, results, structured content, and the schemas needed to
 interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
 replacement summary. Replacement must reduce the estimated token count,
 including its label and archive reference, before any archive is written.
 Failed, empty, or length-truncated summaries, archive write failures, and
-summaries that do not shrink the region leave history unchanged; there is no
-heuristic fallback or character-based transcript cutoff. Each rejected attempt
-logs a distinct reason without logging response text or error payloads.
+summaries that do not shrink the region never authorize dropping messages.
+If the protected history plus tool schemas and summary allowance cannot fit,
+the loop keeps the newest complete exchange and allows older parallel batches
+into the summary region. This avoids repeatedly summarizing small setup messages
+while the large results remain protected. Calls and results still stay together.
+If compaction cannot progress, including when the newest exchange leaves no
+compactable middle, the loop saves oversized tool results and reduces their
+inline excerpts to fit the active context budget. Call/result pairing and full
+on-disk evidence remain intact. A failed result-file write leaves the original
+result in context; the loop reports exhaustion if it still cannot fit. Each
+rejected attempt logs a distinct reason without logging response text or error
+payloads. Provider failures also retain the HTTP status for diagnosis.
+
+Successful maintenance compactions do not spend `sessionCompaction.inLoopGuard.maxRetries`.
+That limit bounds consecutive provider context-window recovery retries and resets
+after an accepted loop request, not after a summary. Compaction stops immediately
+when it cannot produce a smaller archived replacement.
 
 The compression model needs enough context for the complete selected region,
-its historical tool schemas, and the summary output budget. It falls back to
-the active model when no compression override is configured. For long tasks,
-configure `auxiliaryModels.compression` with sufficient capacity; a larger
-window than the active model helps recover even when that model overflows.
-An input rejected as too large reports `summary_context_overflow` and ends the
-turn without replacing history. Archives contain conversation and tool data
-that the agent can read; private file permissions protect against other host
+its historical tool schemas, and the summary output budget. If the candidate
+region does not fit, compaction selects the largest fitting prefix ending at a
+complete tool exchange and leaves the remaining messages in live context. It
+never splits parallel calls from their results or truncates selected messages.
+Generation reserves the configured allowance, or half the window for a small
+compression model. The model falls back to the active model when no compression
+override is configured. A single exchange too large to summarize still uses
+the saved-result recovery described above; an unsuccessful recovery fails
+explicitly rather than discarding evidence.
+An input rejected as too large reports `summary_context_overflow`; the loop
+then attempts the disk-backed result recovery described above before reporting
+context exhaustion. Archives contain conversation and tool data that the agent
+can read; private file permissions protect against other host
 users, and workspace reset removes them.
+The concise summary target is separate from the generation allowance, which
+includes a reasoning model's thinking tokens. Compression defaults to 8,192
+generation tokens, bounded by the model's output capacity and estimated input
+headroom; `auxiliaryModels.compression.maxTokens` overrides that allowance.
+The summary target stays at up to 1,024 tokens. A truncated generation still
+cannot replace the original evidence.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
-remove it from custom configuration. There is no replacement per-result limit.
+remove it from custom configuration. Inline tool-result bounds are fixed
+runtime limits rather than configuration.
+
+`web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
+binary responses fail with a download continuation instead of entering model
+context as text. If available, `http_request` with `responseArtifact` saves the
+file for `read` or a permitted skill; choose a bounded `maxResponseBytes` large
+enough for the file. PDF and image inspection use the existing local-file tools.
+Oversized HTTP responses are cancelled without saving a partial artifact. The
+artifact error reports the limit and declared or received size so the caller can
+choose an explicit bound for a retry; the gateway does not raise it automatically.
+The outbound `timeoutMs` deadline remains active through response-body reading,
+so a server that sends headers and then stalls cannot leave a download waiting
+indefinitely. A timed-out download does not save a partial artifact.
+
+When a fetch body or extracted text reaches its size limit, the tool identifies
+the source as incomplete before the returned content. This warning also applies
+to cached results and auxiliary summaries. A saved tool-result file contains the
+retained extraction, not any source content discarded at the fetch limit.
+
+When Readability omits context outside its selected article, `web_fetch` retains
+an explicitly labeled leading excerpt from a main HTML landmark. It excludes
+navigation, sidebars, scripts and explicitly hidden markup; the existing output cap still
+applies. This preserves supplied page status and dates without interpreting them
+or promising a complete page rendering. Context already in the article is omitted.
+Extraction-failure hints assess the article itself, excluding that added context.
+HTML comments stay out of converted text, links, headings and title selection,
+including the fallback used for large documents. Escaped comment examples remain
+visible as source text.
+
+Short section headings grouped with inline links or controls retain their heading
+structure during article extraction. Their original attributes remain in place,
+so hidden groups and navigation remain eligible for exclusion. This preserves
+section boundaries without adding site-specific extraction rules.
 
 `web_fetch` escalation hints describe extraction limits, not necessarily access
 denials. A JavaScript app shell should be retried at the same URL using browser
@@ -827,7 +1343,8 @@ HybridClaw can forward audit-derived events to HybridAI ingest:
   identity, including app-generated session IDs and delayed uploads after an
   agent switch. Records without a captured execution identity retain the
   session-key/default-agent fallback; already exported history is not rewritten.
-- persisted cursor: `observability_offsets`
+- persisted cursor: `observability_offsets`, keyed by ingest URL and node ID;
+  cursors from other nodes and retired bot/agent keys are never reused
 - cached ingest tokens: `observability_ingest_tokens`, reused until ingest
   answers 401/403, then rotated once with `rotate: true`
 
@@ -889,7 +1406,30 @@ Container-side adaptations for local models:
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
 
+## Model Request Retries
+
+Primary and auxiliary calls (including image analysis, web extraction and
+compaction) share the worker's retry policy. Temporary connection failures,
+rate limits and supported transient server errors retry the same model and
+request, with exponential backoff and jitter. The default is three attempts;
+`HYBRIDCLAW_RETRY_ENABLED`, `HYBRIDCLAW_RETRY_MAX_ATTEMPTS`,
+`HYBRIDCLAW_RETRY_BASE_DELAY_MS` and `HYBRIDCLAW_RETRY_MAX_DELAY_MS` control both
+paths. Provider `Retry-After` values up to 60 seconds are respected; longer
+requested waits fail the call.
+
+Authentication, credit, permission and invalid-request errors fail immediately.
+Truncated image analyses remain errors. Retrying a model request does not replay
+tools or select another model, and no new attempt starts after worker shutdown.
+The primary call also refuses replay after partial text has reached the user.
+Retries can incur additional provider usage if the failed request was processed
+before its connection was lost.
+
 ## Activity-Based Agent Timeout
+
+Successful streaming provider responses use a 90-second idle deadline for body chunks,
+including JSON returned instead of an event stream. Each received chunk resets
+that deadline; a longer response can complete while data continues to arrive.
+An idle JSON body is cancelled and surfaces the same retryable timeout as SSE.
 
 The IPC read timeout (default `CONTAINER_TIMEOUT = 300_000 ms`) now supports
 activity-based deadline extension:
@@ -916,9 +1456,10 @@ only:
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
   the tool calls that ran and any delegations it had queued. The interrupted
-  read waits up to 2 s for that reply and keeps only its tool history. A reply
-  that lands later stays in the stopped request's own file, which no later
-  request reads; the next request's `cleanupIpc()` deletes it.
+  read waits up to 2 s for that reply and keeps its validated tool history and
+  known usage counters. Late approvals, side effects, and success results are
+  discarded. A reply that lands later stays in the stopped request's own file,
+  which no later request reads; the next request's `cleanupIpc()` deletes it.
 - An interrupted container leaves the pool immediately, so the next turn starts
   a fresh container instead of reusing one that `docker stop` is still shutting
   down.
@@ -937,6 +1478,8 @@ verify follow-up input authentication, and keep replies scoped to their request.
 Readers also reconcile from disk once per second, bounded by their idle and
 wall-clock deadlines. This covers missing events and unavailable or failed
 watchers on [Docker and virtualized filesystems](https://nodejs.org/docs/latest-v22.x/api/fs.html#caveats).
+An explicit total wait limit remains independent of the inactivity window and
+can be shorter than it; activity refreshes only the inactivity deadline.
 Worker exit and shutdown state are checked on each wakeup or reconciliation;
 gateway interrupts wake the output wait immediately. Watchers, wait timers, and
 abort listeners close when the read finishes, including timeout and interrupt.
@@ -994,6 +1537,23 @@ fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
 
+Tool approvals and intent reviews receive the complete current user request,
+including trailing constraints and text parts. The bounded status excerpt is
+not their source of intent. A worker adds verified steering to its local
+approval context only after showing it to the model; queued, forged and
+previous-request notes do not enter that local context. Shown notes are held for
+the active request and reset when it ends or a new worker starts. Delegated file
+preservation instead uses the gateway-owned root context described above. The
+gateway owns the stored messages used to resume work.
+
+### Autonomous continuation ownership
+
+Full-auto schedules, watchdogs, progress and completion are bound to the runtime
+and run that created them. A continuation due during an active run waits for
+that run to finish. Disposal invalidates every callback; goal continuations use
+a separate run lease so an old finalizer cannot finish a replacement goal run.
+Durable enablement and goal status retain their existing restart behavior.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the
@@ -1025,6 +1585,14 @@ runtime flow:
 - If a workspace has been recreated before the next turn, HybridClaw drops
   stale transcript history for that session so conversation state stays aligned
   with the new workspace and tool surface.
+
+### Scheduled execution and delivery
+
+Routine editions project their existing result and delivered fields as executing,
+delivery pending, or settled. A settled edition cannot execute or deliver again;
+a pending delivery reuses the first saved payload. Each delivery attempt tracks
+execution separately from delivered, queued, or suppressed transport outcomes.
+A remote acknowledgement lost after acceptance remains an uncertain delivery.
 
 ## Agent And Session Model
 
@@ -1065,8 +1633,54 @@ Container-side sandboxed tool families:
 - web extraction: `web_fetch`
 - optional browser automation: `browser_*`
 
+`write` creates files exclusively by default. To replace an existing text file,
+read its complete contents and pass `overwrite: true` and `expected_content`
+containing those exact contents, including trailing newlines. A missing file or
+content mismatch rejects the replacement without changing the target. Empty
+files require `expected_content: ""`. If the only missing bytes are the final LF or
+CRLF, the error identifies that ending. After a stale-write error, read again and
+reconsider the change instead of retrying with the old contents. Use `edit` for
+targeted substitutions. Replacement text must be a string: omitted or non-string
+`new` / `new_text` values fail without changing the file. An explicit empty string
+still deletes the matched text. Daily memory `write` and `replace` follow the same
+rule for `content` and `new_text`; clearing a whole daily note also requires
+`confirm_overwrite: true`.
+
+Successful `write` and `edit` calls check JSON syntax for `.json` files up to
+256 KiB. Invalid JSON adds an advisory warning to the tool result; the requested
+bytes remain saved, including intentionally invalid test fixtures. Larger JSON
+files report that the automatic check was skipped. This checks syntax only,
+not schemas or correctness, and does not apply to shell writes or other formats.
+
+The optional `edit` count is a positive safe integer (default: one) limiting
+replacements among the original, nonoverlapping matches. Inserted text is never
+searched again, and the result reports the actual replacement count. Replacement
+strings are literal in both `edit` and daily-memory `replace`: sequences such as
+`$&` are saved as supplied.
+
+Publication is atomic, and cooperative `.lock` directories serialize `write` and
+`edit` checks and replacements across workers, including task sandboxes. An edit
+uses the complete bytes it read as its expected content. A change detected since
+that read rejects the edit before publication. These checks use current disk
+state and survive worker replacement. A crashed writer's lock
+fails closed until removed after verifying no writer is active. External editors,
+`bash`, and generated-artifact tools do not participate in this protocol;
+a change they make during the check/publication window can still race a write.
+These controls supplement existing path and approval checks.
+
+
+Local `vision_analyze` inputs, including fallback paths and artifact aliases,
+share file-tool dependency checks. A vision call waits for a preceding write,
+edit, or delete of the same path, including the mutation's interruption window.
+Independent files, concurrent image reads, durable snapshots, and remote images
+can still share a batch. Unknown paths run alone. Scheduling never replaces
+normal path permissions or approvals.
+
 Prompt and runtime internals:
 
+- no-progress evidence for repeated discovery and unchanged HTTP collections is
+  invalidated after an executed possible write, including a partial failure.
+  A blocked write keeps that evidence; the loop guard does not grant permissions.
 - session compaction with pre-compaction memory flush: complete instructions
   are processed in bounded batches, duplicate failed requests are collapsed,
   and completion requires an append confirmed in the daily note or an explicit
@@ -1079,10 +1693,24 @@ Prompt and runtime internals:
 - a delegated agent gets its parent's tools, MCP and plugin tools included,
   except `cron`, `memory` and the browser tools that wait on a user; a child
   that hits an approval gate reports `blocked` instead of asking
+- A terminal policy refusal also reports `blocked`, with its tool receipt and
+  reason. A denial recovered during a run does not prevent a final completion;
+  ordinary result text mentioning a block does not change its status.
 - `delegate` waits for its children and returns their reports as the tool
   result; with `background: true` the parent turn ends and a later
   `delegate:results` turn wakes the parent with the reports, hidden from
   history views
+- Waiting delegation resolves an execution worker to its unique active
+  conversation owner. Released, aborted or ambiguous worker aliases cannot
+  identify a parent; no durable alias session is created.
+- Waiting and queued children inherit the trusted parent execution workspace,
+  including nested children; task roots are never taken from tool arguments.
+  Scope workspaces and restrictions take precedence. Conflicting roots for an
+  active worker alias fail closed. These contexts live on the gateway and are
+  released with their request or child; worker restarts cannot change them.
+- Each live delegated child has its own exact callback identity and model.
+  Nested calls inherit that child's model unless the caller or configured
+  delegate model selects another; a completed child's context is released.
 
 ## PDF reading
 
@@ -1095,7 +1723,10 @@ PDF content on the official OpenAI Responses and Anthropic Messages endpoints.
 Other endpoints, including Qwen/vLLM, Ollama, Codex and Gemini's OpenAI-compatible
 API, receive rendered page images. Claude CLI receives text only. Vision support
 and native PDF endpoint support are separate: known text-only models receive
-text; unknown models negotiate image support through the endpoint. Explicit
+text. Explicit OpenRouter input-modality metadata takes precedence over the static
+catalog. The gateway waits for cached discovery before selecting visual capability,
+including the first turn after startup. Missing modality remains unknown and
+negotiates support through the endpoint. Explicit
 media rejection retries native PDF → images → text, never after a streamed text
 or thinking delta. Authentication, network and unrelated errors are not retried
 by this fallback. Text-only delivery always reports unavailable visual coverage.
@@ -1108,6 +1739,11 @@ No separate vision-model call is needed. Native uploads contain only selected
 pages, with a mapping back to original page numbers. For full-document tasks,
 read every relevant page batch. A page is not empty merely because extraction
 returned no text.
+
+A disposable process renders the selected page images. If native rendering
+segfaults on a batch, the reader retries each selected page once in a fresh
+process. If rendering still fails, the reader returns the extracted text,
+reports the missing images, and continues to serve subsequent reads.
 
 PDF page and standalone-image snapshots live in workspace `.visual-snapshots/`, addressed by SHA-256. Tool
 history stores validated references, not base64 payloads. Worker replacement
@@ -1124,12 +1760,18 @@ media paths are scoped to the session, never the entire media cache. Snapshot
 loads accept hashes rather than paths, reject symlinks, validate size and verify
 content integrity. Parsing uses the bundled, lazily loaded PDF skill runtime.
 Document text and visuals remain untrusted user data. Confidential text redaction
-disables binary PDF/image delivery, including historical snapshots, because text
-redaction cannot sanitize document bytes or pixels. Rendering or delivery alone
+disables binary PDF/image delivery, including historical snapshots and auxiliary
+file/browser vision calls, because text redaction cannot sanitize document bytes
+or pixels. The gateway sends visual-data permission independently of the primary
+model's image capability. A text-only primary can use an otherwise permitted,
+configured auxiliary vision model; a confidentiality block cannot be bypassed by
+switching models. Both flags and tool-call permission snapshots are rebuilt from
+each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
 `read` searches PDF text with `query` (literal text, up to 256 characters),
-returning page numbers and snippets before a separate `pages` read. Each search
+returning page numbers and snippets before a separate `pages` read. A PDF query
+cannot be combined with `pages` or `render` in the same call. Each search
 covers at most 500 pages and 20 matching pages, reporting unsearched and sparse
 pages. It does not OCR scans. The model chooses search queries and page selections
 through `read`, using the attachment paths and conversation context. Automatic
@@ -1162,3 +1804,35 @@ grant scopes are unchanged. It carries message content over the existing private
 approval transport and must not be included in diagnostic logging. Attachment paths
 use the client's authenticated document reader; metadata without a path cannot
 supply an attachment-content preview.
+
+### Approval coordination
+
+The gateway owns durable prompt presentation and response claims. Its lifecycle
+is `pending → claimed → handed_off`, with `expired` and `superseded` terminal
+outcomes. Handoff records acceptance for processing, independent of tool success.
+Only pending prompts produce actionable approval cards. The worker remains the
+authority for exact executable arguments, approving identity, and trust scope.
+
+Claims, rollbacks, expiry, and cleanup are guarded by session ID, approval ID,
+and a rotating claim identity. Replacement is durable before any asynchronous
+button cleanup, which only touches the captured old prompt. Cleanup failure
+cannot restore an actionable card or remove its replacement. A restart retains
+claimed prompts without authorizing or replaying them; request the action again
+when a response was interrupted before handoff. Dispatch failures after handoff
+also require a fresh request rather than automatic approval retry.
+
+Upgrade note: gateway prompt snapshots without lifecycle state and claim identity
+are ignored on hydration. Re-request those pending actions after upgrading; worker
+approval records do not acquire consent from gateway snapshots.
+
+The worker keeps only pending executable requests in its existing shared workspace
+file. Denial, revision, expiry, and approval for replay consume pending records;
+these are worker outcomes, not gateway handoff states. Saving a session's requests
+and pruning expired requests hold the shared memory-file lock across the complete
+read/modify/atomic-write transaction. Concurrent sessions retain each other's
+requests. Reads reject malformed state, and write or lock failures propagate
+before consent can grant replay or trust. Lock acquisition waits synchronously
+for at most the existing five-second bound because policy evaluation is synchronous.
+A crashed writer's lock is not stolen: remove it only after verifying no writer
+is running. The file format and worker validation of arguments, user, session,
+and pinned one-time scope are unchanged.

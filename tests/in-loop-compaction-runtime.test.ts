@@ -2,26 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createTokenUsageStats } from '../container/src/token-usage.js';
-import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
+import type { ChatMessage, TokenUsageStats, ToolDefinition } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
-const runtime = vi.hoisted(() => ({ workspace: '' }));
-vi.mock('../container/src/runtime-paths.js', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('../container/src/runtime-paths.js')
-  >()),
-  get WORKSPACE_ROOT() {
-    return runtime.workspace;
-  },
-}));
+const runtime = { workspace: '' };
 const makeTempDir = useTempDir();
 useCleanMocks({
   resetModules: true,
   restoreAllMocks: true,
   unstubAllGlobals: true,
+  unstubAllEnvs: true,
 });
 beforeEach(() => {
   runtime.workspace = makeTempDir('hc-compaction-runtime-');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', runtime.workspace);
+  vi.stubEnv('HYBRIDCLAW_AGENT_STATE_ROOT', '');
 });
 
 const readTool: ToolDefinition = {
@@ -143,11 +138,13 @@ describe('in-loop compaction model routing', () => {
                     model,
                     role: 'assistant',
                     stop_reason: 'end_turn',
+                    usage: { input_tokens: 120, output_tokens: 12 },
                     content: [{ type: 'text', text: 'Evidence retained.' }],
                   }
                 : {
                     id: 'test',
                     model,
+                    usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132 },
                     choices: [
                       {
                         message: {
@@ -165,11 +162,13 @@ describe('in-loop compaction model routing', () => {
       );
       vi.stubGlobal('fetch', fetch);
       const usage = createTokenUsageStats();
+      const snapshots: TokenUsageStats[] = [];
       const result = await compactInLoopWithModel({
         sessionId: 'session_a',
         history: messages,
         tools: knownTool ? [readTool] : [],
         tokenUsage: usage,
+        checkpointUsage: () => snapshots.push(structuredClone(usage)),
         taskModels: {
           compression: {
             provider,
@@ -192,6 +191,12 @@ describe('in-loop compaction model routing', () => {
       expect(result.changed).toBe(true);
       expect(messages).toEqual(original);
       expect(usage.modelCalls).toBe(1);
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0]).toMatchObject({ modelCalls: 1, estimatedCompletionTokens: 0 });
+      expect(snapshots[0].estimatedPromptTokens).toBeGreaterThan(0);
+      expect(snapshots[1].estimatedCompletionTokens).toBeGreaterThan(0);
+      expect(snapshots[0].apiUsageAvailable).toBe(false);
+      expect(snapshots[1]).toMatchObject({ apiUsageAvailable: true, apiTotalTokens: 132 });
       const archive = String(result.history[4].content).split(
         'Original messages: ',
       )[1];
@@ -254,6 +259,7 @@ describe('in-loop compaction model routing', () => {
         history: messages,
         tools: [readTool],
         tokenUsage: createTokenUsageStats(),
+        checkpointUsage: vi.fn(),
         fallbackContext: {
           provider,
           model:

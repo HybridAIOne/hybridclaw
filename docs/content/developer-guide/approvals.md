@@ -44,6 +44,11 @@ the approval open. Model usage is included in the turn totals. The audit records
 `approval.interpretation` alongside the turn's original user text; this records
 interpretation only, while the tool authorization/result events prove execution.
 
+An approved action resumes with the complete stored user request, including its
+trailing constraints and layout. Choosing a draft retains the complete proposed
+email and any user-supplied replacement fields. These continuation instructions
+are not display excerpts; only the separately scoped approval authorizes execution.
+
 Realtime voice transports attach the caller's transcript independently of the
 voice model's `consult_agent` arguments. Each utterance can answer at most one
 consult. A missing, stale or late transcript never falls back to a model-written
@@ -204,20 +209,39 @@ Two important transitions:
 
 Each session has an approval mode. It changes how many of the tiers above stop
 for a human. Pick it from the chip next to the model in the web chat composer,
-or with `/approvals mode [ask|auto|full]` on any surface.
+or with `/approvals mode [ask|auto|full|learning]` on any surface.
 
 | Mode | Label | Green | Yellow | Red |
 | --- | --- | --- | --- | --- |
 | `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
 | `auto` (default) | Auto | Runs | Runs | Prompts |
 | `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+| `learning` | Learning | Runs | Records the normal notice and runs without waiting | Records the normal approval requirement and runs, including pinned actions; unconditional denials remain enforced |
 
 - The mode is stored per session. A new chat and `/reset` start at `auto`;
   an automatic idle-expiry reset keeps the mode.
-- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- A running `/fullauto` loop uses `full` unless the session explicitly selects `learning`.
 - Trust you already granted (`yes for session`, `agent`, or `all`) still
   applies in `ask`.
 - Every mode change is written to the audit log as `approval.mode_changed`.
+
+Learning is an opt-in observation mode, not a dry run: actions execute. It
+evaluates the normal `auto` policy but suppresses its prompts and implicit waits.
+It does not create pending approvals, record human consent, grant durable trust,
+or train approval promotion from observed actions. Returning to `auto` restores
+normal prompting. Older pending calls are not automatically answered or replayed.
+Unconditional shell blocks, explicit policy denials, authentication, sandbox
+limits, and remote providers' own consent requirements remain enforced. Credit
+purchase confirmations are separate from tool approval policy.
+
+In `/admin/approvals`, choose **Review learning flags**, or use **Learning flags**
+in the audit view. These `approval.observed` events carry the tool call ID,
+normal decision, reason, tier, pinned status, redacted arguments, and actual
+outcome. `succeeded`, `error`, and `blocked` distinguish permission to proceed
+from execution success. Events use the ordinary durable audit and observability
+ingestion path; remote visibility requires observability ingestion to be enabled.
+The action reference below describes enforcement modes; learning observes their
+approval requirements while preserving unconditional denials.
 
 ## Action Reference
 
@@ -229,7 +253,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
-| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1`, `>&2`, and a redirect to `/dev/null` write no file, so `git status 2>&1` and `ls /opt/data 2>/dev/null` stay green |
+| Read-only shell commands | Green | `ls`, `cat`, `rg`, `date -u +%s`, `git status`, `git diff`, `npm test`, `git log \| head` | Date display accepts UTC flags and a literal final `+format`; clock-setting forms and unknown arguments keep their normal shell tier. Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1`, `>&2`, and a redirect to `/dev/null` write no file, so `git status 2>&1` and `ls /opt/data 2>/dev/null` stay green |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Current-conversation messages | Yellow | `message send`, `react`, `quote-reply` or `thread-reply` without `channelId`, `to`, `target` or a user | Hy is already talking there |
 | Messages to a named recipient | Red | `message send` to an email address, chat or person; `edit`, `delete`, `pin`, `thread-create` | Asks in `auto` too; `full` runs them. The trust key names the recipient. An email send carries a review (`transport: "email"`, From, To, Cc, Subject, body) so the phone shows it as the email card, and one without a subject is sent back to the model |
@@ -253,6 +277,18 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
 | Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, also when the command's own output is discarded (`rm -f /opt/data/x 2>/dev/null`), but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` and `browser_evaluate` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
+
+Literal navigation, command lookup, file-format display, PDF metadata and byte
+inspection can run as read-only shell diagnostics, including after a filename
+conflict. Only recognized argument forms qualify; compilation, timestamp
+restoration, indirect file lists, password options and unknown diagnostic flags
+retain normal classification. Every command in a chain must be read-only, and
+redirects, script execution, fetched code and sensitive paths still face their
+existing checks. Inspecting a file does not clear its write-conflict state.
+
+Deletion operands of `rm` and `unlink` count as mutation targets. Redirecting
+their output to a workspace or temporary log does not remove those operands
+from the workspace-fence check, including after `cd` or inside a recognized wrapper.
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
@@ -800,3 +836,80 @@ IPC and resumes the saved call without a second interpretation. A broker failure
 keeps execution blocked. Host API-token requests without a human chat identity
 cannot supply natural-language consent. The calendar rule does not override a
 platform broker's own approval requirement.
+
+
+## Configuring unconditional safety blocks
+
+Open **Admin → Security → Safety blocks** (`/admin/safety-rules`) to see the
+installed shell and file-content rules, their patterns, explanations, and enabled
+states. Toggle individual rules, then choose **Save changes**. **Enable all rules**
+restores the default selection; save it to apply. The page links to the audit
+history of changes. A stale edit is rejected so it cannot overwrite another
+operator's update; choose **Reload** to review the current settings.
+
+The setting is gateway-wide, stored as `security.disabledSafetyRules` in the
+runtime config, and requires `admin.config.write`. Missing settings keep every
+rule enabled. Invalid IDs are rejected. Workers receive a fresh snapshot through
+authenticated input each turn, including when they are reused. An in-flight turn
+finishes with its existing snapshot. No gateway restart is needed.
+
+An enabled rule blocks even in learning mode and cannot be overridden by a normal
+approval. Disabling a rule removes only that rule: overlapping patterns may still
+block the same action, and normal approval requirements remain. This screen
+configures built-in pattern guards; it does not change authentication, sandbox
+limits, network policy, or tool argument validation. Patterns are fixed in the
+installed catalog; these controls enable or disable them without accepting
+arbitrary regular expressions.
+
+The `eval` guard treats the single environment operand in a direct
+`conda activate <environment>` command as data. An environment named `eval`
+does not itself request evaluation. Actual `eval` commands, unresolved wrappers,
+and other argument shapes retain conservative matching. A separate
+`source-script` match still blocks sourcing an initialization script; activation
+does not grant that permission.
+
+### Admin approval modes and firewall
+
+Open **/admin → Security → Approvals & firewall** (`/admin/security`).
+The **Approval modes** tab provides **Default for new conversations**: select
+**Learning**, then **Save default**. It applies to subsequently created
+conversations and an explicit settings reset. Existing conversations keep their
+stored choice; forks and ordinary resets preserve it. The default is **Auto**.
+
+To change an existing conversation, choose it under **Existing conversation**,
+select **Learning**, then **Save conversation mode**. This uses the same stored
+choice as `/approvals mode learning`. Changes apply on the next turn and do not
+answer pending approvals. Full-auto's effective mode is shown separately when
+it overrides the saved choice; explicit Learning remains effective in full-auto.
+
+The **Safety blocks** tab lists and configures the unconditional shell/file
+rules. **Network policy** retains the existing agent policies and pending
+approvals. **Review learning flags** opens the audit log for `approval.observed`.
+
+The new-conversation default is stored as `security.defaultApprovalMode` in
+`config.json`. Admin reads require `admin.approvals.read`, and mode edits require
+`admin.policy.write`. Saved changes are audited; stale edits are rejected so an
+operator must reload before overwriting a newer choice. Enabled hard guards
+remain enforced in all modes.
+
+## Structured chat history
+
+Approval events carry review facts separately from their human-readable prompt.
+Web chat stores those facts with the assistant message in `approval_json`; history
+and the device-message endpoint return them as `approval`. Recorded allow/deny
+decisions remain with the message, and answered requests leave the pending cache.
+The snapshot is presentation data: the worker policy still validates every decision
+against its live request and owning session. Clients must not infer approvals from
+reply text. `/api/history` also includes the caller's live `pendingApproval`, so a
+client can recover a request it did not receive over the stream.
+
+A scheduled run that pauses on an approval stores it the same way, on its reply
+in the run's session and on the copy delivered to the chat (the agent's main
+chat for a task kept apart), and rings as an approval, never with the prompt's
+text. The request stays with the run's session and only the task's owner can
+answer it. A structured answer sent in the chat that shows it (`/api/chat`
+`approval`) resumes the run in that session, with the run's own tools and
+limits, and its reply is delivered like any scheduled reply
+(`src/gateway/scheduled-approval-answer.ts`). A typed reply in that chat does not
+answer it, and the request expires with the worker's approval timeout like any
+other.

@@ -13,18 +13,19 @@ useCleanMocks({ restoreAllMocks: true });
 afterEach(() => vi.useRealTimers());
 
 test('a real directory rename wakes a reader before reconciliation', async () => {
+  // Keep reconciliation timers stationary: only a filesystem event can finish the wait.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const directory = makeTempDir();
   const wakeup = createIpcWakeup(directory);
   try {
     const waiting = wakeup
-      .wait(500)
+      .wait(IPC_RECONCILE_INTERVAL_MS)
       .then(() => fs.existsSync(path.join(directory, 'reply.json')));
     const temporary = path.join(directory, 'reply.tmp');
     fs.writeFileSync(temporary, '{}');
     fs.renameSync(temporary, path.join(directory, 'reply.json'));
-    const start = Date.now();
     await expect(waiting).resolves.toBe(true);
-    expect(Date.now() - start).toBeLessThan(500);
+    expect(vi.getTimerCount()).toBe(0);
   } finally {
     wakeup.close();
   }

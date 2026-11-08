@@ -33,6 +33,13 @@ on the page, and with `mac-cua`, which drives a browser without a DOM. Browser
 providers that run in the gateway evaluate in the main document only (no
 `frame`).
 
+For DOM queries, verify the actual element: a snapshot's `button` role can
+belong to an element with a different HTML tag. Check for a missing match before
+reading properties, and stop parent traversal at the document root. Null or
+undefined property-access errors retain their original diagnostic and include
+recovery guidance. Failed expressions are not replayed automatically; a script
+may have performed actions before throwing, so inspect the page before retrying.
+
 Download clicks and pages waiting for two-factor authentication omit the
 snapshot. If the action succeeds but the snapshot fails, the result reports
 `snapshot_error`; the action is not repeated automatically.
@@ -96,5 +103,7 @@ Then make a separate call with the returned page numbers:
 `query` cannot be combined with `pages` or `render`. Search covers extracted text,
 so scans may need visual page inspection. PDF reads use page selections instead
 of text-file `offset` and `limit`. `render: "never"` requests extracted text only.
+For an oversized page selection, the error includes a `suggestedCall` for the
+first batch of requested pages, with any text-line arguments removed.
 Image reads deliver pixels to supported models; visual snapshots persist for
 replay after a worker restart.

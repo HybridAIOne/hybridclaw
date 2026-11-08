@@ -1,5 +1,5 @@
 /**
- * Approval mode chip — shows and changes the session's `ask | auto | full`
+ * Approval mode chip — shows and changes the session's approval
  * mode from the composer.
  *
  * It renders the gateway's effective mode and never assumes a change took
@@ -39,6 +39,7 @@ const MODE_ICONS: Record<ApprovalMode, ComponentType<IconProps>> = {
   ask: Hand,
   auto: ShieldCheck,
   full: ShieldAlert,
+  learning: ShieldAlert,
 };
 
 export function ApprovalModeSelect(props: {

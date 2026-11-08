@@ -1,3 +1,8 @@
+/**
+ * Shared provider discovery keeps failed initial lookups retryable.
+ * Once populated, catalogs retain their cached fallback and background refresh
+ * behavior. Unlike provider clients, these helpers choose no models or credentials.
+ */
 import { logger } from '../logger.js';
 
 export { isRecord } from '../utils/type-guards.js';
@@ -71,9 +76,11 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         if (!opts?.onError) return staleState;
         const fallback = await opts.onError(err, staleState);
         if (isDiscoveryStoreStateUpdate(fallback)) {
-          replaceState(fallback.state, { skipCache: fallback.skipCache });
+          replaceState(fallback.state, {
+            skipCache: fallback.skipCache ?? !hasCache,
+          });
         } else {
-          replaceState(fallback);
+          replaceState(fallback, { skipCache: !hasCache });
         }
         return state;
       } finally {

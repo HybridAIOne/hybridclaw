@@ -61,7 +61,10 @@ export function useContainerAgentHarness() {
     overrides: Partial<ContainerInput> = {},
     files: Record<string, string | Uint8Array> = {},
     options: {
-      prepare?: (dir: string) => Promise<Partial<ContainerInput>>;
+      prepare?: (
+        dir: string,
+        ipcAuthSecret: string,
+      ) => Promise<Partial<ContainerInput>>;
       timeoutMs?: number;
     } = {},
   ) {
@@ -101,6 +104,7 @@ export function useContainerAgentHarness() {
       stderr += chunk;
     });
     child.stdout?.resume();
+    const ipcAuthSecret = generateIpcAuthSecret();
     const input: ContainerInput = {
       sessionId: 'test-session',
       agentId: 'test-agent',
@@ -117,10 +121,15 @@ export function useContainerAgentHarness() {
       persistBashState: false,
       messages: [{ role: 'user', content: 'Read the synthetic notes' }],
       ...overrides,
-      ...(await options.prepare?.(dir)),
+      ...(await options.prepare?.(dir, ipcAuthSecret)),
     };
-    const waitOutput = async (): Promise<ContainerOutput> => {
-      const outputPath = path.join(ipc, 'output.json');
+    const waitOutput = async (
+      requestId = input.requestId,
+    ): Promise<ContainerOutput> => {
+      const outputPath = path.join(
+        ipc,
+        requestId ? `output-${requestId}.json` : 'output.json',
+      );
       const until = Date.now() + (options.timeoutMs ?? 10000);
       while (Date.now() < until) {
         // Missing and unparseable both mean not ready yet, as in readOutput
@@ -139,7 +148,6 @@ export function useContainerAgentHarness() {
     };
     // The first request carries the per-worker IPC auth secret via stdin, as
     // the runners do; follow-ups are written as authenticated envelopes.
-    const ipcAuthSecret = generateIpcAuthSecret();
     child.stdin?.write(`${JSON.stringify({ ...input, ipcAuthSecret })}\n`);
     return {
       requests,
@@ -147,14 +155,12 @@ export function useContainerAgentHarness() {
       dir,
       stderr: () => stderr,
       followup: async (patch: Partial<ContainerInput>) => {
+        const nextInput = { ...input, ...patch };
         fs.writeFileSync(
           path.join(ipc, 'input.json'),
-          encodeAuthenticatedInput(
-            ipcAuthSecret,
-            JSON.stringify({ ...input, ...patch }),
-          ),
+          encodeAuthenticatedInput(ipcAuthSecret, JSON.stringify(nextInput)),
         );
-        return waitOutput();
+        return waitOutput(nextInput.requestId);
       },
     };
   };

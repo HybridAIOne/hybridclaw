@@ -21,7 +21,6 @@ import {
   getInFlightExecutorCount,
   stopAllExecutions,
 } from '../agent/executor.js';
-import { isWithinActiveHours } from '../agent/proactive-policy.js';
 import {
   listAgents,
   resolveAgentForRequest,
@@ -66,15 +65,9 @@ import {
 } from '../memory/consolidation-runner.js';
 import {
   closeDatabase,
-  deleteQueuedProactiveMessage,
   failStaleDelegationJobs,
-  getFailedProactiveMessageCount,
   getMostRecentSessionChannelId,
-  getQueuedProactiveMessageCount,
   initDatabase,
-  listQueuedProactiveMessages,
-  markQueuedProactiveMessageFailed,
-  pruneFailedProactiveMessages,
 } from '../memory/db.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
 import {
@@ -120,16 +113,11 @@ import {
 } from './in-flight-turns.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
-  hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
   resolveHeartbeatDeliveryChannelId,
-  shouldDropQueuedProactiveMessage,
 } from './proactive-delivery.js';
-import {
-  deliverProactiveMessage,
-  MAX_QUEUED_PROACTIVE_MESSAGES,
-  sendProactiveMessageNow,
-} from './proactive-dispatch.js';
+import { deliverProactiveMessage } from './proactive-dispatch.js';
+import { flushQueuedProactiveMessages } from './proactive-queue-flush.js';
 import { deliverScheduledWebhook } from './scheduled-webhook-delivery.js';
 
 let detachConfigListener: (() => void) | null = null;
@@ -248,57 +236,6 @@ function resolveLastUsedDeliverableChannelId(): string | null {
   return hasQueuedProactiveDeliveryPath({ channel_id: channelId })
     ? channelId
     : null;
-}
-
-async function flushQueuedProactiveMessages(): Promise<void> {
-  if (!isWithinActiveHours()) return;
-  const pending = listQueuedProactiveMessages(MAX_QUEUED_PROACTIVE_MESSAGES);
-  if (pending.length === 0) return;
-  logger.info(
-    { flushing: pending.length, queued: getQueuedProactiveMessageCount() },
-    'Flushing queued proactive messages',
-  );
-
-  pruneFailedProactiveMessages();
-  let failedUndeliverable = 0;
-  for (const item of pending) {
-    if (!isWithinActiveHours()) break;
-    if (shouldDropQueuedProactiveMessage(item)) {
-      markQueuedProactiveMessageFailed(
-        item.id,
-        `No proactive delivery path for channel "${item.channel_id}"`,
-      );
-      failedUndeliverable += 1;
-      continue;
-    }
-    if (!hasImmediateProactiveDeliveryPath(item)) {
-      continue;
-    }
-    const outcome = await sendProactiveMessageNow(
-      item.channel_id,
-      item.text,
-      `${item.source}:queued`,
-    );
-    if (outcome.status === 'failed') {
-      markQueuedProactiveMessageFailed(
-        item.id,
-        outcome.reason || 'Delivery failed',
-      );
-      failedUndeliverable += 1;
-      continue;
-    }
-    deleteQueuedProactiveMessage(item.id);
-  }
-
-  if (failedUndeliverable > 0) {
-    logger.warn(
-      {
-        failed: failedUndeliverable,
-        totalFailed: getFailedProactiveMessageCount(),
-      },
-      'Queued proactive messages marked as failed (undeliverable)',
-    );
-  }
 }
 
 function shouldSkipChannelConfigRefresh(

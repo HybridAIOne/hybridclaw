@@ -1,10 +1,18 @@
+/**
+ * Active gateway requests own cancellation, steering and worker identity/roots.
+ * A worker alias resolves only to its unique live conversation; this registry
+ * does not create durable sessions or guess an owner after a request ends.
+ */
+
 import { stopSessionExecution } from '../agent/executor.js';
+import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 
 interface ActiveGatewayRequest {
   controller: AbortController;
   executionSessionId: string;
   steerInbox?: SteerInbox;
+  workspaceOverrides?: WorkspaceOverrides;
   detachExternalAbort?: () => void;
 }
 
@@ -30,6 +38,7 @@ export function registerActiveGatewayRequest(params: {
   sessionId: string;
   abortSignal?: AbortSignal;
   executionSessionId?: string;
+  workspaceOverrides?: WorkspaceOverrides;
   steerInbox?: SteerInbox;
 }): {
   signal: AbortSignal;
@@ -40,6 +49,11 @@ export function registerActiveGatewayRequest(params: {
     controller,
     executionSessionId: params.executionSessionId || params.sessionId,
     steerInbox: params.steerInbox,
+    workspaceOverrides: {
+      workspacePathOverride: params.workspaceOverrides?.workspacePathOverride,
+      workspaceDisplayRootOverride:
+        params.workspaceOverrides?.workspaceDisplayRootOverride,
+    },
   };
   const externalSignal = params.abortSignal;
   if (externalSignal) {
@@ -78,6 +92,36 @@ export function abortActiveGatewayRequests(sessionId: string): number {
     entry.controller.abort(new Error('Interrupted by user.'));
   }
   return entries.length;
+}
+
+export function resolveGatewayRequestContext(executionSessionId: string): {
+  sessionId: string;
+  workspaceOverrides?: WorkspaceOverrides;
+} | null {
+  let owner: {
+    sessionId: string;
+    workspaceOverrides?: WorkspaceOverrides;
+  } | null = null;
+  for (const [sessionId, entries] of activeGatewayRequestsBySession) {
+    for (const entry of entries) {
+      if (
+        entry.executionSessionId !== executionSessionId ||
+        entry.controller.signal.aborted
+      )
+        continue;
+      if (
+        owner &&
+        (owner.sessionId !== sessionId ||
+          owner.workspaceOverrides?.workspacePathOverride !==
+            entry.workspaceOverrides?.workspacePathOverride ||
+          owner.workspaceOverrides?.workspaceDisplayRootOverride !==
+            entry.workspaceOverrides?.workspaceDisplayRootOverride)
+      )
+        return null;
+      owner = { sessionId, workspaceOverrides: entry.workspaceOverrides };
+    }
+  }
+  return owner ?? { sessionId: executionSessionId };
 }
 
 /**

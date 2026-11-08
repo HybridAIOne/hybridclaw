@@ -29,6 +29,7 @@ function makeSession(partial?: Partial<Session>): Session {
 
 function makeBackend(): MemoryBackend {
   return {
+    transaction: operation => operation(),
     resetSessionIfExpired: () => false,
     getOrCreateSession: () => makeSession(),
     getSessionById: () => makeSession(),

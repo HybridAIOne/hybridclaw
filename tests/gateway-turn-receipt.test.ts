@@ -231,6 +231,33 @@ test('identical reads count once, and a turn with nothing to show has an empty r
   expect(turnReceiptFromExecutions([])).toEqual(empty);
 });
 
+test('untargeted read failures reach live and stored receipts with their distinct outcomes', async () => {
+  const { calls, store, turnReceiptForMessage, turnReceiptFromExecutions } = await load();
+  const readInbox = {
+    name: 'message',
+    arguments: JSON.stringify({ action: 'read', folder: 'inbox' }),
+    writeIntent: false,
+  };
+  const executions = calls([
+    readInbox,
+    { ...readInbox, isError: true, result: 'Channel is disabled.' },
+    { ...readInbox, isError: true, result: 'Cannot reach pat@example.com.' },
+    { ...readInbox, blocked: true, result: 'Denied.' },
+  ]);
+  await store('app-main', 'run-failed-reads', 51, executions);
+  const live = turnReceiptFromExecutions(executions);
+  const stored = turnReceiptForMessage('app-main', 51);
+  expect(live.items.map(({ tool, ok, count, blocked }) => [tool, ok, count, blocked])).toEqual([
+    ['message', false, 1, false],
+    ['message', false, 1, false],
+    ['message', false, 1, true],
+  ]);
+  expect(live.items[0].error).toBe('Channel is disabled.');
+  expect(live.items[1].error).not.toContain('pat@example.com');
+  expect(live.items[2].error).toBe('Denied.');
+  expect(stored?.items).toEqual(live.items);
+});
+
 test('past the limit, reads are left out before anything sent or changed', async () => {
   const { calls, turnReceiptFromExecutions } = await load();
   const reads = Array.from({ length: 40 }, (_, index) => ({

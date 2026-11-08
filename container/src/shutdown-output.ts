@@ -1,6 +1,6 @@
 /**
  * The output a signalled agent writes for its in-flight request. It keeps the
- * tool exchanges that already ran, so the gateway can replay them after an
+ * tool exchanges and known usage, so the gateway can recover them after an
  * interrupt; the request itself still ends as an error, never as success.
  */
 import type { TurnToolHistory } from './turn-tool-history.js';
@@ -20,15 +20,7 @@ export function buildInterruptedShutdownOutput(
     ...(sideEffects ? { sideEffects } : {}),
   };
   const openCallReason = `the agent process received ${reason} before this call returned; it may not have run, or may have run partially.`;
-  const toolHistory = turnToolHistory?.finishInterrupted(openCallReason);
-  return turnToolHistory && toolHistory?.length
-    ? turnToolHistory.withSpilledReferences({
-        ...output,
-        toolHistory,
-        toolHistoryForReplay: turnToolHistory.finishInterrupted(
-          openCallReason,
-          true,
-        ),
-      })
+  return turnToolHistory
+    ? { ...output, ...turnToolHistory.interruptedOutput(openCallReason) }
     : output;
 }

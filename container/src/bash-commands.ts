@@ -2,38 +2,28 @@
  * What a bash script does, read statically: the commands it runs (including
  * what `xargs`, `find -exec`, `sh -c`, and `eval` run), the paths they write
  * or delete, and the directory each runs in after `cd`. Variables and
- * substitution results stay unknown. NOT a policy: the approval policy and
+ * substitution results and unsupported prefix boundaries stay unknown.
+ * NOT a policy: the approval policy and
  * bash-pinned-reach.ts decide what needs approval.
  */
 import path from 'node:path';
+import {
+  type CommandProgram,
+  commandProgram,
+  redirectWidth,
+} from './bash-command-prefix.js';
+import { installWriteTargets } from './bash-install-targets.js';
+import { sedWriteTargets } from './bash-sed-targets.js';
+import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
 import { expandUserPath } from './runtime-paths.js';
 
-// Words before the program itself: keywords and wrappers such as `env -i`.
-const COMMAND_PREFIX_WORDS = new Set([
-  '!',
-  '{',
-  'builtin',
-  'command',
-  'do',
-  'doas',
-  'elif',
-  'else',
-  'env',
-  'exec',
-  'if',
-  'nice',
-  'nohup',
-  'stdbuf',
-  'sudo',
-  'then',
-  'time',
-  'timeout',
-  'until',
-  'while',
-]);
-const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const REDIRECT_RE = /^(?:\d+|&)?[<>]/;
-const BARE_REDIRECT_RE = /^(?:\d+|&)?[<>]+&?$/;
+export {
+  commandProgram,
+  isCommandLookup,
+  PYTHON_PROGRAM_RE,
+  redirectWidth,
+} from './bash-command-prefix.js';
+
 const XARGS_VALUE_FLAGS = new Set([
   '-E',
   '-I',
@@ -59,8 +49,11 @@ export const DELETE_RE =
   /(?<!\bgit\s+)\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
 const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
-// Programs that write every path operand they are given.
+const OPERAND_DELETERS = new Set(['rm', 'unlink']);
+// Programs that mutate every path operand they are given. Deletions count as
+// writes so a redirected log cannot hide the removed file from the fence.
 export const OPERAND_WRITERS = new Set([
+  ...OPERAND_DELETERS,
   'chmod',
   'chown',
   'mkdir',
@@ -70,11 +63,13 @@ export const OPERAND_WRITERS = new Set([
 // Programs whose `-o` names no file: grep and rg print only the match, find's
 // `-o` is OR, ls's a long listing, ps's picks columns, `set -o` sets a shell
 // option, ssh, scp, and sftp take a config option, and xargs reopens the tty
-// (the command it runs is checked on its own). Every other program's
+// (the command it runs is checked on its own); tar's controls ownership/format.
+// Every other program's
 // `-o`/`--out` value counts as a write (owner call, 2026-09-29): an allow list
 // of programs that write through `-o` was rejected, since a program it lacks
 // writes unchecked while a false positive shows up as a prompt.
 const NON_OUTPUT_O_PROGRAMS = new Set([
+  ...TAR_PROGRAMS,
   'egrep',
   'fgrep',
   'find',
@@ -242,39 +237,6 @@ export function splitShellCommands(input: string): ShellCommand[] {
   return commands;
 }
 
-// The program a simple command runs (lowercased base name), past assignments,
-// keywords, and wrappers such as `timeout 5`; `command -v rm` only looks rm up.
-export function commandProgram(words: string[]): {
-  start: number;
-  program: string;
-  args: string[];
-} {
-  let start = 0;
-  let wrapped = false;
-  for (; start < words.length; start += 1) {
-    const word = words[start];
-    if (word === 'command' && /^-[vV]$/.test(words[start + 1] ?? '')) {
-      return { start: words.length, program: '', args: [] };
-    }
-    if (COMMAND_PREFIX_WORDS.has(word)) wrapped = true;
-    else if (!ASSIGNMENT_RE.test(word) && !(wrapped && /^[-\d]/.test(word))) {
-      break;
-    }
-  }
-  return {
-    start,
-    program: path.posix.basename(words[start] ?? '').toLowerCase(),
-    args: words.slice(start + 1),
-  };
-}
-
-// Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
-// the next word as its target.
-export function redirectWidth(word: string): number {
-  if (!REDIRECT_RE.test(word)) return 0;
-  return BARE_REDIRECT_RE.test(word) ? 2 : 1;
-}
-
 // find's starting points: the words before its first expression token, past
 // the -H/-L/-P/-O/-D options. None means the current directory.
 export function findStartingPoints(args: string[]): {
@@ -385,11 +347,8 @@ export function directoryAfter(cwd: Cwd, program: string, args: string[]): Cwd {
   return target === '-' ? null : resolvePath(target ?? '~', cwd);
 }
 
-export interface ScriptCommand {
+export interface ScriptCommand extends CommandProgram {
   words: string[];
-  start: number;
-  program: string;
-  args: string[];
   // Reads the previous command's output through `|`.
   piped: boolean;
   // Its output feeds the next command.
@@ -408,29 +367,34 @@ export function scriptCommands(
   const commands = splitShellCommands(script);
   let cwd = startCwd;
   return commands.map(({ words, piped }, position) => {
-    const { start, program, args } = commandProgram(words);
+    const parsed = commandProgram(words);
+    const { program, args } = parsed;
     const pipesOut = commands[position + 1]?.piped === true;
-    const command = { words, start, program, args, piped, pipesOut, cwd };
+    const command = { words, ...parsed, piped, pipesOut, cwd };
     cwd = directoryAfter(cwd, program, args);
     return command;
   });
 }
 
-// A command's operands: words that are neither options (until `--`) nor
-// redirections.
-function commandOperands(args: string[]): string[] {
-  const operands: string[] = [];
-  let optionsEnded = false;
+// Shell redirects are not part of the program's argument list.
+export function commandArguments(args: string[]): string[] {
+  const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const width = redirectWidth(arg);
-    if (width > 0) {
-      index += width - 1;
-    } else if (!optionsEnded && arg === '--') {
-      optionsEnded = true;
-    } else if (optionsEnded || !arg.startsWith('-')) {
-      operands.push(arg);
-    }
+    if (width > 0) index += width - 1;
+    else result.push(arg);
+  }
+  return result;
+}
+
+// Keep operands after `--`, including names that look like options.
+function commandOperands(args: string[]): string[] {
+  const operands: string[] = [];
+  let optionsEnded = false;
+  for (const arg of commandArguments(args)) {
+    if (!optionsEnded && arg === '--') optionsEnded = true;
+    else if (optionsEnded || !arg.startsWith('-')) operands.push(arg);
   }
   return operands;
 }
@@ -449,7 +413,7 @@ function gitSubcommandIndex(args: string[]): number {
 // only removes empty directories.
 export function deletesFiles(words: string[]): boolean {
   const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') return true;
+  if (OPERAND_DELETERS.has(program)) return true;
   if (program === 'find') return args.includes('-delete');
   return (
     program === 'git' &&
@@ -482,7 +446,7 @@ function commandDeletionTargets(
   depth: number,
 ): string[] | null {
   const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') {
+  if (OPERAND_DELETERS.has(program)) {
     const operands = commandOperands(args);
     return operands.length > 0 ? resolveTargets(operands, cwd) : null;
   }
@@ -614,13 +578,21 @@ function fetchWriteTargets(program: string, args: string[]): string[] {
 
 // Files a command writes through an option instead of a redirect: git's
 // `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
-// curl and wget save.
+// curl and wget save, install/archive destinations, and sed edits/backups.
 function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   if (program === 'curl' || program === 'wget') {
     return fetchWriteTargets(program, args);
   }
-  if (program !== 'git' && program !== 'find') return [];
+  if (TAR_PROGRAMS.has(program))
+    return tarWriteTargets(commandArguments(args)).targets;
+  if (program !== 'git' && program !== 'find') {
+    const argv = commandArguments(args);
+    return [
+      ...installWriteTargets(program, argv),
+      ...sedWriteTargets(program, argv),
+    ];
+  }
   const targets: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -677,7 +649,7 @@ function copyDestination(args: string[]): string | undefined {
 
 // What one command writes, as written: redirect targets, `-o`/`--out` values
 // unless the program's `-o` names no file, option writes, the operands of
-// tee/mkdir/touch/chmod/chown, cp/mv destinations, and what xargs or
+// operand writers (including deletions), cp/mv destinations, and what xargs or
 // `find -exec` runs. /dev/null is never one (owner call, 2026-09-29): output
 // sent there is discarded, so `rm -f /opt/x 2>/dev/null` writes what
 // `rm -f /opt/x` writes.

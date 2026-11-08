@@ -85,6 +85,7 @@ describe('bash action descriptions', () => {
     policy.setApprovalMode({ mode: 'full' });
     const evaluate = vi.spyOn(approvalRuntime, 'evaluateToolCall').mockImplementation((input) => policy.evaluateToolCall(input));
     const resolve = createToolApprovalResolver({
+      sessionId: 'description-test',
       latestUserPrompt: 'Prepare a report',
       channelId: 'msteams',
       fallbackContext: { provider: 'openai', baseUrl: 'https://example.com', apiKey: 'test-key', model: 'test-model', chatbotId: '' },

@@ -476,14 +476,17 @@ test('HostExecutor gives the worker the browser a run asks for, else the configu
   await executor.exec({
     ...request,
     sessionId: 'web:phone',
+    fileWriteGuardSessionId: 'parent-worker',
+    fileWriteGuardUserPrompt: 'Preserve the existing notes.',
     browserProvider: 'local',
   });
   await executor.exec({ ...request, sessionId: 'web:desk' });
 
   const firstInput = (proc: ReturnType<typeof makeFakeChildProcess>) =>
     JSON.parse(String(proc.stdin.write.mock.calls[0]?.[0]));
-  expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local' });
+  expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local', fileWriteGuardSessionId: 'parent-worker', fileWriteGuardUserPrompt: 'Preserve the existing notes.' });
   expect(firstInput(spawned[1])).toMatchObject({ browserProvider: 'mac-cua' });
+  expect(firstInput(spawned[1]).fileWriteGuardUserPrompt).toBeUndefined();
 });
 
 test('HostExecutor keeps the last process for a user turn while background runs fill the rest', async () => {
@@ -552,6 +555,46 @@ test('HostExecutor keeps the last process for a user turn while background runs 
     for (const finish of finishRuns) finish();
     const results = await Promise.all([...scheduled, userTurn]);
     expect(results.every((result) => result.status === 'success')).toBe(true);
+  } finally {
+    executor.stopAll();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('HostExecutor turns an exception after dispatch into terminal journal evidence', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  spawnImpl = vi.fn(() => makeFakeChildProcess() as never);
+  resolveModelRuntimeCredentialsImpl = vi.fn(async () => ({
+    provider: 'hybridai', apiKey: 'test-key', baseUrl: 'https://example.com',
+    chatbotId: 'test-bot', enableRag: false, requestHeaders: {},
+    agentId: 'default', isLocal: false,
+  }));
+  const { hostWorkspaceStateRoot } = await import('../src/infra/host-workspace.js');
+  const { TurnCheckpoint } = await import('../container/shared/turn-checkpoint.js');
+  const { isRetrySafeRun } = await import('../container/shared/retry-safety.js');
+  const params = {
+    sessionId: 'session-a', runId: 'run-a', agentId: 'default',
+    messages: [{ role: 'user' as const, content: 'Save the sample.' }],
+    chatbotId: 'test-bot', enableRag: false, model: 'test-model', channelId: 'web',
+  };
+  readOutputImpl = vi.fn(async () => {
+    const journal = new TurnCheckpoint(hostWorkspaceStateRoot(params), params.sessionId, params.runId);
+    journal.assistant({ role: 'assistant', content: null, tool_calls: [{
+      id: 'a', type: 'function', function: { name: 'write', arguments: '{}' },
+    }] });
+    journal.start('a');
+    journal.result({ role: 'tool', tool_call_id: 'a', content: 'Saved.' });
+    throw new Error('IPC failed.');
+  });
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+  try {
+    const output = await executor.exec(params);
+    expect(output.toolHistory?.[1].content).toBe('Saved.');
+    expect(output.recovery?.kind).toBe('recovered');
+    expect(isRetrySafeRun(output, false)).toBe(false);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
   } finally {
     executor.stopAll();
     fs.rmSync(homeDir, { recursive: true, force: true });

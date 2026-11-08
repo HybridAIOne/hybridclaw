@@ -26,7 +26,7 @@ function setup() {
     baseUrl: '',
   };
   const api = {
-    config: {},
+    config: { hybridai: { baseUrl: 'https://example.com' } },
     logger: pino({ enabled: false }),
     getCredential: (name: string) => secrets[name],
     getSessionInfo: vi.fn(() => ({ workspaceRoot: '/unused' })),
@@ -82,6 +82,7 @@ describe('media capability readiness', () => {
   });
 
   test.each([
+    ['HYBRIDAI_API_KEY', 'hybridai'],
     ['OPENAI_API_KEY', 'openai'],
     ['GOOGLE_API_KEY', 'gemini'],
     ['XAI_API_KEY', 'xai'],

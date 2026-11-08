@@ -29,6 +29,7 @@ import type {
 } from './gateway-types.js';
 import {
   getPendingApproval,
+  type PendingApprovalClaim,
   rememberPendingApproval,
 } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -226,6 +227,7 @@ export function resolveImplicitNumericApprovalArgs(params: {
 }
 
 export async function handleTextChannelCommand(params: {
+  approvalClaim?: PendingApprovalClaim;
   msteamsTenantId?: string;
   sessionId: string;
   guildId: string | null;
@@ -253,6 +255,7 @@ export async function handleTextChannelCommand(params: {
     userId,
     username,
     args,
+    approvalClaim: params.approvalClaim,
   });
   if (handledApproval) {
     if (!handledApproval.text) return;

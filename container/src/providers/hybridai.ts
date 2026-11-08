@@ -1,3 +1,8 @@
+/**
+ * HybridAI streams succeed only after an explicit completion signal.
+ * Unlike transport EOF, a terminal marker establishes completion; provider
+ * error events reject the call even after visible deltas were delivered.
+ */
 import { fetchHybridAIDestination } from '../../shared/hybridai-destination.js';
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import { getSupportedReasoningEfforts } from '../../shared/reasoning-effort.js';
@@ -19,6 +24,7 @@ import {
 } from './shared.js';
 import {
   fetchWithHeaderTimeout,
+  readJsonWithIdleTimeout,
   readWithIdleTimeout,
   STREAM_IDLE_TIMEOUT_MS,
 } from './stream-utils.js';
@@ -58,6 +64,7 @@ interface StreamChunkPayload {
   model?: string;
   usage?: ChatCompletionResponse['usage'];
   choices?: StreamChoiceChunk[];
+  error?: unknown;
 }
 
 function buildHybridAIRequestBody(
@@ -278,24 +285,14 @@ export async function callHybridAIProviderStream(
     response.headers.get('content-type') || ''
   ).toLowerCase();
   if (
-    contentType.includes('application/json') &&
-    !contentType.includes('ndjson') &&
-    !contentType.includes('event-stream')
+    (contentType.includes('application/json') &&
+      !contentType.includes('ndjson') &&
+      !contentType.includes('event-stream')) ||
+    !response.body
   ) {
-    const payload = (await response.json()) as ChatCompletionResponse;
-    if (args.debugModelResponses) {
-      logModelResponseDebug({
-        provider: args.provider,
-        model: args.model,
-        kind: 'raw_non_streaming_response',
-        response: payload,
-      });
-    }
-    return payload;
-  }
-
-  if (!response.body) {
-    const payload = (await response.json()) as ChatCompletionResponse;
+    const payload = (await readJsonWithIdleTimeout(
+      response,
+    )) as ChatCompletionResponse;
     if (args.debugModelResponses) {
       logModelResponseDebug({
         provider: args.provider,
@@ -336,6 +333,8 @@ export async function callHybridAIProviderStream(
       return;
     }
 
+    if (payload.error != null)
+      throw new Error('HybridAI stream reported a provider error');
     args.onActivity?.();
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
@@ -458,9 +457,13 @@ export async function callHybridAIProviderStream(
       if (payloadText) consumePayload(payloadText);
     }
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
     decoder.decode();
   }
+
+  if (!streamDone && !finishReason)
+    throw new Error('HybridAI stream ended without a completion marker');
 
   if (!sawPayload) {
     throw new Error('Streaming response ended without payload');

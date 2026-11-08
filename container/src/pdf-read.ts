@@ -1,6 +1,7 @@
 /**
  * PDF branch of read: inherits read's authorized local file, never expands access.
  * Returns text and durable selected-page references for the main model request.
+ * An argument error can suggest a bounded page batch without reading it.
  * Provider dispatch chooses native PDF or images; this is not a model client.
  */
 import fs from 'node:fs/promises';
@@ -8,20 +9,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  firstPdfPageBatch,
   PDF_READ_MAX_PAGES,
   type PdfReadOptions,
   readPdfPages,
   searchPdfPages,
 } from '../shared/pdf-reader.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 
 export const PDF_READ_PARAMETERS = {
-  query: {
-    type: 'string',
-    description:
-      'Search extracted PDF text using a literal query you choose. Returns page numbers and snippets; then read with pages to inspect them visually. Cannot combine with pages/render.',
-  },
   pages: {
     type: 'string',
     description: `PDF page range, e.g. "5-8" or "1,3"; at most ${PDF_READ_MAX_PAGES} pages per call. Defaults to the first ${PDF_READ_MAX_PAGES} pages.`,
@@ -30,7 +27,7 @@ export const PDF_READ_PARAMETERS = {
     type: 'string',
     enum: ['auto', 'never'],
     description:
-      'PDF images: auto attaches selected pages directly to the model; never extracts text only.',
+      'PDF images: auto prepares selected pages for visual delivery; dispatch reports actual coverage and permitted analysis paths. render=never extracts text only.',
   },
 };
 
@@ -44,12 +41,13 @@ export async function readPdfFile(
       !PDF_READ_PARAMETERS.render.enum.includes(args.render))
   )
     throw new Error('render must be auto or never');
-  if (args.offset !== undefined || args.limit !== undefined)
-    throw new Error('Use pages for PDFs, not line offset/limit');
+  const hasLineArgs = args.offset !== undefined || args.limit !== undefined;
   const runtimeUrl = pathToFileURL(
-    path.join(WORKSPACE_ROOT, 'skills/pdf/scripts/_pdf_runtime.mjs'),
+    path.join(WORKSPACE_STATE_ROOT, 'skills/pdf/scripts/_pdf_runtime.mjs'),
   ).href;
   if (args.query !== undefined) {
+    if (hasLineArgs)
+      throw new Error('Use pages for PDFs, not line offset/limit');
     if (args.pages !== undefined || args.render !== undefined)
       throw new Error(
         'Use query to locate pages, then a separate read with pages; do not combine query with pages/render',
@@ -62,13 +60,31 @@ export async function readPdfFile(
       }),
     };
   }
+  const batch = firstPdfPageBatch(args.pages);
+  if (hasLineArgs || batch?.hasMore) {
+    return {
+      isError: true,
+      output: JSON.stringify({
+        error: `Use at most ${PDF_READ_MAX_PAGES} PDF pages per read, without line offset/limit.`,
+        suggestedCall: {
+          name: 'read',
+          arguments: {
+            path: args.path,
+            pages: batch?.pages,
+            render: args.render,
+          },
+        },
+        next: 'No pages were read. Retry with the suggested call, then read any remaining requested pages.',
+      }),
+    };
+  }
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-pdf-'));
   try {
     const result = await readPdfPages(filePath, {
-      pages: args.pages as PdfReadOptions['pages'],
+      pages: batch?.pages,
       render: args.render as PdfReadOptions['render'],
       outputDir,
-      workspaceRoot: WORKSPACE_ROOT,
+      workspaceRoot: WORKSPACE_STATE_ROOT,
       runtimeUrl,
     });
     const { visualAttachments, images, ...summary } = result;

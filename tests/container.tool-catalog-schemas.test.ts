@@ -58,6 +58,14 @@ describe('input schemas supplied with catalog discovery', () => {
     expect(described.function.parameters.properties.arguments).toEqual(schema);
   });
 
+  test('describes a tool whose request format lives in a long description', () => {
+    const target: ToolDefinition = { type: 'function', function: { name: 'records__update', description: 'x'.repeat(35_000), parameters } };
+    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]), () => false)!;
+    const described = catalog.discoveryResult(call('describe', target.function.name))!;
+    expect(described.isError).toBe(false);
+    expect(JSON.parse(described.output).function.description).toContain(target.function.description);
+  });
+
   test('bounds inline schema text across a deferred index and excludes unavailable tools', () => {
     const targets = Array.from({ length: 40 }, (_, i) => tool(`records__lookup_${i}`, { ...parameters, description: 'x'.repeat(1500) }));
     const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)), () => false)!;

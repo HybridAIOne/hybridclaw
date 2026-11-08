@@ -109,8 +109,12 @@ start with the focused audit trace before enabling persistent request logging:
 ```
 
 Those views show the request, response, tool, approval, and audit events around
-one turn. If the trace is not enough, start or restart the gateway with request
-logging enabled:
+one turn. The audit trail keeps each tool result as a redacted preview of at
+most `audit.toolResults.maxChars` characters (4,000 by default), because tool
+results can carry mail, files, and pages from connected services. Set
+`audit.toolResults.mode` to `full` in `config.json` to also keep the full
+redacted result. If the trace is not enough, start or restart the gateway with
+request logging enabled:
 
 ```bash
 hybridclaw gateway start --log-requests

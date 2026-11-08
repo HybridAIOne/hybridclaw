@@ -9,6 +9,7 @@ import type {
   ContainerInput,
   ContainerOutput,
 } from '../src/types/container.js';
+import { toolResultFilePath } from '../container/shared/tool-history.js';
 import { runContainerWorker } from './helpers/container-worker.js';
 
 let root: string;
@@ -361,7 +362,7 @@ test('a file reference reaches the outbound request but never the recorded call'
   }
 }, 60_000);
 
-test('a large tool result crosses IPC once, as a reference while the model and replay retain full content', async () => {
+test('a large tool result crosses IPC by reference with full evidence and bounded model replay', async () => {
   // Two full copies of a 6 MB result used to exceed the 10 MB output limit.
   const session = memory.getOrCreateSession('large-result', null, 'test-channel');
   const body = 'row,value\n'.repeat(600_000);
@@ -434,15 +435,20 @@ test('a large tool result crosses IPC once, as a reference while the model and r
       sessionId: session.id,
       workspaceRoot: workspace,
     });
+    const resultPath = toolResultFilePath(session.id, 'export-get');
     const saved = fs.readFileSync(
-      path.join(workspace, '.tool-results', session.id, 'export-get.txt'),
+      path.join(workspace, resultPath),
       'utf8',
     );
     expect(JSON.parse(saved).body === body).toBe(true);
-    expect(observedModelResult === saved).toBe(true);
+    expect(typeof observedModelResult).toBe('string');
+    expect(String(observedModelResult).length).toBeLessThan(9_000);
+    expect(observedModelResult).toContain(resultPath);
     expect(restored.toolExecutions?.[0].result === saved).toBe(true);
     expect(restored.toolHistory?.[1].content === saved).toBe(true);
-    expect(restored.toolHistoryForReplay?.[1].content === saved).toBe(true);
+    expect(restored.toolHistoryForReplay?.[1].content).toBe(
+      observedModelResult,
+    );
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

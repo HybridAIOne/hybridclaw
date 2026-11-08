@@ -9,18 +9,19 @@
  * cached chain head is reused only while the file is the size this process
  * left it; otherwise the head is re-read. Mirrors of a
  * record (the SQLite `audit_events` row in `audit-events.ts`) are written after
- * that promise resolves, never before. This module never touches SQLite.
+ * that promise resolves, never before. Unterminated tails are separated, never
+ * erased; verification still reports corrupt lines. This module never touches SQLite.
  */
 import { hash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { type FileHandle, mkdir, open, stat } from 'node:fs/promises';
 import path from 'node:path';
-
-import { DATA_DIR } from '../config/config.js';
 import { redactSecretsDeep } from '../security/redact.js';
+import { getAuditSessionDir, getAuditWirePath } from './audit-paths.js';
+
+export { getAuditSessionDir, getAuditWirePath } from './audit-paths.js';
 
 export const AUDIT_PROTOCOL_VERSION = '2.0';
-const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
 const FALLBACK_PREV_HASH = 'GENESIS';
 
@@ -121,27 +122,20 @@ function stableStringify(value: unknown): string {
   return `{${parts.join(',')}}`;
 }
 
-function safeSessionDirName(sessionId: string): string {
-  const normalized = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-  return normalized || 'session';
-}
-
-export function getAuditSessionDir(sessionId: string): string {
-  return path.join(DATA_DIR, AUDIT_DIR_NAME, safeSessionDirName(sessionId));
-}
-
-export function getAuditWirePath(sessionId: string): string {
-  return path.join(getAuditSessionDir(sessionId), WIRE_FILE_NAME);
-}
-
 async function appendLines(filePath: string, lines: string[]): Promise<number> {
-  const text = `${lines.join('\n')}\n`;
+  let text = `${lines.join('\n')}\n`;
   const handle = await open(
     filePath,
-    fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_WRONLY,
+    fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_RDWR,
     0o600,
   );
   try {
+    const { size } = await handle.stat();
+    if (size > 0) {
+      const last = Buffer.alloc(1);
+      await handle.read(last, 0, 1, size - 1);
+      if (last[0] !== 0x0a) text = `\n${text}`;
+    }
     await handle.appendFile(text, 'utf-8');
     await handle.sync();
   } finally {

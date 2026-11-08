@@ -6,6 +6,9 @@
  * while the turn ran (`steerNotes`, as user messages of their own), then the
  * reply. NOT the audit trail or compaction; `recordSuccessfulTurn` and
  * `recordErrorTurn` in gateway-service.ts decide those and what the reply is.
+ * Final storage replaces provisional recovery rows in the same SQLite commit.
+ * A repeated run returns its receipt before appending canonical or transcript
+ * entries. These file appends are best-effort, not part of the SQLite commit.
  */
 import { logger } from '../logger.js';
 import {
@@ -16,9 +19,11 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { finishTurnCheckpoint } from './turn-checkpoint.js';
 
 export function storeTurnMessages(opts: {
   sessionId: string;
+  runId: string;
   agentId: string;
   channelId: string;
   userId: string;
@@ -55,7 +60,7 @@ export function storeTurnMessages(opts: {
     artifacts: opts.artifacts,
     toolHistory: opts.toolHistoryForReplay,
   };
-  const storedTurn =
+  const finalized = finishTurnCheckpoint(opts.sessionId, opts.runId, () =>
     opts.replaceBuiltInMemory === true
       ? storeMessagesOnly(opts.sessionId, user, steerNotes, assistant)
       : memoryService.storeTurn({
@@ -63,7 +68,10 @@ export function storeTurnMessages(opts: {
           user,
           steerNotes,
           assistant,
-        });
+        }),
+  );
+  if (!finalized.stored) return finalized.value;
+  const storedTurn = finalized.value;
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
     try {
       memoryService.appendCanonicalMessages({

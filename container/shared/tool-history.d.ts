@@ -1,6 +1,6 @@
 import type { VisualAttachmentMessage } from './visual-snapshots.js';
 
-interface HistoryMessage extends VisualAttachmentMessage {
+export interface HistoryMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{

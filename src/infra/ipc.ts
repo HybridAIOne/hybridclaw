@@ -13,13 +13,14 @@
  *
  * `readOutput` always settles, with the reply to its own request id, a
  * timeout, or an interrupt, so a stopped agent's late reply never answers a
- * later request. An interrupted read keeps only the tool history the agent
- * flushed while shutting down. Starting and stopping the agent belongs to
- * host-runner / container-runner, not here.
+ * later request. Replies must be bounded, regular files opened without following
+ * links, and their reply shapes are validated before use. An interrupted read
+ * keeps validated tool history and known usage flushed during shutdown.
+ * Host-runner and container-runner own worker startup and shutdown.
  */
+
 import fs from 'node:fs';
 import path from 'node:path';
-
 import { encodeAuthenticatedInput } from '../../container/shared/ipc-input-auth.js';
 import {
   ipcOutputFileName,
@@ -36,12 +37,14 @@ import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
+import { sessionDirectoryName } from '../utils/session-directory.js';
+import { isContainerOutput } from './ipc-output-validation.js';
 
 /**
  * Get session directory, creating it if needed.
  */
 function sessionDir(sessionId: string): string {
-  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safe = sessionDirectoryName(sessionId);
   const dir = path.join(DATA_DIR, 'sessions', safe);
   return dir;
 }
@@ -275,12 +278,7 @@ async function readOutputFile(
     idleTimeoutMs === null
       ? null
       : idleTimeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1);
-  const hardTimeoutMs =
-    requestedWallClockMs === null
-      ? derivedWallClockMs
-      : idleTimeoutMs === null
-        ? requestedWallClockMs
-        : Math.max(idleTimeoutMs, requestedWallClockMs);
+  const hardTimeoutMs = requestedWallClockMs ?? derivedWallClockMs;
   const hardDeadline =
     hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
 
@@ -356,37 +354,81 @@ async function readOutputFile(
   }
 }
 
-/** One look at the reply files: the parsed output, an oversize error, or null. */
+/** One look at the reply files: parsed output, an invalid-file error, or null. */
 function readOutputFiles(
   sessionId: string,
   outputPaths: readonly string[],
 ): ContainerOutput | null {
   for (const outputPath of outputPaths) {
-    if (!fs.existsSync(outputPath)) continue;
-    const stat = fs.statSync(outputPath);
-    if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
-      fs.unlinkSync(outputPath);
-      logger.warn(
-        { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
-        'Container output exceeded size limit',
-      );
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
-      };
-    }
+    let fd: number | undefined;
     try {
-      const raw = fs.readFileSync(outputPath, 'utf-8');
-      const output: ContainerOutput = JSON.parse(raw);
-      // Clean up output file after reading
+      fd = fs.openSync(
+        outputPath,
+        fs.constants.O_RDONLY |
+          fs.constants.O_NOFOLLOW |
+          fs.constants.O_NONBLOCK,
+      );
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
+        throw new Error('Output must be a regular file within the size limit');
+      }
+      // Read the opened inode, never reopen the worker-controlled pathname.
+      // One extra byte detects growth without allowing an unbounded read.
+      const buffer = Buffer.alloc(stat.size + 1);
+      let bytes = 0;
+      while (bytes < buffer.length) {
+        const read = fs.readSync(
+          fd,
+          buffer,
+          bytes,
+          buffer.length - bytes,
+          bytes,
+        );
+        if (read === 0) break;
+        bytes += read;
+      }
+      const named = fs.lstatSync(outputPath);
+      if (
+        bytes !== stat.size ||
+        !named.isFile() ||
+        named.dev !== stat.dev ||
+        named.ino !== stat.ino ||
+        named.size !== stat.size
+      ) {
+        throw new Error('Output file changed while reading');
+      }
+      const output: unknown = JSON.parse(buffer.toString('utf8', 0, bytes));
+      if (!isContainerOutput(output)) {
+        fs.unlinkSync(outputPath);
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: 'Invalid agent output payload',
+        };
+      }
       fs.unlinkSync(outputPath);
       logger.debug({ sessionId }, 'Read IPC output');
       return output;
     } catch (err) {
-      // File might be partially written, wait and retry
-      logger.debug({ sessionId, err }, 'Output file not ready, retrying');
+      if (
+        (err as NodeJS.ErrnoException).code === 'ENOENT' ||
+        err instanceof SyntaxError
+      ) {
+        // Missing or partially written JSON can become ready on the next wakeup.
+        logger.debug({ sessionId }, 'Output file not ready, retrying');
+        continue;
+      }
+      logger.warn({ sessionId }, 'Rejected unsafe or unreadable IPC output');
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error:
+          'Invalid agent output file: expected a stable regular file within the size limit',
+      };
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
     }
   }
   return null;
@@ -394,7 +436,7 @@ function readOutputFiles(
 
 /**
  * The stopped agent flushes the tool calls it already ran (see
- * container/src/shutdown-output.ts). Keep only that history: the turn stays
+ * container/src/shutdown-output.ts). Keep history and known usage: the turn stays
  * interrupted, and its late results and side effects are not honored.
  */
 async function collectInterruptedOutput(
@@ -409,6 +451,7 @@ async function collectInterruptedOutput(
     if (late) {
       return {
         ...interruptedOutput(),
+        ...(late.tokenUsage ? { tokenUsage: late.tokenUsage } : {}),
         ...(late.toolHistory?.length ? { toolHistory: late.toolHistory } : {}),
         ...(late.toolHistoryForReplay?.length
           ? { toolHistoryForReplay: late.toolHistoryForReplay }

@@ -1,3 +1,4 @@
+import { sessionDirectoryName } from '../src/utils/session-directory.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -77,8 +78,11 @@ test('adopt moves the phone thread, its task and memory and ends onboarding', as
     newMessages: [{ role: 'user', content: 'hi', sessionId: session.id }],
   });
   const { DATA_DIR } = await import('../src/config/config.ts');
-  fs.mkdirSync(path.join(DATA_DIR, 'sessions', OLD), { recursive: true });
-  fs.writeFileSync(path.join(DATA_DIR, 'sessions', OLD, 'state.json'), '{}');
+  const audit = await import('../src/audit/audit-trail.js');
+  await audit.appendAuditEvent({ sessionId: OLD, runId: 'test-run', event: { type: 'test' } });
+  const wireBefore = fs.readFileSync(audit.getAuditWirePath(OLD), 'utf8');
+  fs.mkdirSync(path.join(DATA_DIR, 'sessions', sessionDirectoryName(OLD)), { recursive: true });
+  fs.writeFileSync(path.join(DATA_DIR, 'sessions', sessionDirectoryName(OLD), 'state.json'), '{}');
   const { archiveTranscript } = await import(
     '../src/memory/compaction-archive.ts'
   );
@@ -118,7 +122,10 @@ test('adopt moves the phone thread, its task and memory and ends onboarding', as
   expect(
     ctx.db.listMemoryValues('gateway.bootstrap_autostart.workspace.v1'),
   ).toEqual([]);
-  expect(fs.existsSync(path.join(DATA_DIR, 'sessions', NEW, 'state.json'))).toBe(true);
+  expect(fs.existsSync(path.join(DATA_DIR, 'sessions', sessionDirectoryName(NEW), 'state.json'))).toBe(true);
+  expect(fs.readFileSync(audit.getAuditWirePath(NEW), 'utf8')).toBe(wireBefore);
+  const { listAuditedSessions } = await import('../src/audit/leak-scanner.js');
+  expect(listAuditedSessions(DATA_DIR)).toContainEqual({ sessionId: NEW, filePath: audit.getAuditWirePath(NEW) });
   expect(fs.readdirSync(path.join(DATA_DIR, 'compaction-archives', NEW))).toEqual([
     path.basename(archive.path),
   ]);
