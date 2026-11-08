@@ -159,6 +159,21 @@ share one removal attempt. An already absent container counts as confirmed
 removal, even if the remove command fails. If execution and cleanup both fail,
 both errors are retained with the execution failure as the cause.
 
+Each job has a new directory even when two runs start in the same clock tick.
+Within it, each task has a `task-<uuid>` directory and unique execution, container
+and image identities. Dataset names remain labels in `result.json` and each
+task's `summary.json`; punctuation, case differences and repeated names cannot
+make tasks share files or sessions.
+
+Environment and verifier archives use the suite's `.venv` Python, the same
+interpreter used to load the dataset. Extraction requires Python's
+[`tarfile.data_filter`](https://docs.python.org/3/library/tarfile.html#extraction-filters):
+escaping paths or links and special files are refused, while ordinary files,
+executable scripts and contained links remain supported. Archive ownership and
+privileged permission bits are discarded. A Python environment without the
+filter fails before extracting files; rerun suite setup with a current Python
+environment (the `uv` setup uses managed Python 3.12).
+
 Checks run before each task and every five seconds during builds, execution,
 copies and verification. Crossing a resource floor or losing engine health
 cancels benchmark commands and sessions and removes only the runner's own

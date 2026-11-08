@@ -51,6 +51,7 @@ import {
   LOCOMO_DATASET_FILENAME,
   LOCOMO_SETUP_MARKER,
 } from './locomo-types.js';
+import { managedPythonExecutable } from './managed-python.js';
 import { normalizeOpenAIBaseUrl } from './openai-url.js';
 import type { TraceJudgeCriterionMetrics } from './trace-judge-native.js';
 
@@ -1006,10 +1007,7 @@ function getManagedSuitePythonPath(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): string {
-  const installDir = getManagedSuiteInstallDir(suite, dataDir);
-  return process.platform === 'win32'
-    ? path.join(installDir, '.venv', 'Scripts', 'python.exe')
-    : path.join(installDir, '.venv', 'bin', 'python');
+  return managedPythonExecutable(getManagedSuiteInstallDir(suite, dataDir));
 }
 
 function getManagedSuiteExecutablePath(
@@ -1046,10 +1044,7 @@ function getTau2ExecutablePath(dataDir: string): string {
 }
 
 function getTau2PythonPath(dataDir: string): string {
-  const installDir = getTau2InstallDir(dataDir);
-  return process.platform === 'win32'
-    ? path.join(installDir, '.venv', 'Scripts', 'python.exe')
-    : path.join(installDir, '.venv', 'bin', 'python');
+  return managedPythonExecutable(getTau2InstallDir(dataDir));
 }
 
 function getManagedSuiteSetupCommand(

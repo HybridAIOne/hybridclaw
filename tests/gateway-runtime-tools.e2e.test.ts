@@ -40,7 +40,8 @@ describe.skipIf(!DOCKER_E2E)(
       const container = startContainer({
         image: IMAGE,
         name: CONTAINER_NAME,
-        entrypoint: ['sleep', 'infinity'],
+        // The image's own entrypoint, so its startup work is under test too.
+        entrypoint: ['hybridclaw-entrypoint', 'sleep', 'infinity'],
       });
       exec = container.exec;
     }, 30_000);
@@ -70,6 +71,23 @@ describe.skipIf(!DOCKER_E2E)(
         expect(result).toBe('ok');
       },
     );
+
+    test.each([
+      'uv --version',
+      'ps --version',
+      'cc --version',
+      'make --version',
+    ])(
+      'coding toolchain command `%s` runs',
+      (cmd) => {
+        expect(exec(cmd)).not.toBe('');
+      },
+    );
+
+    test('HOME exists on the data volume', () => {
+      const result = exec('test -d "$HOME" && echo "$HOME"');
+      expect(result).toBe('/workspace/.data/home');
+    });
 
     test('xlsx resolves to @e965/xlsx', () => {
       const result = exec(

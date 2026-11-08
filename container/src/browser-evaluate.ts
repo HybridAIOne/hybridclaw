@@ -8,6 +8,8 @@
  * NOT a sandbox for untrusted code: the approval policy decides whether the
  * call runs at all, and browser-tools.ts keeps private hosts out of reach.
  * Failed expressions stay failed; recovery guidance never replays page code.
+ * Exports use checked exclusive publication. A save failure can follow page
+ * effects, so it is reported without replaying the expression.
  */
 import { currentBrowserPage } from './browser-checkout.js';
 import type { ToolDefinition } from './types.js';
@@ -23,7 +25,7 @@ const DOM_LOOKUP_GUIDANCE =
 export interface BrowserEvaluateDeps {
   /** Runs the browser tool in this chat's session; its JSON output. */
   evaluate(args: Record<string, unknown>): Promise<string>;
-  writeFile(userPath: string, contents: string): void;
+  writeFile(userPath: string, contents: string): Promise<void>;
 }
 
 export async function runBrowserEvaluate(
@@ -59,7 +61,14 @@ export async function runBrowserEvaluate(
     // A string is the file itself (CSV, Markdown); anything else is JSON.
     const contents =
       typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-    deps.writeFile(savePath, contents);
+    try {
+      await deps.writeFile(savePath, contents);
+    } catch (error) {
+      throw new Error(
+        `Page evaluation completed, but the export was not saved: ${error instanceof Error ? error.message : String(error)}\nChoose a new path or use write/edit for a checked replacement. Check for page effects before retrying the expression.`,
+        { cause: error },
+      );
+    }
     return JSON.stringify({
       success: true,
       url: output.url,
@@ -98,7 +107,7 @@ export const BROWSER_EVALUATE_TOOL_DEFINITION: ToolDefinition = {
         path: {
           type: 'string',
           description:
-            'Optional workspace file to save the full result to instead of returning it. A string result is written as is (build CSV in the expression); other values as JSON.',
+            'Optional new workspace file to save the full result to instead of returning it. Existing paths are preserved; use write/edit for a checked replacement. A string result is written as is (build CSV in the expression); other values as JSON.',
         },
         frame: {
           type: 'string',
