@@ -28,6 +28,7 @@ import {
   type GatewayMediaItem,
   type GatewayPluginCommandSummary,
   type GatewayProactiveMessage,
+  gatewayAcknowledgeProactive,
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
@@ -3394,10 +3395,24 @@ async function pollProactiveMessages(
       TUI_PROACTIVE_PULL_LIMIT,
     );
     if (!Array.isArray(result.messages) || result.messages.length === 0) return;
+    const claimToken = result.claimToken;
+    if (!claimToken)
+      throw new Error(
+        'Proactive delivery requires a claim token; update the gateway.',
+      );
+    const acknowledge = () =>
+      gatewayAcknowledgeProactive(
+        CHANNEL_ID,
+        claimToken,
+        result.messages.map((message) => message.id),
+      );
     const messages = result.messages.filter(
       (message) => !shouldSuppressProactiveMessage(message),
     );
-    if (messages.length === 0) return;
+    if (messages.length === 0) {
+      await acknowledge();
+      return;
+    }
 
     clearTuiSlashMenu();
     const regularMessages = messages.filter(
@@ -3421,6 +3436,7 @@ async function pollProactiveMessages(
     );
 
     if (regularMessages.length === 0) {
+      await acknowledge();
       if (promptAfter) promptTuiInput(rl);
       return;
     }
@@ -3444,6 +3460,7 @@ async function pollProactiveMessages(
       promptAfter,
       sawDelegateStreamMessage,
     );
+    await acknowledge();
     if (!delegateStreamActive) {
       return;
     }

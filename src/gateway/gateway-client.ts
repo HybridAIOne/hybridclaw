@@ -4,6 +4,7 @@ import {
   GATEWAY_CLIENT_BASE_URL,
 } from '../config/config.js';
 import {
+  GATEWAY_PROACTIVE_PATH,
   type GatewayAdminMcpOAuthStartResponse,
   type GatewayAdminMcpOAuthStatusResponse,
   type GatewayAdminMcpResponse,
@@ -433,12 +434,24 @@ export async function gatewayPullProactive(
     limit: String(Math.max(1, Math.floor(limit))),
   });
   return requestJson<GatewayProactivePullResponse>(
-    `/api/proactive/pull?${params.toString()}`,
+    `${GATEWAY_PROACTIVE_PATH}?${params.toString()}`,
     {
       method: 'GET',
       headers: authHeaders(),
     },
   );
+}
+
+export async function gatewayAcknowledgeProactive(
+  channelId: string,
+  claimToken: string,
+  ids: number[],
+): Promise<void> {
+  await requestJson(GATEWAY_PROACTIVE_PATH, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelId, claimToken, ids }),
+  });
 }
 
 export async function gatewayHistory(
