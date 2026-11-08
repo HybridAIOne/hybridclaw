@@ -1,7 +1,8 @@
 /**
  * Benchmark capacity checks bound brief warnings; critical pressure stops immediately.
- * This guard owns only its probe and lock, retained until cleanup is confirmed.
- * It never prunes Docker or restarts services; estimates are not disk quotas.
+ * This guard owns its probe, registered task containers and run lock. Admission
+ * stays locked until absence is confirmed against the original engine. It never
+ * prunes or restarts services; estimates and polling cannot enforce disk quotas.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -152,7 +153,7 @@ export class BenchmarkResources {
   private checking = false;
   private engineId?: string;
   private failure?: Error;
-  private probeStarted = false;
+  private readonly ownedContainers = new Set<string>();
   private macWarningSince?: number;
 
   constructor(
@@ -290,7 +291,7 @@ export class BenchmarkResources {
         );
       }
       this.signal.throwIfAborted();
-      this.probeStarted = true;
+      this.registerContainer(this.probeName);
       await this.docker([
         'run',
         '-d',
@@ -378,14 +379,23 @@ export class BenchmarkResources {
     return this.pending;
   }
 
-  async close(): Promise<void> {
-    clearInterval(this.timer);
-    await this.pending.catch(() => {});
-    if (this.probeStarted) {
+  registerContainer(name: string): void {
+    this.signal.throwIfAborted();
+    if (!this.lockPath || this.ownedContainers.has(name))
+      throw new Error(
+        'Container ownership requires active, unique benchmark admission.',
+      );
+    this.ownedContainers.add(name);
+  }
+
+  async removeContainer(name: string): Promise<void> {
+    if (!this.ownedContainers.has(name))
+      throw new Error(`Cannot remove an unowned benchmark container: ${name}`);
+    try {
       await this.verifyEngine();
       await benchmarkCommand({
         command: 'docker',
-        args: ['rm', '-f', this.probeName],
+        args: ['rm', '-f', name],
         timeout: PROBE_TIMEOUT_MS,
         allowFailure: true,
       });
@@ -395,7 +405,7 @@ export class BenchmarkResources {
           'ps',
           '-a',
           '--filter',
-          `name=^/${this.probeName}$`,
+          `name=^/${name}$`,
           '--format',
           '{{.Names}}',
         ],
@@ -403,13 +413,23 @@ export class BenchmarkResources {
         allowFailure: true,
       });
       await this.verifyEngine();
-      if (state.status !== 0 || state.stdout.trim()) {
-        throw new Error(
-          `Benchmark probe cleanup is unconfirmed: ${this.probeName}; engine lock retained.`,
-        );
-      }
-      this.probeStarted = false;
+      if (state.status !== 0 || state.stdout.trim())
+        throw new Error('Container absence could not be confirmed.');
+      this.ownedContainers.delete(name);
+    } catch (error) {
+      const failure = new Error(
+        `Benchmark container cleanup is unconfirmed: ${name}; engine lock retained: ${String(error)}`,
+        { cause: error },
+      );
+      this.abort(failure);
+      throw failure;
     }
+  }
+
+  async close(): Promise<void> {
+    clearInterval(this.timer);
+    await this.pending.catch(() => {});
+    for (const name of this.ownedContainers) await this.removeContainer(name);
     if (this.lockPath) {
       fs.unlinkSync(this.lockPath);
       this.lockPath = undefined;

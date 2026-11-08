@@ -5,7 +5,7 @@ import { runTerminalBenchNativeCli } from '../eval-harness/src/terminal-bench-na
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const mocks = vi.hoisted(() => ({
-  command: vi.fn(), start: vi.fn(), check: vi.fn(), close: vi.fn(),
+  command: vi.fn(), start: vi.fn(), check: vi.fn(), close: vi.fn(), register: vi.fn(), remove: vi.fn(),
   handle: vi.fn(), stop: vi.fn(), controller: new AbortController(),
   budget: { memoryGiB: 2, swapGiB: 1, diskGiB: 8, artifactGiB: 1 },
 }));
@@ -20,6 +20,8 @@ vi.mock('../eval-harness/src/benchmark-resources.js', () => ({
     start = mocks.start;
     check = mocks.check;
     close = mocks.close;
+    registerContainer = mocks.register;
+    removeContainer = mocks.remove;
     abort = (reason: Error) => mocks.controller.abort(reason);
     constructor(_paths: string[], budget: typeof mocks.budget) { this.budget = budget; }
   },
@@ -35,6 +37,8 @@ beforeEach(() => {
   mocks.start.mockReset().mockResolvedValue(undefined);
   mocks.check.mockReset().mockResolvedValue(undefined);
   mocks.close.mockReset().mockResolvedValue(undefined);
+  mocks.register.mockReset();
+  mocks.remove.mockReset().mockResolvedValue(undefined);
   mocks.handle.mockReset().mockResolvedValue({ status: 'success' });
   tasks = [1, 2, 3].map((index) => ({ task_name: `task_${index}`, instruction: 'Create an example artifact.', docker_image: 'example/task:latest' }));
   mocks.command.mockReset().mockImplementation(async ({ command }: { command: string }) => ({
@@ -91,9 +95,9 @@ test('records infrastructure failure and stops queue admission and owned executi
   expect(mocks.stop).toHaveBeenCalledWith(expect.stringMatching(/^tb2-exec:/));
   expect(result().infrastructureError).toMatch(/engine disk pressure/);
   expect(result().mean).toBeNull();
-  const removals = mocks.command.mock.calls.map(([params]) => params.args).filter((params) => params[0] === 'rm');
+  const removals = mocks.remove.mock.calls.map(([name]) => name);
   expect(removals.length).toBeGreaterThan(0);
-  expect(removals.every((params) => params[2] === runs[0].args[runs[0].args.indexOf('--name') + 1])).toBe(true);
+  expect(removals.every((params) => params === runs[0].args[runs[0].args.indexOf('--name') + 1])).toBe(true);
 });
 
 test('removes a task container when startup fails before an environment is returned', async () => {
@@ -104,7 +108,7 @@ test('removes a task container when startup fails before an environment is retur
   });
   await runTerminalBenchNativeCli(args());
   expect(mocks.handle).not.toHaveBeenCalled();
-  expect(mocks.command.mock.calls.filter(([params]) => params.args[0] === 'rm')).toHaveLength(3);
+  expect(mocks.remove).toHaveBeenCalledTimes(3);
   expect(result()).toMatchObject({ errors: 3 });
 });
 
