@@ -167,6 +167,10 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Cooperative file locks persist a unique owner entry beside the locked file.
+Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
+describe confirmed-death recovery and unknown-owner handling.
+
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
 and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
@@ -351,8 +355,8 @@ own path. The gateway binds delegated workers to their root worker's conflict
 store through authenticated input. Parents, children and siblings reload that
 store before each decision; unrelated conversations retain separate stores.
 Shared updates use the existing cooperative file lock, preserving concurrent
-additions and resolutions. An active or abandoned lock fails closed until its
-writer finishes or the operator removes a verified abandoned lock.
+additions and resolutions. Lock recovery follows the ownership checks for
+[file-write transactions](#agent-tool-and-runtime-internals); unidentified locks fail closed.
 Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
@@ -1668,8 +1672,14 @@ Publication is atomic, and cooperative `.lock` directories serialize `write` and
 `edit` checks and replacements across workers, including task sandboxes. An edit
 uses the complete bytes it read as its expected content. A change detected since
 that read rejects the edit before publication. These checks use current disk
-state and survive worker replacement. A crashed writer's lock
-fails closed until removed after verifying no writer is active. External editors,
+state and survive worker replacement. Node writers record a unique owner entry
+inside each lock directory. A contender reclaims it only when its boot and PID
+namespace match and the operating system confirms that the owner PID is absent.
+Age alone never establishes that a writer died. Unknown, incomplete, malformed,
+and foreign-namespace owners, including empty task-sandbox locks, fail closed;
+remove those only after independently verifying that no writer remains active.
+Recovery removes the unique owner entry before the directory, so competing
+reapers cannot remove a fresh writer's lock. External editors,
 `bash`, and generated-artifact tools do not participate in this protocol;
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
@@ -1839,6 +1849,7 @@ read/modify/atomic-write transaction. Concurrent sessions retain each other's
 requests. Reads reject malformed state, and write or lock failures propagate
 before consent can grant replay or trust. Lock acquisition waits synchronously
 for at most the existing five-second bound because policy evaluation is synchronous.
-A crashed writer's lock is not stolen: remove it only after verifying no writer
-is running. The file format and worker validation of arguments, user, session,
-and pinned one-time scope are unchanged.
+Confirmed dead owners in the same boot/PID namespace are recovered using the
+file-write transaction protocol; unknown owners remain locked. The file format
+and worker validation of arguments, user, session, and pinned one-time scope
+are unchanged.
