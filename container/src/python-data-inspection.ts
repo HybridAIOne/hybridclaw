@@ -1,5 +1,5 @@
 /**
- * Bounded Python inspection distinguishes data operations and lexical comments.
+ * Bounded Python inspection distinguishes data operations, imports and comments.
  * The isolated parser never executes supplied source. Failed inspection keeps
  * the caller's conservative result; comments never authorize executable code.
  * Unlike approval policy, this is syntax inspection, not a Python sandbox.
@@ -11,6 +11,7 @@ import { isRecord } from '../shared/primitive-values.js';
 import { type Cwd, resolvePath } from './bash-commands.js';
 import {
   isWithinRoot,
+  resolveCanonicalPath,
   resolveWorkspacePath,
   WORKSPACE_ROOT,
 } from './runtime-paths.js';
@@ -230,7 +231,33 @@ try:
         except Unknown:
             recognized = False
         literals = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)]
-        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'writes': reader.writes, 'literals': literals}))
+        imports = []
+        sys_names = {'sys'}
+        changes_path = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.extend(alias.name for alias in node.names)
+                if any(alias.name.split('.')[0] == 'importlib' for alias in node.names):
+                    changes_path = True
+                sys_names.update(alias.asname or alias.name for alias in node.names if alias.name == 'sys')
+            elif isinstance(node, ast.ImportFrom):
+                imports.append(node.module or '')
+                imports.extend((node.module + '.' + alias.name) for alias in node.names if node.module)
+                if node.module and node.module.split('.')[0] == 'importlib':
+                    changes_path = True
+                if node.module == 'sys' and any(alias.name != 'stdin' for alias in node.names):
+                    changes_path = True
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == '__import__' or isinstance(node, ast.Attribute) and node.attr == '__import__':
+                changes_path = True
+            if isinstance(node, ast.Name) and node.id in sys_names:
+                # Only stdin access is certified here; aliases and reflection
+                # can restore a directory excluded by isolated startup.
+                parent = parents.get(node)
+                if not isinstance(parent, ast.Attribute) or parent.attr != 'stdin':
+                    changes_path = True
+        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'writes': reader.writes, 'literals': literals, 'imports': imports, 'changesPath': changes_path}))
     elif sys.argv[1] == 'comments':
         lines = source.split('\\n')
         for token in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -271,32 +298,45 @@ function inspectPython(
     : null;
 }
 
-function isRealWorkspacePath(candidate: string): boolean {
+function canonicalFromExistingAncestor(candidate: string): string | null {
   try {
-    const root = fs.realpathSync(WORKSPACE_ROOT);
     for (let current = candidate; ; current = path.dirname(current)) {
       try {
-        return isWithinRoot(fs.realpathSync(current), root);
+        return path.resolve(
+          fs.realpathSync(current),
+          path.relative(current, candidate),
+        );
       } catch (error) {
         if (
           (error as NodeJS.ErrnoException).code !== 'ENOENT' ||
           fs.lstatSync(current, { throwIfNoEntry: false }) ||
           path.dirname(current) === current
         )
-          return false;
+          return null;
       }
     }
+  } catch {
+    return null;
+  }
+}
+
+function isRealWorkspacePath(candidate: string): boolean {
+  try {
+    const root = fs.realpathSync(WORKSPACE_ROOT);
+    const actual = canonicalFromExistingAncestor(candidate);
+    return actual !== null && isWithinRoot(actual, root);
   } catch {
     return false;
   }
 }
 
+const PYTHON_IMPORTABLE = /\.(?:py[co]?|so|pyd|zip|egg)$/i;
+
 function hasPythonStartupRisk(fetchedFiles: Iterable<string>): boolean {
   // Downloaded importable code may shadow the standard modules this subset
   // uses. Unknown locations cannot establish a data-only interpretation either.
   for (const file of fetchedFiles) {
-    if (file.includes('\0') || /\.(?:py[co]?|so|pyd|zip|egg)$/i.test(file))
-      return true;
+    if (file.includes('\0') || PYTHON_IMPORTABLE.test(file)) return true;
   }
   return false;
 }
@@ -308,8 +348,9 @@ export function inspectPythonInline(
 ): {
   data: { reads: string[]; writes: string[]; pathHints: string[] } | null;
   literals: string[];
+  imports: string[];
+  changesPath: boolean;
 } | null {
-  if (hasPythonStartupRisk(fetchedFiles)) return null;
   const output = inspectPython(source, 'data');
   if (output === null) return null;
   try {
@@ -319,12 +360,22 @@ export function inspectPythonInline(
       typeof value.recognized !== 'boolean' ||
       !Array.isArray(value.reads) ||
       !Array.isArray(value.writes) ||
+      !Array.isArray(value.imports) ||
+      !value.imports.every(
+        (text): text is string => typeof text === 'string',
+      ) ||
+      typeof value.changesPath !== 'boolean' ||
       !Array.isArray(value.literals) ||
       !value.literals.every((text): text is string => typeof text === 'string')
     )
       return null;
-    const literals = value.literals as string[];
-    if (!value.recognized) return { data: null, literals };
+    const metadata = {
+      literals: value.literals as string[],
+      imports: value.imports as string[],
+      changesPath: value.changesPath,
+    };
+    if (!value.recognized || hasPythonStartupRisk(fetchedFiles))
+      return { data: null, ...metadata };
     const paths = [...value.reads, ...value.writes];
     if (!paths.every((file): file is string => typeof file === 'string'))
       return null;
@@ -337,7 +388,7 @@ export function inspectPythonInline(
         !isWithinRoot(actual, WORKSPACE_ROOT) ||
         !isRealWorkspacePath(actual)
       )
-        return { data: null, literals };
+        return { data: null, ...metadata };
       pathHints.push(
         file,
         resolved as string,
@@ -350,11 +401,62 @@ export function inspectPythonInline(
         writes: value.writes as string[],
         pathHints,
       },
-      literals,
+      ...metadata,
     };
   } catch {
     return null;
   }
+}
+
+export function pythonImportRisk(
+  fetchedFiles: Iterable<string>,
+  importRoot: Cwd,
+  isolated: boolean,
+  inspection: ReturnType<typeof inspectPythonInline>,
+): boolean {
+  for (const file of fetchedFiles) {
+    if (file.includes('\0')) return true;
+    if (!PYTHON_IMPORTABLE.test(file)) continue;
+    if (isolated && !inspection?.changesPath) continue;
+    if (isolated || importRoot === null) return true;
+    const root = importRoot || '.';
+    const actualRoot =
+      resolveWorkspacePath(root) ??
+      (path.isAbsolute(root) &&
+      isWithinRoot(root, resolveCanonicalPath(WORKSPACE_ROOT))
+        ? root
+        : null);
+    const actualFile = resolveWorkspacePath(file);
+    if (!actualRoot || !actualFile) return true;
+    const lexical = isWithinRoot(actualFile, actualRoot);
+    const canonicalRoot = canonicalFromExistingAncestor(actualRoot);
+    const canonicalFile = canonicalFromExistingAncestor(actualFile);
+    if (!canonicalRoot || !canonicalFile) return true;
+    if (!lexical && !isWithinRoot(canonicalFile, canonicalRoot)) continue;
+    const relative = lexical
+      ? path.relative(actualRoot, actualFile)
+      : path.relative(canonicalRoot, canonicalFile);
+    // Direct modules and package initializers may also be imported by trusted
+    // dependencies. Nested namespace modules need a matching visible import;
+    // script/stdin bodies are not inspected, so their imports stay unknown.
+    if (
+      !relative.includes(path.sep) ||
+      relative.endsWith(`${path.sep}__init__.py`) ||
+      !inspection
+    )
+      return true;
+    const module = relative
+      .replace(PYTHON_IMPORTABLE, '')
+      .split(path.sep)
+      .join('.');
+    if (
+      inspection.imports.some(
+        (name) => module === name || module.startsWith(`${name}.`),
+      )
+    )
+      return true;
+  }
+  return false;
 }
 
 export function withoutPythonComments(source: string): string | null {

@@ -75,7 +75,9 @@ test.each([
         [file, ...saved],
       ),
     ).toBeNull();
-    expect(spawn).not.toHaveBeenCalled();
+    expect(inspectPythonInline('import json', [file])).toMatchObject({
+      data: null, imports: ['json'], changesPath: false,
+    });
   },
 );
 

@@ -105,7 +105,12 @@ pinned-path checks; outputs derived from fetched inputs retain provenance
 across workers. Unsupported Python string literals remain visible to the
 existing fetched-file checks. Downloaded importable files and unknown download
 destinations cannot establish this data-only exemption. This is static analysis,
-not a sandbox.
+not a sandbox. Python startup also reviews downloaded importable files visible
+from the command's current directory or a direct script's directory, including
+package and namespace imports. Version/help probes remain non-executing;
+isolated startup excludes those roots unless inline inspection observes access
+to the import-path machinery. Failed inline inspection cannot certify isolation.
+This does not inspect arbitrary local script contents or ambient import hooks.
 
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation

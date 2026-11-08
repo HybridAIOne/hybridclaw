@@ -6,6 +6,7 @@ import { useCleanMocks } from './test-utils.js';
 const { readOnly } = vi.hoisted(() => ({ readOnly: vi.fn(() => ({ data: { reads: [], writes: [], pathHints: [] }, literals: [] })) }));
 vi.mock('../container/src/python-data-inspection.js', () => ({
   inspectPythonInline: readOnly,
+  pythonImportRisk: () => false,
 }));
 useCleanMocks({
   cleanup: () => {

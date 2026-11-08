@@ -479,6 +479,18 @@ import hooks and does not replace other approval and protected-path checks.
 The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
 timeout and four parser invocations shared across nested shells per tool call.
 Reading or transforming data does not remove its saved download provenance.
+Python startup uses the current directory for inline, module and stdin execution,
+and the resolved script directory for direct scripts. Downloaded modules in those
+roots require review, including package initializers and visible namespace
+imports. Isolated startup excludes these roots; inline use of `sys` beyond stdin
+access, dynamic `__import__` access or importlib use conservatively requires
+review when downloaded importable files exist.
+Version/help options count as non-executing only before a program operand;
+`-W`/`-X` values and arguments after `-c`, `-m` or a filename are not startup flags.
+The same bounded parser supplies import metadata even when the data exemption is
+refused. Unknown inline syntax or exhausted inspection budget cannot certify
+isolated imports. Local script bodies, arbitrary copies, dynamically computed
+imports and ambient hooks remain outside this static provenance analysis.
 
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
