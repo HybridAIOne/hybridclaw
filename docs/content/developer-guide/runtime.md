@@ -205,6 +205,8 @@ requires a new eval session; it is not a way to alter an active worker's roots.
 
 Message inserts require their session to exist in the same database statement.
 A late write after session deletion fails instead of recreating orphaned history.
+Each message and its session counter commit together. Stored turns also commit
+the user, steering and assistant messages with their semantic memory atomically.
 
 ### Worker lifecycle ownership
 
