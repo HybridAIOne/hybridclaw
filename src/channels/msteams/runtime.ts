@@ -36,7 +36,7 @@ import {
   sendWebhookJson,
   WebhookHttpError,
 } from '../webhook-http.js';
-import { createMSTeamsAdapter } from './adapter.js';
+import { authorizeMSTeamsWebhook, createMSTeamsAdapter } from './adapter.js';
 import {
   buildTeamsAttachmentContext,
   buildTeamsUploadedFileAttachment,
@@ -158,34 +158,6 @@ interface StoredMSTeamsSession {
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
   replyToId: string | null;
   reference: StoredConversationReference;
-}
-
-function resolveWebhookAuthFailureStatus(error: unknown): 401 | 403 | null {
-  if (!isRecord(error)) {
-    return null;
-  }
-  const rawStatus = error.statusCode ?? error.status;
-  const statusCode =
-    typeof rawStatus === 'number'
-      ? rawStatus
-      : Number.isFinite(Number(rawStatus))
-        ? Number(rawStatus)
-        : null;
-  if (statusCode === 401 || statusCode === 403) {
-    return statusCode;
-  }
-
-  const name = normalizeValue(String(error.name || '')).toLowerCase();
-  const code = normalizeValue(String(error.code || '')).toLowerCase();
-  if (
-    name === 'authenticationerror' ||
-    code === 'authenticationerror' ||
-    code === 'unauthorized'
-  ) {
-    return 401;
-  }
-
-  return null;
 }
 
 function shouldShowTypingForCommand(args: string[]): boolean {
@@ -645,7 +617,8 @@ async function fetchMSTeamsMemberEmail(
       turnContext,
     ).getConversationMember(
       normalizeValue(turnContext.activity.from?.id) || userId,
-      normalizeValue(turnContext.activity.conversation?.id),
+      extractTeamsTeamId(turnContext.activity as Activity) ||
+        normalizeValue(turnContext.activity.conversation?.id),
     );
     return isRecord(member)
       ? normalizeOptionalValue(member.email) ||
@@ -906,40 +879,17 @@ export async function handleMSTeamsWebhook(
     }
     throw error;
   }
-  try {
-    const response = createAdapterResponse(res);
-    let authorized = false;
-    await activeAdapter.authorizeRequest(
-      request,
-      response,
-      (error?: unknown) => {
-        if (error) throw error;
-        authorized = true;
-      },
+  const response = createAdapterResponse(res);
+  if (!(await authorizeMSTeamsWebhook(activeAdapter, request, response))) {
+    logger.warn(
+      { statusCode: res.statusCode },
+      'Rejected Teams webhook due to Teams authentication failure',
     );
-    if (!authorized) return;
-    await activeAdapter.process(request, response, async (turnContext) => {
-      if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) {
-        return;
-      }
-      if (await maybeHandleMSTeamsMessageReaction(turnContext)) {
-        return;
-      }
-      await handleIncomingMessage(turnContext);
-    });
-  } catch (error) {
-    const authStatus = resolveWebhookAuthFailureStatus(error);
-    if (authStatus) {
-      logger.warn(
-        { error, statusCode: authStatus },
-        'Rejected Teams webhook due to Teams authentication failure',
-      );
-      if (!res.headersSent && !res.writableEnded) {
-        res.statusCode = authStatus;
-        res.end();
-      }
-      return;
-    }
-    throw error;
+    return;
   }
+  await activeAdapter.process(request, response, async (turnContext) => {
+    if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) return;
+    if (await maybeHandleMSTeamsMessageReaction(turnContext)) return;
+    await handleIncomingMessage(turnContext);
+  });
 }

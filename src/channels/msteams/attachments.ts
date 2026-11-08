@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Activity, type Attachment } from '@microsoft/agents-activity';
+import type { Activity, Attachment } from '@microsoft/agents-activity';
 import type { TurnContext } from '@microsoft/agents-hosting';
 import {
   MSTEAMS_APP_ID,
@@ -1193,12 +1193,10 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
     return false;
   }
 
-  await turnContext.sendActivity(
-    Activity.fromObject({
-      type: 'invokeResponse',
-      value: { status: 200 },
-    }),
-  );
+  await turnContext.sendActivity({
+    type: 'invokeResponse',
+    value: { status: 200 },
+  } as Activity);
   await removeFileConsentCard(turnContext, activity);
 
   const uploadId = normalizeValue(
@@ -1275,21 +1273,18 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
       contentType: pendingUpload.contentType,
       uploadUrl,
     });
-    await turnContext.sendActivity(
-      Activity.fromObject({
-        type: 'message',
-        attachments: [
-          buildFileInfoCardAttachment({
-            contentUrl,
-            filename: uploadedName || pendingUpload.filename,
-            fileType:
-              fileType ||
-              path.extname(pendingUpload.filename).replace(/^\./, ''),
-            uniqueId,
-          }),
-        ],
-      }),
-    );
+    await turnContext.sendActivity({
+      type: 'message',
+      attachments: [
+        buildFileInfoCardAttachment({
+          contentUrl,
+          filename: uploadedName || pendingUpload.filename,
+          fileType:
+            fileType || path.extname(pendingUpload.filename).replace(/^\./, ''),
+          uniqueId,
+        }),
+      ],
+    } as Activity);
   } catch (error) {
     logger.warn(
       { error, uploadId, filename: pendingUpload.filename },

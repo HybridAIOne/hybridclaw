@@ -284,7 +284,7 @@ async function startGateway(): Promise<void> {
     preload,
     `const sdk = require(${JSON.stringify(hosting)});
 sdk.CloudAdapter.prototype.authorizeRequest = async (req, _res, next) => {
-  req.user = { aud: '00000000-0000-4000-8000-000000000001', iss: 'https://api.botframework.com' };
+  req.user = { aud: '00000000-0000-4000-8000-000000000001', iss: 'https://api.botframework.com', serviceurl: ${JSON.stringify(`${connectorUrl}/`)} };
   next();
 };
 sdk.MsalTokenProvider.prototype.getAccessToken = async () => 'example-access-token';\n`,
@@ -464,4 +464,15 @@ describe.skipIf(!RUN)('Teams senders in channel_users on a live gateway', () => 
     },
     3 * TURN_TIMEOUT_MS,
   );
+  test('rejects a substituted reply path before routing the sender', async () => {
+    const before = usageAgents().length;
+    expect(
+      await sendActivity({
+        type: 'message',
+        text: 'hello',
+        serviceUrl: `${connectorUrl}/other/`,
+      }),
+    ).toBe(401);
+    expect(usageAgents()).toHaveLength(before);
+  });
 });

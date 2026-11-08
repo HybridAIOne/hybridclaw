@@ -20,7 +20,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { createMSTeamsAdapter } from '../src/channels/msteams/adapter.js';
+import { authorizeMSTeamsWebhook, createMSTeamsAdapter } from '../src/channels/msteams/adapter.js';
 import { useCleanMocks } from './test-utils.js';
 
 const appId = '11111111-1111-4111-8111-111111111111';
@@ -286,7 +286,7 @@ it('keeps unrelated SDK environment connections outside Teams authentication', (
   ).href;
   const script = `
     import https from 'node:https';
-    import { createMSTeamsAdapter } from ${JSON.stringify(adapterUrl)};
+    import { authorizeMSTeamsWebhook, createMSTeamsAdapter } from ${JSON.stringify(adapterUrl)};
     let networkCalls = 0;
     https.request = () => { networkCalls++; throw new Error('Unexpected network'); };
     const adapter = createMSTeamsAdapter(${JSON.stringify(credentials)});
@@ -318,4 +318,47 @@ it('keeps unrelated SDK environment connections outside Teams authentication', (
     status: 401,
     authorized: false,
   });
+});
+
+const serviceUrl = 'https://service.example/amer/';
+it.each([
+  ['matching Bot Service claim', 'https://api.botframework.com', serviceUrl, serviceUrl, true],
+  ['matching Entra claim', issuer, serviceUrl, serviceUrl, true],
+  ['Entra without claim', issuer, undefined, serviceUrl, true],
+  ['different host', 'https://api.botframework.com', serviceUrl, 'https://other.example/amer/', false],
+  ['different scheme', 'https://api.botframework.com', serviceUrl, 'http://service.example/amer/', false],
+  ['different port', 'https://api.botframework.com', serviceUrl, 'https://service.example:8443/amer/', false],
+  ['different path', 'https://api.botframework.com', serviceUrl, 'https://service.example/other/', false],
+  ['missing Bot Service claim', 'https://api.botframework.com', undefined, serviceUrl, false],
+  ['malformed claim', 'https://api.botframework.com', false, serviceUrl, false],
+] as const)('binds verified credentials to the complete service URL: %s', async (_label, iss, claim, url, expected) => {
+  const adapter = createMSTeamsAdapter(credentials);
+  const req: TeamsRequest<Record<string, unknown>> = {
+    method: 'POST',
+    headers: { authorization: `Bearer ${await token({ iss, serviceurl: claim })}` },
+    body: { serviceUrl: url },
+  };
+  const res = response();
+  expect(await authorizeMSTeamsWebhook(adapter, req, res)).toBe(expected);
+  expect(res.statusCode).toBe(expected ? 200 : 401);
+  expect(res.writableEnded).toBe(!expected);
+});
+
+it('enforces SDK service-host validation even when its environment option is false', async () => {
+  vi.stubEnv('CloudAdapterOptions__validateServiceUrl', 'false');
+  const outbound = vi.fn(async () => { throw new Error('Unexpected outbound request'); });
+  vi.stubGlobal('fetch', outbound);
+  const adapter = createMSTeamsAdapter(credentials);
+  const req: TeamsRequest = {
+    method: 'POST',
+    headers: { authorization: `Bearer ${await token({ iss: 'https://api.botframework.com', serviceurl: serviceUrl })}` },
+    body: { type: 'message', channelId: 'msteams', serviceUrl: 'https://other.example/', conversation: { id: 'example-conversation' } },
+  };
+  const res = response();
+  const logic = vi.fn();
+  await adapter.authorizeRequest(req, res, () => {});
+  await adapter.process(req, res, logic);
+  expect(res.statusCode).toBe(400);
+  expect(logic).not.toHaveBeenCalled();
+  expect(outbound).not.toHaveBeenCalled();
 });

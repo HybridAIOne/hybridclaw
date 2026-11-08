@@ -137,12 +137,8 @@ export function sendMSTeamsActivityWithRetry(
   activity: Partial<Activity>,
   label: string,
 ) {
-  return withMSTeamsRetry(label, async () =>
-    turnContext.sendActivity(
-      (await import('@microsoft/agents-activity')).Activity.fromObject(
-        activity,
-      ),
-    ),
+  return withMSTeamsRetry(label, () =>
+    turnContext.sendActivity(activity as Activity),
   );
 }
 
@@ -151,11 +147,7 @@ export function updateMSTeamsActivityWithRetry(
   activity: Partial<Activity>,
   label: string,
 ) {
-  return withMSTeamsRetry(label, async () =>
-    turnContext.updateActivity(
-      (await import('@microsoft/agents-activity')).Activity.fromObject(
-        activity,
-      ),
-    ),
+  return withMSTeamsRetry(label, () =>
+    turnContext.updateActivity(activity as Activity),
   );
 }
