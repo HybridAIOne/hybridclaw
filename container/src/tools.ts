@@ -173,6 +173,10 @@ import type {
   ToolRunResult,
 } from './types.js';
 import {
+  normalizeVisionLocalPath,
+  visionImageSources,
+} from './vision-input.js';
+import {
   analyzeVisualSnapshot,
   VISION_ANALYZE_TOOL_DEFINITION,
   VISION_IMAGE_MAX_BYTES,
@@ -365,12 +369,6 @@ let memoryTimezoneCache: {
 } | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
-const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
-  new Set(
-    ['/tmp', '/private/tmp', os.tmpdir()].map((entry) => path.resolve(entry)),
-  ),
-);
-
 type DiscordMessageToolAction =
   | 'read'
   | 'member-info'
@@ -1890,41 +1888,6 @@ function normalizeDelegationTaskList(params: {
   return { tasks };
 }
 
-function extractArtifactUrlLocalPath(rawPath: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawPath, 'http://hybridclaw.invalid');
-  } catch {
-    return null;
-  }
-  if (parsed.pathname !== '/api/artifact') return null;
-  const pathParam = parsed.searchParams.get('path');
-  return pathParam ? pathParam.trim() : null;
-}
-
-function normalizeVisionLocalPath(rawPath: string): string | null {
-  const trimmed = String(rawPath || '').trim();
-  if (!trimmed) return null;
-  const normalized = extractArtifactUrlLocalPath(trimmed) || trimmed;
-
-  const artifactPath = resolveHttpArtifactReadPath(normalized);
-  if (artifactPath) return artifactPath;
-  const workspacePath = resolveWorkspacePath(normalized);
-  if (workspacePath) return workspacePath;
-
-  const mediaPath = resolveMediaPath(normalized);
-  if (mediaPath) return mediaPath;
-
-  const resolved = path.resolve(normalized);
-  for (const root of VISION_LOCAL_SCRATCH_ROOTS) {
-    if (resolved === root || resolved.startsWith(`${root}${path.sep}`)) {
-      return resolved;
-    }
-  }
-
-  return null;
-}
-
 function isKnownDiscordMediaPath(localPath: string): boolean {
   const knownPaths = currentMediaContext
     .map((entry) => (typeof entry.path === 'string' ? entry.path.trim() : ''))
@@ -2089,14 +2052,7 @@ async function runVisionAnalyze(
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
 
-  const imageRef =
-    readStringValue(args.image_url) ||
-    readStringValue(args.imageUrl) ||
-    readStringValue(args.path);
-  const fallbackUrl =
-    readStringValue(args.fallback_url) ||
-    readStringValue(args.fallbackUrl) ||
-    readStringValue(args.original_url);
+  const { imageRef, fallbackUrl } = visionImageSources(args);
   if (args.snapshot !== undefined) {
     if (imageRef || fallbackUrl)
       return failTool('Error: Choose image_url or snapshot, not both.');
