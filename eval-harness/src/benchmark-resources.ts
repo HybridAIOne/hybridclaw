@@ -1,8 +1,7 @@
 /**
- * Benchmark admission protects shared engine capacity, including VM backing disk.
- * This harness guard owns only its probe and run lock; it never prunes Docker or
- * restarts services. Ownership remains until probe absence is verified.
- * Estimates and polling cannot enforce a disk write quota.
+ * Benchmark capacity checks bound brief warnings; critical pressure stops immediately.
+ * This guard owns only its probe and lock, retained until cleanup is confirmed.
+ * It never prunes Docker or restarts services; estimates are not disk quotas.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -28,7 +27,16 @@ const MAX_SWAP_USED = 2 * GIB;
 // alone is not a current-pressure signal on macOS.
 // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_memorystatus_notify.c
 const MAC_PRESSURE_NORMAL = 1;
-const MAC_PRESSURE_LEVELS = new Set([MAC_PRESSURE_NORMAL, 2, 4]);
+const MAC_PRESSURE_WARNING = 2;
+const MAC_PRESSURE_CRITICAL = 4;
+const MAC_PRESSURE_LEVELS = new Set([
+  MAC_PRESSURE_NORMAL,
+  MAC_PRESSURE_WARNING,
+  MAC_PRESSURE_CRITICAL,
+]);
+// 60s (owner-approved policy, 2026-11-07): tolerate brief macOS warnings while
+// preserving immediate capacity/critical-pressure stops; per-host tuning deferred.
+const MAC_WARNING_GRACE_MS = 60_000;
 const POLL_MS = 5_000;
 const PROBE_TIMEOUT_MS = 10_000;
 export const BENCHMARK_PROBE_IMAGE = 'busybox:1.37';
@@ -120,9 +128,9 @@ export function assertBenchmarkCapacity(
   if (pressure !== undefined) {
     if (!MAC_PRESSURE_LEVELS.has(pressure))
       throw new Error('Invalid macOS memory-pressure metric');
-    if (pressure !== MAC_PRESSURE_NORMAL)
+    if (pressure === MAC_PRESSURE_CRITICAL)
       throw new Error(
-        'Benchmark resource admission refused: macOS reports elevated memory pressure.',
+        'Benchmark resource admission refused: macOS reports critical memory pressure.',
       );
   }
   if (
@@ -145,6 +153,7 @@ export class BenchmarkResources {
   private engineId?: string;
   private failure?: Error;
   private probeStarted = false;
+  private macWarningSince?: number;
 
   constructor(
     private readonly paths: string[],
@@ -238,7 +247,7 @@ export class BenchmarkResources {
   async start(slots: number, tasks: number): Promise<void> {
     this.signal.throwIfAborted();
     const host = await this.hostResources();
-    // Refuse host pressure before even creating the small, cached probe container.
+    // Refuse critical pressure and capacity failures before creating the probe.
     assertBenchmarkCapacity(
       {
         ...host,
@@ -251,6 +260,7 @@ export class BenchmarkResources {
       slots,
       tasks,
     );
+    this.checkMacWarningDuration(host.hostMemoryPressureLevel);
     const info = JSON.parse(
       await this.docker(['info', '--format', '{{json .}}']),
     ) as { ID?: string; MemoryLimit?: boolean; SwapLimit?: boolean };
@@ -316,6 +326,19 @@ export class BenchmarkResources {
     }
   }
 
+  private checkMacWarningDuration(level: number | undefined): void {
+    if (level !== MAC_PRESSURE_WARNING) {
+      this.macWarningSince = undefined;
+      return;
+    }
+    this.macWarningSince ??= Date.now();
+    if (Date.now() - this.macWarningSince >= MAC_WARNING_GRACE_MS) {
+      throw new Error(
+        'Benchmark resource admission refused: macOS warning-level memory pressure persisted for 60 seconds.',
+      );
+    }
+  }
+
   abort(error: Error): void {
     this.failure ??= error;
     this.controller.abort(this.failure);
@@ -340,6 +363,7 @@ export class BenchmarkResources {
           const snapshot = { ...host, ...parseEngineResources(output) };
           this.record(snapshot);
           assertBenchmarkCapacity(snapshot, this.budget, slots, tasks);
+          this.checkMacWarningDuration(snapshot.hostMemoryPressureLevel);
         } catch (error) {
           this.abort(
             new Error(
