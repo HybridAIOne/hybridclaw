@@ -12,10 +12,11 @@ const makeTempDir = useTempDir('hc-ipc-wakeup-');
 useCleanMocks({ restoreAllMocks: true });
 afterEach(() => vi.useRealTimers());
 
-test('a real directory rename wakes a reader before reconciliation', async () => {
-  // Keep reconciliation timers stationary: only a filesystem event can finish the wait.
+test('an atomic rename notification wakes a reader before reconciliation', async () => {
+  // Hold reconciliation timers so only the notification can finish the wait.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const directory = makeTempDir();
+  const watcher = mockIpcWatcher();
   const wakeup = createIpcWakeup(directory);
   try {
     const waiting = wakeup
@@ -24,6 +25,7 @@ test('a real directory rename wakes a reader before reconciliation', async () =>
     const temporary = path.join(directory, 'reply.tmp');
     fs.writeFileSync(temporary, '{}');
     fs.renameSync(temporary, path.join(directory, 'reply.json'));
+    watcher.notify();
     await expect(waiting).resolves.toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   } finally {
