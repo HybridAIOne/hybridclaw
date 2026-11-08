@@ -1307,6 +1307,8 @@ async function runContainerInner(
   };
   const workerSignature = computeWorkerSignature({
     agentId,
+    gatewayApiToken: input.gatewayApiToken,
+    webSearch: input.webSearch,
     provider: input.provider,
     providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
