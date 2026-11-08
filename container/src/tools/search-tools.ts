@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import {
   HARD_PINNED_PATH_PATTERNS,
   matchesHardPinnedPath,
@@ -100,7 +101,9 @@ const SEARCH_BINARY_EXTENSIONS = new Set([
   '.a',
 ]);
 
-const SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const SEARCH_READ_CHUNK_BYTES = 1024 * 1024;
+const SEARCH_MAX_LINE_CHARS = 16 * 1024 * 1024;
+const TASK_SANDBOX_SEARCH_MAX_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 const GLOB_SEARCH_MAX_RESULTS = 50;
 const GLOB_SEARCH_MAX_FILES_SCANNED = 10_000;
 const GLOB_SEARCH_TIMEOUT_MS = 15_000;
@@ -136,6 +139,13 @@ type SearchStatus =
   | { kind: 'timeout' }
   | { kind: 'not_found' }
   | { kind: 'truncated'; reason: string };
+
+type SearchLineBatch = {
+  lines: string[];
+  from: number;
+  to: number;
+  firstLineNumber: number;
+};
 
 type IncludePatternMatcher = (relativePath: string) => boolean;
 
@@ -620,29 +630,89 @@ function hasSearchableTextExtension(filePath: string): boolean {
   return !SEARCH_BINARY_EXTENSIONS.has(extension);
 }
 
-function readSearchableTextFile(
+// Reads in chunks so memory stays flat for any file size. Lines in
+// [from, to) are to be tested; `contextLines` neighbours are kept on each side.
+function* readSearchLineBatches(
   filePath: string,
-): string | typeof SEARCH_FILE_TOO_LARGE | null {
-  if (!hasSearchableTextExtension(filePath)) return null;
-
-  let fd: number | null = null;
+  contextLines: number,
+): Generator<SearchLineBatch> {
+  if (!hasSearchableTextExtension(filePath)) return;
+  let fd: number;
   try {
     fd = fs.openSync(filePath, 'r');
-    const buffer = Buffer.allocUnsafe(SEARCH_MAX_FILE_SIZE_BYTES + 1);
-    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-    if (bytesRead > SEARCH_MAX_FILE_SIZE_BYTES) return SEARCH_FILE_TOO_LARGE;
-    return buffer.toString('utf-8', 0, bytesRead);
   } catch {
-    return null;
-  } finally {
-    if (fd != null) {
+    return;
+  }
+  try {
+    const buffer = Buffer.allocUnsafe(SEARCH_READ_CHUNK_BYTES);
+    const decoder = new StringDecoder('utf8');
+    let lines: string[] = [];
+    let partial = '';
+    let from = 0;
+    let firstLineNumber = 1;
+    for (;;) {
+      let bytesRead: number;
       try {
-        fs.closeSync(fd);
+        bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
       } catch {
-        // Ignore close failures on best-effort search reads.
+        return;
       }
+      const eof = bytesRead === 0;
+      const chunk = eof
+        ? decoder.end()
+        : decoder.write(buffer.subarray(0, bytesRead));
+      const text = partial + chunk;
+      let parts: string[];
+      if (!eof && !chunk.includes('\n')) {
+        if (text.length <= SEARCH_MAX_LINE_CHARS) {
+          partial = text;
+          continue;
+        }
+        // Cut overlong lines so a file without newlines cannot exhaust memory.
+        parts = [text];
+        partial = '';
+      } else {
+        parts = text.split('\n');
+        partial = eof ? '' : (parts.pop() as string);
+      }
+      lines = lines.concat(parts);
+      const to = eof
+        ? lines.length
+        : Math.max(from, lines.length - contextLines);
+      if (to > from) yield { lines, from, to, firstLineNumber };
+      if (eof) return;
+      const keepFrom = Math.max(0, to - contextLines);
+      lines = lines.slice(keepFrom);
+      firstLineNumber += keepFrom;
+      from = to - keepFrom;
+    }
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Ignore close failures on best-effort search reads.
     }
   }
+}
+
+function readTaskSandboxSearchLines(
+  filePath: string,
+): SearchLineBatch[] | typeof SEARCH_FILE_TOO_LARGE {
+  if (!hasSearchableTextExtension(filePath)) return [];
+  const result = runTaskSandboxCommand({
+    command: `head -c ${TASK_SANDBOX_SEARCH_MAX_FILE_SIZE_BYTES + 1} -- ${shellEscape(filePath)}`,
+    timeoutMs: GREP_SEARCH_TIMEOUT_MS,
+    maxBuffer: TASK_SANDBOX_SEARCH_MAX_FILE_SIZE_BYTES + 1024,
+  });
+  if (result.status !== 0) return [];
+  if (
+    Buffer.byteLength(result.stdout, 'utf-8') >
+    TASK_SANDBOX_SEARCH_MAX_FILE_SIZE_BYTES
+  ) {
+    return SEARCH_FILE_TOO_LARGE;
+  }
+  const lines = result.stdout.split('\n');
+  return [{ lines, from: 0, to: lines.length, firstLineNumber: 1 }];
 }
 
 function computeSearchDeadline(timeoutMs: number): number {
@@ -678,7 +748,7 @@ function buildOversizedSkipNote(skippedPaths: string[]): string | null {
     skippedPaths.length > SEARCH_SKIP_NOTE_MAX_PATHS
       ? ` and ${skippedPaths.length - SEARCH_SKIP_NOTE_MAX_PATHS} more`
       : '';
-  return `Skipped ${skippedPaths.length} ${noun} larger than ${formatBytes(SEARCH_MAX_FILE_SIZE_BYTES)} without searching: ${listed}${more}. Use bash grep to search them.`;
+  return `Skipped ${skippedPaths.length} ${noun} larger than ${formatBytes(TASK_SANDBOX_SEARCH_MAX_FILE_SIZE_BYTES)} without searching: ${listed}${more}. Use bash grep to search them.`;
 }
 
 function formatSearchOutput(
@@ -1085,84 +1155,69 @@ export function runGrepSearch(
       continue;
     }
 
-    const content = isTaskSandboxSearchEnabled()
-      ? (() => {
-          const command = `head -c ${SEARCH_MAX_FILE_SIZE_BYTES + 1} -- ${shellEscape(filePath)}`;
-          const result = runTaskSandboxCommand({
-            command,
-            timeoutMs: GREP_SEARCH_TIMEOUT_MS,
-            maxBuffer: SEARCH_MAX_FILE_SIZE_BYTES + 1024,
-          });
-          if (result.status !== 0) return null;
-          if (!hasSearchableTextExtension(filePath)) return null;
-          if (
-            Buffer.byteLength(result.stdout, 'utf-8') >
-            SEARCH_MAX_FILE_SIZE_BYTES
-          ) {
-            return SEARCH_FILE_TOO_LARGE;
-          }
-          return result.stdout;
-        })()
-      : readSearchableTextFile(filePath);
-    if (content === SEARCH_FILE_TOO_LARGE) {
+    const batches = isTaskSandboxSearchEnabled()
+      ? readTaskSandboxSearchLines(filePath)
+      : readSearchLineBatches(filePath, contextLines);
+    if (batches === SEARCH_FILE_TOO_LARGE) {
       skippedOversizedFiles.push(filePath);
       continue;
     }
-    if (content == null) continue;
-    const lines = content.split('\n');
 
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-      if (Date.now() >= deadlineAt) {
-        status = SEARCH_STATUS_TIMEOUT;
-        break;
-      }
+    for (const { lines, from, to, firstLineNumber } of batches) {
+      for (let lineIndex = from; lineIndex < to; lineIndex += 1) {
+        if (Date.now() >= deadlineAt) {
+          status = SEARCH_STATUS_TIMEOUT;
+          break;
+        }
 
-      if (!matcher(lines[lineIndex])) continue;
+        if (!matcher(lines[lineIndex])) continue;
 
-      matchCount += 1;
-      if (matchCount > GREP_SEARCH_MAX_MATCHES) {
-        status = createTruncatedSearchStatus(
-          `match limit (${GREP_SEARCH_MAX_MATCHES})`,
-        );
-        break;
-      }
-
-      const start = Math.max(0, lineIndex - contextLines);
-      const end = Math.min(lines.length, lineIndex + contextLines + 1);
-      const displayPath = displaySearchPath(filePath);
-      for (let ctx = start; ctx < end; ctx += 1) {
-        const prefix = ctx === lineIndex ? '>' : ' ';
-        const entry = `${displayPath}:${ctx + 1}:${prefix} ${lines[ctx]}`;
-        const nextTotalChars = appendSearchOutputEntry(
-          matches,
-          entry,
-          totalChars,
-          GREP_SEARCH_MAX_OUTPUT_CHARS,
-        );
-        if (nextTotalChars == null) {
+        matchCount += 1;
+        if (matchCount > GREP_SEARCH_MAX_MATCHES) {
           status = createTruncatedSearchStatus(
-            `output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`,
+            `match limit (${GREP_SEARCH_MAX_MATCHES})`,
           );
           break;
         }
-        totalChars = nextTotalChars;
+
+        const start = Math.max(0, lineIndex - contextLines);
+        const end = Math.min(lines.length, lineIndex + contextLines + 1);
+        const displayPath = displaySearchPath(filePath);
+        for (let ctx = start; ctx < end; ctx += 1) {
+          const prefix = ctx === lineIndex ? '>' : ' ';
+          const entry = `${displayPath}:${firstLineNumber + ctx}:${prefix} ${lines[ctx]}`;
+          const nextTotalChars = appendSearchOutputEntry(
+            matches,
+            entry,
+            totalChars,
+            GREP_SEARCH_MAX_OUTPUT_CHARS,
+          );
+          if (nextTotalChars == null) {
+            status = createTruncatedSearchStatus(
+              `output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`,
+            );
+            break;
+          }
+          totalChars = nextTotalChars;
+        }
+        if (isSearchDone(status)) break;
+        if (contextLines > 0) {
+          const nextTotalChars = appendSearchOutputEntry(
+            matches,
+            '---',
+            totalChars,
+            GREP_SEARCH_MAX_OUTPUT_CHARS,
+          );
+          if (nextTotalChars == null) {
+            status = createTruncatedSearchStatus(
+              `output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`,
+            );
+            break;
+          }
+          totalChars = nextTotalChars;
+        }
       }
       if (isSearchDone(status)) break;
-      if (contextLines > 0) {
-        const nextTotalChars = appendSearchOutputEntry(
-          matches,
-          '---',
-          totalChars,
-          GREP_SEARCH_MAX_OUTPUT_CHARS,
-        );
-        if (nextTotalChars == null) {
-          status = createTruncatedSearchStatus(
-            `output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`,
-          );
-          break;
-        }
-        totalChars = nextTotalChars;
-      }
     }
 
     if (isSearchDone(status)) break;

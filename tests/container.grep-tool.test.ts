@@ -134,25 +134,31 @@ describe.sequential('container grep tool', () => {
     expect(result).toContain('Error: nested quantifiers are not supported');
   });
 
-  test('reports oversized text files it skipped without matching their contents', async () => {
+  test('searches files larger than one read chunk with line numbers and context', async () => {
     workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-grep-workspace-'),
     );
-    const oversized = Buffer.alloc(2 * 1024 * 1024 + 1, 'a');
-    Buffer.from('needle').copy(oversized, oversized.length - 'needle'.length);
-    fs.writeFileSync(path.join(workspaceRoot, 'large.txt'), oversized);
+    const lines = Array.from(
+      { length: 300_000 },
+      (_, index) => `filler line ${index + 1}`,
+    );
+    lines[249_999] = 'needle';
+    fs.writeFileSync(path.join(workspaceRoot, 'big.log'), lines.join('\n'));
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
 
     const { executeTool } = await import('../container/src/tools.js');
     const result = await executeTool(
       'grep',
-      JSON.stringify({
-        pattern: 'needle',
-      }),
+      JSON.stringify({ pattern: 'needle', context: 1 }),
     );
 
     expect(result).toBe(
-      'No matches found.\n\n(Skipped 1 file larger than 2.0MB without searching: large.txt. Use bash grep to search them.)',
+      [
+        'big.log:249999:  filler line 249999',
+        'big.log:250000:> needle',
+        'big.log:250001:  filler line 250001',
+        '---',
+      ].join('\n'),
     );
   });
 
