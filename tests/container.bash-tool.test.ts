@@ -103,6 +103,15 @@ describe.sequential('container bash tool persistence', () => {
     expect(emit).toHaveBeenCalledTimes(count);
   });
 
+  test('returns long output in full, including the summary at the end', async () => {
+    const { executeTool } = await createBashTestRuntime();
+    const result = await executeTool(
+      'bash',
+      bashCommand('seq 1 2000; echo "== 2000 passed =="; exit 1'),
+    );
+    expect(result).toContain('\n1999\n2000\n== 2000 passed ==');
+  });
+
   test('persists cwd across bash calls in the same session', async () => {
     const { executeTool } = await createBashTestRuntime({
       nested: true,
