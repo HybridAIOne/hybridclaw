@@ -2,6 +2,8 @@
  * Per-turn no-progress detection, not authorization or durable session state.
  * Discovery repeats and unchanged HTTP collections stop before another
  * identical call; asynchronous status payloads keep their existing behavior.
+ * Executed possible writes invalidate prior outcomes, including partial failures;
+ * blocked calls do not.
  */
 import { createHash } from 'node:crypto';
 import { asRecord } from '../shared/primitive-values.js';
@@ -240,7 +242,9 @@ export function recordToolCallOutcome(
   rawArgs: string,
   output: string,
   isError: boolean,
+  mayHaveChangedState: boolean,
 ): void {
+  if (mayHaveChangedState) history.length = 0;
   if (
     toolName === 'http_request' &&
     isError &&

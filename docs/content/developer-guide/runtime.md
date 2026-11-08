@@ -1617,6 +1617,9 @@ normal path permissions or approvals.
 
 Prompt and runtime internals:
 
+- no-progress evidence for repeated discovery and unchanged HTTP collections is
+  invalidated after an executed possible write, including a partial failure.
+  A blocked write keeps that evidence; the loop guard does not grant permissions.
 - session compaction with pre-compaction memory flush: complete instructions
   are processed in bounded batches, duplicate failed requests are collapsed,
   and completion requires an append confirmed in the daily note or an explicit

@@ -689,6 +689,8 @@ function appendCompletedToolCall(params: {
     params.completed.argsJson,
     params.completed.result,
     params.completed.isError,
+    params.completed.execution.writeIntent === true &&
+      !params.completed.execution.blocked,
   );
 }
 
@@ -2072,6 +2074,8 @@ async function processRequestInner(
                   completed.argsJson,
                   completed.result,
                   completed.isError,
+                  completed.execution.writeIntent === true &&
+                    !completed.execution.blocked,
                 );
                 return completed;
               } finally {

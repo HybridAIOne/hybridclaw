@@ -37,8 +37,9 @@ test.each([
         ARGS,
         response({ items, total: items.length }, i, bodyOnly),
         false,
+        false,
       );
-      recordToolCallOutcome(history, 'bash', '{"command":"sleep 2"}', '', false);
+      recordToolCallOutcome(history, 'bash', '{"command":"sleep 2"}', '', false, false);
     }
     expect(detectToolCallLoop(history, 'http_request', ARGS)).toMatchObject({
       stuck: true,
@@ -47,7 +48,7 @@ test.each([
     });
     const blocked = detectToolCallLoop(history, 'http_request', ARGS);
     if (blocked.stuck) {
-      recordToolCallOutcome(history, 'http_request', ARGS, blocked.message, true);
+      recordToolCallOutcome(history, 'http_request', ARGS, blocked.message, true, false);
     }
     expect(detectToolCallLoop(history, 'http_request', ARGS).stuck).toBe(true);
     expect(
@@ -63,7 +64,7 @@ test.each([
 ])('does not guard asynchronous status payloads: %j', (payload) => {
   const history: ToolCallHistoryEntry[] = [];
   for (let i = 0; i < 6; i++) {
-    recordToolCallOutcome(history, 'http_request', ARGS, response(payload, i), false);
+    recordToolCallOutcome(history, 'http_request', ARGS, response(payload, i), false, false);
   }
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
 });
@@ -71,20 +72,20 @@ test.each([
 test('new data and errors break the collection streak', () => {
   const history: ToolCallHistoryEntry[] = [];
   for (let i = 0; i < 3; i++) {
-    recordToolCallOutcome(history, 'http_request', ARGS, response([], i), false);
+    recordToolCallOutcome(history, 'http_request', ARGS, response([], i), false, false);
   }
-  recordToolCallOutcome(history, 'http_request', ARGS, 'Error: HTTP 503', true);
+  recordToolCallOutcome(history, 'http_request', ARGS, 'Error: HTTP 503', true, false);
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
-  recordToolCallOutcome(history, 'http_request', ARGS, response([], 4), false);
+  recordToolCallOutcome(history, 'http_request', ARGS, response([], 4), false, false);
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
-  recordToolCallOutcome(history, 'http_request', ARGS, response([{ id: 'item_a' }], 5), false);
+  recordToolCallOutcome(history, 'http_request', ARGS, response([{ id: 'item_a' }], 5), false, false);
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
 });
 
 test('changing records remain progress even when the collection size stays fixed', () => {
   const history: ToolCallHistoryEntry[] = [];
   for (let i = 0; i < 6; i++) {
-    recordToolCallOutcome(history, 'http_request', ARGS, response({ items: [{ id: `item_${i}` }], total: 1 }, i), false);
+    recordToolCallOutcome(history, 'http_request', ARGS, response({ items: [{ id: `item_${i}` }], total: 1 }, i), false, false);
     expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
   }
 });
@@ -92,7 +93,7 @@ test('changing records remain progress even when the collection size stays fixed
 test.each([{ items: [] }, { items: [{ id: 'item_a' }] }])('a different HTTP operation permits a fresh collection read: %j', ({ items }) => {
   const history: ToolCallHistoryEntry[] = [];
   for (let i = 0; i < 3; i++) {
-    recordToolCallOutcome(history, 'http_request', ARGS, response(items, i), false);
+    recordToolCallOutcome(history, 'http_request', ARGS, response(items, i), false, false);
   }
   expect(detectToolCallLoop(history, 'http_request', ARGS).stuck).toBe(true);
   recordToolCallOutcome(
@@ -100,6 +101,7 @@ test.each([{ items: [] }, { items: [{ id: 'item_a' }] }])('a different HTTP oper
     'http_request',
     JSON.stringify({ url: 'https://example.com/api/requests', method: 'POST' }),
     response({ id: 'request_a' }, 4),
+    false,
     false,
   );
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
@@ -112,7 +114,7 @@ test.each([
 ])('does not classify malformed or unsuccessful responses as empty: %s', (output) => {
   const history: ToolCallHistoryEntry[] = [];
   for (let i = 0; i < 4; i++) {
-    recordToolCallOutcome(history, 'http_request', ARGS, output, false);
+    recordToolCallOutcome(history, 'http_request', ARGS, output, false, false);
   }
   expect(detectToolCallLoop(history, 'http_request', ARGS)).toEqual({ stuck: false });
 });
