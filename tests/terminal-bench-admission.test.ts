@@ -107,3 +107,12 @@ test('removes a task container when startup fails before an environment is retur
   expect(mocks.command.mock.calls.filter(([params]) => params.args[0] === 'rm')).toHaveLength(3);
   expect(result()).toMatchObject({ errors: 3 });
 });
+
+test('a cleanup failure after completed tasks retains their results and fails the run', async () => {
+  const cleanup = new Error('Fixture probe cleanup failed.');
+  mocks.close.mockRejectedValue(cleanup);
+  await expect(runTerminalBenchNativeCli(args())).rejects.toBe(cleanup);
+  expect(mocks.handle).toHaveBeenCalledTimes(3);
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(result()).toMatchObject({ trials: 3, errors: 0, mean: 1 });
+});

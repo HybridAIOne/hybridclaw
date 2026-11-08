@@ -2,6 +2,7 @@
  * Native benchmark tasks share one admitted resource budget and cancellation scope.
  * This orchestrates task environments; gateway execution and shared-engine
  * maintenance remain outside the runner's ownership.
+ * Run failures survive cleanup failures; completed task results are retained.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -624,6 +625,7 @@ export async function runTerminalBenchNativeCli(argv: string[]): Promise<void> {
   const interrupt = () => resources.abort(new Error('Benchmark interrupted'));
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
+  const runFailures: unknown[] = [];
   try {
     await resources.start(
       Math.min(options.concurrency, options.numTasks),
@@ -732,9 +734,23 @@ export async function runTerminalBenchNativeCli(argv: string[]): Promise<void> {
     }
     console.log('└─────────────────────┴────────────────┘');
     console.log(`Results written to ${path.join(jobDir, 'result.json')}`);
+  } catch (error) {
+    runFailures.push(error);
   } finally {
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
+  }
+  try {
     await resources.close();
+  } catch (cleanupError) {
+    runFailures.push(cleanupError);
+  }
+  if (runFailures.length === 1) throw runFailures[0];
+  if (runFailures.length > 1) {
+    throw new AggregateError(
+      runFailures,
+      'Benchmark failed and probe cleanup is unconfirmed.',
+      { cause: runFailures[0] },
+    );
   }
 }
