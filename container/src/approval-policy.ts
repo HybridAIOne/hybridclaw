@@ -1,5 +1,5 @@
 /**
- * Policy classifies task actions and preserves unconditional denials.
+ * Policy enforces task permissions; read-only recognition alone grants none.
  * Explicit learning mode observes approvals, including pinned prompts, without
  * granting trust; other modes enforce the pinned approval floor. Fetched-code
  * history must load and persist successfully before a download is allowed.
@@ -80,9 +80,13 @@ import {
   scriptCommands,
   shellCommandsRun,
 } from './bash-commands.js';
-import { isReadOnlyDateCommand } from './bash-date.js';
 import { fenceCandidates } from './bash-fence.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
+import {
+  isReadOnlyBashSurface,
+  isReadOnlyCommand,
+  READ_ONLY_PDF_SCRIPT_RE,
+} from './bash-read-only.js';
 import { findFetchedCode } from './bash-remote-code.js';
 import { runsScript } from './bash-script-run.js';
 import { nextBashCwd } from './bash-session.js';
@@ -512,10 +516,6 @@ const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
-const READ_ONLY_PDF_SCRIPT_RE =
-  /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
-const READ_ONLY_BASH_RE =
-  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|date|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
 const CACHE_PATH_SEGMENTS = new Set([
   '.cache',
   'build',
@@ -1159,18 +1159,6 @@ function skillManagedWriteApprovalReason(
     return `${skillName} API write requests require explicit operator approval`;
   }
   return null;
-}
-
-function isReadOnlyCommand(words: string[]): boolean {
-  if (words[0] === 'date') return isReadOnlyDateCommand(words);
-  const text = words.join(' ');
-  // 2026-10-31, Codex: echo may print a diagnostic fallback in a read-only
-  // chain. The first-command whitelist remains unchanged.
-  return (
-    words[0] === 'echo' ||
-    READ_ONLY_BASH_RE.test(text) ||
-    READ_ONLY_PDF_SCRIPT_RE.test(text)
-  );
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -3911,11 +3899,14 @@ export class TrustedAgentApprovalRuntime {
 
     // Green needs both checks: every command the script runs is read-only (the
     // first segment alone let `ls; tar czf - . | base64` run unnarrated), and
-    // the surface's first segment still matches, so forms such as `(ls)` or a
-    // quoted command name stay yellow as before.
+    // the surface starts with a recognized literal command. Groups or quoted
+    // command names retain their existing classification.
     const everyCommandReadOnly = commandsRun.every(isReadOnlyCommand);
 
-    if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
+    if (
+      everyCommandReadOnly &&
+      isReadOnlyBashSurface(commandsRun[0] ?? [], inspectionSurface)
+    ) {
       return {
         tier: 'green',
         actionKey: 'bash:read-only',
