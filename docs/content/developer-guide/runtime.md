@@ -207,7 +207,9 @@ A late write after session deletion fails instead of recreating orphaned history
 Host and Docker runners use `WorkerLifecycle` for spare/session ownership and
 request leases. Stop and exit are terminal for reuse; a late readiness marker
 or request finalizer cannot revive a stopped process or release a newer request.
-These are gateway process handles, not durable session state.
+These are gateway process handles, not durable session state. Gateway runtime
+token or web-search configuration changes invalidate worker reuse on the next
+turn, so process-cached credentials are refreshed.
 
 ### Interrupted Turns
 

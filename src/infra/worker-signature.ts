@@ -1,3 +1,9 @@
+/**
+ * Worker reuse requires the same routing and startup credentials.
+ * Unlike per-turn input, this signature covers process-cached settings;
+ * it is private comparison state and must never be logged.
+ */
+import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
@@ -33,6 +39,8 @@ export interface WorkerSignatureInput {
   browserAllowPrivateNetwork?: boolean;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
   runtimeEnv?: Record<string, string>;
+  gatewayApiToken?: string;
+  webSearch?: WebSearchConfig;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -108,6 +116,10 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     browserAllowPrivateNetwork: input.browserAllowPrivateNetwork === true,
     taskModels,
     runtimeEnv: normalizeHeaders(input.runtimeEnv),
+    gatewayApiToken: input.gatewayApiToken || '',
+    webSearch: Object.entries(input.webSearch || {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',
