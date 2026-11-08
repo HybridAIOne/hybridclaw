@@ -308,6 +308,20 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     else expect(onCommand.mock.calls[0]?.at(-1)).toEqual({ agentId: 'sales', tenantId: 'teams-tenant-id' });
   });
 
+  test('looks up team channel members in the team roster', async () => {
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: '19:channel@thread.tacv2;messageid=1' }, from: { id: '29:user-a' } },
+      turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    const inbound = await import('../src/channels/msteams/inbound.js');
+    vi.mocked(inbound.extractTeamsTeamId).mockReturnValue('19:team@thread.tacv2');
+    vi.mocked(inbound.resolveTeamsConversationKind).mockReturnValue('channel');
+    runtime.initMSTeams(vi.fn(async () => {}), vi.fn(async () => {}));
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(getMemberMock).toHaveBeenCalledWith('29:user-a', '19:team@thread.tacv2');
+  });
+
   test.each(['known', 'failed'])('records no email when the member lookup is %s', async (reason) => {
     if (reason === 'known') findUserEmailMock.mockReturnValue('user@example.com');
     else getMemberMock.mockRejectedValue(new Error('member not found'));
@@ -500,6 +514,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(processMock).not.toHaveBeenCalled();
     expect(maybeHandleMSTeamsFileConsentInvokeMock).not.toHaveBeenCalled();
     expect(getMemberMock).not.toHaveBeenCalled();
+    expect(loggerWarnMock).toHaveBeenCalledWith({ statusCode: 401 }, 'Rejected Teams webhook due to Teams authentication failure');
   });
 
   test('authenticates before processing the same request', async () => {
@@ -510,33 +525,6 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(authorizeRequestMock).toHaveBeenCalledOnce();
     expect(processMock).toHaveBeenCalledOnce();
     expect(authorizeRequestMock.mock.invocationCallOrder[0]).toBeLessThan(processMock.mock.invocationCallOrder[0]);
-  });
-
-  test('returns 401 when Bot Framework webhook authentication fails', async () => {
-    processMock.mockRejectedValue(
-      Object.assign(new Error('auth failed'), {
-        name: 'AuthenticationError',
-        statusCode: 401,
-      }),
-    );
-
-    const runtime = await importRuntime();
-    const req = makeRequest({ type: 'message', text: 'Hi!' });
-    const res = makeResponse();
-
-    await expect(
-      runtime.handleMSTeamsWebhook(req, res),
-    ).resolves.toBeUndefined();
-
-    expect(res.statusCode).toBe(401);
-    expect(res.writableEnded).toBe(true);
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: expect.any(Error),
-        statusCode: 401,
-      }),
-      'Rejected Teams webhook due to Teams authentication failure',
-    );
   });
 
   test('returns 400 for malformed webhook JSON bodies before adapter processing', async () => {
