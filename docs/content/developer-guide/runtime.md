@@ -1771,7 +1771,11 @@ file/browser vision calls, because text redaction cannot sanitize document bytes
 or pixels. The gateway sends visual-data permission independently of the primary
 model's image capability. A text-only primary can use an otherwise permitted,
 configured auxiliary vision model; a confidentiality block cannot be bypassed by
-switching models. Both flags and tool-call permission snapshots are rebuilt from
+switching models. Image-source fallback is used only when loading the preferred
+source fails. Once its bytes are loaded, provider errors retain that source;
+bounded provider retries reuse the same image and model. They do not download
+an alternate image or start another inference sequence through the fallback.
+Both flags and tool-call permission snapshots are rebuilt from
 each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 

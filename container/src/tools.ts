@@ -2071,11 +2071,13 @@ async function runVisionAnalyze(
   );
   const errors: string[] = [];
   for (const candidate of candidates) {
+    let imageLoaded = false;
     try {
       const isRemote = /^https?:\/\//i.test(candidate);
       const image = isRemote
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
+      imageLoaded = true;
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
       const vision = await callVisionModel(
         runtimeContext,
@@ -2096,7 +2098,8 @@ async function runVisionAnalyze(
         2,
       );
     } catch (err) {
-      if (err instanceof IncompleteVisionAnalysisError) throw err;
+      // Source fallback cannot replace pixels after an inference failure.
+      if (imageLoaded) throw err;
       const detail = err instanceof Error ? err.message : String(err);
       errors.push(`${candidate}: ${detail}`);
     }
