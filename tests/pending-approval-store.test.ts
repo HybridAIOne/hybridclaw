@@ -151,7 +151,7 @@ test('expiry pruning preserves live requests from all sessions', () => {
   ).toEqual(['session-b']);
 });
 
-test('a held or abandoned lock fails closed without stealing it', () => {
+test('a held lock fails closed without stealing it', () => {
   const file = path.join(makeDir(), 'pending.json');
   const release = lockMemoryFile(file);
   const pending = request('session-a');
@@ -169,6 +169,18 @@ test('a held or abandoned lock fails closed without stealing it', () => {
     now.mockRestore();
     release();
   }
+});
+
+test('a lock abandoned by a dead writer is reclaimed', () => {
+  const file = path.join(makeDir(), 'pending.json');
+  saveSessionPendingApprovals(file, 'session-a', [request('session-a')]);
+  fs.mkdirSync(`${file}.lock`);
+  const abandonedAt = new Date(Date.now() - 60_000);
+  fs.utimesSync(`${file}.lock`, abandonedAt, abandonedAt);
+  expect(
+    loadSessionPendingApprovals(file, 'session-a').map((item) => item.id),
+  ).toEqual(['session-a']);
+  expect(fs.existsSync(`${file}.lock`)).toBe(false);
 });
 
 test('a session cannot save requests owned by another session', () => {
