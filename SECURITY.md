@@ -77,6 +77,11 @@ rule IDs are rejected, and missing settings enable all rules. Admin saves produc
 configuration revisions and `safety.rules_changed` audit events. These pattern
 checks are heuristics, not a complete shell parser or sandbox.
 
+The `eval` rule ignores lexical Python comments in a single quoted stdin
+program. Bounded syntax inspection never executes the program; unsupported
+shell forms, non-UTF-8 source encodings and failed inspection retain text matching.
+Executable code, strings and independent safety rules remain checked.
+
 Implementation: [shared catalog](./container/shared/safety-rules.js),
 [worker enforcement](./container/src/safety-rules.ts), and
 [admin controls](./src/gateway/safety-rules-admin.ts)
