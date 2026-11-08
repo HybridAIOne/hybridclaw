@@ -1390,6 +1390,14 @@ fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
 
+### Autonomous continuation ownership
+
+Full-auto schedules, watchdogs, progress and completion are bound to the runtime
+and run that created them. A continuation due during an active run waits for
+that run to finish. Disposal invalidates every callback; goal continuations use
+a separate run lease so an old finalizer cannot finish a replacement goal run.
+Durable enablement and goal status retain their existing restart behavior.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the

@@ -1,19 +1,25 @@
+/**
+ * Goal turns publish only while they own their continuation lease.
+ * Goal status stays in goal-manager; clearing a continuation prevents an old
+ * result or finalizer from publishing into or releasing a replacement run.
+ */
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
   getActiveThreadGoal,
   resolveGoalThreadId,
 } from '../goals/goal-manager.js';
 import {
+  beginGoalContinuationRun,
   buildGoalContinuationPrompt,
   buildGoalInitialPrompt,
   clearScheduledGoalContinuation,
   finishGoalContinuationRun,
   GOAL_CONTINUATION_SOURCE,
   getGoalContinuationContext,
+  isCurrentGoalContinuationRun,
   isGoalContinuationRunning,
   isGoalInitialPromptScheduled,
   setGoalContinuationRunHandler,
-  setGoalContinuationRunning,
 } from '../goals/goal-runtime.js';
 import { enqueueProactiveMessage } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -60,7 +66,8 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
     return;
   }
 
-  setGoalContinuationRunning(sessionId, true);
+  const token = beginGoalContinuationRun(sessionId);
+  if (!token) return;
   try {
     const initialPrompt = isGoalInitialPromptScheduled(sessionId);
     const result = await handleGatewayMessage({
@@ -79,9 +86,15 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       chatbotId: context.chatbotId ?? session.chatbot_id,
       model: context.model ?? session.model,
       enableRag: context.enableRag ?? session.enable_rag === 1,
-      onProactiveMessage: context.onProactiveMessage,
+      onProactiveMessage: context.onProactiveMessage
+        ? (message) => {
+            if (isCurrentGoalContinuationRun(sessionId, token))
+              return context.onProactiveMessage?.(message);
+          }
+        : undefined,
       source: GOAL_CONTINUATION_SOURCE,
     });
+    if (!isCurrentGoalContinuationRun(sessionId, token)) return;
     const resultText = String(result.result || '').trim();
     if (
       result.status === 'success' &&
@@ -96,7 +109,7 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       });
     }
   } finally {
-    finishGoalContinuationRun(sessionId);
+    finishGoalContinuationRun(sessionId, token);
   }
 }
 

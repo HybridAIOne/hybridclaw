@@ -1,3 +1,8 @@
+/**
+ * Goal continuations keep one live run lease per session, separate from goal status.
+ * Clearing or replacing a continuation invalidates its old completion; this does
+ * not persist worker handles or decide whether external actions may be repeated.
+ */
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { hasPendingApproval } from '../gateway/fullauto-runtime.js';
 import type {
@@ -34,15 +39,14 @@ export interface GoalContinuationContext {
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
 }
 
-const goalContinuationBySession = new Map<
-  string,
-  {
-    initialPrompt: boolean;
-    pendingAfterRun: boolean;
-    running: boolean;
-    context: GoalContinuationContext;
-  }
->();
+interface GoalContinuationState {
+  initialPrompt: boolean;
+  phase:
+    | { kind: 'idle' }
+    | { kind: 'running'; token: symbol; pending: boolean };
+  context: GoalContinuationContext;
+}
+const goalContinuationBySession = new Map<string, GoalContinuationState>();
 
 let runGoalContinuationHandler: ((sessionId: string) => Promise<void>) | null =
   null;
@@ -118,25 +122,36 @@ export function isGoalInitialPromptScheduled(sessionId: string): boolean {
   return goalContinuationBySession.get(sessionId)?.initialPrompt === true;
 }
 
-export function setGoalContinuationRunning(
-  sessionId: string,
-  running: boolean,
-): void {
+export function beginGoalContinuationRun(sessionId: string): symbol | null {
   const state = goalContinuationBySession.get(sessionId);
-  if (state) state.running = running;
+  if (!state || state.phase.kind === 'running') return null;
+  const token = Symbol(sessionId);
+  state.phase = { kind: 'running', token, pending: false };
+  return token;
 }
 
-export function finishGoalContinuationRun(sessionId: string): void {
+export function isCurrentGoalContinuationRun(
+  sessionId: string,
+  token: symbol,
+): boolean {
+  const phase = goalContinuationBySession.get(sessionId)?.phase;
+  return phase?.kind === 'running' && phase.token === token;
+}
+
+export function finishGoalContinuationRun(
+  sessionId: string,
+  token: symbol,
+): void {
   const state = goalContinuationBySession.get(sessionId);
-  if (!state) return;
-  state.running = false;
-  if (!state.pendingAfterRun) return;
-  state.pendingAfterRun = false;
-  runScheduledGoalContinuation(sessionId, state);
+  if (!state || state.phase.kind !== 'running' || state.phase.token !== token)
+    return;
+  const pending = state.phase.pending;
+  state.phase = { kind: 'idle' };
+  if (pending) runScheduledGoalContinuation(sessionId, state);
 }
 
 export function isGoalContinuationRunning(sessionId: string): boolean {
-  return goalContinuationBySession.get(sessionId)?.running === true;
+  return goalContinuationBySession.get(sessionId)?.phase.kind === 'running';
 }
 
 export function clearScheduledGoalContinuation(sessionId: string): void {
@@ -145,16 +160,11 @@ export function clearScheduledGoalContinuation(sessionId: string): void {
 
 function runScheduledGoalContinuation(
   sessionId: string,
-  state: {
-    initialPrompt: boolean;
-    pendingAfterRun: boolean;
-    running: boolean;
-    context: GoalContinuationContext;
-  },
+  state: GoalContinuationState,
 ): void {
   if (goalContinuationBySession.get(sessionId) !== state) return;
-  if (state.running) {
-    state.pendingAfterRun = true;
+  if (state.phase.kind === 'running') {
+    state.phase.pending = true;
     return;
   }
   if (!runGoalContinuationHandler) {
@@ -176,16 +186,15 @@ export function scheduleGoalContinuation(params: {
   const goal = getActiveThreadGoal(threadId);
   if (!goal) return;
   const existing = goalContinuationBySession.get(params.session.id);
-  if (existing?.running) {
+  if (existing?.phase.kind === 'running') {
     existing.initialPrompt = params.initialPrompt === true;
-    existing.pendingAfterRun = true;
+    existing.phase.pending = true;
     existing.context = params.context;
     return;
   }
-  const state = {
+  const state: GoalContinuationState = {
     initialPrompt: params.initialPrompt === true,
-    pendingAfterRun: false,
-    running: false,
+    phase: { kind: 'idle' },
     context: params.context,
   };
   goalContinuationBySession.set(params.session.id, state);
