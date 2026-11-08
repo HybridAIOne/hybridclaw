@@ -54,6 +54,8 @@ test.each([
   ['bash', { command: 'curl -X POST https://api.example.com/orders' }],
   ['bash', { command: 'curl -d status=shipped https://api.example.com/o/42' }],
   ['bash', { command: 'curl -T orders.csv https://api.example.com/upload' }],
+  ['bash', { command: 'curl -s https://api.example.com/o/42 -o MEMORY.md' }],
+  ['bash', { command: 'curl -s https://api.example.com/o/42 > MEMORY.md' }],
 ])('a dry run refuses green %s %j, which starts work or changes something', (toolName, args) => {
   expect(evaluate(createRuntime(false), toolName, args)).toMatchObject({
     tier: 'green',

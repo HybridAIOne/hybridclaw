@@ -70,11 +70,20 @@ test.each([
   'curl -s -X DELETE https://example.com/api/items',
   'curl -s --request PATCH https://example.com/api/items',
   'curl -s -X POST https://example.com/api/other',
+  "curl -s https://example.com/api/items | tr -d '\\n'",
+  'curl -s https://example.com/api/items | cut -d, -f1',
+  'wget -T 10 https://example.com/api/items',
 ])('preserves explicit network denials under full-auto: %s', (command) => {
   expect(evaluate(command)).toMatchObject({
     tier: 'red',
     decision: 'denied',
   });
+});
+
+test('allows the configured POST through wget --post-data', () => {
+  expect(
+    evaluate('wget -q --post-data=x https://example.com/api/items'),
+  ).toMatchObject({ tier: 'green', decision: 'auto' });
 });
 
 test('recognizes the method in the observed multi-request command shape', () => {

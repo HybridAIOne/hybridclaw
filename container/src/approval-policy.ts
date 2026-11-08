@@ -82,6 +82,11 @@ import {
   shellCommandsRun,
 } from './bash-commands.js';
 import { fenceCandidates } from './bash-fence.js';
+import {
+  inferBashHttpMethod,
+  isReadOnlyHttpMethod,
+  normalizeHttpMethod,
+} from './bash-http-method.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   isReadOnlyBashSurface,
@@ -1036,33 +1041,6 @@ function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
   } catch {
     return false;
   }
-}
-
-function inferBashHttpMethod(command: string): string {
-  const explicit = command.match(
-    /(?:^|\s)(?:-X\s*|--request[\s=]+|--method[\s=]+)([A-Za-z]+)/,
-  );
-  if (explicit?.[1]) return explicit[1].toUpperCase();
-  if (/(?:^|\s)(?:-T\S*|--upload-file(?:\s|=|$))/.test(command)) return 'PUT';
-  if (
-    /(?:^|\s)(?:-[dF]\S*|(?:--data[\w-]*|--form[\w-]*|--json|--post-data|--post-file|--body-data|--body-file)(?:\s|=|$))/.test(
-      command,
-    )
-  ) {
-    return 'POST';
-  }
-  return 'GET';
-}
-
-function normalizeHttpMethod(value: unknown): string {
-  const normalized = String(value || 'GET')
-    .trim()
-    .toUpperCase();
-  return normalized || 'GET';
-}
-
-function isReadOnlyHttpMethod(method: string): boolean {
-  return ['GET', 'HEAD', 'OPTIONS'].includes(normalizeHttpMethod(method));
 }
 
 function stringList(value: unknown): string[] {
@@ -3837,19 +3815,21 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
+      const network = this.classifyNetworkTargets({
+        targets: httpTargets.map((target) => ({
+          ...target,
+          method: inferBashHttpMethod(commandsRun),
+        })),
+        intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
+        consequenceIfDenied: 'I will keep the task local and avoid that host.',
+        commandPreview: normalizePreview(command),
+      });
       return {
-        ...this.classifyNetworkTargets({
-          targets: httpTargets.map((target) => ({
-            ...target,
-            method: inferBashHttpMethod(command),
-          })),
-          intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
-          consequenceIfDenied:
-            'I will keep the task local and avoid that host.',
-          commandPreview: normalizePreview(command),
-        }),
+        ...network,
         // `curl -T .env https://...` uploads a local file.
         pathHints,
+        // `curl -o MEMORY.md` or `> MEMORY.md` writes locally too.
+        writeIntent: network.writeIntent || writeIntent,
       };
     }
 
