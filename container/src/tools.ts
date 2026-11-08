@@ -485,9 +485,9 @@ function formatBashExecutionResult(
   const prefix = notice ? `${notice}\n\n` : '';
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
-  const formattedStdout = formatBashOutput(
-    replaceWorkspaceRootInOutput(stdout || '(no output)'),
-  );
+  // Full output: oversized results are spilled to .tool-results with head and
+  // tail kept in context, so cutting here would drop the summary at the end.
+  const formattedStdout = replaceWorkspaceRootInOutput(stdout || '(no output)');
 
   if (result.status === 0 && !result.error) {
     return `${prefix}${formattedStdout}`;
@@ -503,7 +503,7 @@ function formatBashExecutionResult(
       `${TASK_SANDBOX_FS_ENABLED ? 'docker exec' : 'bash'} failed with exit code ${result.status ?? 'unknown'}`;
   if (!combinedOutput) return failTool(`${prefix}Error: ${summary}`);
   return failTool(
-    `${prefix}Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+    `${prefix}Error: ${summary}\n\n${replaceWorkspaceRootInOutput(combinedOutput)}`,
   );
 }
 
@@ -2107,8 +2107,6 @@ async function runVisionAnalyze(
   );
 }
 
-const BASH_MAX_OUTPUT_LINES = 400;
-const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
 const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
 const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
@@ -2182,27 +2180,6 @@ function truncateReadContent(
     outputLines: out.length,
     firstLineExceedsLimit: false,
   };
-}
-
-function formatBashOutput(content: string): string {
-  const raw = content || '(no output)';
-  const totalLines = raw.split('\n').length;
-  const truncation = truncateReadContent(
-    raw,
-    BASH_MAX_OUTPUT_LINES,
-    BASH_MAX_OUTPUT_BYTES,
-  );
-  if (!truncation.truncated) return raw;
-
-  if (truncation.firstLineExceedsLimit) {
-    return `[Command output truncated: first line exceeds ${formatBytes(BASH_MAX_OUTPUT_BYTES)}. Consider narrowing command output.]`;
-  }
-
-  const shownLines = truncation.outputLines;
-  if (truncation.truncatedBy === 'bytes') {
-    return `${truncation.content}\n\n[Output truncated at ${formatBytes(BASH_MAX_OUTPUT_BYTES)} after ${shownLines}/${totalLines} lines]`;
-  }
-  return `${truncation.content}\n\n[Output truncated after ${shownLines}/${totalLines} lines]`;
 }
 
 function normalizeTimeoutNumber(value: unknown): number | null {
