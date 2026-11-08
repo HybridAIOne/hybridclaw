@@ -12,7 +12,7 @@ export const TEXT_READ_PARAMETERS = {
   query: {
     type: 'string',
     description:
-      'Literal search in text or extracted PDF text. Text returns bounded matching excerpts and character offsets; PDF returns page numbers. Use char_offset to continue text search.',
+      'Literal substring search in text or extracted PDF text. Text returns bounded matching excerpts and character offsets; use char_offset to continue. For PDFs, omit pages and render when using query, then read matching pages in a separate call with pages.',
   },
   char_offset: {
     type: 'integer',
