@@ -341,8 +341,17 @@ export function stripWorkspaceRootPrefix(rawPath: string): string {
   return stripRootPrefix(strippedDisplay, WORKSPACE_ROOT);
 }
 
+const WORKSPACE_ROOT_OUTPUT = WORKSPACE_ROOT.replace(/\\/g, '/');
+// The bare root, as `pwd` prints it there, must not reach the display-root
+// rewrite below: in host mode the display root is its prefix.
+const BARE_WORKSPACE_ROOT_RE = new RegExp(
+  `${WORKSPACE_ROOT_OUTPUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s'"\`:;,)\\]])`,
+  'gm',
+);
+
 export function replaceWorkspaceRootInOutput(text: string): string {
   return text
-    .replaceAll(`${WORKSPACE_ROOT.replace(/\\/g, '/')}/`, '')
+    .replaceAll(`${WORKSPACE_ROOT_OUTPUT}/`, '')
+    .replace(BARE_WORKSPACE_ROOT_RE, '.')
     .replaceAll(`${WORKSPACE_ROOT_DISPLAY}/`, '');
 }

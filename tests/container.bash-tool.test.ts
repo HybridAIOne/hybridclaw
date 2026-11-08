@@ -131,6 +131,17 @@ describe.sequential('container bash tool persistence', () => {
     expect(second).toBe('nested');
   });
 
+  test('shows the workspace root as . when the display root is its parent, as in host mode', async () => {
+    await createBashTestRuntime();
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', path.dirname(workspaceRoot));
+    vi.resetModules();
+    const { executeTool } = await loadTools();
+
+    const result = await executeTool('bash', bashCommand('pwd; mkdir sub && cd sub && pwd'));
+
+    expect(result).toBe('.\nsub\n');
+  });
+
   test('treats shell metacharacters in the environment temp path as literal arguments', async () => {
     const { executeTool } = await createBashTestRuntime();
     const tempRoot = path.join(
