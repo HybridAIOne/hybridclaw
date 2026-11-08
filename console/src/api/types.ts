@@ -8,6 +8,7 @@ import type {
   GatewayStatus as RuntimeGatewayStatus,
 } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
+import type { ModelStatus } from '../../../src/providers/model-status.js';
 import type { SkillInstallKind } from '../../../src/skills/skills-install-spec.js';
 export const LOG_LEVELS = [
   'fatal',
@@ -1002,6 +1003,10 @@ export interface ChatModel {
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;
+  /** Legacy models stay selectable; pickers fold them away. */
+  status?: ModelStatus;
+  replacement?: string | null;
+  recommended?: boolean;
   /** Catalog routing zone; unknown for a selection absent from the catalog. */
   zone?: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   /** Latest local discovery result; absent when discovery status is unknown. */

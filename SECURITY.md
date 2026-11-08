@@ -77,6 +77,11 @@ rule IDs are rejected, and missing settings enable all rules. Admin saves produc
 configuration revisions and `safety.rules_changed` audit events. These pattern
 checks are heuristics, not a complete shell parser or sandbox.
 
+The `eval` rule ignores lexical Python comments in a single quoted stdin
+program. Bounded syntax inspection never executes the program; unsupported
+shell forms, non-UTF-8 source encodings and failed inspection retain text matching.
+Executable code, strings and independent safety rules remain checked.
+
 Implementation: [shared catalog](./container/shared/safety-rules.js),
 [worker enforcement](./container/src/safety-rules.ts), and
 [admin controls](./src/gateway/safety-rules-admin.ts)
@@ -92,6 +97,20 @@ Tool actions are risk-tiered at runtime:
   actions (`.env*`, `~/.ssh/**`, `/etc/**`, force pushes, approval state
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
+
+Fetched-code review recognizes bounded JSON readers and Pillow image
+open/thumbnail/save operations with literal workspace paths. Inspection never
+executes supplied Python. Recognized image writes retain write intent and
+pinned-path checks; outputs derived from fetched inputs retain provenance
+across workers. Unsupported Python string literals remain visible to the
+existing fetched-file checks. Downloaded importable files and unknown download
+destinations cannot establish this data-only exemption. This is static analysis,
+not a sandbox. Python startup also reviews downloaded importable files visible
+from the command's current directory or a direct script's directory, including
+package and namespace imports. Version/help probes remain non-executing;
+isolated startup excludes those roots unless inline inspection observes access
+to the import-path machinery. Failed inline inspection cannot certify isolation.
+This does not inspect arbitrary local script contents or ambient import hooks.
 
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation

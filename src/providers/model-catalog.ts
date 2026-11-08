@@ -26,6 +26,7 @@ import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
   getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelLifecycle,
   getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
   getDiscoveredHybridAIModelPricingUsdPerToken,
@@ -46,8 +47,8 @@ import {
 import {
   discoverMistralModels,
   getDiscoveredMistralModelContextWindow,
+  getDiscoveredMistralModelLifecycle,
   getDiscoveredMistralModelPricingUsdPerToken,
-  isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
@@ -68,6 +69,11 @@ import {
   type ModelRoutingZone,
   normalizeModelRoutingZone,
 } from './model-routing.js';
+import {
+  CURRENT_MODEL,
+  isCuratedLegacyModel,
+  type ModelLifecycle,
+} from './model-status.js';
 import { OPENAI_CODEX_MODEL_PREFIX, OPENAI_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenAICompatRemoteModels,
@@ -283,14 +289,38 @@ function normalizeAvailableCatalogModel(rawModel: string): string | null {
   const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
     ? resolveDiscoveredMistralModelCanonicalName(model)
     : model;
-  if (!canonicalModel) return null;
-  if (
-    hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
-    isDiscoveredDeprecatedMistralModel(canonicalModel)
-  ) {
-    return null;
+  return canonicalModel || null;
+}
+
+/**
+ * A provider that publishes deprecation fields owns its models' status; the
+ * curated table covers providers that publish none.
+ */
+export function getModelLifecycle(model: string): ModelLifecycle {
+  const normalized = String(model || '').trim();
+  if (hasModelPrefix(normalized, MISTRAL_MODEL_PREFIX)) {
+    return getDiscoveredMistralModelLifecycle(normalized) ?? CURRENT_MODEL;
   }
-  return canonicalModel;
+  if (
+    !isLocalPrefixedModel(normalized) &&
+    resolveModelProviderOrNull(normalized) === 'hybridai'
+  ) {
+    return getDiscoveredHybridAIModelLifecycle(normalized) ?? CURRENT_MODEL;
+  }
+  return isCuratedLegacyModel(normalized)
+    ? { status: 'legacy', replacement: null }
+    : CURRENT_MODEL;
+}
+
+function isLegacyModel(model: string): boolean {
+  return getModelLifecycle(model).status === 'legacy';
+}
+
+/** Stable order that keeps the list's own ranking but puts legacy last. */
+function sortCurrentModelsFirst(models: readonly string[]): string[] {
+  return [...models].sort(
+    (left, right) => Number(isLegacyModel(left)) - Number(isLegacyModel(right)),
+  );
 }
 
 function dedupeModelList(models: string[]): string[] {
@@ -680,6 +710,8 @@ export function selectModelsByCapabilityAndCost(
     })
     .filter((entry): entry is ModelCatalogSelection => entry != null)
     .sort((left, right) => {
+      const leftLegacy = isLegacyModel(left.model);
+      if (leftLegacy !== isLegacyModel(right.model)) return leftLegacy ? 1 : -1;
       const leftCost = left.estimatedUnitCostUsd;
       const rightCost = right.estimatedUnitCostUsd;
       if (leftCost != null && rightCost != null && leftCost !== rightCost) {
@@ -748,8 +780,9 @@ export async function canModelAcceptVisualMedia(
  * Returns null if no vision-capable model is found.
  */
 export function findVisionCapableModel(preferredModel?: string): string | null {
-  const allModels = getAvailableModelList();
-  const visionModels = allModels.filter((m) => isModelVisionCapable(m));
+  const visionModels = sortCurrentModelsFirst(
+    getAvailableModelList().filter((m) => isModelVisionCapable(m)),
+  );
   if (visionModels.length === 0) return null;
 
   // Prefer a model from the same provider as the preferred model.
@@ -772,7 +805,7 @@ export async function getAvailableModelChoices(
   opts?: { includeHybridAI?: boolean },
 ): Promise<Array<{ name: string; value: string }>> {
   await refreshAvailableModelCatalogs(opts);
-  return getAvailableModelList()
+  return sortCurrentModelsFirst(getAvailableModelList())
     .slice(0, Math.max(0, limit))
     .map((model) => ({
       name: formatModelForDisplay(model),

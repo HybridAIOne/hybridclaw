@@ -3,9 +3,10 @@ import { scriptCommands } from '../container/src/bash-commands.js';
 import { findFetchedCode } from '../container/src/bash-remote-code.js';
 import { useCleanMocks } from './test-utils.js';
 
-const { readOnly } = vi.hoisted(() => ({ readOnly: vi.fn(() => true) }));
-vi.mock('../container/src/python-data-reader.js', () => ({
-  isReadOnlyPythonInline: readOnly,
+const { readOnly } = vi.hoisted(() => ({ readOnly: vi.fn(() => ({ data: { reads: [], writes: [], pathHints: [] }, literals: [] })) }));
+vi.mock('../container/src/python-data-inspection.js', () => ({
+  inspectPythonInline: readOnly,
+  pythonImportRisk: () => false,
 }));
 useCleanMocks({
   cleanup: () => {

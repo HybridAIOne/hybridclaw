@@ -167,7 +167,12 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Cooperative file locks persist a unique owner entry beside the locked file.
+Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
+describe confirmed-death recovery and unknown-owner handling.
+
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
+and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
 
@@ -350,8 +355,8 @@ own path. The gateway binds delegated workers to their root worker's conflict
 store through authenticated input. Parents, children and siblings reload that
 store before each decision; unrelated conversations retain separate stores.
 Shared updates use the existing cooperative file lock, preserving concurrent
-additions and resolutions. An active or abandoned lock fails closed until its
-writer finishes or the operator removes a verified abandoned lock.
+additions and resolutions. Lock recovery follows the ownership checks for
+[file-write transactions](#agent-tool-and-runtime-internals); unidentified locks fail closed.
 Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
@@ -461,10 +466,15 @@ also participate in protected-path checks, including backups and nested calls.
 Backup-name expansion substitutes filenames literally and has a 64 KiB
 inspection budget per interpretation; larger batches fail before execution.
 
-Inline Python data reads use a bounded, non-executing AST recognizer instead
+Inline Python data operations use a bounded, non-executing AST recognizer instead
 of treating their filenames as shell executables. The supported subset reads
-files or stdin, parses JSON and performs ordinary data transformations. It does
-not admit arbitrary imports, callbacks, evaluation or write modes. Explicit
+files or stdin, parses JSON and performs ordinary data transformations. Pillow
+image open, thumbnail, size and save operations support literal workspace paths;
+their write intent and pinned-path checks remain active, including in commands
+that also contact HTTP endpoints. Possible output paths derived from fetched
+inputs are recorded before the decision, so later execution still requires
+provenance review after a worker replacement. Other imports, callbacks,
+evaluation and write modes are outside this recognized subset. Explicit
 interactive/import-customizing startup options, downloaded importable code,
 unknown provenance, unsupported syntax or parser failures retain conservative
 inspection. Unsupported inline Python that can consume fetched operands or
@@ -472,7 +482,19 @@ stdin requires provenance review. This does not validate arbitrary ambient inter
 import hooks and does not replace other approval and protected-path checks.
 The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
 timeout and four parser invocations shared across nested shells per tool call.
-Reading data does not remove its saved download provenance.
+Reading or transforming data does not remove its saved download provenance.
+Python startup uses the current directory for inline, module and stdin execution,
+and the resolved script directory for direct scripts. Downloaded modules in those
+roots require review, including package initializers and visible namespace
+imports. Isolated startup excludes these roots; inline use of `sys` beyond stdin
+access, dynamic `__import__` access or importlib use conservatively requires
+review when downloaded importable files exist.
+Version/help options count as non-executing only before a program operand;
+`-W`/`-X` values and arguments after `-c`, `-m` or a filename are not startup flags.
+The same bounded parser supplies import metadata even when the data exemption is
+refused. Unknown inline syntax or exhausted inspection budget cannot certify
+isolated imports. Local script bodies, arbitrary copies, dynamically computed
+imports and ambient hooks remain outside this static provenance analysis.
 
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
@@ -524,7 +546,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
 | Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
-| Fetched paths and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
+| Fetched paths, recognized derived outputs and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
@@ -1662,8 +1684,14 @@ Publication is atomic, and cooperative `.lock` directories serialize `write` and
 `edit` checks and replacements across workers, including task sandboxes. An edit
 uses the complete bytes it read as its expected content. A change detected since
 that read rejects the edit before publication. These checks use current disk
-state and survive worker replacement. A crashed writer's lock
-fails closed until removed after verifying no writer is active. External editors,
+state and survive worker replacement. Node writers record a unique owner entry
+inside each lock directory. A contender reclaims it only when its boot and PID
+namespace match and the operating system confirms that the owner PID is absent.
+Age alone never establishes that a writer died. Unknown, incomplete, malformed,
+and foreign-namespace owners, including empty task-sandbox locks, fail closed;
+remove those only after independently verifying that no writer remains active.
+Recovery removes the unique owner entry before the directory, so competing
+reapers cannot remove a fresh writer's lock. External editors,
 `bash`, and generated-artifact tools do not participate in this protocol;
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
@@ -1765,7 +1793,11 @@ file/browser vision calls, because text redaction cannot sanitize document bytes
 or pixels. The gateway sends visual-data permission independently of the primary
 model's image capability. A text-only primary can use an otherwise permitted,
 configured auxiliary vision model; a confidentiality block cannot be bypassed by
-switching models. Both flags and tool-call permission snapshots are rebuilt from
+switching models. Image-source fallback is used only when loading the preferred
+source fails. Once its bytes are loaded, provider errors retain that source;
+bounded provider retries reuse the same image and model. They do not download
+an alternate image or start another inference sequence through the fallback.
+Both flags and tool-call permission snapshots are rebuilt from
 each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
@@ -1833,6 +1865,7 @@ read/modify/atomic-write transaction. Concurrent sessions retain each other's
 requests. Reads reject malformed state, and write or lock failures propagate
 before consent can grant replay or trust. Lock acquisition waits synchronously
 for at most the existing five-second bound because policy evaluation is synchronous.
-A crashed writer's lock is not stolen: remove it only after verifying no writer
-is running. The file format and worker validation of arguments, user, session,
-and pinned one-time scope are unchanged.
+Confirmed dead owners in the same boot/PID namespace are recovered using the
+file-write transaction protocol; unknown owners remain locked. The file format
+and worker validation of arguments, user, session, and pinned one-time scope
+are unchanged.

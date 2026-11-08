@@ -116,7 +116,8 @@
   color: var(--text);
 }
 
-.triggerPill[data-local="true"] {
+.triggerPill[data-local="true"],
+.triggerPill[data-legacy="true"] {
   max-width: 300px;
 }
 
@@ -141,7 +142,8 @@
   line-height: 1;
 }
 
-.localBadge {
+.localBadge,
+.legacyBadge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -166,4 +168,8 @@
   border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.showAllItem {
+  color: var(--muted-foreground);
 }
