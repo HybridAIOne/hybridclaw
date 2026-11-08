@@ -251,21 +251,23 @@ describe('ModelsPage', () => {
     );
   });
 
-  it('changes the default model through NativeSelect and saves it', async () => {
+  it('changes the default model through the model picker and saves it', async () => {
     fetchModelsMock.mockResolvedValue(makeModelsResponse());
     saveModelsMock.mockResolvedValue(undefined);
 
     renderModelsPage();
 
-    const select = (await screen.findByLabelText(
-      'Default model',
-    )) as HTMLSelectElement;
-    expect(select.value).toBe('gpt-5');
-
-    fireEvent.change(select, {
-      target: { value: 'openrouter/anthropic/claude-sonnet-4' },
+    const picker = await screen.findByRole('combobox', {
+      name: 'Default model',
     });
-    expect(select.value).toBe('openrouter/anthropic/claude-sonnet-4');
+    expect(picker.textContent).toContain('GPT-5');
+
+    fireEvent.click(picker);
+    fireEvent.click(
+      document.querySelector<HTMLElement>(
+        '[data-value="openrouter/anthropic/claude-sonnet-4"]',
+      ) as HTMLElement,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Save selection' }));
 
