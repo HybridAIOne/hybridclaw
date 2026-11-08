@@ -1461,12 +1461,14 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'budget-tokens',
         taskId: undefined,
-        source: 'scheduler-job',
-        channelId: 'tui',
-        artifactCount: 0,
-        result: idleText,
+        execution: 'completed',
+        delivery: 'queued',
       },
       'Scheduled task completed',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'tui', queued: 1, artifactCount: 0 }),
+      'Proactive message queued for local channel delivery',
     );
   });
 
@@ -1506,12 +1508,14 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'budget-tokens',
         taskId: undefined,
-        source: 'scheduler-job',
-        channelId: 'tui',
-        result: 'HEARTBEAT_OK',
-        artifactCount: 1,
+        execution: 'completed',
+        delivery: 'queued',
       },
       'Scheduled task completed',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'tui', queued: 1, artifactCount: 1 }),
+      'Proactive message queued for local channel delivery',
     );
     expect(state.loggerInfo).not.toHaveBeenCalledWith(
       expect.objectContaining({

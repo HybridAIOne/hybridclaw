@@ -61,13 +61,13 @@ test('invalid payloads cannot choose owners, instructions or destinations', asyn
 test('editions survive restart and schedule edits, missed slots do not generate backlog', async () => {
   const { db, jobs, save, read } = await setup();
   save(); const task = jobs.getJob(read().task.id, { kind: 'scheduled_task' })!;
-  const { claimRoutineEdition, saveEdition, savedEdition, pendingEdition } = await import('../src/scheduler/routine-editions.js');
+  const { claimRoutineEdition, saveEdition, readRoutineEdition, pendingEdition } = await import('../src/scheduler/routine-editions.js');
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-25T00:30:00Z'));
   const first = claimRoutineEdition(task, Date.now())!;
   saveEdition(first, { text: 'Prepared brief', storedMessage: { sessionId: 'web-a', id: 123 } });
   db.closeDatabase(); db.initDatabase({ quiet: true });
   expect(claimRoutineEdition({ ...task, cron_expr: '30 3 * * *' }, Date.now() + 3600000)).toBeNull();
-  expect(savedEdition(first)?.text).toBe('Prepared brief');
+  expect(readRoutineEdition(first)).toMatchObject({ kind: 'delivery_pending', result: { text: 'Prepared brief' } });
   expect(pendingEdition(task)).toBe(first);
   vi.setSystemTime(new Date('2026-10-26T12:00:00Z'));
   expect(claimRoutineEdition(task, Date.now() - 3600000)).toBeNull();

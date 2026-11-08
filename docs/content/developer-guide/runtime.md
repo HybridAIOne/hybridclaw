@@ -1441,6 +1441,14 @@ runtime flow:
   stale transcript history for that session so conversation state stays aligned
   with the new workspace and tool surface.
 
+### Scheduled execution and delivery
+
+Routine editions project their existing result and delivered fields as executing,
+delivery pending, or settled. A settled edition cannot execute or deliver again;
+a pending delivery reuses the first saved payload. Each delivery attempt tracks
+execution separately from delivered, queued, or suppressed transport outcomes.
+A remote acknowledgement lost after acceptance remains an uncertain delivery.
+
 ## Agent And Session Model
 
 HybridClaw now distinguishes between agents and sessions explicitly:
