@@ -1,8 +1,8 @@
 /**
- * Recognizes a bounded subset of Python that only reads and transforms data.
- * The isolated parser never executes the supplied source. A failed or unknown
- * parse is not permission; bash-remote-code retains its conservative result.
- * This is not a general Python sandbox or an approval-policy replacement.
+ * Bounded Python inspection distinguishes data readers and lexical comments.
+ * The isolated parser never executes supplied source. Failed inspection keeps
+ * the caller's conservative result; comments never authorize executable code.
+ * Unlike approval policy, this is syntax inspection, not a Python sandbox.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 const MAX_SOURCE_BYTES = 32 * 1024;
 const PARSER_TIMEOUT_MS = 1000;
 
-const READ_ONLY_PYTHON = `
+const PYTHON_INSPECTION = `
 import ast, sys
 
 class Unknown(Exception):
@@ -174,41 +174,77 @@ class Reader:
                 raise Unknown()
 
 try:
-    tree = ast.parse(sys.stdin.read())
+    source = sys.stdin.read()
+    tree = ast.parse(source)
     if sum(1 for _ in ast.walk(tree)) > 4096:
         raise Unknown()
-    Reader().statements(tree.body)
-    print('data')
+    if sys.argv[1] == 'data':
+        Reader().statements(tree.body)
+        print('data')
+    elif sys.argv[1] == 'comments':
+        import io, json, tokenize
+        encoding, _ = tokenize.detect_encoding(io.BytesIO(source.encode('utf8')).readline)
+        if encoding not in {'utf-8', 'utf-8-sig'}:
+            raise Unknown()
+        lines = source.split('\\n')
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT:
+                row, start = token.start
+                end_row, end = token.end
+                if row != end_row:
+                    raise Unknown()
+                line = lines[row - 1]
+                lines[row - 1] = line[:start] + ' ' * (end - start) + line[end:]
+        print(json.dumps('\\n'.join(lines), ensure_ascii=False))
+    else:
+        raise Unknown()
 except Exception:
     print('unknown')
 `;
+
+function inspectPython(
+  source: string,
+  mode: 'data' | 'comments',
+): string | null {
+  if (Buffer.byteLength(source) > MAX_SOURCE_BYTES) return null;
+  const result = spawnSync(
+    '/usr/bin/python3',
+    ['-I', '-S', '-B', '-c', PYTHON_INSPECTION, mode],
+    {
+      input: source,
+      encoding: 'utf8',
+      timeout: PARSER_TIMEOUT_MS,
+      maxBuffer: mode === 'data' ? 1024 : MAX_SOURCE_BYTES * 2 + 32,
+      windowsHide: true,
+    },
+  );
+  return result.status === 0 &&
+    !result.error &&
+    typeof result.stdout === 'string'
+    ? result.stdout.trim()
+    : null;
+}
 
 export function isReadOnlyPythonInline(
   source: string,
   fetchedFiles: Iterable<string>,
 ): boolean {
-  if (Buffer.byteLength(source) > MAX_SOURCE_BYTES) return false;
   // Downloaded importable code may shadow the standard modules this subset
   // uses. Unknown locations cannot establish a data-only interpretation either.
   for (const file of fetchedFiles) {
     if (file.includes('\0') || /\.(?:py[co]?|so|pyd|zip|egg)$/i.test(file))
       return false;
   }
-  const result = spawnSync(
-    '/usr/bin/python3',
-    ['-I', '-S', '-B', '-c', READ_ONLY_PYTHON],
-    {
-      input: source,
-      encoding: 'utf8',
-      timeout: PARSER_TIMEOUT_MS,
-      maxBuffer: 1024,
-      windowsHide: true,
-    },
-  );
-  return (
-    result.status === 0 &&
-    !result.error &&
-    typeof result.stdout === 'string' &&
-    result.stdout.trim() === 'data'
-  );
+  return inspectPython(source, 'data') === 'data';
+}
+
+export function withoutPythonComments(source: string): string | null {
+  const output = inspectPython(source, 'comments');
+  if (output === null) return null;
+  try {
+    const masked: unknown = JSON.parse(output);
+    return typeof masked === 'string' ? masked : null;
+  } catch {
+    return null;
+  }
 }
