@@ -97,8 +97,8 @@ capability-based fallbacks, prefer current models.
 - HybridAI and Mistral mark models through optional fields on their
   OpenAI-compatible `/models` entries: `deprecation` holds the retirement date
   and `deprecation_replacement_model` names the successor. A model with a
-  future `deprecation` date is legacy. A model whose date has passed, or one
-  marked `archived`, is retired.
+  future `deprecation` date, or a replacement and no date, is legacy. A model
+  whose date has passed, or one marked `archived`, is retired.
 - Anthropic and Codex publish no such field, so HybridClaw ships a list of
   their superseded models.
 - A retired model no longer appears in any list.
