@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useTempDir } from './test-utils.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
@@ -15,9 +15,7 @@ const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-model-catalog-'));
-}
+const makeTempHome = useTempDir('hybridclaw-model-catalog-');
 
 function writeRuntimeConfig(
   homeDir: string,
@@ -535,6 +533,66 @@ test('model catalog selects the cheapest model matching capability flags', async
       .map((selection) => selection.model)
       .slice(0, 2),
   ).toEqual(['hybridai/gpt-5-nano', 'hybridai/gpt-5']);
+});
+
+test('model catalog keeps legacy models listed but prefers current ones', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-legacy';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          object: 'list',
+          data: [
+            {
+              id: 'aaa-legacy-model',
+              deprecation: '2099-01-01T00:00:00Z',
+              deprecation_replacement_model: 'zzz-current-model',
+              pricing: { prompt: '0.000001', completion: '0.000001' },
+            },
+            {
+              id: 'zzz-current-model',
+              pricing: { prompt: '0.00001', completion: '0.00001' },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs({ includeHybridAI: true });
+
+  expect(catalog.getAvailableModelList('hybridai')).toContain(
+    'hybridai/aaa-legacy-model',
+  );
+  expect(catalog.getModelLifecycle('hybridai/aaa-legacy-model')).toEqual({
+    status: 'legacy',
+    replacement: 'hybridai/zzz-current-model',
+  });
+  expect(
+    catalog.findCheapestModelMeetingCapabilities({}, { provider: 'hybridai' }),
+  ).not.toBe('hybridai/aaa-legacy-model');
+  const choices = (await catalog.getAvailableModelChoices(25)).map(
+    (choice) => choice.value,
+  );
+  expect(choices.at(-1)).toBe('hybridai/aaa-legacy-model');
+  expect(
+    catalog.getModelLifecycle('anthropic/claude-opus-4-6-20251117').status,
+  ).toBe('legacy');
+  expect(catalog.getModelLifecycle('anthropic/claude-opus-5-5').status).toBe(
+    'current',
+  );
 });
 
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {

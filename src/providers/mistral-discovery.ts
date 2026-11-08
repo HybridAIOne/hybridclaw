@@ -2,6 +2,7 @@ import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
 import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { normalizeMistralModelName } from './mistral-utils.js';
+import { type ModelLifecycle, readListedModelStatus } from './model-status.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   type DiscoveredModelPricingUsdPerToken,
@@ -50,13 +51,6 @@ function readCanonicalMistralModelName(
   return namedModel || modelId;
 }
 
-function isDeprecatedMistralModelEntry(
-  entry: Record<string, unknown>,
-): boolean {
-  // Mistral's current `/v1/models` response example documents both fields.
-  return Boolean(entry.deprecation) || entry.archived === true;
-}
-
 export interface MistralDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
@@ -66,7 +60,7 @@ export interface MistralDiscoveryStore {
   ) => DiscoveredModelPricingUsdPerToken | null;
   resolveCanonicalModelName: (model: string) => string;
   isModelVisionCapable: (model: string) => boolean;
-  isModelDeprecated: (model: string) => boolean;
+  getModelLifecycle: (model: string) => ModelLifecycle | null;
 }
 
 interface MistralDiscoveryState {
@@ -74,7 +68,7 @@ interface MistralDiscoveryState {
   discoveredModelNames: string[];
   contextWindowByModel: Map<string, number>;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
-  deprecatedModelNames: Set<string>;
+  legacyModelByName: Map<string, ModelLifecycle>;
   visionCapableModels: Set<string>;
 }
 
@@ -83,7 +77,7 @@ const buildEmptyMistralDiscoveryState = (): MistralDiscoveryState => ({
   discoveredModelNames: [],
   contextWindowByModel: new Map(),
   pricingByModel: new Map(),
-  deprecatedModelNames: new Set(),
+  legacyModelByName: new Map(),
   visionCapableModels: new Set(),
 });
 
@@ -114,7 +108,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
-    const deprecated = new Set<string>();
+    const legacy = new Map<string, ModelLifecycle>();
     const visionCapable = new Set<string>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
@@ -131,10 +125,9 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       for (const alias of aliases) {
         canonicalByName.set(alias, canonical);
       }
-      if (isDeprecatedMistralModelEntry(entry)) {
-        deprecated.add(canonical);
-        continue;
-      }
+      const status = readListedModelStatus(entry);
+      if (status === 'retired') continue;
+      if (status.status === 'legacy') legacy.set(canonical, status);
       discovered.add(canonical);
       const contextWindow = readMistralContextWindow(entry);
       if (contextWindow != null) {
@@ -148,12 +141,20 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
         visionCapable.add(canonical);
       }
     }
+    for (const [model, lifecycle] of legacy) {
+      if (!lifecycle.replacement) continue;
+      const replacement = normalizeMistralModelName(lifecycle.replacement);
+      legacy.set(model, {
+        ...lifecycle,
+        replacement: canonicalByName.get(replacement) ?? replacement,
+      });
+    }
     return {
       canonicalModelByName: canonicalByName,
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
       pricingByModel,
-      deprecatedModelNames: deprecated,
+      legacyModelByName: legacy,
       visionCapableModels: visionCapable,
     };
   }
@@ -211,11 +212,13 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       const normalized = normalizeMistralModelName(model);
       return state.canonicalModelByName.get(normalized) ?? normalized;
     },
-    isModelDeprecated: (model: string) => {
+    getModelLifecycle: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeMistralModelName(model);
-      return state.deprecatedModelNames.has(
-        state.canonicalModelByName.get(normalized) ?? normalized,
+      return (
+        state.legacyModelByName.get(
+          state.canonicalModelByName.get(normalized) ?? normalized,
+        ) ?? null
       );
     },
     isModelVisionCapable: (model: string) => {
@@ -258,8 +261,10 @@ export function resolveDiscoveredMistralModelCanonicalName(
   return defaultMistralDiscoveryStore.resolveCanonicalModelName(model);
 }
 
-export function isDiscoveredDeprecatedMistralModel(model: string): boolean {
-  return defaultMistralDiscoveryStore.isModelDeprecated(model);
+export function getDiscoveredMistralModelLifecycle(
+  model: string,
+): ModelLifecycle | null {
+  return defaultMistralDiscoveryStore.getModelLifecycle(model);
 }
 
 export function isDiscoveredMistralModelVisionCapable(model: string): boolean {
