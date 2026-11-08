@@ -151,6 +151,10 @@ Worker reply files are checked for valid response shapes before gateway use.
 Malformed replies become errors without applying their side effects. Tool replay
 history uses the shared exchange validator; valid structure grants no authority.
 
+Audit appends separate an unterminated tail from the next record without
+removing bytes. A damaged fragment remains visible to chain verification; a
+new acknowledged record is never merged into that fragment.
+
 ## Worker State
 
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
