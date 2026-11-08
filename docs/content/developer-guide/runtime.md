@@ -543,6 +543,9 @@ Core details:
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
   to an agent, and that agent owns the workspace under
   `~/.hybridclaw/data/agents/<workspace>/workspace/`.
+HybridAI streaming calls require a completion marker or finish reason. A stream
+error or premature EOF fails the call even if text deltas were already shown.
+
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
   runtime start. In non-interactive shells, `HYBRIDCLAW_ACCEPT_TRUST=true` can
