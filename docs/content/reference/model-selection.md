@@ -103,6 +103,10 @@ capability-based fallbacks, prefer current models.
   their superseded models.
 - A retired model no longer appears in any list.
 
+`/model set`, `/model default`, and `/agent model` still accept a legacy
+model, and their reply names the replacement when its provider gives one.
+`hybridclaw doctor providers` warns when the default model is legacy.
+
 ## Scope Rules
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;

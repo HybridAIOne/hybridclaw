@@ -664,7 +664,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
-import { buildModelListResult } from './model-list-command.js';
+import { buildModelListResult, legacyModelNote } from './model-list-command.js';
 import { toGatewayModelProviderKey } from './model-provider-keys.js';
 import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
@@ -9463,6 +9463,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(updated)}`,
               `Session model: ${sessionOverride}`,
+              ...legacyModelNote(normalizedModelName),
               ...(hasSessionOverride
                 ? [
                     'Run `model clear` to use the updated agent model in this session.',
@@ -10019,7 +10020,10 @@ export async function handleGatewayCommand(
             draft.hybridai.defaultModel = normalizedModelName;
           });
           return plainCommand(
-            `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+            [
+              `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 
@@ -10047,7 +10051,10 @@ export async function handleGatewayCommand(
             },
           });
           return plainCommand(
-            `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+            [
+              `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 
