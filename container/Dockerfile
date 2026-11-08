@@ -38,7 +38,12 @@ RUN --mount=type=cache,target=/root/.npm \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ripgrep git curl python3 python3-pip python3-venv python-is-python3 unzip file poppler-utils qpdf pandoc
+    ripgrep git curl python3 python3-pip python3-venv python-is-python3 unzip file poppler-utils qpdf pandoc \
+    build-essential procps
+
+# uv installs the Python versions and project environments coding tasks need;
+# Debian's python3 is often older than a repository requires.
+COPY --link --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /uvx /usr/local/bin/
 
 # Debian's PEP 668 marker makes bare `pip install` fail with
 # externally-managed-environment. This image is a disposable sandbox, so the
