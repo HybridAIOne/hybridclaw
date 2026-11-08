@@ -1,7 +1,7 @@
 /**
  * Paths the workspace fence checks for one bash line. Every write target the
  * parser resolves counts. When none is absolute and some command writes in
- * ways the parser does not follow (`sed -i`, installers, interpreters,
+ * ways the parser does not follow (sed scripts, installers, interpreters,
  * unknown programs), every absolute path the line names counts too, except
  * files the line only runs. Reading from outside is never a write.
  *

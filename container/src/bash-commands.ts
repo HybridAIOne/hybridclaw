@@ -13,6 +13,7 @@ import {
   redirectWidth,
 } from './bash-command-prefix.js';
 import { installWriteTargets } from './bash-install-targets.js';
+import { sedWriteTargets } from './bash-sed-targets.js';
 import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
 import { expandUserPath } from './runtime-paths.js';
 
@@ -577,7 +578,7 @@ function fetchWriteTargets(program: string, args: string[]): string[] {
 
 // Files a command writes through an option instead of a redirect: git's
 // `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
-// curl and wget save, pip's explicit install target, and archive destinations.
+// curl and wget save, install/archive destinations, and sed edits/backups.
 function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   if (program === 'curl' || program === 'wget') {
@@ -585,8 +586,13 @@ function optionWriteTargets(words: string[]): string[] {
   }
   if (TAR_PROGRAMS.has(program))
     return tarWriteTargets(commandArguments(args)).targets;
-  if (program !== 'git' && program !== 'find')
-    return installWriteTargets(program, commandArguments(args));
+  if (program !== 'git' && program !== 'find') {
+    const argv = commandArguments(args);
+    return [
+      ...installWriteTargets(program, argv),
+      ...sedWriteTargets(program, argv),
+    ];
+  }
   const targets: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

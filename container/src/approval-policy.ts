@@ -3670,7 +3670,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied:
           'I will not run downloaded code and will ask how to proceed.',
         reason: fetchedCode.uncertain
-          ? 'a shell wrapper prevents verifying how potentially fetched code is used'
+          ? 'the command prevents verifying how potentially fetched code is used'
           : 'the command runs code that curl or wget fetched',
         commandPreview: normalizePreview(command),
         pathHints,

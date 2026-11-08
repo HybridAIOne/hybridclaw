@@ -499,6 +499,7 @@ approval:
     'rm -f /opt/data/x > /tmp/log.txt',
     'pip install --target /opt/libs requests > /tmp/pip.log 2>&1',
     'tar -xzf bundle.tgz -C /opt/data 2>/dev/null',
+    "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
     'rm -rf ~/.cache',
     'rm -rf ../build',
     'cd .. && rm -rf node_modules',
@@ -714,12 +715,5 @@ approval:
     );
   });
 
-  // Known gaps (owner call, 2026-09-29): a scratch target still switches the
-  // absolute-path fallback off, and tar has no write intent of its own. Move a
-  // row to a passing table once the fence sees it.
-  test.fails.each([
-    "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
-  ])('outside write the fence does not see yet: %j', (command) => {
-    expect(evaluateBash(command).actionKey).toBe('bash:workspace-fence');
-  });
+
 });

@@ -1,7 +1,7 @@
 /**
  * Pinned-path reach of one bash command: operands that name a pinned path
- * (relative, `~`, or a dotfile glob) and recursive reads (`grep -r`,
- * `find -exec`, `find | xargs`) that reach `.env*`, `/etc`, or `~/.ssh` without
+ * (relative, `~`, or a dotfile glob), computed writes, and recursive reads
+ * (`grep -r`, `find -exec`, `find | xargs`) reaching `.env*`, `/etc`, or `~/.ssh` without
  * naming them. Static: variables and interpreter scripts escape it, and an
  * earlier call's `cd` counts only through the start directory of the parse.
  * NOT a sandbox, NOT the grep tool's walk filter.
@@ -10,6 +10,7 @@ import path from 'node:path';
 import { escapeRegExp } from '../shared/regex.js';
 import {
   type Cwd,
+  commandWriteTargets,
   FIND_EXEC_ACTIONS,
   findStartingPoints,
   HOME_VARIABLE_RE,
@@ -641,6 +642,14 @@ function scanScript(
           cwd,
           state.namesPinnedPath,
         )) {
+          state.namedPaths.add(match);
+        }
+      }
+    }
+
+    if (!NAME_ONLY_PROGRAMS.has(program)) {
+      for (const target of commandWriteTargets(words)) {
+        for (const match of pinnedMatches(target, cwd, state.namesPinnedPath)) {
           state.namedPaths.add(match);
         }
       }
