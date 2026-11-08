@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test } from 'vitest';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 
@@ -11,7 +13,8 @@ function bashCall(id: string, command: string) {
   };
 }
 
-test('a relative write waits at the workspace fence after an earlier call moved the shell out', async () => {
+test('a relative write after an earlier call moved the shell out lands in the workspace', async () => {
+  let workspace = '';
   const { output } = await runContainerAgent(
     [
       {
@@ -24,16 +27,20 @@ test('a relative write waits at the workspace fence after an earlier call moved 
       },
     ],
     { persistBashState: true },
+    {},
+    {
+      prepare: async (dir) => {
+        workspace = dir;
+        return {};
+      },
+    },
   );
 
   expect(
-    output.toolExecutions?.map((entry) => [
-      entry.approvalActionKey,
-      entry.approvalDecision,
-    ]),
-  ).toEqual([
-    ['bash:read-only', 'auto'],
-    ['bash:workspace-fence', 'required'],
-  ]);
-  expect(output.pendingApproval?.intent).toContain('/notes.txt');
+    output.toolExecutions?.map((entry) => entry.approvalActionKey),
+  ).toEqual(['bash:read-only', 'bash:write-op']);
+  expect(output.pendingApproval).toBeFalsy();
+  expect(fs.readFileSync(path.join(workspace, 'notes.txt'), 'utf-8')).toBe(
+    'note\n',
+  );
 });
