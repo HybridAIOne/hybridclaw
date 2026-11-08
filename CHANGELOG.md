@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+## [0.42.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.3) - 2026-11-08
+
+### Changed
+
+- **Dependency maintenance**: Refresh runtime and development dependencies,
+  retain verified PDF canvas binaries, and support Electron's first-use
+  executable installation during desktop development (#2201).
+- **PDF tool guidance**: Clarify that literal-text searches and reading or
+  rendering selected PDF pages use separate calls (#2209).
+
+### Fixed
+
+- **Scheduled task recovery**: Prevent overlapping job runs, retain pauses
+  after late failures, and report interrupted one-shot tasks as paused failures
+  with guidance to review effects before rescheduling. Delivery retries retain
+  prepared results without rerunning settled routine editions (#2167, #2168,
+  #2170, #2173).
+- **Session and worker coordination**: Serialize session aliases and creation
+  through one turn queue, reject stale worker releases and lifecycle callbacks,
+  and refresh persistent workers after runtime credential or web-search setting
+  changes. Autonomous continuations retain work due during active runs and
+  ignore callbacks from cancelled runs (#2172, #2174, #2189, #2191, #2197).
+- **Reliable message delivery**: Serialize background queue flushes to prevent
+  duplicate sends. Pulled proactive messages remain queued until acknowledged,
+  allowing disconnected clients to recover them after the delivery lease
+  expires (#2203, #2204).
+- **Conversation and audit integrity**: Reject message writes to missing or
+  deleted sessions, create scheduled sessions before saving their messages,
+  and commit history, counters and semantic memory together. A torn audit-log
+  tail cannot consume the next acknowledged record (#2171, #2193, #2195).
+- **Checked file edits and preservation**: Reject malformed edit and memory
+  payloads, replace only original text matches, preserve literal replacement
+  text, and publish edits through the checked atomic writer. Automatic
+  collision recovery reviews requested changes while preserving unrelated
+  files; approvals and delegation retain the complete user request
+  (#2175–#2179).
+- **Shell approval boundaries**: Preserve destination and downloaded-code
+  checks through shell wrappers, redirects, pip installs, tar operations and
+  sed backups. Recognize supported Python data reads, harmless verification
+  commands and Conda environment names without unnecessary execution blocks
+  (#2181, #2183–#2188, #2200).
+- **Worker results and accounting**: Reject malformed worker replies before
+  gateway processing, validate transported file-preservation context, honor
+  explicit output wait limits, and retain known usage and completed tool
+  outcomes across worker interruption or replacement (#2190, #2196, #2202,
+  #2206, #2207).
+- **Model and tool recovery**: Report incomplete or failed HybridAI streams as
+  errors, retry supported temporary helper-model failures, report policy-blocked
+  delegation as blocked, allow fresh verification after file mutations, and
+  order vision reads after related image changes (#2180, #2192, #2194, #2198,
+  #2199).
+
+### Upgrade Notes
+
+- Update the gateway and TUI together. Custom proactive-pull clients must
+  POST `{ channelId, claimToken, ids }` to `/api/proactive/pull` after handling
+  each GET batch. Unacknowledged batches become available again after the
+  60-second lease expires; clients should tolerate redelivery if an
+  acknowledgement is lost. The schema migration preserves queued messages.
+- Checked edits reject symlink inputs; use the real permitted file path.
+
 ## [0.42.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.2) - 2026-11-07
 
 ### Added
