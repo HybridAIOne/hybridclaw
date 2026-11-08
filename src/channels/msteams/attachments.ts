@@ -1,6 +1,6 @@
 /**
  * Teams attachment boundary — stages trusted-host inbound uploads and builds
- * outbound Bot Framework attachments. Cached local paths are the agent-facing
+ * outbound Teams attachments. Cached local paths are the agent-facing
  * source of record; delivery and streaming stay in their neighboring modules.
  *
  * Inbound downloads are retried with a short backoff. When an attachment still
@@ -12,9 +12,8 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { TurnContext } from 'botbuilder-core';
-import type { ConnectorClient } from 'botframework-connector';
-import type { Activity, Attachment, AttachmentData } from 'botframework-schema';
+import { Activity, type Attachment } from '@microsoft/agents-activity';
+import type { TurnContext } from '@microsoft/agents-hosting';
 import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
@@ -31,6 +30,7 @@ import {
 } from '../../media/uploaded-media-cache.js';
 import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
+import { requireMSTeamsConnectorClient } from './connector.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
@@ -1020,20 +1020,6 @@ function shouldInlinePersonalImageAttachment(params: {
   );
 }
 
-function requireConnectorClient(turnContext: TurnContext): ConnectorClient {
-  const adapter = turnContext.adapter as { ConnectorClientKey?: symbol };
-  const connectorKey = adapter.ConnectorClientKey;
-  if (!connectorKey) {
-    throw new Error('Teams connector client key is unavailable.');
-  }
-  const connectorClient =
-    turnContext.turnState.get<ConnectorClient>(connectorKey);
-  if (!connectorClient) {
-    throw new Error('Teams connector client is unavailable.');
-  }
-  return connectorClient;
-}
-
 function parseFileConsentInvoke(
   activity: Partial<Activity>,
 ): ParsedFileConsentInvoke | null {
@@ -1157,18 +1143,20 @@ export async function buildTeamsUploadedFileAttachment(params: {
     );
   }
 
-  const connectorClient = requireConnectorClient(params.turnContext);
-  const uploadPayload: AttachmentData = {
-    name: filename,
-    originalBase64: new Uint8Array(fileBuffer),
-    thumbnailBase64: new Uint8Array(),
-    type: contentType,
-  };
-  const uploaded = await connectorClient.conversations.uploadAttachment(
-    conversationId,
-    uploadPayload,
-  );
-  const attachmentId = normalizeValue(uploaded.id);
+  const connectorClient = requireMSTeamsConnectorClient(params.turnContext);
+  // Agents SDK 1.9.1's uploadAttachment serializes Uint8Array as a JSON object.
+  // Use its authenticated HTTP client with the Connector API's base64 wire format.
+  const uploaded = await connectorClient.httpClient.request<{ id?: string }>({
+    method: 'POST',
+    url: `v3/conversations/${encodeURIComponent(conversationId)}/attachments`,
+    data: {
+      name: filename,
+      originalBase64: fileBuffer.toString('base64'),
+      thumbnailBase64: '',
+      type: contentType,
+    },
+  });
+  const attachmentId = normalizeValue(uploaded.data.id);
   if (!attachmentId) {
     throw new Error('Teams attachment upload did not return an attachment id.');
   }
@@ -1205,10 +1193,12 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
     return false;
   }
 
-  await turnContext.sendActivity({
-    type: 'invokeResponse',
-    value: { status: 200 },
-  });
+  await turnContext.sendActivity(
+    Activity.fromObject({
+      type: 'invokeResponse',
+      value: { status: 200 },
+    }),
+  );
   await removeFileConsentCard(turnContext, activity);
 
   const uploadId = normalizeValue(
@@ -1285,18 +1275,21 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
       contentType: pendingUpload.contentType,
       uploadUrl,
     });
-    await turnContext.sendActivity({
-      type: 'message',
-      attachments: [
-        buildFileInfoCardAttachment({
-          contentUrl,
-          filename: uploadedName || pendingUpload.filename,
-          fileType:
-            fileType || path.extname(pendingUpload.filename).replace(/^\./, ''),
-          uniqueId,
-        }),
-      ],
-    });
+    await turnContext.sendActivity(
+      Activity.fromObject({
+        type: 'message',
+        attachments: [
+          buildFileInfoCardAttachment({
+            contentUrl,
+            filename: uploadedName || pendingUpload.filename,
+            fileType:
+              fileType ||
+              path.extname(pendingUpload.filename).replace(/^\./, ''),
+            uniqueId,
+          }),
+        ],
+      }),
+    );
   } catch (error) {
     logger.warn(
       { error, uploadId, filename: pendingUpload.filename },

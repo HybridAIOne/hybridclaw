@@ -11,7 +11,7 @@ const ensurePersonalAgentMock = vi.fn(() => null);
 const channelPolicyMock = vi.fn(() => ({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] }));
 const buildSessionIdMock = vi.fn((_activity?: unknown, _agentId?: string) => 'teams:dm:user');
 const processMock = vi.fn();
-const credentialsFactoryMock = vi.fn();
+const authorizeRequestMock = vi.fn(async (_req, _res, next) => next());
 const authConfigMock = vi.fn();
 const typingStartMock = vi.fn();
 const typingStopMock = vi.fn();
@@ -120,32 +120,24 @@ function makeStoredConversationReference() {
 async function importRuntime() {
   vi.resetModules();
 
-  vi.doMock('botbuilder', () => ({
-    TeamsInfo: { getMember: getMemberMock },
+  vi.doMock('@microsoft/agents-hosting', () => ({
     CloudAdapter: class {
       onTurnError?: unknown;
 
-      constructor() {
+      constructor(config: unknown) {
+        authConfigMock(config);
         cloudAdapters.push(this);
       }
 
+      authorizeRequest = authorizeRequestMock;
       process = processMock;
-      continueConversationAsync = continueConversationAsyncMock;
+      continueConversation = continueConversationAsyncMock;
     },
   }));
-  vi.doMock('botbuilder-core', () => ({
-    ConfigurationBotFrameworkAuthentication: class {
-      constructor(...args: unknown[]) {
-        authConfigMock(...args);
-      }
-    },
-    ConfigurationServiceClientCredentialFactory: class {
-      constructor(...args: unknown[]) {
-        credentialsFactoryMock(...args);
-      }
-    },
+  vi.doMock('../src/channels/msteams/connector.js', () => ({
+    requireMSTeamsConnectorClient: () => ({ getConversationMember: getMemberMock }),
   }));
-  vi.doMock('botframework-schema', () => ({
+  vi.doMock('@microsoft/agents-activity', () => ({
     ActivityTypes: {
       Message: 'message',
       MessageReaction: 'messageReaction',
@@ -232,7 +224,7 @@ async function importRuntime() {
 
 afterEach(() => {
   processMock.mockReset();
-  credentialsFactoryMock.mockReset();
+  authorizeRequestMock.mockReset().mockImplementation(async (_req, _res, next) => next());
   authConfigMock.mockReset();
   typingStartMock.mockReset();
   typingStopMock.mockReset();
@@ -310,7 +302,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(resolveUserAgentMock).toHaveBeenCalledWith('teams-tenant-id', 'user-id', 'personal');
     expect(ensurePersonalAgentMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'teams-tenant-id', userId: 'user-id', entraObjectId: 'User-AAD-ID', teamsUserId: '29:user-a' }));
     expect(buildSessionIdMock).toHaveBeenCalledWith(expect.anything(), 'sales');
-    expect(getMemberMock).toHaveBeenCalledWith(expect.anything(), '29:user-a');
+    expect(getMemberMock).toHaveBeenCalledWith('29:user-a', 'conversation-a');
     expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ channelKind: 'msteams', profile: { teamsUserId: '29:user-a', entraObjectId: 'user-aad-id' }, email: 'user@example.com', isMessage: kind === 'message' }));
     if (kind === 'message') expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'sales' });
     else expect(onCommand.mock.calls[0]?.at(-1)).toEqual({ agentId: 'sales', tenantId: 'teams-tenant-id' });
@@ -433,15 +425,15 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     );
 
     expect(cloudAdapters).toHaveLength(2);
-    expect(credentialsFactoryMock).toHaveBeenLastCalledWith({
-      MicrosoftAppId: 'teams-app-id',
-      MicrosoftAppPassword: 'rotated-teams-secret',
-      MicrosoftAppTenantId: 'teams-tenant-id',
-      MicrosoftAppType: 'SingleTenant',
-    });
+    expect(authConfigMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      clientId: 'teams-app-id',
+      clientSecret: 'rotated-teams-secret',
+      tenantId: 'teams-tenant-id',
+      validateIssuer: true,
+    }));
   });
 
-  test('parses the raw request body and adapts the Node response for botbuilder', async () => {
+  test('parses the raw request body and adapts the Node response for the Teams SDK', async () => {
     processMock.mockResolvedValue(undefined);
 
     const runtime = await importRuntime();
@@ -454,7 +446,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const [adapterReq, adapterRes] = processMock.mock.calls[0] as [
       { body?: unknown },
       {
-        header: (name: string, value: string) => unknown;
+        setHeader: (name: string, value: string) => unknown;
         status: (statusCode: number) => unknown;
         send: (body?: unknown) => unknown;
         end: (chunk?: unknown) => unknown;
@@ -462,14 +454,14 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     ];
 
     expect(adapterReq.body).toEqual({ type: 'message', text: 'Hi!' });
-    expect(typeof adapterRes.header).toBe('function');
+    expect(typeof adapterRes.setHeader).toBe('function');
     expect(typeof adapterRes.status).toBe('function');
     expect(typeof adapterRes.send).toBe('function');
     expect(typeof adapterRes.end).toBe('function');
 
     adapterRes
       .status(202)
-      .header('content-type', 'application/json; charset=utf-8')
+      .setHeader('content-type', 'application/json; charset=utf-8')
       .send({ ok: true })
       .end();
 
@@ -490,12 +482,34 @@ describe('Microsoft Teams runtime webhook adapter', () => {
 
     await runtime.handleMSTeamsWebhook(req, res);
 
-    expect(credentialsFactoryMock).toHaveBeenCalledWith({
-      MicrosoftAppId: 'teams-app-id',
-      MicrosoftAppPassword: 'teams-secret',
-      MicrosoftAppTenantId: 'teams-tenant-id',
-      MicrosoftAppType: 'SingleTenant',
-    });
+    expect(authConfigMock).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: 'teams-app-id',
+      clientSecret: 'teams-secret',
+      tenantId: 'teams-tenant-id',
+      validateIssuer: true,
+    }));
+  });
+
+  test('does not process a webhook when JWT middleware refuses it', async () => {
+    authorizeRequestMock.mockImplementationOnce(async (_req, res) => { res.status(401).send({ error: 'unauthorized' }); });
+    const runtime = await importRuntime();
+    const res = makeResponse();
+    await runtime.handleMSTeamsWebhook(makeRequest({ type: 'message' }), res);
+    expect(res.statusCode).toBe(401);
+    expect(res.writableEnded).toBe(true);
+    expect(processMock).not.toHaveBeenCalled();
+    expect(maybeHandleMSTeamsFileConsentInvokeMock).not.toHaveBeenCalled();
+    expect(getMemberMock).not.toHaveBeenCalled();
+  });
+
+  test('authenticates before processing the same request', async () => {
+    authorizeRequestMock.mockImplementationOnce(async (req, _res, next) => { req.user = { aud: 'teams-app-id' }; next(); });
+    processMock.mockImplementationOnce(async (req) => { expect(req.user).toEqual({ aud: 'teams-app-id' }); });
+    const runtime = await importRuntime();
+    await runtime.handleMSTeamsWebhook(makeRequest({ type: 'message' }), makeResponse());
+    expect(authorizeRequestMock).toHaveBeenCalledOnce();
+    expect(processMock).toHaveBeenCalledOnce();
+    expect(authorizeRequestMock.mock.invocationCallOrder[0]).toBeLessThan(processMock.mock.invocationCallOrder[0]);
   });
 
   test('returns 401 when Bot Framework webhook authentication fails', async () => {
@@ -521,7 +535,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
         error: expect.any(Error),
         statusCode: 401,
       }),
-      'Rejected Teams webhook due to Bot Framework authentication failure',
+      'Rejected Teams webhook due to Teams authentication failure',
     );
   });
 
@@ -1122,7 +1136,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(continueConversationAsyncMock).toHaveBeenCalledWith(
       'teams-app-id',
       expect.objectContaining({
-        bot: { id: 'bot-id' },
+        agent: { id: 'bot-id' },
         channelId: 'msteams',
         conversation: {
           id: 'conversation-123',
