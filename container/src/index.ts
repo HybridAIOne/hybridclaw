@@ -71,8 +71,7 @@ import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isContextWindowExceededError,
-  isRetryableModelError,
-  retryDelayMs,
+  modelRetryDelayMs,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
@@ -216,19 +215,6 @@ const IDLE_TIMEOUT_MS = parseInt(
   process.env.CONTAINER_IDLE_TIMEOUT || '300000',
   10,
 ); // 5 min
-const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
-const RETRY_MAX_ATTEMPTS = Math.max(
-  1,
-  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10),
-);
-const RETRY_BASE_DELAY_MS = Math.max(
-  100,
-  parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10),
-);
-const RETRY_MAX_DELAY_MS = Math.max(
-  RETRY_BASE_DELAY_MS,
-  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
-);
 const MAX_PARALLEL_TOOL_CALLS = 8;
 const RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
   process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0',
@@ -926,7 +912,6 @@ async function callModelWithRetry(params: {
     reasoningEffort,
   } = params;
   let attempt = 0;
-  let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
     await haltIfShuttingDown();
@@ -1046,16 +1031,12 @@ async function callModelWithRetry(params: {
       return response;
     } catch (err) {
       const formattedError = formatModelErrorForLog(err, baseUrl);
-      const retryDelay =
-        RETRY_ENABLED &&
-        isRetryableModelError(err) &&
-        canReplayModelRequestAfterStreamError({
-          receivedTextDelta,
-          textDeltasVisible,
-        }) &&
-        attempt < RETRY_MAX_ATTEMPTS
-          ? retryDelayMs(delayMs, err)
-          : null;
+      const retryDelay = canReplayModelRequestAfterStreamError({
+        receivedTextDelta,
+        textDeltasVisible,
+      })
+        ? modelRetryDelayMs(attempt, err)
+        : null;
       const retryable = retryDelay !== null;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
@@ -1068,7 +1049,6 @@ async function callModelWithRetry(params: {
       );
       if (retryDelay === null) throw err;
       await sleep(retryDelay);
-      delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
     }
   }
 }

@@ -1,5 +1,26 @@
+/**
+ * Primary and auxiliary model calls share retry eligibility, limits and delays.
+ * Unlike provider routing, this never selects another model or repeats tools;
+ * callers still decide whether replay is safe after visible streaming output.
+ */
 import type { RuntimeProviderId } from './providers/shared.js';
 import { ProviderRequestError } from './providers/shared.js';
+
+// Existing primary-call defaults, shared with auxiliary calls (Codex fix,
+// 2026-11-08). Model fallback and streaming replay decisions remain separate.
+const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
+const RETRY_MAX_ATTEMPTS = Math.max(
+  1,
+  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10),
+);
+const RETRY_BASE_DELAY_MS = Math.max(
+  100,
+  parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10),
+);
+const RETRY_MAX_DELAY_MS = Math.max(
+  RETRY_BASE_DELAY_MS,
+  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
+);
 
 const TRANSIENT_NETWORK_ERROR_RE =
   /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN|terminated/i;
@@ -234,4 +255,22 @@ export function retryDelayMs(backoffMs: number, error: unknown): number | null {
   if (requested === undefined) return jittered;
   if (requested > MAX_RETRY_AFTER_MS) return null;
   return Math.max(jittered, requested);
+}
+
+/** Delay after this failed attempt, or null when no further attempt is allowed. */
+export function modelRetryDelayMs(
+  attempt: number,
+  error: unknown,
+): number | null {
+  if (
+    !RETRY_ENABLED ||
+    !(attempt < RETRY_MAX_ATTEMPTS) ||
+    !isRetryableModelError(error)
+  ) {
+    return null;
+  }
+  return retryDelayMs(
+    Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS),
+    error,
+  );
 }

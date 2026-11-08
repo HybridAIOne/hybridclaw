@@ -1344,6 +1344,24 @@ Container-side adaptations for local models:
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
 
+## Model Request Retries
+
+Primary and auxiliary calls (including image analysis, web extraction and
+compaction) share the worker's retry policy. Temporary connection failures,
+rate limits and supported transient server errors retry the same model and
+request, with exponential backoff and jitter. The default is three attempts;
+`HYBRIDCLAW_RETRY_ENABLED`, `HYBRIDCLAW_RETRY_MAX_ATTEMPTS`,
+`HYBRIDCLAW_RETRY_BASE_DELAY_MS` and `HYBRIDCLAW_RETRY_MAX_DELAY_MS` control both
+paths. Provider `Retry-After` values up to 60 seconds are respected; longer
+requested waits fail the call.
+
+Authentication, credit, permission and invalid-request errors fail immediately.
+Truncated image analyses remain errors. Retrying a model request does not replay
+tools or select another model, and no new attempt starts after worker shutdown.
+The primary call also refuses replay after partial text has reached the user.
+Retries can incur additional provider usage if the failed request was processed
+before its connection was lost.
+
 ## Activity-Based Agent Timeout
 
 Successful streaming provider responses use a 90-second idle deadline for body chunks,
