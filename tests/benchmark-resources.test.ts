@@ -166,6 +166,7 @@ test.each(['disk', 'memory', 'engine', 'telemetry', 'pressure'])('aborts active 
   vi.useFakeTimers();
   const { resources, record } = guard();
   await resources.start(1, 1);
+  const original = mocks.command.getMockImplementation()!;
   const stopped = vi.fn();
   resources.signal.addEventListener('abort', stopped);
   if (failure === 'disk') diskFree = 19 * GIB;
@@ -173,7 +174,6 @@ test.each(['disk', 'memory', 'engine', 'telemetry', 'pressure'])('aborts active 
   if (failure === 'telemetry') engine = '';
   if (failure === 'engine') mocks.command.mockRejectedValue(new Error('engine unavailable'));
   if (failure === 'pressure') {
-    const original = mocks.command.getMockImplementation()!;
     mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
       ? {status: 0, stdout: '2\n', stderr: ''} : original(params));
   }
@@ -183,7 +183,7 @@ test.each(['disk', 'memory', 'engine', 'telemetry', 'pressure'])('aborts active 
   expect(record).toHaveBeenCalled();
   await expect(resources.check(1, 1)).rejects.toThrow(/infrastructure stopped/);
   // Restore command execution so teardown can remove the owned probe.
-  mocks.command.mockResolvedValue({ status: 0, stdout: '', stderr: '' });
+  mocks.command.mockImplementation(original);
 });
 
 test('serializes simultaneous dispatch checks rather than racing their probes', async () => {
@@ -246,6 +246,41 @@ test('an already absent probe releases the lock even when remove reports failure
     await resources.close();
     expect(mocks.command.mock.calls).toHaveLength(commands);
   } finally { mocks.command.mockImplementation(original); }
+});
+
+test('a different Docker engine cannot confirm cleanup or receive the owned probe removal', async () => {
+  const { resources } = guard();
+  await resources.start(1, 1);
+  const probe = startedProbe();
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.args[0] === 'info'
+    ? { status: 0, stdout: 'different-engine\n', stderr: '' } : original(params));
+  try {
+    await expect(resources.close()).rejects.toThrow(/engine changed/);
+    expect(fs.readdirSync(root).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
+    expect(mocks.command.mock.calls.some(([params]) => params.args[0] === 'rm' && params.args[2] === probe)).toBe(false);
+  } finally { mocks.command.mockImplementation(original); }
+  await resources.close();
+  expect(fs.readdirSync(root)).toEqual([]);
+});
+
+test('an engine switch during cleanup cannot release the original engine lock', async () => {
+  const { resources } = guard();
+  await resources.start(1, 1);
+  const original = mocks.command.getMockImplementation()!;
+  let switched = false;
+  mocks.command.mockImplementation(async (params) => {
+    if (params.args[0] === 'ps') switched = true;
+    if (params.args[0] === 'info' && switched)
+      return { status: 0, stdout: 'different-engine\n', stderr: '' };
+    return original(params);
+  });
+  try {
+    await expect(resources.close()).rejects.toThrow(/engine changed/);
+    expect(fs.readdirSync(root).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
+  } finally { mocks.command.mockImplementation(original); }
+  await resources.close();
+  expect(fs.readdirSync(root)).toEqual([]);
 });
 
 test('startup retains the original failure and the cleanup failure', async () => {

@@ -161,6 +161,14 @@ export class BenchmarkResources {
     return result.stdout;
   }
 
+  private async verifyEngine(): Promise<void> {
+    const engineId = (
+      await this.docker(['info', '--format', '{{.ID}}'])
+    ).trim();
+    if (engineId !== this.engineId)
+      throw new Error('Docker engine changed during benchmark');
+  }
+
   private async hostResources() {
     let memoryAvailable = os.freemem();
     let swapUsed: number;
@@ -320,11 +328,7 @@ export class BenchmarkResources {
         if (this.failure) throw this.failure;
         this.checking = true;
         try {
-          const engineId = (
-            await this.docker(['info', '--format', '{{.ID}}'])
-          ).trim();
-          if (engineId !== this.engineId)
-            throw new Error('Docker engine changed during benchmark');
+          await this.verifyEngine();
           const host = await this.hostResources();
           const output = await this.docker([
             'exec',
@@ -354,6 +358,7 @@ export class BenchmarkResources {
     clearInterval(this.timer);
     await this.pending.catch(() => {});
     if (this.probeStarted) {
+      await this.verifyEngine();
       await benchmarkCommand({
         command: 'docker',
         args: ['rm', '-f', this.probeName],
@@ -373,6 +378,7 @@ export class BenchmarkResources {
         timeout: PROBE_TIMEOUT_MS,
         allowFailure: true,
       });
+      await this.verifyEngine();
       if (state.status !== 0 || state.stdout.trim()) {
         throw new Error(
           `Benchmark probe cleanup is unconfirmed: ${this.probeName}; engine lock retained.`,
