@@ -820,9 +820,14 @@ rejected at the boundary rather than being treated as legacy ids.
 For the routing rules and operator guidance, see
 [Session Routing](./session-routing.md).
 
-Gateway chat resolves session keys and stored IDs to one queue per stored session, and the host/container runners
-apply the same per-session guard at their execution boundary. Different
-sessions can still run concurrently. Interactive input preempts an active
+Gateway chat queues each turn by its known stored session or unresolved request
+key. After creating or rotating a session, the turn also holds that stored
+session queue until its reply has been processed. Later calls through a resolved
+alias or stored ID wait on the same lease. Separate session instances remain
+concurrent, including replacements sharing a session key with an active old turn.
+Releasing an existing session pins its stored ID before waiting, so a reset cannot
+redirect the release to its replacement. The host/container runners also apply
+their per-session guard at the execution boundary. Interactive input preempts an active
 full-auto turn before it waits on the session queue, so operator intervention
 does not sit behind the autonomous run it is meant to stop.
 
