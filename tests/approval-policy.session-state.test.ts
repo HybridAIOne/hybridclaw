@@ -127,3 +127,20 @@ test.each([
     });
   },
 );
+
+test('reading downloaded JSON preserves provenance through another worker replacement', async () => {
+  const workspace = makeTempDir();
+  const first = await startWorker(workspace, 'session-a');
+  first('curl -fsS https://example.com/records -o /tmp/records.data');
+  const reader = await startWorker(workspace, 'session-a');
+  expect(
+    reader(
+      `python3 -c "import json; print(json.load(open('/tmp/records.data')))"`,
+    ).decision,
+  ).toBe('approved_fullauto');
+  const restarted = await startWorker(workspace, 'session-a');
+  expect(restarted('python3 /tmp/records.data')).toMatchObject({
+    actionKey: 'bash:fetched-code',
+    decision: 'required',
+  });
+});

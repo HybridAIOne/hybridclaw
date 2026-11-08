@@ -391,6 +391,19 @@ also participate in protected-path checks, including backups and nested calls.
 Backup-name expansion substitutes filenames literally and has a 64 KiB
 inspection budget per interpretation; larger batches fail before execution.
 
+Inline Python data reads use a bounded, non-executing AST recognizer instead
+of treating their filenames as shell executables. The supported subset reads
+files or stdin, parses JSON and performs ordinary data transformations. It does
+not admit arbitrary imports, callbacks, evaluation or write modes. Explicit
+interactive/import-customizing startup options, downloaded importable code,
+unknown provenance, unsupported syntax or parser failures retain conservative
+inspection. Unsupported inline Python that can consume fetched operands or
+stdin requires provenance review. This does not validate arbitrary ambient interpreter state or
+import hooks and does not replace other approval and protected-path checks.
+The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
+timeout and four parser invocations shared across nested shells per tool call.
+Reading data does not remove its saved download provenance.
+
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
 review even after a worker restart; another session is unaffected. This can
