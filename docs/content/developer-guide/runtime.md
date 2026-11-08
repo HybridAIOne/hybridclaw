@@ -38,6 +38,10 @@ Admin statistics returns `channelKind` for each destination, or `null` when the
 gateway cannot classify it. The console groups these rows by the supplied kind
 and displays unknown destinations individually.
 
+Background proactive queue flushes do not overlap within one gateway process; a
+pending send keeps ownership until it succeeds or fails. A process crash after
+sending but before deleting a row can still cause redelivery.
+
 ## Container Runtime Image
 
 HybridClaw runtime commands (`gateway`, `tui`, `onboarding`) use a local Docker
