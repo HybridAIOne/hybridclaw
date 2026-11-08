@@ -2,6 +2,7 @@
  * Tool-batch concurrency policy: which calls of one model response may overlap.
  *
  * Only allowlisted reads, trusted MCP reads and path-scoped file tools batch.
+ * Vision file inputs share file-tool claims; snapshots and remote inputs do not.
  * Every other tool is a barrier that runs alone, in model order, while the calls
  * around it still batch. A file tool joins a run only if its path does not
  * overlap a path in the run when either of the two writes.
@@ -19,12 +20,16 @@ import {
 } from './runtime-paths.js';
 import { parseToolArgsJson } from './tool-args.js';
 import type { ToolCall } from './types.js';
+import {
+  normalizeVisionLocalPath,
+  visionImageSources,
+} from './vision-input.js';
 
 // MCP reads require operator-trusted behavior.
 const PARALLEL_SAFE_TOOLS = new Set(
   BUILTIN_TOOLS.filter((tool) => tool.parallelSafe).map((tool) => tool.name),
 );
-const PATH_READERS = new Set(['glob', 'grep', 'read']);
+const PATH_READERS = new Set(['glob', 'grep', 'read', 'vision_analyze']);
 const PATH_WRITERS = new Set(['delete', 'edit', 'write']);
 
 interface PathClaim {
@@ -53,14 +58,31 @@ function resolveToolPath(
   return resolveMediaPath(args.path);
 }
 
-/** Null for a call that is not a file tool or whose path is unknown. */
-function claimPath(call: ToolCall): PathClaim | null {
+/** Null when a file tool's paths are unknown; empty for vision inputs without local paths. */
+function claimPaths(call: ToolCall): PathClaim[] | null {
   const toolName = call.function.name;
-  const writes = PATH_WRITERS.has(toolName);
-  if (!writes && !PATH_READERS.has(toolName)) return null;
   const args = parseToolArgsJson(call.function.arguments);
-  const path = args && resolveToolPath(toolName, args);
-  return path ? { path, writes } : null;
+  if (!args) return null;
+  if (toolName === 'vision_analyze') {
+    const { imageRef, fallbackUrl } = visionImageSources(args);
+    if (args.snapshot !== undefined) return imageRef || fallbackUrl ? null : [];
+    if (!imageRef) return null;
+    const claims: PathClaim[] = [];
+    for (const candidate of [imageRef, fallbackUrl].filter(Boolean)) {
+      if (/^https?:\/\//i.test(candidate)) continue;
+      try {
+        const path = normalizeVisionLocalPath(candidate);
+        if (!path) return null;
+        claims.push({ path, writes: false });
+      } catch {
+        // Execution reports invalid aliases; scheduling treats them as barriers.
+        return null;
+      }
+    }
+    return claims;
+  }
+  const path = resolveToolPath(toolName, args);
+  return path ? [{ path, writes: PATH_WRITERS.has(toolName) }] : null;
 }
 
 function pathsOverlap(left: string, right: string): boolean {
@@ -80,21 +102,27 @@ export function leadingParallelRun(
   const claims: PathClaim[] = [];
   for (const call of calls) {
     if (
+      PATH_READERS.has(call.function.name) ||
+      PATH_WRITERS.has(call.function.name)
+    ) {
+      const nextClaims = claimPaths(call);
+      if (
+        !nextClaims ||
+        nextClaims.some((claim) =>
+          claims.some(
+            (held) =>
+              (held.writes || claim.writes) &&
+              pathsOverlap(held.path, claim.path),
+          ),
+        )
+      )
+        break;
+      claims.push(...nextClaims);
+    } else if (
       !PARALLEL_SAFE_TOOLS.has(call.function.name) &&
       resolveMcpBehavior?.(call.function.name)?.parallelSafe !== true
     ) {
-      const claim = claimPath(call);
-      if (
-        !claim ||
-        claims.some(
-          (held) =>
-            (held.writes || claim.writes) &&
-            pathsOverlap(held.path, claim.path),
-        )
-      ) {
-        break;
-      }
-      claims.push(claim);
+      break;
     }
     run.push(call);
   }

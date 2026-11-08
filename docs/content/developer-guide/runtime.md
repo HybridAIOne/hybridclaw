@@ -1603,6 +1603,14 @@ fails closed until removed after verifying no writer is active. External editors
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
 
+
+Local `vision_analyze` inputs, including fallback paths and artifact aliases,
+share file-tool dependency checks. A vision call waits for a preceding write,
+edit, or delete of the same path, including the mutation's interruption window.
+Independent files, concurrent image reads, durable snapshots, and remote images
+can still share a batch. Unknown paths run alone. Scheduling never replaces
+normal path permissions or approvals.
+
 Prompt and runtime internals:
 
 - session compaction with pre-compaction memory flush: complete instructions
