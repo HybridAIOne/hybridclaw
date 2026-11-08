@@ -6,6 +6,8 @@
  */
 import path from 'node:path';
 
+export const PYTHON_PROGRAM_RE = /^python\d*(?:\.\d+)?$/;
+
 interface Prefix {
   values?: readonly string[];
   flags?: string;

@@ -12,11 +12,13 @@ import {
   commandProgram,
   redirectWidth,
 } from './bash-command-prefix.js';
+import { installWriteTargets } from './bash-install-targets.js';
 import { expandUserPath } from './runtime-paths.js';
 
 export {
   commandProgram,
   isCommandLookup,
+  PYTHON_PROGRAM_RE,
   redirectWidth,
 } from './bash-command-prefix.js';
 
@@ -370,21 +372,25 @@ export function scriptCommands(
   });
 }
 
-// A command's operands: words that are neither options (until `--`) nor
-// redirections.
-function commandOperands(args: string[]): string[] {
-  const operands: string[] = [];
-  let optionsEnded = false;
+// Shell redirects are not part of the program's argument list.
+function commandArguments(args: string[]): string[] {
+  const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const width = redirectWidth(arg);
-    if (width > 0) {
-      index += width - 1;
-    } else if (!optionsEnded && arg === '--') {
-      optionsEnded = true;
-    } else if (optionsEnded || !arg.startsWith('-')) {
-      operands.push(arg);
-    }
+    if (width > 0) index += width - 1;
+    else result.push(arg);
+  }
+  return result;
+}
+
+// Keep operands after `--`, including names that look like options.
+function commandOperands(args: string[]): string[] {
+  const operands: string[] = [];
+  let optionsEnded = false;
+  for (const arg of commandArguments(args)) {
+    if (!optionsEnded && arg === '--') optionsEnded = true;
+    else if (optionsEnded || !arg.startsWith('-')) operands.push(arg);
   }
   return operands;
 }
@@ -568,13 +574,14 @@ function fetchWriteTargets(program: string, args: string[]): string[] {
 
 // Files a command writes through an option instead of a redirect: git's
 // `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
-// curl and wget save.
+// curl and wget save, and pip's explicit install target.
 function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   if (program === 'curl' || program === 'wget') {
     return fetchWriteTargets(program, args);
   }
-  if (program !== 'git' && program !== 'find') return [];
+  if (program !== 'git' && program !== 'find')
+    return installWriteTargets(program, commandArguments(args));
   const targets: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

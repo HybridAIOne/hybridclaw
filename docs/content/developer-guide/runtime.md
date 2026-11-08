@@ -414,6 +414,12 @@ execution requires explicit approval. This can also pause a data pipeline whose
 wrapper cannot be interpreted; known data-only consumers keep their ordinary
 policy decisions.
 
+Explicit pip `--target`/`-t` destinations participate in the workspace fence,
+including `python -m pip` and supported command wrappers. Redirecting logs into
+scratch space does not hide an outside destination. Package and requirement
+inputs are not treated as install destinations. This is static argument
+inspection, not a sandbox for installation hooks or configuration-driven writes.
+
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
 review even after a worker restart; another session is unaffected. This can
