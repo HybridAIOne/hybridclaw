@@ -314,7 +314,7 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
         );
         const [cwd, nodePath] = result.split('\n');
         expect(cwd.trim()).toBe('.');
-        workspace = path.join(gateway.dataDir, 'agents', 'main', 'workspace');
+        workspace = path.join(gateway.dataDir, 'data', 'agents', 'main', 'workspace');
         expect(nodePath.split(path.delimiter)).toEqual([
           agentRuntimeLibraries,
           path.join(gateway.dataDir, 'runtime-tools', 'node_modules'),
