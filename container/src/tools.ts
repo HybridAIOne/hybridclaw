@@ -4070,7 +4070,9 @@ async function executeToolInternal(
               evaluateArgs,
               currentSessionId || 'default',
             ),
-          writeFile: writeWorkspaceFile,
+          writeFile: async (path, contents) => {
+            await writeCheckedFile({ path, contents });
+          },
         });
       } catch (err) {
         return failTool(

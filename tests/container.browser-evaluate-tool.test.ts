@@ -206,7 +206,7 @@ test('a page on a private host runs no script unless private hosts are allowed',
 // A browser the gateway drives: the container reaches it through
 // /api/browser/tool, which answers like the gateway's Playwright sessions.
 async function loadGatewayTools(evaluationError?: string) {
-  const { tools } = await loadTools();
+  const { tools, root } = await loadTools();
   const calls: Array<Record<string, unknown>> = [];
   vi.stubGlobal(
     'fetch',
@@ -240,7 +240,7 @@ async function loadGatewayTools(evaluationError?: string) {
     calls
       .filter((call) => call.toolName === 'browser_evaluate')
       .map((call) => (call.args as Record<string, unknown>).expression);
-  return { tools, evaluateCalls };
+  return { tools, root, evaluateCalls };
 }
 
 test('gateway evaluation failures get the same guidance without replaying', async () => {
@@ -292,4 +292,100 @@ test('a secret a gateway browser typed keeps page scripts off', async () => {
 
   expect(output).toMatch(/^Error: A secret was typed into this page/);
   expect(evaluateCalls()).toEqual([]);
+});
+
+test.each([false, true])(
+  'protects an existing export, including a prior checked-write conflict: %s',
+  async (priorConflict) => {
+    const { tools, root, pageScripts } = await loadTools();
+    const target = path.join(root, 'existing.json');
+    const original = '{"original":true}\n';
+    fs.writeFileSync(target, original, { mode: 0o640 });
+    if (priorConflict) {
+      const rejected = await tools.executeToolWithMetadata(
+        'write',
+        JSON.stringify({ path: 'existing.json', contents: 'replacement' }),
+      );
+      expect(rejected.isError).toBe(true);
+    }
+    const expression = '({ replacement: true })';
+    const result = await tools.executeToolWithMetadata(
+      'browser_evaluate',
+      JSON.stringify({ expression, path: 'existing.json' }),
+    );
+    expect(fs.readFileSync(target, 'utf8')).toBe(original);
+    expect(fs.statSync(target).mode & 0o777).toBe(0o640);
+    expect(result.isError).toBe(true);
+    expect(pageScripts().filter((script) => script === expression)).toEqual([
+      expression,
+    ]);
+    const { getFileWriteConflict } = await import(
+      '../container/src/file-write-conflicts.js'
+    );
+    expect(getFileWriteConflict('chat-1', 'existing.json')).toBe(
+      fs.realpathSync(target),
+    );
+    const separate = await tools.executeToolWithMetadata(
+      'browser_evaluate',
+      JSON.stringify({ expression, path: 'separate.json' }),
+    );
+    expect(separate.isError).toBe(false);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, 'separate.json'), 'utf8')),
+    ).toEqual({ replacement: true });
+  },
+);
+
+test('does not follow an existing export symlink', async () => {
+  const { tools, root } = await loadTools();
+  const target = path.join(root, 'original.txt');
+  fs.writeFileSync(target, 'Original fixture');
+  fs.symlinkSync('original.txt', path.join(root, 'export.txt'));
+  const result = await tools.executeToolWithMetadata(
+    'browser_evaluate',
+    JSON.stringify({ expression: '"New fixture"', path: 'export.txt' }),
+  );
+  expect(fs.readFileSync(target, 'utf8')).toBe('Original fixture');
+  expect(result.isError).toBe(true);
+  expect(fs.readlinkSync(path.join(root, 'export.txt'))).toBe('original.txt');
+});
+
+test('respects a competing writer lock and permits retry after it releases', async () => {
+  const { tools, root } = await loadTools();
+  const target = path.join(root, 'export.txt');
+  fs.mkdirSync(target + '.lock');
+  const args = JSON.stringify({
+    expression: '"New fixture"',
+    path: 'export.txt',
+  });
+  const blocked = await tools.executeToolWithMetadata('browser_evaluate', args);
+  expect(fs.existsSync(target)).toBe(false);
+  expect(blocked.isError).toBe(true);
+  fs.rmdirSync(target + '.lock');
+  const retried = await tools.executeToolWithMetadata('browser_evaluate', args);
+  expect(retried.isError).toBe(false);
+  expect(fs.readFileSync(target, 'utf8')).toBe('New fixture');
+});
+
+test('preserves an export created while page evaluation was running', async () => {
+  const { tools, root, evaluateCalls } = await loadGatewayTools();
+  const originalFetch = globalThis.fetch;
+  const target = path.join(root, 'export.json');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}'));
+      if (body.args?.expression !== 'location.href')
+        fs.writeFileSync(target, '{"competing":true}');
+      return originalFetch(input, init);
+    }),
+  );
+  const expression = '[{ name: "Example" }]';
+  const result = await tools.executeToolWithMetadata(
+    'browser_evaluate',
+    JSON.stringify({ expression, path: 'export.json' }),
+  );
+  expect(fs.readFileSync(target, 'utf8')).toBe('{"competing":true}');
+  expect(result.isError).toBe(true);
+  expect(evaluateCalls()).toEqual(['location.href', expression]);
 });
