@@ -7,6 +7,8 @@
  * after which the loop calls the model again. Where the turn would end, the
  * inbox is closed first and reopened only when notes were waiting, so a note
  * the gateway delivered is never left behind by a turn that finished.
+ * Only verified, already-shown notes augment tool review's user request;
+ * waiting, forged and previous-request notes cannot change that intent.
  *
  * NOT the gateway's half (src/infra/steer-inbox.ts) and NOT the on-disk
  * format (shared/steer-inbox.js). Notes of a turn that fails or is stopped
@@ -27,7 +29,7 @@ import type { ChatMessage, ToolCall } from './types.js';
 interface ActiveSteerInbox {
   requestId: string;
   seen: Set<string>;
-  shownIds: string[];
+  shownNotes: SteerNote[];
 }
 
 let active: ActiveSteerInbox | null = null;
@@ -41,7 +43,7 @@ const NOT_RUN_RESULT =
  * one and the gateway refuses every note for it.
  */
 export function beginSteerInbox(requestId: string | undefined): void {
-  active = requestId ? { requestId, seen: new Set(), shownIds: [] } : null;
+  active = requestId ? { requestId, seen: new Set(), shownNotes: [] } : null;
   if (!active) return;
   try {
     fs.mkdirSync(inboxPath(active, false));
@@ -146,8 +148,15 @@ function show(
   history: ChatMessage[],
 ): void {
   history.push(steerUserMessage(notes));
-  inbox.shownIds.push(...notes.map((note) => note.id));
+  inbox.shownNotes.push(...notes);
   console.error(`[steer] showed ${notes.length} note(s) to the model`);
+}
+
+/** The original task plus authenticated clarifications the model has seen. */
+export function steeredUserPrompt(original: string): string {
+  return active?.shownNotes.length
+    ? [original, steerUserMessage(active.shownNotes).content].join('\n\n')
+    : original;
 }
 
 /**
@@ -216,7 +225,7 @@ export function finishSteerInbox(): string[] {
   } catch {
     // The gateway removes them when the request ends.
   }
-  return inbox.shownIds;
+  return inbox.shownNotes.map((note) => note.id);
 }
 
 /** Joins the reply written before a note and the one written after it. */

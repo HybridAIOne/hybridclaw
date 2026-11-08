@@ -1391,6 +1391,13 @@ fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
 
+Tool approvals and intent reviews receive the complete current user request,
+including trailing constraints and text parts. The bounded status excerpt is
+not their source of intent. Verified steering enters that context only after
+the worker shows it to the model; queued, forged and previous-request notes do
+not. Shown notes are held for the active request and reset when it ends or a
+new worker starts. The gateway owns the stored messages used to resume work.
+
 ### Autonomous continuation ownership
 
 Full-auto schedules, watchdogs, progress and completion are bound to the runtime

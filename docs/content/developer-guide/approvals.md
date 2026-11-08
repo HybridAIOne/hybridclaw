@@ -44,6 +44,11 @@ the approval open. Model usage is included in the turn totals. The audit records
 `approval.interpretation` alongside the turn's original user text; this records
 interpretation only, while the tool authorization/result events prove execution.
 
+An approved action resumes with the complete stored user request, including its
+trailing constraints and layout. Choosing a draft retains the complete proposed
+email and any user-supplied replacement fields. These continuation instructions
+are not display excerpts; only the separately scoped approval authorizes execution.
+
 Realtime voice transports attach the caller's transcript independently of the
 voice model's `consult_agent` arguments. Each utterance can answer at most one
 consult. A missing, stale or late transcript never falls back to a model-written
