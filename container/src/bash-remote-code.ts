@@ -1,17 +1,9 @@
 /**
- * Fetched-code detection: does a bash script run code that curl or wget
- * brought in? It covers a fetch piped into an interpreter (`curl … | sh`) or
- * substituted into one (`sh -c "$(curl …)"`, `bash <(curl …)`), and running a
- * file a fetch saved, earlier in the same script or (through the caller's
- * `savedBefore`) in an earlier call.
- *
- * A bounded, non-executing Python syntax check recognizes data-only consumers.
- * Unsupported interpreter bodies keep conservative provenance inspection.
- * Opaque wrappers retain uncertainty; hidden download locations are recorded
- * across workers so later file execution still needs provenance review.
- * NOT a policy: the approval policy decides the tier, and tools.ts still
- * hard-blocks `curl | sh`. Copies of a saved file (`cp`, `tar x`) and code the
- * model re-types through the write tool are not followed.
+ * Fetched-code provenance follows curl/wget inputs through scripts and workers.
+ * Bounded Python inspection distinguishes data use and retains derived files;
+ * unknown wrappers or source stay conservative. Other copies are not followed.
+ * Unlike approval policy, this records origins and effects, never permission;
+ * hard safety blocks and sandbox boundaries remain independent.
  */
 import {
   type Cwd,
@@ -25,7 +17,7 @@ import {
   scriptCommands,
   splitShellCommands,
 } from './bash-commands.js';
-import { isReadOnlyPythonInline } from './python-data-reader.js';
+import { inspectPythonInline } from './python-data-inspection.js';
 
 const FETCH_PROGRAMS = new Set(['curl', 'wget']);
 // NUL cannot be a filesystem path. Persist this provenance marker when a
@@ -177,10 +169,18 @@ export function findFetchedCode(
   // Codex, 2026-11-08: at most four bounded parser processes per
   // tool call, shared by nested shells. Further candidates stay conservative.
   parseBudget = { remaining: 4 },
-): { saved: string[]; runs: boolean; uncertain: boolean } {
+): {
+  saved: string[];
+  runs: boolean;
+  uncertain: boolean;
+  pathHints: string[];
+  writeIntent: boolean;
+} {
   const saved: string[] = [];
   let runs = false;
   let uncertain = false;
+  const pathHints: string[] = [];
+  let writeIntent = false;
   let unknownLocation = savedBefore.has(UNKNOWN_FETCH_LOCATION);
   // Whether the current pipeline carries fetched bytes: a fetch, or a command
   // naming a saved file (`cat install.sh | sh`).
@@ -241,6 +241,13 @@ export function findFetchedCode(
         uncertain = true;
       }
     } else if ('inline' in source) {
+      const inspection =
+        !source.inline.includes('$()') &&
+        source.pythonDataOnlyStartup &&
+        parseBudget.remaining-- > 0
+          ? inspectPythonInline(source.inline, [...savedBefore, ...saved], cwd)
+          : null;
+      const data = inspection?.data;
       if (
         source.python &&
         !source.pythonDataOnlyStartup &&
@@ -252,18 +259,26 @@ export function findFetchedCode(
       if (source.inline.includes('$()')) {
         runs ||= substitutesFetched || unknownLocation;
         uncertain ||= unknownLocation;
-      } else if (
-        source.pythonDataOnlyStartup &&
-        parseBudget.remaining-- > 0 &&
-        isReadOnlyPythonInline(source.inline, [...savedBefore, ...saved])
-      ) {
-        // Python data paths are operands, not shell executables.
+      } else if (data) {
+        pathHints.push(...data.pathHints);
+        writeIntent ||= data.writes.length > 0;
+        if (
+          data.reads.some((file) => isSaved(file, cwd)) ||
+          (piped && pipelineFetched) ||
+          (source.input !== undefined && isSaved(source.input, cwd))
+        ) {
+          for (const file of data.writes) {
+            const resolved = resolvePath(file, cwd);
+            if (resolved !== null) saved.push(resolved);
+          }
+        }
       } else if (depth < MAX_NESTED_SCRIPT_DEPTH) {
         const innerCommands = scriptCommands(source.inline, cwd);
         if (
           source.python &&
           ((piped && pipelineFetched) ||
             (source.input !== undefined && isSaved(source.input, cwd)) ||
+            inspection?.literals.some((text) => isSaved(text, cwd)) ||
             words.some((word) => isSaved(word, cwd)) ||
             innerCommands.some(({ words }) =>
               words.some((word) => isSaved(word, cwd)),
@@ -281,6 +296,8 @@ export function findFetchedCode(
           parseBudget,
         );
         saved.push(...nested.saved);
+        pathHints.push(...nested.pathHints);
+        writeIntent ||= nested.writeIntent;
         unknownLocation ||= nested.saved.includes(UNKNOWN_FETCH_LOCATION);
         runs ||= nested.runs;
         uncertain ||=
@@ -304,5 +321,5 @@ export function findFetchedCode(
     pipelineOpaque =
       (piped && pipelineOpaque) || Boolean(source && 'opaque' in source);
   }
-  return { saved, runs, uncertain };
+  return { saved, runs, uncertain, pathHints, writeIntent };
 }

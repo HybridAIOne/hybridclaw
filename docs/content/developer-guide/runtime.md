@@ -168,6 +168,7 @@ new acknowledged record is never merged into that fragment.
 ## Worker State
 
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
+and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
 
@@ -461,10 +462,15 @@ also participate in protected-path checks, including backups and nested calls.
 Backup-name expansion substitutes filenames literally and has a 64 KiB
 inspection budget per interpretation; larger batches fail before execution.
 
-Inline Python data reads use a bounded, non-executing AST recognizer instead
+Inline Python data operations use a bounded, non-executing AST recognizer instead
 of treating their filenames as shell executables. The supported subset reads
-files or stdin, parses JSON and performs ordinary data transformations. It does
-not admit arbitrary imports, callbacks, evaluation or write modes. Explicit
+files or stdin, parses JSON and performs ordinary data transformations. Pillow
+image open, thumbnail, size and save operations support literal workspace paths;
+their write intent and pinned-path checks remain active, including in commands
+that also contact HTTP endpoints. Possible output paths derived from fetched
+inputs are recorded before the decision, so later execution still requires
+provenance review after a worker replacement. Other imports, callbacks,
+evaluation and write modes are outside this recognized subset. Explicit
 interactive/import-customizing startup options, downloaded importable code,
 unknown provenance, unsupported syntax or parser failures retain conservative
 inspection. Unsupported inline Python that can consume fetched operands or
@@ -472,7 +478,7 @@ stdin requires provenance review. This does not validate arbitrary ambient inter
 import hooks and does not replace other approval and protected-path checks.
 The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
 timeout and four parser invocations shared across nested shells per tool call.
-Reading data does not remove its saved download provenance.
+Reading or transforming data does not remove its saved download provenance.
 
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
@@ -524,7 +530,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
 | Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
-| Fetched paths and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
+| Fetched paths, recognized derived outputs and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
