@@ -11,6 +11,7 @@ import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { FileBackedToolResults } from '../../container/shared/tool-history.js';
 import type { RecoveryDisposition } from '../../container/shared/turn-checkpoint.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
@@ -132,7 +133,8 @@ export interface ContainerInput
 
 export interface ContainerOutput
   extends FileWriteGuardContext,
-    FileWriteGuardReceipt {
+    FileWriteGuardReceipt,
+    FileBackedToolResults {
   recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
@@ -144,8 +146,6 @@ export interface ContainerOutput
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
-  /** Results sent as file references; model input retains the complete text. */
-  spilledToolCallIds?: string[];
   /** Steering notes the model was shown during the turn, in order. */
   steerNoteIds?: string[];
   pendingApproval?: PendingApproval;

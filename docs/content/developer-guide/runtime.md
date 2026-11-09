@@ -330,6 +330,13 @@ of external side effects or file appends.
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
+Checkpoints retain which completed calls use these files, so gateway recovery
+restores their full audit and transcript evidence while replay stays bounded.
+Saved filenames include a bounded call-ID label and the result digest. Repeated
+IDs retain each distinct outcome; restoration verifies the recorded bytes and leaves an
+explicit reference if the file changed. Identity metadata is internal and is
+removed before model requests. Unbound references remain available for direct
+reads; gateway restoration never guesses which saved outcome they meant.
 
 The shell/network-denial replan budget uses the current request's tool execution records.
 It grants one replan per request, not per session; it does not persist across
