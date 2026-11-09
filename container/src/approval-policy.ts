@@ -92,7 +92,6 @@ import {
 } from './bash-read-only.js';
 import { findFetchedCode } from './bash-remote-code.js';
 import { runsScript } from './bash-script-run.js';
-import { nextBashCwd } from './bash-session.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -3631,11 +3630,8 @@ export class TrustedAgentApprovalRuntime {
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
     // segment; these checks need the commands bash actually runs, parsed once
-    // from where the session's shell stopped.
-    const shellCommands = scriptCommands(
-      stripHereDocBodies(command),
-      nextBashCwd(this.sessionId),
-    );
+    // from the workspace root, where every call starts.
+    const shellCommands = scriptCommands(stripHereDocBodies(command));
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
@@ -3975,11 +3971,7 @@ export class TrustedAgentApprovalRuntime {
     const fullText =
       `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
 
-    const publicReadPath = osReleaseReadPath(
-      input.toolName,
-      input.args,
-      nextBashCwd(this.sessionId),
-    );
+    const publicReadPath = osReleaseReadPath(input.toolName, input.args);
     const defaultPathHints = input.pathHints.filter(
       (hint) => !publicReadPath || path.resolve(hint) !== publicReadPath,
     );

@@ -5,7 +5,6 @@
  */
 import fs from 'node:fs';
 import {
-  type Cwd,
   commandWriteTargets,
   resolvePath,
   scriptCommands,
@@ -17,7 +16,6 @@ const OS_READERS = new Set(['cat', 'head', 'tail']);
 export function osReleaseReadPath(
   toolName: string,
   args: Record<string, unknown>,
-  cwd: Cwd = '',
 ): string | null {
   if (toolName !== 'read' && toolName !== 'bash') return null;
   // Owner request, 2026-11-08: classify access to the OS file, not its neighbours.
@@ -33,7 +31,7 @@ export function osReleaseReadPath(
   if (typeof args.command !== 'string') return null;
   let read = false;
   let readingPipe = false;
-  for (const entry of scriptCommands(args.command, cwd)) {
+  for (const entry of scriptCommands(args.command)) {
     if (!entry.piped) readingPipe = false;
     const writes = commandWriteTargets(entry.words);
     if (

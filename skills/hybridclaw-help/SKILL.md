@@ -43,18 +43,21 @@ before answering from memory.
 
 ## Canonical Sources
 
-Start with the narrowest relevant source from this list:
+The browser docs are at `https://hybridaione.github.io/hybridclaw/docs/`.
+For `web_fetch` and `web_extract`, use the static Markdown under
+`https://hybridaione.github.io/hybridclaw/content/`; the browser shell requires
+JavaScript. Start with the narrowest relevant source:
 
-- `https://www.hybridclaw.io/docs/agents.md`
-- `https://www.hybridclaw.io/docs/?search=<terms>`
-- `https://www.hybridclaw.io/docs/agents.md?search=<terms>`
-- `https://www.hybridclaw.io/docs/reference/configuration`
-- `https://www.hybridclaw.io/docs/reference/commands`
-- `https://www.hybridclaw.io/docs/`
-- `https://www.hybridclaw.io/docs/`
+- `https://hybridaione.github.io/hybridclaw/content/agents.md` — index of all docs
+- `https://hybridaione.github.io/hybridclaw/content/reference/configuration.md`
+- `https://hybridaione.github.io/hybridclaw/content/reference/commands.md`
+- `https://hybridaione.github.io/hybridclaw/content/README.md`
 - `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
 - `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/README.md`
 - `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/CHANGELOG.md`
+
+Follow the Markdown index's relative links against its URL. Static Markdown
+pages do not implement `?search=` filtering; select the relevant linked page.
 
 Only widen into implementation files when the docs are missing, incomplete, or
 ambiguous. If code inspection is required, use local package files when they are
@@ -65,7 +68,7 @@ exists in the workspace.
 
 1. Identify the question type: config, command, behavior, architecture, or release history.
 2. Fetch the most likely public doc or raw GitHub source first.
-3. If the right page is not obvious, use the docs search URL with a narrow query.
+3. If the right page is not obvious, fetch the Markdown index and follow the relevant page link.
 4. If needed, confirm with the matching implementation file or GitHub source instead of guessing.
 5. Answer narrowly and concretely.
 6. Include the exact config keys, command names, URLs, file paths, or version headings that support the answer.
@@ -81,11 +84,11 @@ exists in the workspace.
 ## Source Selection Hints
 
 - Feature setup or runtime config:
-  `https://www.hybridclaw.io/docs/reference/configuration`, then `https://www.hybridclaw.io/docs/?search=<feature>`, then `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
+  `https://hybridaione.github.io/hybridclaw/content/reference/configuration.md`, then `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
 - Commands or operational workflows:
-  `https://www.hybridclaw.io/docs/reference/commands`, `https://www.hybridclaw.io/docs/`, then `https://www.hybridclaw.io/docs/?search=<command>`
+  `https://hybridaione.github.io/hybridclaw/content/reference/commands.md`
 - Architecture or runtime behavior:
-  `https://www.hybridclaw.io/docs/agents.md`, then `https://www.hybridclaw.io/docs/?search=<topic>`, then the relevant GitHub source URL if the docs are insufficient
+  `https://hybridaione.github.io/hybridclaw/content/agents.md`, then the relevant GitHub source URL if the docs are insufficient
 - Release or migration questions:
   `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/CHANGELOG.md`
 - Workspace/bootstrap behavior:
