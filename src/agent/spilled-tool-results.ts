@@ -3,11 +3,14 @@
  * Bounded model excerpts stay bounded during replay.
  * Unlike context compaction, this decodes references without changing evidence.
  * Worker-controlled paths must be derived and link-free; restoration retains
- * explicit references on read failure or aggregate transport-budget overflow.
+ * explicit references on read failure, digest mismatch or transport-budget overflow.
+ * Each message binds its own saved bytes; reusable provider IDs are only a manifest.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  isToolResultDigest,
+  toolResultDigest,
   toolResultFilePath,
   toolResultForTransport,
 } from '@hybridclaw/shared/tool-history';
@@ -19,50 +22,56 @@ export function restoreSpilledToolResults(
   output: ContainerOutput,
   params: { sessionId: string; workspaceRoot: string },
 ): ContainerOutput {
-  const ids = output.spilledToolCallIds;
-  if (!ids?.length) return output;
-  const restored = new Map<string, string>();
+  const ids = new Set(output.spilledToolCallIds || []);
+  if (!ids.size) return output;
+  const restored = new Map<string, string | null>();
   let remainingBytes = CONTAINER_MAX_OUTPUT_SIZE;
-  for (const id of ids) {
-    const saved = readSavedResult(
-      params.workspaceRoot,
-      toolResultFilePath(params.sessionId, id),
-      remainingBytes,
-    );
-    if (!saved) continue;
-    restored.set(id, saved.text);
-    remainingBytes -= saved.bytes;
-  }
-  if (restored.size < ids.length) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        spilled: ids.length,
-        restored: restored.size,
-        limit: CONTAINER_MAX_OUTPUT_SIZE,
-      },
-      'Kept tool result references: saved result unreadable or over the output limit',
-    );
-  }
-  return {
+  const lookup = (
+    id: string | undefined,
+    digest: string | undefined,
+  ): string | undefined => {
+    if (!id || !ids.has(id) || !isToolResultDigest(digest)) return undefined;
+    const relative = toolResultFilePath(params.sessionId, id, digest);
+    if (!restored.has(relative)) {
+      const saved = readSavedResult(
+        params.workspaceRoot,
+        relative,
+        remainingBytes,
+        digest,
+      );
+      restored.set(relative, saved?.text ?? null);
+      if (saved) remainingBytes -= saved.bytes;
+    }
+    return restored.get(relative) ?? undefined;
+  };
+  const history = (
+    messages: ContainerOutput['toolHistory'],
+    referenceOnly = false,
+  ) =>
+    messages?.map((message) => {
+      if (message.role !== 'tool' || !isToolResultDigest(message.resultDigest))
+        return message;
+      const text = lookup(message.tool_call_id, message.resultDigest);
+      if (text === undefined) return message;
+      const reference = toolResultForTransport(
+        message,
+        toolResultFilePath(
+          params.sessionId,
+          message.tool_call_id,
+          message.resultDigest,
+        ),
+      ).content;
+      return !referenceOnly || message.content === reference
+        ? { ...message, content: text }
+        : message;
+    });
+  const result = {
     ...output,
-    ...(output.toolHistory
-      ? {
-          toolHistory: output.toolHistory.map((message) => {
-            const text =
-              message.role === 'tool' && message.tool_call_id
-                ? restored.get(message.tool_call_id)
-                : undefined;
-            return text === undefined ? message : { ...message, content: text };
-          }),
-        }
-      : {}),
+    ...(output.toolHistory ? { toolHistory: history(output.toolHistory) } : {}),
     ...(output.toolExecutions
       ? {
           toolExecutions: output.toolExecutions.map((execution) => {
-            const text = execution.toolCallId
-              ? restored.get(execution.toolCallId)
-              : undefined;
+            const text = lookup(execution.toolCallId, execution.resultDigest);
             return text === undefined
               ? execution
               : { ...execution, result: text };
@@ -70,30 +79,30 @@ export function restoreSpilledToolResults(
         }
       : {}),
     ...(output.toolHistoryForReplay
-      ? {
-          toolHistoryForReplay: output.toolHistoryForReplay.map((message) => {
-            const id = message.tool_call_id;
-            const text =
-              message.role === 'tool' && id ? restored.get(id) : undefined;
-            const reference = id
-              ? toolResultForTransport(
-                  message,
-                  toolResultFilePath(params.sessionId, id),
-                ).content
-              : undefined;
-            return text !== undefined && message.content === reference
-              ? { ...message, content: text }
-              : message;
-          }),
-        }
+      ? { toolHistoryForReplay: history(output.toolHistoryForReplay, true) }
       : {}),
   };
+  const failed = [...restored.values()].filter(
+    (value) => value === null,
+  ).length;
+  if (failed)
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        spilled: restored.size,
+        restored: restored.size - failed,
+        limit: CONTAINER_MAX_OUTPUT_SIZE,
+      },
+      'Kept tool result references: saved result unreadable, changed or over the output limit',
+    );
+  return result;
 }
 
 function readSavedResult(
   workspaceRoot: string,
   relativePath: string,
   maxBytes: number,
+  digest: string,
 ): { text: string; bytes: number } | null {
   let fd: number | undefined;
   try {
@@ -113,7 +122,8 @@ function readSavedResult(
     }
     const buffer = Buffer.alloc(opened.size);
     const bytes = fs.readSync(fd, buffer, 0, opened.size, 0);
-    return { text: buffer.toString('utf8', 0, bytes), bytes };
+    const text = buffer.toString('utf8', 0, bytes);
+    return toolResultDigest(text) === digest ? { text, bytes } : null;
   } catch {
     return null;
   } finally {

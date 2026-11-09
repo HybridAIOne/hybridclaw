@@ -5,7 +5,14 @@ export interface FileBackedToolResults {
   spilledToolCallIds?: string[];
 }
 
-export interface HistoryMessage extends VisualAttachmentMessage {
+/** Digest binds one saved outcome; a provider call ID alone is not identity. */
+export interface FileBackedToolResult {
+  resultDigest?: string;
+}
+
+export interface HistoryMessage
+  extends VisualAttachmentMessage,
+    FileBackedToolResult {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{
@@ -23,7 +30,10 @@ export function sessionTranscriptFilename(sessionId: string): string;
 export function toolResultFilePath(
   sessionId: string,
   toolCallId: string | undefined,
+  digest: string,
 ): string;
+export function toolResultDigest(content: string): string;
+export function isToolResultDigest(value: unknown): value is string;
 export function toolResultForTransport<
   T extends { role: string; content: unknown; tool_call_id?: string },
 >(message: T, resultPath?: string): T;
