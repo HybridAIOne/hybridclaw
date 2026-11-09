@@ -2,6 +2,7 @@
  * Compatible API transport preserves tool calls, reasoning, and finish reasons.
  * MLX uses streaming on the wire even for a collected answer so ongoing thought
  * remains observable to idle timeouts; this adapter never sets its context budget.
+ * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 import { createHash } from 'node:crypto';
 import { isRecord } from '../../shared/primitive-values.js';
@@ -351,6 +352,14 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     request.tools = args.tools;
     request.tool_choice = 'auto';
   }
+  // Owner experiment, 2026-11-08: explicit non-thinking Qwen calls on vLLM.
+  if (
+    args.provider === 'vllm' &&
+    usesQwenCompat(args) &&
+    args.reasoningEffort === 'none'
+  ) {
+    request.chat_template_kwargs = { enable_thinking: false };
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
@@ -543,9 +552,11 @@ function adaptLocalOpenAICompatResponse(
             : {}),
         },
         finish_reason:
-          normalized.toolCalls.length > 0
-            ? 'tool_calls'
-            : choice?.finish_reason || 'stop',
+          choice?.finish_reason === 'length'
+            ? 'length'
+            : normalized.toolCalls.length > 0
+              ? 'tool_calls'
+              : choice?.finish_reason || 'stop',
       },
     ],
   };

@@ -364,9 +364,10 @@ export class ToolCatalog {
       }
       this.validators.set(tool.function.name, validate);
     }
-    if (!validate(args.arguments).valid) {
+    const validation = validate(args.arguments);
+    if (!validation.valid) {
       throw new CatalogArgumentError(
-        `Arguments do not match the selected tool schema. Use tool_catalog action=describe with name=${JSON.stringify(tool.function.name)} to inspect required fields and types, then retry.`,
+        `Arguments do not match the selected tool schema. Validation at tool_catalog.arguments: ${validation.errorMessage}. Keep every target-tool field inside that object. Use tool_catalog action=describe with name=${JSON.stringify(tool.function.name)} to inspect required fields and types, then retry.`,
       );
     }
     return {
