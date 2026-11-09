@@ -1268,6 +1268,11 @@ The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
 
+Response-body failures from `web_fetch` and `web_extract` report the HTTP status
+and underlying error messages and codes, such as `Z_DATA_ERROR` for invalid
+compressed data. Failed reads are not cached or returned as complete content;
+the overall timeout still reports `TimeoutError`.
+
 `web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
 binary responses fail with a download continuation instead of entering model
 context as text. If available, `http_request` with `responseArtifact` saves the

@@ -365,6 +365,7 @@ function collectModelsForProvider(
     case 'minimax':
     case 'dashscope':
     case 'xiaomi':
+    case 'nebius':
     case 'kilo': {
       const section = config[filter];
       return [

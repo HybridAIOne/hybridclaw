@@ -133,6 +133,14 @@ export const PROVIDER_META = {
     defaultBaseUrl: 'https://api.kilo.ai/api/gateway',
     defaultModels: ['kilo/anthropic/claude-sonnet-4.6'],
   },
+  nebius: {
+    label: 'Nebius Token Factory',
+    secretKey: 'NEBIUS_API_KEY',
+    envVars: ['NEBIUS_API_KEY'],
+    defaultBaseUrl: 'https://api.tokenfactory.nebius.com/v1',
+    // Owner selection, 2026-11-09: current low-cost GLM model; other models use discovery.
+    defaultModels: ['nebius/zai-org/GLM-5.3-Flash'],
+  },
   ollama: { label: 'Ollama' },
   lmstudio: { label: 'LM Studio' },
   llamacpp: { label: 'llama.cpp' },

@@ -19,6 +19,7 @@ export declare const OPENAI_COMPAT_REMOTE_PROVIDER_IDS: readonly [
   'dashscope',
   'xiaomi',
   'kilo',
+  'nebius',
 ];
 
 export declare const RUNTIME_PROVIDER_IDS: readonly [

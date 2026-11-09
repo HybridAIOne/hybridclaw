@@ -495,6 +495,11 @@
     "baseUrl": "https://api.kilo.ai/api/gateway",
     "models": ["kilo/anthropic/claude-sonnet-4.6"]
   },
+  "nebius": {
+    "enabled": false,
+    "baseUrl": "https://api.tokenfactory.nebius.com/v1",
+    "models": ["nebius/zai-org/GLM-5.3-Flash"]
+  },
   "local": {
     "backends": {
       "ollama": {

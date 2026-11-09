@@ -159,6 +159,11 @@ import {
   validateDefaultModelEndpoint,
 } from './local-model-validation.js';
 import {
+  DEFAULT_REMOTE_PROVIDER_CONFIG,
+  normalizeRemoteProviderConfigs,
+  type RemoteProviderConfigs,
+} from './remote-provider-config.js';
+import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeAssetRevision as deleteTrackedRuntimeAssetRevision,
@@ -181,6 +186,12 @@ import {
   syncRuntimeConfigRevisionState,
   syncRuntimeAssetRevisionState as syncTrackedRuntimeAssetRevisionState,
 } from './runtime-config-revisions.js';
+import {
+  normalizeBaseUrl,
+  normalizeBoolean,
+  normalizeString,
+  normalizeStringArray,
+} from './runtime-config-values.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
@@ -1040,7 +1051,7 @@ export interface RuntimeInstalledSkillManifest {
   updatedAt: string;
 }
 
-export interface RuntimeConfig {
+export interface RuntimeConfig extends RemoteProviderConfigs {
   version: number;
   audit: RuntimeAuditConfig;
   security: RuntimeSecurityConfig;
@@ -1134,66 +1145,6 @@ export interface RuntimeConfig {
     enabled: boolean;
     baseUrl: string;
     method: AnthropicMethod;
-    models: string[];
-  };
-  openrouter: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  mistral: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  huggingface: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  gemini: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  deepseek: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  xai: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  zai: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  kimi: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  minimax: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  dashscope: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  xiaomi: {
-    enabled: boolean;
-    baseUrl: string;
-    models: string[];
-  };
-  kilo: {
-    enabled: boolean;
-    baseUrl: string;
     models: string[];
   };
   local: LocalProviderConfig;
@@ -1806,66 +1757,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     method: DEFAULT_ANTHROPIC_METHOD,
     models: [...PROVIDER_META.anthropic.defaultModels],
   },
-  openrouter: {
-    enabled: false,
-    baseUrl: PROVIDER_META.openrouter.defaultBaseUrl,
-    models: [...PROVIDER_META.openrouter.defaultModels],
-  },
-  mistral: {
-    enabled: false,
-    baseUrl: PROVIDER_META.mistral.defaultBaseUrl,
-    models: [...PROVIDER_META.mistral.defaultModels],
-  },
-  huggingface: {
-    enabled: false,
-    baseUrl: PROVIDER_META.huggingface.defaultBaseUrl,
-    models: [...PROVIDER_META.huggingface.defaultModels],
-  },
-  gemini: {
-    enabled: false,
-    baseUrl: PROVIDER_META.gemini.defaultBaseUrl,
-    models: [...PROVIDER_META.gemini.defaultModels],
-  },
-  deepseek: {
-    enabled: false,
-    baseUrl: PROVIDER_META.deepseek.defaultBaseUrl,
-    models: [...PROVIDER_META.deepseek.defaultModels],
-  },
-  xai: {
-    enabled: false,
-    baseUrl: PROVIDER_META.xai.defaultBaseUrl,
-    models: [...PROVIDER_META.xai.defaultModels],
-  },
-  zai: {
-    enabled: false,
-    baseUrl: PROVIDER_META.zai.defaultBaseUrl,
-    models: [...PROVIDER_META.zai.defaultModels],
-  },
-  kimi: {
-    enabled: false,
-    baseUrl: PROVIDER_META.kimi.defaultBaseUrl,
-    models: [...PROVIDER_META.kimi.defaultModels],
-  },
-  minimax: {
-    enabled: false,
-    baseUrl: PROVIDER_META.minimax.defaultBaseUrl,
-    models: [...PROVIDER_META.minimax.defaultModels],
-  },
-  dashscope: {
-    enabled: false,
-    baseUrl: PROVIDER_META.dashscope.defaultBaseUrl,
-    models: [...PROVIDER_META.dashscope.defaultModels],
-  },
-  xiaomi: {
-    enabled: false,
-    baseUrl: PROVIDER_META.xiaomi.defaultBaseUrl,
-    models: [...PROVIDER_META.xiaomi.defaultModels],
-  },
-  kilo: {
-    enabled: false,
-    baseUrl: PROVIDER_META.kilo.defaultBaseUrl,
-    models: [...PROVIDER_META.kilo.defaultModels],
-  },
+  ...DEFAULT_REMOTE_PROVIDER_CONFIG,
   local: {
     backends: {
       ollama: {
@@ -2200,29 +2092,6 @@ function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function normalizeString(
-  value: unknown,
-  fallback: string,
-  opts?: { allowEmpty?: boolean; trim?: boolean },
-): string {
-  const trim = opts?.trim !== false;
-  const allowEmpty = opts?.allowEmpty ?? true;
-  if (typeof value !== 'string') return fallback;
-  const normalized = trim ? value.trim() : value;
-  if (!allowEmpty && normalized.length === 0) return fallback;
-  return normalized;
-}
-
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') return true;
-    if (normalized === 'false') return false;
-  }
-  return fallback;
-}
-
 function normalizeInteger(
   value: unknown,
   fallback: number,
@@ -2261,26 +2130,6 @@ function normalizeNumber(
   if (opts?.min != null && parsed < opts.min) parsed = opts.min;
   if (opts?.max != null && parsed > opts.max) parsed = opts.max;
   return parsed;
-}
-
-function normalizeStringArray(value: unknown, fallback: string[]): string[] {
-  if (Array.isArray(value)) {
-    const normalized = value
-      .map((item) => (typeof item === 'string' ? item.trim() : ''))
-      .filter(Boolean);
-    if (normalized.length > 0) return normalized;
-    return fallback;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-    return parsed.length > 0 ? parsed : fallback;
-  }
-
-  return fallback;
 }
 
 function normalizeRetentionDaysByTenant(
@@ -5231,11 +5080,6 @@ function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
   return fallback;
 }
 
-function normalizeBaseUrl(value: unknown, fallback: string): string {
-  const candidate = normalizeString(value, fallback, { allowEmpty: false });
-  return candidate.replace(/\/+$/, '') || fallback;
-}
-
 const MAX_UI_NAVIGATION_ITEMS = 12;
 const MAX_UI_NAVIGATION_LABEL_LENGTH = 48;
 const UI_NAVIGATION_ICONS = new Set<RuntimeUiNavigationIcon>([
@@ -5449,54 +5293,6 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
     });
   }
   return endpoints;
-}
-
-function migrateProviderBaseUrl(params: {
-  provider: string;
-  baseUrl: string;
-  retired: ReadonlySet<string>;
-  nextDefault: string;
-}): string {
-  if (params.retired.has(params.baseUrl)) {
-    console.warn(
-      `[runtime-config] migrating ${params.provider} baseUrl ${params.baseUrl} -> ${params.nextDefault}`,
-    );
-    return params.nextDefault;
-  }
-  return params.baseUrl;
-}
-
-const RETIRED_KILO_BASE_URLS = new Set<string>([
-  'https://api.kilocode.ai/v1',
-  'https://api.kilocode.ai',
-  'http://api.kilocode.ai/v1',
-  'http://api.kilocode.ai',
-]);
-
-function migrateKiloBaseUrl(baseUrl: string): string {
-  return migrateProviderBaseUrl({
-    provider: 'kilo',
-    baseUrl,
-    retired: RETIRED_KILO_BASE_URLS,
-    nextDefault: DEFAULT_RUNTIME_CONFIG.kilo.baseUrl,
-  });
-}
-
-const RETIRED_KIMI_BASE_URLS = new Set<string>([
-  'https://api.kimi.com/coding/v1',
-  'https://api.kimi.com/coding',
-  'https://api.kimi.com/v1',
-  'https://api.kimi.com',
-  'http://api.kimi.com/coding/v1',
-]);
-
-function migrateKimiBaseUrl(baseUrl: string): string {
-  return migrateProviderBaseUrl({
-    provider: 'kimi',
-    baseUrl,
-    retired: RETIRED_KIMI_BASE_URLS,
-    nextDefault: DEFAULT_RUNTIME_CONFIG.kimi.baseUrl,
-  });
 }
 
 function normalizeApiPath(value: unknown, fallback: string): string {
@@ -6554,18 +6350,6 @@ function normalizeRuntimeConfig(
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenAI = isRecord(raw.openai) ? raw.openai : {};
   const rawAnthropic = isRecord(raw.anthropic) ? raw.anthropic : {};
-  const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
-  const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
-  const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
-  const rawGemini = isRecord(raw.gemini) ? raw.gemini : {};
-  const rawDeepSeek = isRecord(raw.deepseek) ? raw.deepseek : {};
-  const rawXai = isRecord(raw.xai) ? raw.xai : {};
-  const rawZai = isRecord(raw.zai) ? raw.zai : {};
-  const rawKimi = isRecord(raw.kimi) ? raw.kimi : {};
-  const rawMiniMax = isRecord(raw.minimax) ? raw.minimax : {};
-  const rawDashScope = isRecord(raw.dashscope) ? raw.dashscope : {};
-  const rawXiaomi = isRecord(raw.xiaomi) ? raw.xiaomi : {};
-  const rawKilo = isRecord(raw.kilo) ? raw.kilo : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
@@ -6825,53 +6609,9 @@ function normalizeRuntimeConfig(
     rawAnthropic.models,
     DEFAULT_RUNTIME_CONFIG.anthropic.models,
   );
-  const openRouterModelList = normalizeStringArray(
-    rawOpenRouter.models,
-    DEFAULT_RUNTIME_CONFIG.openrouter.models,
-  );
-  const mistralModelList = normalizeStringArray(
-    rawMistral.models,
-    DEFAULT_RUNTIME_CONFIG.mistral.models,
-  );
-  const huggingFaceModelList = normalizeStringArray(
-    rawHuggingFace.models,
-    DEFAULT_RUNTIME_CONFIG.huggingface.models,
-  );
-  const geminiModelList = normalizeStringArray(
-    rawGemini.models,
-    DEFAULT_RUNTIME_CONFIG.gemini.models,
-  );
-  const deepSeekModelList = normalizeStringArray(
-    rawDeepSeek.models,
-    DEFAULT_RUNTIME_CONFIG.deepseek.models,
-  );
-  const xaiModelList = normalizeStringArray(
-    rawXai.models,
-    DEFAULT_RUNTIME_CONFIG.xai.models,
-  );
-  const zaiModelList = normalizeStringArray(
-    rawZai.models,
-    DEFAULT_RUNTIME_CONFIG.zai.models,
-  );
-  const kimiModelList = normalizeStringArray(
-    rawKimi.models,
-    DEFAULT_RUNTIME_CONFIG.kimi.models,
-  );
-  const miniMaxModelList = normalizeStringArray(
-    rawMiniMax.models,
-    DEFAULT_RUNTIME_CONFIG.minimax.models,
-  );
-  const dashScopeModelList = normalizeStringArray(
-    rawDashScope.models,
-    DEFAULT_RUNTIME_CONFIG.dashscope.models,
-  );
-  const xiaomiModelList = normalizeStringArray(
-    rawXiaomi.models,
-    DEFAULT_RUNTIME_CONFIG.xiaomi.models,
-  );
-  const kiloModelList = normalizeStringArray(
-    rawKilo.models,
-    DEFAULT_RUNTIME_CONFIG.kilo.models,
+  const remoteProviders = normalizeRemoteProviderConfigs(
+    raw,
+    DEFAULT_RUNTIME_CONFIG,
   );
   const localEndpointConfigs = normalizeLocalEndpointConfigs(
     rawLocal.endpoints,
@@ -6888,18 +6628,7 @@ function normalizeRuntimeConfig(
         codexModelList,
         openAIModelList,
         anthropicModelList,
-        openRouterModelList,
-        mistralModelList,
-        huggingFaceModelList,
-        geminiModelList,
-        deepSeekModelList,
-        xaiModelList,
-        zaiModelList,
-        kimiModelList,
-        miniMaxModelList,
-        dashScopeModelList,
-        xiaomiModelList,
-        kiloModelList,
+        ...Object.values(remoteProviders).map((section) => section.models),
       ],
       localEndpoints: localEndpointConfigs,
     }),
@@ -7409,136 +7138,7 @@ function normalizeRuntimeConfig(
       ),
       models: anthropicModelList,
     },
-    openrouter: {
-      enabled: normalizeBoolean(
-        rawOpenRouter.enabled,
-        DEFAULT_RUNTIME_CONFIG.openrouter.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawOpenRouter.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl,
-      ),
-      models: openRouterModelList,
-    },
-    mistral: {
-      enabled: normalizeBoolean(
-        rawMistral.enabled,
-        DEFAULT_RUNTIME_CONFIG.mistral.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawMistral.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.mistral.baseUrl,
-      ),
-      models: mistralModelList,
-    },
-    huggingface: {
-      enabled: normalizeBoolean(
-        rawHuggingFace.enabled,
-        DEFAULT_RUNTIME_CONFIG.huggingface.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawHuggingFace.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl,
-      ),
-      models: huggingFaceModelList,
-    },
-    gemini: {
-      enabled: normalizeBoolean(
-        rawGemini.enabled,
-        DEFAULT_RUNTIME_CONFIG.gemini.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawGemini.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.gemini.baseUrl,
-      ),
-      models: geminiModelList,
-    },
-    deepseek: {
-      enabled: normalizeBoolean(
-        rawDeepSeek.enabled,
-        DEFAULT_RUNTIME_CONFIG.deepseek.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawDeepSeek.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.deepseek.baseUrl,
-      ),
-      models: deepSeekModelList,
-    },
-    xai: {
-      enabled: normalizeBoolean(
-        rawXai.enabled,
-        DEFAULT_RUNTIME_CONFIG.xai.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawXai.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.xai.baseUrl,
-      ),
-      models: xaiModelList,
-    },
-    zai: {
-      enabled: normalizeBoolean(
-        rawZai.enabled,
-        DEFAULT_RUNTIME_CONFIG.zai.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawZai.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.zai.baseUrl,
-      ),
-      models: zaiModelList,
-    },
-    kimi: {
-      enabled: normalizeBoolean(
-        rawKimi.enabled,
-        DEFAULT_RUNTIME_CONFIG.kimi.enabled,
-      ),
-      baseUrl: migrateKimiBaseUrl(
-        normalizeBaseUrl(rawKimi.baseUrl, DEFAULT_RUNTIME_CONFIG.kimi.baseUrl),
-      ),
-      models: kimiModelList,
-    },
-    minimax: {
-      enabled: normalizeBoolean(
-        rawMiniMax.enabled,
-        DEFAULT_RUNTIME_CONFIG.minimax.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawMiniMax.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.minimax.baseUrl,
-      ),
-      models: miniMaxModelList,
-    },
-    dashscope: {
-      enabled: normalizeBoolean(
-        rawDashScope.enabled,
-        DEFAULT_RUNTIME_CONFIG.dashscope.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawDashScope.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.dashscope.baseUrl,
-      ),
-      models: dashScopeModelList,
-    },
-    xiaomi: {
-      enabled: normalizeBoolean(
-        rawXiaomi.enabled,
-        DEFAULT_RUNTIME_CONFIG.xiaomi.enabled,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawXiaomi.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.xiaomi.baseUrl,
-      ),
-      models: xiaomiModelList,
-    },
-    kilo: {
-      enabled: normalizeBoolean(
-        rawKilo.enabled,
-        DEFAULT_RUNTIME_CONFIG.kilo.enabled,
-      ),
-      baseUrl: migrateKiloBaseUrl(
-        normalizeBaseUrl(rawKilo.baseUrl, DEFAULT_RUNTIME_CONFIG.kilo.baseUrl),
-      ),
-      models: kiloModelList,
-    },
+    ...remoteProviders,
     local: {
       backends: {
         ollama: {
