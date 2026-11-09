@@ -136,7 +136,7 @@ export function estimateMessageTokens(
 
 export function accumulateApiUsage(
   stats: TokenUsageStats,
-  response: ChatCompletionResponse,
+  response: Pick<ChatCompletionResponse, 'usage'>,
 ): void {
   const usage = response.usage;
   if (!usage) return;

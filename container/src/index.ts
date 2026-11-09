@@ -1,6 +1,6 @@
 /**
  * Agent loop keeps request schemas stable while concrete actions pass policy.
- * Local wrappers resolve before approval; rejected batches never execute.
+ * Unfinished or invalid batches never execute; wrappers resolve before approval.
  * Full tool exchanges and surviving model context are retained separately;
  * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
@@ -67,6 +67,10 @@ import {
   setModelContext,
   setTaskModelPolicies,
 } from './model-context.js';
+import {
+  getModelCompletionError,
+  IncompleteModelResponseError,
+} from './model-response-completion.js';
 import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
@@ -147,7 +151,8 @@ import { parseToolArgsJson } from './tool-args.js';
 import { setToolCallLimits } from './tool-call-limits.js';
 import {
   invalidToolCallCorrection,
-  validateStructuredToolCalls,
+  rejectedToolExecution,
+  validateToolCallBatch,
   withReplaySafeArguments,
 } from './tool-call-validation.js';
 import { CATALOG_SIBLING_NOT_EXECUTED, ToolCatalog } from './tool-catalog.js';
@@ -1592,6 +1597,10 @@ async function processRequestInner(
         );
         continue;
       }
+      if (err instanceof IncompleteModelResponseError) {
+        accumulateApiUsage(tokenUsage, err);
+        turnToolHistory.checkpointUsage();
+      }
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1664,8 +1673,8 @@ async function processRequestInner(
 
     turnToolHistory.checkpointUsage();
     let toolCalls = choice.message.tool_calls || [];
-    const malformedToolCallError = validateStructuredToolCalls(toolCalls);
-    let invalidToolCallError = malformedToolCallError;
+    const batchError = validateToolCallBatch(toolCalls, choice.finish_reason);
+    let invalidToolCallError = batchError;
     let catalogCorrection: string | null = null;
     let rejectedCallId: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
@@ -1706,12 +1715,8 @@ async function processRequestInner(
     toolCalls = approvalCalls.calls;
     const correction =
       catalogCorrection ??
-      (malformedToolCallError &&
-      invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
-        ? invalidToolCallCorrection(
-            malformedToolCallError,
-            choice.finish_reason,
-          )
+      (batchError && invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
+        ? invalidToolCallCorrection(batchError, choice.finish_reason)
         : null);
     if (correction) {
       if (!catalogCorrection) invalidToolCallRetries += 1;
@@ -1739,15 +1744,7 @@ async function processRequestInner(
           }),
         );
         toolsUsed.push(call.function.name);
-        toolExecutions.push({
-          name: call.function.name,
-          arguments: call.function.arguments,
-          result: content,
-          durationMs: 0,
-          isError: true,
-          blocked: true,
-          blockedReason: 'Invalid tool call arguments.',
-        });
+        toolExecutions.push(rejectedToolExecution(call, content));
       }
       stalledTurns += 1;
       console.error(
@@ -1782,11 +1779,13 @@ async function processRequestInner(
       hasToolCalls: toolCalls.length > 0,
       ralphEnabled,
     });
-    if (
-      isLocal &&
-      toolCalls.length === 0 &&
-      (choice.finish_reason === 'length' || !assistantSegment.text?.trim())
-    ) {
+    const completionError = getModelCompletionError({
+      finishReason: choice.finish_reason,
+      isLocal,
+      hasToolCalls: toolCalls.length > 0,
+      visibleText: assistantSegment.text,
+    });
+    if (completionError) {
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1794,10 +1793,7 @@ async function processRequestInner(
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
-        error:
-          choice.finish_reason === 'length'
-            ? 'The local model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.'
-            : 'The local model returned no final answer or tool call. Reasoning alone does not confirm task completion.',
+        error: completionError,
         effectiveUserPrompt,
       };
       await emitRuntimeEvent({

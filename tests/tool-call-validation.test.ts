@@ -2,24 +2,27 @@ import { describe, expect, test } from 'vitest';
 
 import {
   invalidToolCallCorrection,
-  validateStructuredToolCalls,
+  validateToolCallBatch,
   withReplaySafeArguments,
 } from '../container/src/tool-call-validation.js';
 import type { ToolCall } from '../container/src/types.js';
 
 describe('structured tool call validation', () => {
   test('rejects malformed structured tool call arguments', () => {
-    const error = validateStructuredToolCalls([
-      {
-        id: 'call_1',
-        type: 'function',
-        function: {
-          name: 'write',
-          arguments:
-            '{"path":"/app/ars.R","contents":"line 1\\nline 2\\npartial',
+    const error = validateToolCallBatch(
+      [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'write',
+            arguments:
+              '{"path":"/app/ars.R","contents":"line 1\\nline 2\\npartial',
+          },
         },
-      },
-    ]);
+      ],
+      'tool_calls',
+    );
 
     expect(error).toContain('Model emitted malformed tool arguments');
     expect(error).toContain('`write`');
@@ -27,16 +30,19 @@ describe('structured tool call validation', () => {
   });
 
   test('rejects non-object structured tool call arguments', () => {
-    const error = validateStructuredToolCalls([
-      {
-        id: 'call_1',
-        type: 'function',
-        function: {
-          name: 'bash',
-          arguments: '"pip install pandas"',
+    const error = validateToolCallBatch(
+      [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'bash',
+            arguments: '"pip install pandas"',
+          },
         },
-      },
-    ]);
+      ],
+      'tool_calls',
+    );
 
     expect(error).toBe(
       'Model emitted invalid tool arguments for `bash`: expected a JSON object.',
@@ -44,16 +50,19 @@ describe('structured tool call validation', () => {
   });
 
   test('accepts valid structured tool call arguments', () => {
-    const error = validateStructuredToolCalls([
-      {
-        id: 'call_1',
-        type: 'function',
-        function: {
-          name: 'write',
-          arguments: '{"path":"/app/ars.R","contents":"ok"}',
+    const error = validateToolCallBatch(
+      [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'write',
+            arguments: '{"path":"/app/ars.R","contents":"ok"}',
+          },
         },
-      },
-    ]);
+      ],
+      'tool_calls',
+    );
 
     expect(error).toBeNull();
   });
@@ -74,7 +83,7 @@ describe('rejected tool call batches', () => {
 
     expect(correction).toContain(error);
     expect(cutOff).toContain(error);
-    expect(cutOff.length).toBeGreaterThan(correction.length);
+    expect(cutOff?.length).toBeGreaterThan(correction?.length ?? 0);
   });
 
   test('replayed calls keep their ids and only well-formed arguments', () => {
@@ -92,9 +101,11 @@ describe('rejected tool call batches', () => {
     expect(replayed.map((entry) => entry.id)).toEqual(
       calls.map((entry) => entry.id),
     );
-    expect(replayed.slice(1).map((entry) => entry.function.arguments)).toEqual(
-      ['{}', '{}', '{}'],
-    );
+    expect(replayed.slice(1).map((entry) => entry.function.arguments)).toEqual([
+      '{}',
+      '{}',
+      '{}',
+    ]);
     expect(calls[1].function.arguments).toContain('partial');
   });
 });

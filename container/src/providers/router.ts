@@ -1,5 +1,6 @@
 /**
  * Routed provider calls share response handling without changing model policy.
+ * Unfinished streams fail for primary and auxiliary consumers alike.
  * Vision returns a complete textual analysis or an error; a token-limited
  * fragment must never be presented as a successful full analysis.
  * Context overhead includes schemas even when the API accepts them outside messages.
@@ -8,6 +9,7 @@ import { getProviderContextError } from '../../shared/provider-context.js';
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
+import { requireCompleteModelResponse } from '../model-response-completion.js';
 import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
@@ -202,6 +204,7 @@ export async function callRoutedModel(
 ): Promise<ChatCompletionResponse> {
   const args = buildCallArgs(params);
   const response = await callWithVisualContent(args, callProviderModel);
+  requireCompleteModelResponse(response);
   if (args.debugModelResponses) {
     logModelResponseDebug({
       provider: args.provider,
@@ -233,6 +236,7 @@ export async function callRoutedModelStream(
     callProviderModelStream,
     () => emitted,
   );
+  requireCompleteModelResponse(response);
   if (args.debugModelResponses) {
     logModelResponseDebug({
       provider: args.provider,
