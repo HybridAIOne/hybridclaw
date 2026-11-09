@@ -11,6 +11,7 @@ import {
   resolveProviderRequestMaxTokens,
 } from '../../shared/request-max-tokens.js';
 import { modelRetryDelayMs } from '../model-retry.js';
+import { withModelTask } from '../model-usage.js';
 import { haltIfShuttingDown } from '../shutdown-latch.js';
 import type {
   ChatCompletionResponse,
@@ -63,7 +64,7 @@ async function retryAuxiliaryCall<T>(
   for (let attempt = 1; ; attempt += 1) {
     await haltIfShuttingDown();
     try {
-      return await call();
+      return await withModelTask(task, call);
     } catch (error) {
       const waitMs = modelRetryDelayMs(attempt, error);
       if (waitMs === null) throw error;

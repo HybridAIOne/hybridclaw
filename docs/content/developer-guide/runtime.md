@@ -167,6 +167,16 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Each worker turn checkpoints model-call metadata before a request starts and
+after a response or error: requested provider/model, helper task, duration,
+reported tokens and any reported charge. Aggregate counters include primary
+and helper calls; pricing projects primary calls separately and records helpers
+at their own model's price. Recovery retains unfinished calls as unknown usage.
+These records contain no prompts, credentials, reasoning or response text.
+Request scopes close when their work finishes, so late callbacks cannot amend a
+completed turn or the next request. Workers reconstruct this state from the
+gateway-owned turn checkpoint after replacement.
+
 Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.

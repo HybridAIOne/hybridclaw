@@ -8,13 +8,13 @@ import {
   fileWriteReviewPrompt,
   getFileWriteConflict,
 } from './file-write-conflicts.js';
+import { withModelTask } from './model-usage.js';
 import {
   callRoutedModel,
   extractResponseTextContent,
   type RoutedModelContext,
 } from './providers/router.js';
 import { parseToolArgsJson } from './tool-args.js';
-import type { ChatCompletionResponse } from './types.js';
 
 export const FILE_WRITE_REVIEW_ACTION_PREFIX = 'file-preservation-review:';
 
@@ -37,7 +37,6 @@ export async function reviewFileWriteIntent(params: {
   latestUserPrompt: string;
   evaluation: ToolApprovalEvaluation;
   fallbackContext: RoutedModelContext;
-  onModelResponse?: (response: ChatCompletionResponse) => void;
 }): Promise<ToolApprovalEvaluation> {
   const { evaluation } = params;
   if (
@@ -81,28 +80,29 @@ export async function reviewFileWriteIntent(params: {
     );
     if (!userPrompt?.trim())
       throw new Error('Original user request is unavailable.');
-    const response = await callRoutedModel({
-      ...params.fallbackContext,
-      sessionId: params.sessionId,
-      enableRag: false,
-      messages: [
-        { role: 'system', content: REVIEW_PROMPT },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            user_request: userPrompt,
-            path: args.path,
-            existing_content: existing,
-            proposed_content: proposed,
-          }),
-        },
-      ],
-      tools: [],
-      // 8192 (Codex trial, 2026-11-07): reasoning consumed the smaller 2048
-      // allowance without a verdict; visible output still has a short target.
-      maxTokens: 8192,
-    });
-    params.onModelResponse?.(response);
+    const response = await withModelTask('file_preservation_review', () =>
+      callRoutedModel({
+        ...params.fallbackContext,
+        sessionId: params.sessionId,
+        enableRag: false,
+        messages: [
+          { role: 'system', content: REVIEW_PROMPT },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              user_request: userPrompt,
+              path: args.path,
+              existing_content: existing,
+              proposed_content: proposed,
+            }),
+          },
+        ],
+        tools: [],
+        // 8192 (Codex trial, 2026-11-07): reasoning consumed the smaller 2048
+        // allowance without a verdict; visible output still has a short target.
+        maxTokens: 8192,
+      }),
+    );
     const verdict = parseToolArgsJson(
       extractResponseTextContent(response.choices[0]?.message.content),
     );

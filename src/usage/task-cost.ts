@@ -10,7 +10,10 @@
 import { isDiscoveredHybridAIFreeTierModel } from '../providers/hybridai-discovery.js';
 import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
-import type { RoutingTrace } from '../types/routing-trace.js';
+import type {
+  RoutingTrace,
+  RoutingTraceAttempt,
+} from '../types/routing-trace.js';
 
 export interface TaskCost {
   /** Euros the task cost; null when a model it used has no known price. */
@@ -40,22 +43,39 @@ export function taskCostFromRoutingTrace(
 ): TaskCost | null {
   const attempts = trace?.attempts ?? [];
   if (!attempts.length) return null;
+  return costFromCalls(
+    attempts.map((attempt) => ({
+      model: attempt.model,
+      costUsd: attempt.costUsd,
+      requests: attempt.modelCalls ?? null,
+      local: attempt.zone === 'local',
+    })),
+    isFree,
+  );
+}
+
+function costFromCalls(
+  calls: Array<{
+    model: string;
+    costUsd: number | null;
+    requests: number | null;
+    local: boolean;
+  }>,
+  isFree: FreeTierCheck,
+): TaskCost {
   let usd: number | null = 0;
   let requests: number | null = 0;
   let free = true;
-  for (const attempt of attempts) {
+  for (const call of calls) {
     requests =
-      requests === null || attempt.modelCalls === undefined
+      requests === null || call.requests === null
         ? null
-        : requests + attempt.modelCalls;
-    if (isFree(attempt.model)) continue;
+        : requests + call.requests;
+    if (isFree(call.model)) continue;
     free = false;
-    if (attempt.costUsd !== null) {
-      if (usd !== null) usd += attempt.costUsd;
-    } else if (attempt.zone !== 'local') {
-      // A model on the user's own machine bills no one.
-      usd = null;
-    }
+    if (call.costUsd !== null) {
+      if (usd !== null) usd += call.costUsd;
+    } else if (!call.local) usd = null;
   }
   return {
     eur: usd === null ? null : Math.round(toEur(usd) * 10_000) / 10_000,
@@ -70,18 +90,30 @@ export function taskCostFromRoutingTrace(
  */
 export function taskCostFromUsage(params: {
   model: string;
-  costUsd: number;
+  costUsd: number | null;
   requests: number | null;
   isFree?: FreeTierCheck;
+  additionalCalls?: Array<
+    Pick<RoutingTraceAttempt, 'model' | 'costUsd' | 'modelCalls' | 'zone'>
+  >;
 }): TaskCost {
-  const free = (params.isFree ?? isDiscoveredHybridAIFreeTierModel)(
-    params.model,
+  return costFromCalls(
+    [
+      {
+        model: params.model,
+        costUsd: params.costUsd,
+        requests: params.requests,
+        local: getModelCatalogMetadata(params.model).zone === 'local',
+      },
+      ...(params.additionalCalls ?? []).map((call) => ({
+        model: call.model,
+        costUsd: call.costUsd,
+        requests: call.modelCalls ?? null,
+        local: call.zone === 'local',
+      })),
+    ],
+    params.isFree ?? isDiscoveredHybridAIFreeTierModel,
   );
-  return {
-    eur: free ? 0 : Math.round(toEur(params.costUsd) * 10_000) / 10_000,
-    free,
-    requests: params.requests,
-  };
 }
 
 // 2026-10-09: what one step of a tool loop adds to the context, what the model

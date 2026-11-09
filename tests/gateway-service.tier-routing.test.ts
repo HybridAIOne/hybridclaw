@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
+import { createTokenUsageStats } from '../container/shared/token-usage.js';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock, evaluatorMock } = vi.hoisted(() => ({ runAgentMock: vi.fn(), evaluatorMock: vi.fn() }));
@@ -58,7 +60,8 @@ async function createFixture() {
 
 useCleanMocks({
   restoreAllMocks: true,
-  cleanup: () => {
+  cleanup: async () => {
+    await cleanupGatewayRuntime();
     runAgentMock.mockReset();
     evaluatorMock.mockReset();
     if (ORIGINAL_HOME === undefined) delete process.env.HOME;
@@ -404,7 +407,8 @@ test('dispatches execution before a pending shadow result and records tool-free 
    expect(completeShadow).toBeTypeOf('function');
    completeShadow({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'tier-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0,distributions:signals('general'),recommendedTier:'general',applied:false});
    await new Promise(resolve=>setTimeout(resolve,5));
-   return {status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]};
+   const usage = { ...createTokenUsageStats(), modelCalls: 1, apiUsageAvailable: true, apiPromptTokens: 5, apiCompletionTokens: 5, apiTotalTokens: 10 };
+   return {status:'success',result:'Answer',toolsUsed:[],toolExecutions:[],tokenUsage:{...usage,modelUsage:[{provider:'lmstudio',model:'lmstudio/test-cheap',status:'success',durationMs:5,costUsd:0,usage}]}};
  });
  const result=await fixture.handleGatewayMessage({sessionId:'pending-shadow',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
  expect(result.status).toBe('success');

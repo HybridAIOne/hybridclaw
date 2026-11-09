@@ -1,7 +1,15 @@
+/**
+ * Primary-model pricing excludes helper counters and prefers reported USD charges.
+ * Missing nonzero price components remain unknown to the estimator.
+ * Unlike billing storage, this projects metadata and never invokes inference.
+ */
+import { readReportedUsageCost } from '../../container/shared/reported-usage-cost.js';
+import { primaryTokenUsage } from '../../container/shared/token-usage.js';
 import {
   getModelCatalogMetadata,
   refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
+import type { RoutingTraceAttempt } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { promptTokensIncludeCacheTokens } from './cache-accounting.js';
 
@@ -40,11 +48,12 @@ export function extractExplicitUsageCostUsd(
   tokenUsage?: TokenUsageStats,
 ): number | null {
   if (!tokenUsage) return null;
-  const costCarrier = tokenUsage as unknown as Record<string, unknown>;
+  const costCarrier = primaryTokenUsage(tokenUsage) as unknown as Record<
+    string,
+    unknown
+  >;
   return firstFiniteNonNegativeNumber([
-    costCarrier.costUsd,
-    costCarrier.costUSD,
-    costCarrier.cost_usd,
+    readReportedUsageCost(costCarrier),
     costCarrier.estimatedCostUsd,
     costCarrier.estimated_cost_usd,
   ]);
@@ -52,14 +61,18 @@ export function extractExplicitUsageCostUsd(
 
 export function explicitUsageCostSource(
   tokenUsage?: TokenUsageStats,
-): 'reported' | 'estimated' {
-  const carrier = tokenUsage as unknown as Record<string, unknown> | undefined;
-  return carrier &&
-    firstFiniteNonNegativeNumber([
-      carrier.costUsd,
-      carrier.costUSD,
-      carrier.cost_usd,
-    ]) !== null
+): RoutingTraceAttempt['costSource'] {
+  if (
+    tokenUsage?.modelUsage?.some(
+      (call) =>
+        !call.task &&
+        !call.usage.apiUsageAvailable &&
+        call.costUsd === undefined,
+    )
+  )
+    return 'unknown';
+  return tokenUsage &&
+    readReportedUsageCost(primaryTokenUsage(tokenUsage)) !== null
     ? 'reported'
     : 'estimated';
 }
@@ -68,18 +81,32 @@ export function estimateModelUsageCostUsd(
   params: ModelUsageTokenCounts & { model: string },
 ): number | null {
   const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
-  if (pricing.input == null && pricing.output == null) return null;
-  const inputPrice = pricing.input ?? 0;
+  if (
+    [
+      pricing.input,
+      pricing.output,
+      pricing.cacheRead,
+      pricing.cacheWrite,
+    ].every((price) => price == null)
+  )
+    return null;
+  const inputPrice = pricing.input;
   const cacheReadTokens = Math.max(0, params.cacheReadTokens ?? 0);
   const cacheWriteTokens = Math.max(0, params.cacheWriteTokens ?? 0);
   const uncachedPromptTokens = promptTokensIncludeCacheTokens(params.model)
     ? Math.max(0, params.promptTokens - cacheReadTokens - cacheWriteTokens)
     : params.promptTokens;
-  return (
-    uncachedPromptTokens * inputPrice +
-    cacheReadTokens * (pricing.cacheRead ?? inputPrice) +
-    cacheWriteTokens * (pricing.cacheWrite ?? inputPrice) +
-    params.completionTokens * (pricing.output ?? 0)
+  const components = [
+    [uncachedPromptTokens, inputPrice],
+    [cacheReadTokens, pricing.cacheRead ?? inputPrice],
+    [cacheWriteTokens, pricing.cacheWrite ?? inputPrice],
+    [params.completionTokens, pricing.output],
+  ] as const;
+  if (components.some(([tokens, price]) => tokens > 0 && price == null))
+    return null;
+  return components.reduce(
+    (sum, [tokens, price]) => sum + tokens * (price ?? 0),
+    0,
   );
 }
 
@@ -87,6 +114,7 @@ function readCacheTokenCounts(
   tokenUsage: TokenUsageStats | undefined,
   usage: UsageTokenCounts,
 ): Pick<ModelUsageTokenCounts, 'cacheReadTokens' | 'cacheWriteTokens'> {
+  tokenUsage = tokenUsage ? primaryTokenUsage(tokenUsage) : undefined;
   if (tokenUsage?.apiCacheUsageAvailable) {
     return {
       cacheReadTokens: tokenUsage.apiCacheReadTokens,
