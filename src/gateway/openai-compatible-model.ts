@@ -3,6 +3,7 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
+import { readProviderCacheUsage } from '../../container/shared/provider-cache-usage.js';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -695,13 +696,7 @@ export function mapOpenAICompatibleUsageToTokenStats(
   const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0;
   const totalTokens = usage.total_tokens ?? promptTokens + completionTokens;
-  const cacheReadTokens =
-    usage.prompt_tokens_details?.cached_tokens ??
-    usage.cached_tokens ??
-    usage.cache_read_input_tokens;
-  const cacheWriteTokens =
-    usage.prompt_tokens_details?.cache_write_tokens ??
-    usage.cache_creation_input_tokens;
+  const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(usage);
   const cacheUsageAvailable =
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   return {
