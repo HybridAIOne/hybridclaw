@@ -343,3 +343,85 @@ describe('local model highlighting', () => {
     ).not.toContain('Local');
   });
 });
+
+describe('model folding', () => {
+  const entries = [
+    model({ id: 'anthropic/claude-opus-5-5', provider: 'anthropic' }),
+    model({
+      id: 'anthropic/claude-opus-4-6',
+      provider: 'anthropic',
+      status: 'legacy',
+      replacement: 'anthropic/claude-opus-5-5',
+    }),
+    model({
+      id: 'openrouter/qwen/qwen3.5-plus',
+      provider: 'openrouter',
+      recommended: true,
+    }),
+    model({ id: 'openrouter/acme/other-model', provider: 'openrouter' }),
+  ];
+
+  function renderPicker(selectedModelId: string, onSwitch = vi.fn()) {
+    render(
+      createElement(ModelSwitchSelect, {
+        models: entries,
+        selectedModelId,
+        onSwitch,
+      }),
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Switch model' }));
+  }
+
+  function listedValues(): string[] {
+    return screen
+      .getAllByRole('option')
+      .map((option) => option.getAttribute('data-value') ?? '');
+  }
+
+  it('folds legacy models and unrecommended aggregator models behind one row', () => {
+    renderPicker('anthropic/claude-opus-5-5');
+
+    expect(listedValues()).toEqual([
+      'anthropic/claude-opus-5-5',
+      'openrouter/qwen/qwen3.5-plus',
+      '__show-all-models__',
+    ]);
+    expect(screen.getByText('Show 2 more models')).toBeTruthy();
+  });
+
+  it('expands from the keyboard without selecting or closing', () => {
+    const onSwitch = vi.fn();
+    renderPicker('anthropic/claude-opus-5-5', onSwitch);
+    const listbox = screen.getByRole('listbox');
+
+    fireEvent.keyDown(listbox, { key: 'End' });
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+
+    expect(onSwitch).not.toHaveBeenCalled();
+    expect(listedValues()).toHaveLength(5);
+    const legacy = document.querySelector<HTMLElement>(
+      '[data-value="anthropic/claude-opus-4-6"]',
+    );
+    expect(legacy?.textContent).toContain('Legacy');
+    expect(screen.getByText('Show fewer models')).toBeTruthy();
+  });
+
+  it('keeps a legacy selection visible and marks it on the trigger', () => {
+    renderPicker('anthropic/claude-opus-4-6');
+
+    expect(listedValues()).toContain('anthropic/claude-opus-4-6');
+    expect(
+      screen.getByRole('combobox', { name: 'Switch model' }).textContent,
+    ).toContain('Legacy');
+  });
+
+  it('searches every model, folded or not', () => {
+    renderPicker('anthropic/claude-opus-5-5');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), {
+      target: { value: 'other' },
+    });
+
+    expect(listedValues()).toEqual(['openrouter/acme/other-model']);
+  });
+});

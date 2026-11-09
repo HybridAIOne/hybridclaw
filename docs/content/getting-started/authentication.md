@@ -237,8 +237,10 @@ gateway types the username and password into the fields the agent names, the
 same way `browser_secret_type` injects a stored secret: the model sees neither
 value, the resolve is audited, and live browser frames pause until the page
 changes. If none is saved, the tool asks the user's client for one and the
-agent stops and says so. The Hy app shows a **Sign in** card for the host; its
-sheet saves the sign-in with `POST /api/sign-ins` and Hy carries on.
+agent stops and says so. The web chat and the Hy app show a **Sign in** card
+for the host. It saves the username and password with `POST /api/sign-ins`,
+so they go straight to the store and never reach the chat or the model. The
+web chat then tells the agent the sign-in is saved, and the agent continues.
 
 - a sign-in lives in the encrypted runtime store as
   `SIGNIN_<HOST>_USERNAME` and `SIGNIN_<HOST>_PASSWORD`, each with a

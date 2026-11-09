@@ -37,6 +37,10 @@ use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
 report treats the `browser_*` subtools as one browser toolset, so it only
 suggests disabling them when that whole toolset is unused.
 
+The `providers` category also warns when the default model is a legacy model.
+When its provider names a replacement, `hybridclaw doctor --fix` switches the
+default to it.
+
 The `browser-use` category verifies the Playwright Chromium install used by
 local browser automation. With `--fix`, HybridClaw offers the lazy Chromium
 install remediation when the browser runtime is missing.

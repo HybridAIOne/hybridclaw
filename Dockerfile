@@ -78,7 +78,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python-is-python3 \
       unzip \
       file \
+      build-essential \
+      procps \
     && rm -rf /var/lib/apt/lists/*
+
+# uv installs the Python versions and project environments coding tasks need;
+# Debian's python3 is often older than a repository requires.
+COPY --link --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /uvx /usr/local/bin/
 
 # Debian's PEP 668 marker makes bare `pip install` fail with
 # externally-managed-environment. This image is a disposable sandbox whose
@@ -185,6 +191,15 @@ RUN mkdir -p /workspace/.data
 # Agents and bundled skills call `hybridclaw ...` from the shell.
 RUN printf '#!/bin/sh\nexec node /app/dist/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
   && chmod 755 /usr/local/bin/hybridclaw
+
+# HOME lives on the data volume so user-level installs (uv Pythons, pip --user,
+# npm prefixes, tool config) survive container recreation. The volume hides
+# image content at that path, so the entrypoint creates it on every start.
+ENV HOME=/workspace/.data/home
+RUN printf '#!/bin/sh\nmkdir -p -m 700 "$HOME"\nexec docker-entrypoint.sh "$@"\n' \
+    > /usr/local/bin/hybridclaw-entrypoint \
+  && chmod 755 /usr/local/bin/hybridclaw-entrypoint
+ENTRYPOINT ["hybridclaw-entrypoint"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

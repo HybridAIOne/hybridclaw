@@ -52,7 +52,8 @@ export interface OpenAIRealtimeCallbacks {
   onInputTranscript: (transcript: string, itemId: string) => void;
   onOutputTranscript: (transcript: string) => void;
   onFunctionCall: (call: RealtimeFunctionCall) => void;
-  onError: (message: string) => void;
+  /** `code` is the realtime server's error code, when it sent one. */
+  onError: (message: string, code?: string) => void;
   onClosed: () => void;
 }
 
@@ -546,6 +547,7 @@ export class OpenAIRealtimeClient {
       }
       this.callbacks.onError(
         normalizeString(error.message) || 'Unknown realtime error',
+        normalizeString(error.code) || undefined,
       );
     }
   }

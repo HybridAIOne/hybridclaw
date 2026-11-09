@@ -24,8 +24,10 @@ when a long page was truncated.
 `browser_evaluate` runs a JavaScript expression in the page and returns its
 value as JSON; promises are awaited, so the expression can `fetch()` the
 page's own API with its cookies. Results over 48,000 characters are
-truncated; with `path`, the whole result is saved to a workspace file instead
-(a string as is, so the expression can build CSV; other values as JSON). On a
+truncated; with `path`, the whole result is saved to a new workspace file instead
+(a string as is, so the expression can build CSV; other values as JSON). Existing
+files are preserved; use another path or a checked `write`/`edit` to replace one.
+A save failure can follow page effects, so inspect the page before retrying. On a
 checkout or cancellation page the call needs approval like an unnamed click.
 It is refused on private hosts unless `browser.allowPrivateNetwork` is set,
 while a secret typed with `browser_secret_type` or `browser_sign_in` is still
@@ -53,7 +55,8 @@ for storage, device permissions, and the client sign-in flow.
 Hy app, and waits up to 10 minutes. The gateway relays agent-browser's stream
 (frames out; mouse, keyboard and touch in) to the phone over
 `/api/browser/take-over/stream`, which needs the owner-only `browser.control`
-action and host sandbox mode. While the user drives, a page script records
+action and host sandbox mode. Without a paired owner phone the tool fails
+right away instead of waiting. While the user drives, a page script records
 clicks, choices and typed values; passwords, one-time codes, card fields and
 sign-in names are recorded only as "typed". The steps reach the model only when
 the user picks "Remember how I did that", and the agent then saves them as a

@@ -95,6 +95,7 @@ import {
   isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
+  resolveTaskSandboxPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
@@ -485,9 +486,9 @@ function formatBashExecutionResult(
   const prefix = notice ? `${notice}\n\n` : '';
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
-  const formattedStdout = formatBashOutput(
-    replaceWorkspaceRootInOutput(stdout || '(no output)'),
-  );
+  // Full output: oversized results are spilled to .tool-results with head and
+  // tail kept in context, so cutting here would drop the summary at the end.
+  const formattedStdout = replaceWorkspaceRootInOutput(stdout || '(no output)');
 
   if (result.status === 0 && !result.error) {
     return `${prefix}${formattedStdout}`;
@@ -503,7 +504,7 @@ function formatBashExecutionResult(
       `${TASK_SANDBOX_FS_ENABLED ? 'docker exec' : 'bash'} failed with exit code ${result.status ?? 'unknown'}`;
   if (!combinedOutput) return failTool(`${prefix}Error: ${summary}`);
   return failTool(
-    `${prefix}Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+    `${prefix}Error: ${summary}\n\n${replaceWorkspaceRootInOutput(combinedOutput)}`,
   );
 }
 
@@ -524,36 +525,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
 
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function resolveTaskSandboxPath(userPath: string): string | null {
-  const raw = String(userPath || '').trim();
-  if (!raw) return null;
-
-  const normalized = raw.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function runTaskSandboxDocker(params: {
@@ -1718,8 +1689,8 @@ async function typeSavedSecret(
 
 /**
  * Fill the sign-in the user saved for the page's site, or ask them for one.
- * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the Hy app
- * turns it into a Sign in card that saves to `/api/sign-ins`.
+ * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the web chat
+ * and the Hy app turn it into a Sign in card that saves to `/api/sign-ins`.
  */
 async function executeBrowserSignIn(
   args: Record<string, unknown>,
@@ -1739,7 +1710,7 @@ async function executeBrowserSignIn(
         success: true,
         host: page.host,
         sign_in_requested: true,
-        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The Hy app now shows the user a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
+        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The user's chat now shows a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
       },
       null,
       2,
@@ -2071,11 +2042,13 @@ async function runVisionAnalyze(
   );
   const errors: string[] = [];
   for (const candidate of candidates) {
+    let imageLoaded = false;
     try {
       const isRemote = /^https?:\/\//i.test(candidate);
       const image = isRemote
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
+      imageLoaded = true;
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
       const vision = await callVisionModel(
         runtimeContext,
@@ -2096,7 +2069,8 @@ async function runVisionAnalyze(
         2,
       );
     } catch (err) {
-      if (err instanceof IncompleteVisionAnalysisError) throw err;
+      // Source fallback cannot replace pixels after an inference failure.
+      if (imageLoaded) throw err;
       const detail = err instanceof Error ? err.message : String(err);
       errors.push(`${candidate}: ${detail}`);
     }
@@ -2107,8 +2081,6 @@ async function runVisionAnalyze(
   );
 }
 
-const BASH_MAX_OUTPUT_LINES = 400;
-const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
 const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
 const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
@@ -2182,27 +2154,6 @@ function truncateReadContent(
     outputLines: out.length,
     firstLineExceedsLimit: false,
   };
-}
-
-function formatBashOutput(content: string): string {
-  const raw = content || '(no output)';
-  const totalLines = raw.split('\n').length;
-  const truncation = truncateReadContent(
-    raw,
-    BASH_MAX_OUTPUT_LINES,
-    BASH_MAX_OUTPUT_BYTES,
-  );
-  if (!truncation.truncated) return raw;
-
-  if (truncation.firstLineExceedsLimit) {
-    return `[Command output truncated: first line exceeds ${formatBytes(BASH_MAX_OUTPUT_BYTES)}. Consider narrowing command output.]`;
-  }
-
-  const shownLines = truncation.outputLines;
-  if (truncation.truncatedBy === 'bytes') {
-    return `${truncation.content}\n\n[Output truncated at ${formatBytes(BASH_MAX_OUTPUT_BYTES)} after ${shownLines}/${totalLines} lines]`;
-  }
-  return `${truncation.content}\n\n[Output truncated after ${shownLines}/${totalLines} lines]`;
 }
 
 function normalizeTimeoutNumber(value: unknown): number | null {
@@ -4070,7 +4021,9 @@ async function executeToolInternal(
               evaluateArgs,
               currentSessionId || 'default',
             ),
-          writeFile: writeWorkspaceFile,
+          writeFile: async (path, contents) => {
+            await writeCheckedFile({ path, contents });
+          },
         });
       } catch (err) {
         return failTool(

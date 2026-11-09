@@ -17,7 +17,20 @@ vi.mock('../src/audit/audit-events.js', () => ({
   },
 }));
 
+const devices = vi.hoisted(() => ({
+  tokens: [] as Array<Record<string, unknown>>,
+}));
+vi.mock('../src/security/api-tokens.js', () => ({
+  listApiTokens: () => devices.tokens,
+}));
+
 const takeOver = await import('../src/gateway/browser-take-over.js');
+
+const OWNER_PHONE = {
+  claims: { actions: ['chat.send', 'browser.control'], owner: true },
+  revoked_at: null,
+  expires_at: null,
+};
 
 let gateway: http.Server;
 let browser: WebSocketServer;
@@ -111,6 +124,7 @@ async function post(
 
 beforeEach(async () => {
   sandbox.mode = 'host';
+  devices.tokens = [OWNER_PHONE];
   received.length = 0;
   audits.length = 0;
   await serveGateway();
@@ -243,4 +257,26 @@ test('nothing to take over in another chat or outside host sandbox mode', async 
       })
     ).status,
   ).toBe(409);
+});
+
+test.each([
+  ['no paired device', []],
+  ['a revoked owner phone', [{ ...OWNER_PHONE, revoked_at: '2026-01-01' }]],
+  ['an expired owner phone', [{ ...OWNER_PHONE, expires_at: '2020-01-01' }]],
+  [
+    'a phone without browser.control',
+    [{ ...OWNER_PHONE, claims: { actions: ['chat.send'], owner: true } }],
+  ],
+  [
+    'a scoped token that is not the owner phone',
+    [{ ...OWNER_PHONE, claims: { actions: ['browser.control'] } }],
+  ],
+])('refuses to open a take-over with %s', async (_label, tokens) => {
+  devices.tokens = tokens;
+  const opened = await post(takeOver.TAKE_OVER_OPEN_PATH, {
+    sessionId: 'main-abc',
+    port: browserPort,
+  });
+  expect(opened.status).toBe(409);
+  expect(String(opened.body.error)).toContain('browser_sign_in');
 });

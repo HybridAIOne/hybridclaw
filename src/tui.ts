@@ -65,7 +65,6 @@ import {
 } from './model-selection.js';
 import {
   formatHybridAIModelForCatalog,
-  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from './providers/model-names.js';
@@ -1458,17 +1457,18 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
     for (const entry of result.modelCatalog) {
       const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
-      const color = entry.recommended
-        ? LIGHT_GREEN
-        : entry.isFree
-          ? GREEN
-          : GOLD;
+      const color = entry.legacy
+        ? MUTED
+        : entry.recommended
+          ? LIGHT_GREEN
+          : entry.isFree
+            ? GREEN
+            : GOLD;
       console.log(`  ${marker}${color}${entry.label}${RESET}`);
     }
     console.log();
-    console.log(
-      `  ${MUTED}${formatModelCountSuffix(result.modelCatalog.length)}${RESET}`,
-    );
+    // The gateway's last text line is the count, with any hidden-legacy hint.
+    console.log(`  ${MUTED}${result.text.split('\n').at(-1)}${RESET}`);
     console.log();
     return;
   }

@@ -73,8 +73,13 @@ call elevated to `yellow` follows the yellow rules; a call elevated to `red`
 goes through the red rules, so it needs an approval unless a one-shot, trust,
 or full-auto grant already covers it. The evaluation reason appends the anomaly
 score to the classifier's reason, so the approval prompt says why the tier
-rose. Borderline scores within the configured epsilon call F11 trace-judge
-through the `eval_judge` auxiliary task before any anomaly tier elevation. The
+rose. Borderline scores call F11 trace-judge through the `eval_judge` auxiliary
+task before any anomaly tier elevation. The review band extends 0.02 below the
+threshold. Above it, the margin is capped at half the gap to the maximum score
+attainable for an unseen tuple in the current context. This keeps direct
+escalation reachable whenever the model can score a call above threshold, even
+when a diverse baseline pushes p99 close to 1. Threshold ties still receive
+review; scores below the threshold do not directly raise a tier. The
 normal non-borderline path stays synchronous and does not make an LLM call.
 
 Every structured tool-execution audit event includes `anomaly.score` and

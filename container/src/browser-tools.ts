@@ -2582,7 +2582,7 @@ function emitBrowserFrame(url: string, frame: string | null): void {
 
 /**
  * Ask the user's client for a website sign-in: a frame line without a picture
- * whose `signIn` names the host, so the Hy app shows a Sign in card for it.
+ * whose `signIn` names the host, so the user's chat shows a Sign in card for it.
  * Sent with live frames off too, since it carries no image.
  */
 export function emitBrowserSignInRequest(
@@ -3717,7 +3717,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: TAKE_OVER_TOOL_NAME,
       description:
-        'Hand the open browser page to the user, who drives it from their phone, and wait until they are done (up to 10 minutes). Use it when the user asks to take over, to do something in your browser themselves, or to show you how to do a task; and when a page needs a person: a sign-in nothing is saved for and the user would rather type, a 2FA or identity check, a CAPTCHA. Open the page first with browser_navigate. Before calling, say in one short sentence that the browser is theirs. The result says whether the user handed it back, or showed you a task to remember, with the steps they took.',
+        'Hand the open browser page to the user, who drives it from their phone, and wait until they are done (up to 10 minutes). Use it when the user asks to take over, to do something in your browser themselves, or to show you how to do a task; and when a page needs a person: a 2FA or identity check, a CAPTCHA. For a username and password, use browser_sign_in instead. It needs the paired phone of the owner and fails right away without one. Open the page first with browser_navigate. Before calling, say in one short sentence that the browser is theirs. The result says whether the user handed it back, or showed you a task to remember, with the steps they took.',
       parameters: {
         type: 'object',
         properties: {
@@ -4044,7 +4044,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_sign_in',
       description:
-        'Sign in on the current page with the username and password the user saved for this site. The gateway types them into the fields you name; you never see them. Name the fields this page shows: both, or only one on a page that asks for the username and the password separately, then submit the form yourself. If nothing is saved for the site, or replace is true, the user is asked to save a sign-in in the Hy app, and you stop and tell them. Never ask for a username, password or code in chat.',
+        'Sign in on the current page with the username and password the user saved for this site. The gateway types them into the fields you name; you never see them. Name the fields this page shows: both, or only one on a page that asks for the username and the password separately, then submit the form yourself. If nothing is saved for the site, or replace is true, the user sees a Sign in card in their chat that saves it, and you stop and tell them. Never ask for a username, password or code in chat.',
       parameters: {
         type: 'object',
         properties: {

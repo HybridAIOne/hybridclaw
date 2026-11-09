@@ -3,6 +3,8 @@
  * Explicit learning mode observes approvals, including pinned prompts, without
  * granting trust; other modes enforce the pinned approval floor. Fetched-code
  * history must load and persist successfully before a download is allowed.
+ * Verified OS-identification reads bypass only default path pins, never
+ * explicit operator rules.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  * Replay retains full stored request and draft text; scoped consent still grants execution.
@@ -95,7 +97,6 @@ import {
 } from './bash-read-only.js';
 import { findFetchedCode } from './bash-remote-code.js';
 import { runsScript } from './bash-script-run.js';
-import { nextBashCwd } from './bash-session.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -110,6 +111,7 @@ import { buildConnectorApproval } from './connector-approvals.js';
 import { guardFileWriteConflict } from './file-write-conflicts.js';
 import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
+import { osReleaseReadPath } from './os-release-read.js';
 import {
   loadSessionPendingApprovals,
   type PendingApproval,
@@ -519,8 +521,11 @@ const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
 // `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor, and a redirect to
 // /dev/null discards output. None writes a file, so adding one never changes
 // the tier (owner calls, 2026-09-27 and 2026-09-29).
+// `>=` in opaque arguments can be a comparison, not shell redirection.
+// Actual shell redirects (including a filename starting `=`) are covered by
+// commandWriteTargets; retain the fallback for other opaque write expressions.
 const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!=)(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
@@ -3643,25 +3648,23 @@ export class TrustedAgentApprovalRuntime {
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
     // segment; these checks need the commands bash actually runs, parsed once
-    // from where the session's shell stopped.
-    const shellCommands = scriptCommands(
-      stripHereDocBodies(command),
-      nextBashCwd(this.sessionId),
-    );
+    // from the workspace root, where every call starts.
+    const shellCommands = scriptCommands(stripHereDocBodies(command));
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
     );
+    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Pinned rules match pathHints only; relative operands join them when
     // they name a pinned path.
     const pathHints = [
       ...new Set([
         ...absPaths,
+        ...fetchedCode.pathHints,
         ...pinnedReach.namedPaths,
         ...(pinnedReach.walk?.reaches || []),
       ]),
     ];
-    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Recorded before the decision: a partial or failed download still leaves
     // a file, and a denied one only costs a later prompt.
     for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
@@ -3674,6 +3677,7 @@ export class TrustedAgentApprovalRuntime {
       WRITE_INTENT_RE.test(inspectionSurface) ||
       deletes ||
       parsedWrites.length > 0 ||
+      fetchedCode.writeIntent ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
 
@@ -3986,7 +3990,11 @@ export class TrustedAgentApprovalRuntime {
     const fullText =
       `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
 
-    if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
+    const publicReadPath = osReleaseReadPath(input.toolName, input.args);
+    const defaultPathHints = input.pathHints.filter(
+      (hint) => !publicReadPath || path.resolve(hint) !== publicReadPath,
+    );
+    if (defaultPathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
       return true;
     }
     if (changesApprovalState(input.toolName, input.pathHints)) return true;
@@ -4010,7 +4018,10 @@ export class TrustedAgentApprovalRuntime {
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
-        for (const pathHint of input.pathHints) {
+        for (const pathHint of this.loadedPolicy.pinnedRed ===
+        DEFAULT_POLICY.pinnedRed
+          ? defaultPathHints
+          : input.pathHints) {
           if (
             rule.paths.some((pattern) => matchesPathPattern(pathHint, pattern))
           ) {

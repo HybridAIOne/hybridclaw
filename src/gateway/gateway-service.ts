@@ -333,14 +333,13 @@ import {
 import {
   getAvailableModelList,
   getModelCatalogMetadata,
-  isAvailableModelFree,
+  getModelLifecycle,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
   refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
-  formatModelCountSuffix,
   formatModelForDisplay,
   HYBRIDAI_MODEL_PREFIX,
   normalizeHybridAIModelForRuntime,
@@ -665,6 +664,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
+import { buildModelListResult, legacyModelNote } from './model-list-command.js';
 import { toGatewayModelProviderKey } from './model-provider-keys.js';
 import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
@@ -6409,9 +6409,13 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         const provider = providerKeyByModel.get(modelId) ?? 'hybridai';
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
+        const lifecycle = getModelLifecycle(modelId);
         return {
           id: modelId,
           provider,
+          status: lifecycle.status,
+          replacement: lifecycle.replacement,
+          recommended: isRecommendedModel(modelId),
           zone: metadata.zone,
           discovered: Boolean(info),
           backend: info?.backend || null,
@@ -9461,6 +9465,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(updated)}`,
               `Session model: ${sessionOverride}`,
+              ...legacyModelNote(normalizedModelName),
               ...(hasSessionOverride
                 ? [
                     'Run `model clear` to use the updated agent model in this session.',
@@ -9970,36 +9975,15 @@ export async function handleGatewayCommand(
             gatewayStatus == null
               ? []
               : getAvailableModelList(providerFilterArg);
-          const current = resolveRequestedCatalogModelName(
-            runtime.model,
-            listedModels,
-          );
-          const modelCatalog = listedModels.map((model) => {
-            const label = formatModelForDisplay(model);
-            return {
-              value: model,
-              label: model === current ? `${label} (current)` : label,
-              isFree: isAvailableModelFree(model),
-              ...(isRecommendedModel(model) ? { recommended: true } : {}),
-            };
+          return buildModelListResult({
+            models: listedModels,
+            currentModel: resolveRequestedCatalogModelName(
+              runtime.model,
+              listedModels,
+            ),
+            providerFilter: providerFilterArg,
+            includeLegacy: expandedModelList,
           });
-          const list = modelCatalog.map((entry) => entry.label).join('\n');
-          if (!list) {
-            return infoCommand(
-              'Available Models',
-              providerFilterArg
-                ? `No models available for provider \`${providerFilterArg}\`.`
-                : 'No models available.',
-            );
-          }
-          return infoCommand(
-            providerFilterArg
-              ? `Available Models (${providerFilterArg})`
-              : 'Available Models',
-            `${list}\n\n${formatModelCountSuffix(modelCatalog.length)}`,
-            undefined,
-            { modelCatalog },
-          );
         }
 
         if (sub === 'default') {
@@ -10038,7 +10022,10 @@ export async function handleGatewayCommand(
             draft.hybridai.defaultModel = normalizedModelName;
           });
           return plainCommand(
-            `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+            [
+              `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 
@@ -10066,7 +10053,10 @@ export async function handleGatewayCommand(
             },
           });
           return plainCommand(
-            `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+            [
+              `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 

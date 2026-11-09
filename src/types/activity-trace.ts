@@ -8,6 +8,8 @@
  * trace so hydration is a near-identity map.
  */
 
+import { asRecord } from '../utils/type-guards.js';
+
 export interface ActivityTraceThinkingStep {
   kind: 'thinking';
   text: string;
@@ -25,6 +27,8 @@ export interface ActivityTraceToolStep {
   argsPreview?: string;
   resultPreview?: string;
   durationMs?: number;
+  /** `browser_sign_in` asked the user for this site's sign-in. */
+  signIn?: { host: string };
 }
 
 export type ActivityTraceStep =
@@ -86,6 +90,7 @@ export class ActivityTraceBuilder {
     durationMs?: number,
     resultPreview?: string,
     toolCallId?: string,
+    signIn?: { host: string },
   ): void {
     for (let i = this.steps.length - 1; i >= 0; i--) {
       const step = this.steps[i];
@@ -98,6 +103,7 @@ export class ActivityTraceBuilder {
         step.status = 'done';
         if (durationMs !== undefined) step.durationMs = durationMs;
         if (resultPreview) step.resultPreview = resultPreview;
+        if (signIn) step.signIn = { host: signIn.host };
         return;
       }
     }
@@ -107,6 +113,7 @@ export class ActivityTraceBuilder {
       status: 'done',
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(resultPreview ? { resultPreview } : {}),
+      ...(signIn ? { signIn: { host: signIn.host } } : {}),
     });
   }
 
@@ -183,6 +190,8 @@ export function parseActivityTrace(
       if (typeof source.durationMs === 'number') {
         step.durationMs = source.durationMs;
       }
+      const signInHost = readString(asRecord(source.signIn) ?? {}, 'host');
+      if (signInHost) step.signIn = { host: signInHost };
       steps.push(step);
     }
   }

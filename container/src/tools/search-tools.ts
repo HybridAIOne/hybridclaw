@@ -15,6 +15,7 @@ import {
 } from '../pinned-paths.js';
 import {
   replaceWorkspaceRootInOutput,
+  resolveTaskSandboxPath,
   resolveWorkspaceGlobPattern,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
@@ -134,6 +135,7 @@ type RegexValidationFrame = {
 type SearchStatus =
   | { kind: 'ok' }
   | { kind: 'timeout' }
+  | { kind: 'not_found' }
   | { kind: 'truncated'; reason: string };
 
 type IncludePatternMatcher = (relativePath: string) => boolean;
@@ -162,6 +164,9 @@ export type SearchToolRunResult = {
 
 const SEARCH_STATUS_OK: SearchStatus = { kind: 'ok' };
 const SEARCH_STATUS_TIMEOUT: SearchStatus = { kind: 'timeout' };
+const SEARCH_STATUS_NOT_FOUND: SearchStatus = { kind: 'not_found' };
+const SEARCH_FILE_TOO_LARGE = Symbol('search file too large');
+const SEARCH_SKIP_NOTE_MAX_PATHS = 5;
 
 export const SEARCH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -249,36 +254,6 @@ function shellEscape(value: string): string {
 
 function isTaskSandboxSearchEnabled(): boolean {
   return TASK_SANDBOX_CONTAINER.length > 0;
-}
-
-function resolveTaskSandboxPath(rawPath: string): string | null {
-  const input = String(rawPath || '').trim();
-  if (!input) return null;
-  const normalized = input.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function resolveTaskSandboxGlobPattern(rawPattern: string): string | null {
@@ -616,7 +591,9 @@ function hasSearchableTextExtension(filePath: string): boolean {
   return !SEARCH_BINARY_EXTENSIONS.has(extension);
 }
 
-function readSearchableTextFile(filePath: string): string | null {
+function readSearchableTextFile(
+  filePath: string,
+): string | typeof SEARCH_FILE_TOO_LARGE | null {
   if (!hasSearchableTextExtension(filePath)) return null;
 
   let fd: number | null = null;
@@ -624,7 +601,7 @@ function readSearchableTextFile(filePath: string): string | null {
     fd = fs.openSync(filePath, 'r');
     const buffer = Buffer.allocUnsafe(SEARCH_MAX_FILE_SIZE_BYTES + 1);
     const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-    if (bytesRead > SEARCH_MAX_FILE_SIZE_BYTES) return null;
+    if (bytesRead > SEARCH_MAX_FILE_SIZE_BYTES) return SEARCH_FILE_TOO_LARGE;
     return buffer.toString('utf-8', 0, bytesRead);
   } catch {
     return null;
@@ -648,7 +625,7 @@ function buildSearchStatusNote(
   toolName: 'glob' | 'grep',
   timeoutMs: number,
 ): string | null {
-  if (status.kind === 'ok') return null;
+  if (status.kind === 'ok' || status.kind === 'not_found') return null;
   if (status.kind === 'timeout') {
     return `${toolName} search timed out after ${Math.floor(timeoutMs / 1000)}s. Try narrowing the search scope.`;
   }
@@ -659,6 +636,20 @@ function buildPinnedSkipNote(skippedFiles: number): string | null {
   if (skippedFiles === 0) return null;
   const noun = skippedFiles === 1 ? 'file' : 'files';
   return `Skipped ${skippedFiles} ${noun} matching pinned paths (${HARD_PINNED_PATH_PATTERNS.join(', ')}). Set path or include to a pinned path to search them; that call needs approval.`;
+}
+
+function buildOversizedSkipNote(skippedPaths: string[]): string | null {
+  if (skippedPaths.length === 0) return null;
+  const noun = skippedPaths.length === 1 ? 'file' : 'files';
+  const listed = skippedPaths
+    .slice(0, SEARCH_SKIP_NOTE_MAX_PATHS)
+    .map(displaySearchPath)
+    .join(', ');
+  const more =
+    skippedPaths.length > SEARCH_SKIP_NOTE_MAX_PATHS
+      ? ` and ${skippedPaths.length - SEARCH_SKIP_NOTE_MAX_PATHS} more`
+      : '';
+  return `Skipped ${skippedPaths.length} ${noun} larger than ${formatBytes(SEARCH_MAX_FILE_SIZE_BYTES)} without searching: ${listed}${more}. Use bash grep to search them.`;
 }
 
 function formatSearchOutput(
@@ -754,7 +745,7 @@ function walkWorkspaceFiles(
       return visitSearchFile(searchRoot) ?? SEARCH_STATUS_OK;
     }
   } catch {
-    return SEARCH_STATUS_OK;
+    return SEARCH_STATUS_NOT_FOUND;
   }
 
   const stack = [searchRoot];
@@ -841,7 +832,7 @@ function collectTaskSandboxFiles(
   opts: CollectWorkspaceFilesOptions,
 ): { files: string[]; status: SearchStatus } {
   const includeMatcher = buildIncludePatternMatcher(opts.includePattern);
-  const command = `if [ -f ${shellEscape(searchRoot)} ]; then printf '%s\\0' ${shellEscape(searchRoot)}; elif [ -d ${shellEscape(searchRoot)} ]; then find ${shellEscape(searchRoot)} -type f -print0; else true; fi`;
+  const command = `if [ -f ${shellEscape(searchRoot)} ]; then printf '%s\\0' ${shellEscape(searchRoot)}; elif [ -d ${shellEscape(searchRoot)} ]; then find ${shellEscape(searchRoot)} -type f -print0; else exit 3; fi`;
   const result = runTaskSandboxCommand({
     command,
     timeoutMs: opts.timeoutMs,
@@ -849,6 +840,9 @@ function collectTaskSandboxFiles(
   });
   if (result.status === null) {
     return { files: [], status: SEARCH_STATUS_TIMEOUT };
+  }
+  if (result.status === 3) {
+    return { files: [], status: SEARCH_STATUS_NOT_FOUND };
   }
   if (result.status !== 0) {
     return {
@@ -1039,12 +1033,18 @@ export function runGrepSearch(
         timeoutMs: GREP_SEARCH_TIMEOUT_MS,
         textOnly: true,
       });
+  if (fileCollection.status.kind === 'not_found') {
+    return errorResult(
+      `Error: path not found: ${searchPathArg ?? WORKSPACE_ROOT_DISPLAY}`,
+    );
+  }
 
   const matches: string[] = [];
-  let status = fileCollection.status;
+  let status: SearchStatus = fileCollection.status;
   let totalChars = 0;
   let matchCount = 0;
   let skippedPinnedFiles = 0;
+  const skippedOversizedFiles: string[] = [];
 
   for (const filePath of fileCollection.files) {
     if (Date.now() >= deadlineAt) {
@@ -1070,11 +1070,15 @@ export function runGrepSearch(
             Buffer.byteLength(result.stdout, 'utf-8') >
             SEARCH_MAX_FILE_SIZE_BYTES
           ) {
-            return null;
+            return SEARCH_FILE_TOO_LARGE;
           }
           return result.stdout;
         })()
       : readSearchableTextFile(filePath);
+    if (content === SEARCH_FILE_TOO_LARGE) {
+      skippedOversizedFiles.push(filePath);
+      continue;
+    }
     if (content == null) continue;
     const lines = content.split('\n');
 
@@ -1138,6 +1142,7 @@ export function runGrepSearch(
   const note = [
     buildSearchStatusNote(status, 'grep', GREP_SEARCH_TIMEOUT_MS),
     buildPinnedSkipNote(skippedPinnedFiles),
+    buildOversizedSkipNote(skippedOversizedFiles),
   ]
     .filter(Boolean)
     .join(' ');
