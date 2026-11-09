@@ -6,6 +6,7 @@
  * earlier call's `cd` counts only through the start directory of the parse.
  * NOT a sandbox, NOT the grep tool's walk filter.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { escapeRegExp } from '../shared/regex.js';
 import {
@@ -621,6 +622,30 @@ interface ScanState {
   walk: BashPinnedReach['walk'];
 }
 
+// Recursive flags do not turn existing regular-file operands into directories.
+// Unknown paths and symlinks remain conservative; canonical sensitive targets
+// are still pinned even if the command names a harmless-looking parent alias.
+function searchDirectories(
+  walk: Walk,
+  cwd: Cwd,
+  state: ScanState,
+): Walk | null {
+  if (walk.roots.length === 0) return walk;
+  const roots = walk.roots.filter((root) => {
+    const resolved = resolvePath(root, cwd);
+    if (resolved === null || GLOB_CHAR_RE.test(resolved)) return true;
+    const absolute = path.resolve(WORKSPACE_ROOT, resolved);
+    try {
+      const canonical = fs.realpathSync(absolute);
+      if (state.namesPinnedPath(canonical)) state.namedPaths.add(canonical);
+      return !fs.lstatSync(absolute).isFile();
+    } catch {
+      return true;
+    }
+  });
+  return roots.length ? { ...walk, roots } : null;
+}
+
 function scanScript(
   state: ScanState,
   commands: ScriptCommand[],
@@ -656,7 +681,12 @@ function scanScript(
     }
 
     if (!piped) listing = null;
-    const reached = program === 'xargs' ? listing : scan.walk;
+    const reached =
+      program === 'xargs'
+        ? listing
+        : scan.walk && ['grep', 'egrep', 'fgrep', 'rg'].includes(program)
+          ? searchDirectories(scan.walk, cwd, state)
+          : scan.walk;
     if (!state.walk && scan.reads && reached) {
       const reaches = walkReaches(reached, cwd);
       if (reaches.length > 0) state.walk = { program, reaches };

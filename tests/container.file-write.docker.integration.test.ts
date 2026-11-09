@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -56,6 +56,11 @@ describe.skipIf(process.env.HYBRIDCLAW_TEST_DOCKER !== '1')(
         await write({ path: 'report.txt', contents: 'accidental' }),
       ).toMatchObject({ isError: true });
       expect(fs.readFileSync(file, 'utf8')).toBe(original);
+      const revision = createHash('sha256').update(original).digest('hex');
+      expect(await write({ path: 'report.txt', contents: 'revision checked', overwrite: true, expected_sha256: revision })).toMatchObject({ isError: false });
+      expect(await write({ path: 'report.txt', contents: 'stale replacement', overwrite: true, expected_sha256: revision })).toMatchObject({ isError: true });
+      expect(fs.readFileSync(file, 'utf8')).toBe('revision checked');
+      fs.writeFileSync(file, original);
       const prefix = original.slice(0, -1);
       for (const [current, expected, error] of [
         [prefix + '\n', prefix, /missing.*final LF\b/],
