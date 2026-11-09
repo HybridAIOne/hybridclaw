@@ -615,7 +615,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For deliverable-generation tasks, once the requested file exists, generation succeeded, and required QA and cleanup of your own unneeded temporary files are complete, return the deliverable. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
     'For a simple reminder via `cron`, set `prompt` to the reminder instruction (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
-    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
+    "Before scheduling an absolute future time, use a computation tool with Node.js `Intl` timezone data to resolve the requested local date and time in its IANA timezone, including the UTC offset on that target date. Never copy an example's offset or assume today's offset applies. Convert the stored instant back to that timezone and verify the requested local time before confirming. For native `cron` `at`, emit an offset-bearing ISO-8601 timestamp; use `Z` only when the user requested UTC.",
     '',
     ...buildWebRetrievalLines(context, browser),
     ...(browser ? buildBrowserLines(context, mobile) : []),

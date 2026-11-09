@@ -215,7 +215,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Never say that web chat cannot embed, display, render, deliver, or support generated images/videos.',
   );
   expect(prompt).toContain(
-    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context',
+    'Before scheduling an absolute future time, use a computation tool with Node.js `Intl` timezone data to resolve the requested local date and time in its IANA timezone',
   );
   expect(prompt).toContain(
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
@@ -736,7 +736,7 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   });
   expect(mobile).not.toContain('Browser notifications');
   expect(mobile).toContain(
-    'Scheduled task output is saved in the originating chat',
+    'Native `cron` task output is saved in the originating chat',
   );
   expect(mobile).toContain('## Client');
   expect(mobile).toContain('share only absolute https URLs');
