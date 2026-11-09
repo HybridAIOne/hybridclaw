@@ -5,9 +5,9 @@ Use the right channel so maintainers and contributors can respond efficiently.
 ## Quick Triage
 
 - Need product docs, install steps, or command reference:
-  [hybridclaw.io/docs](https://www.hybridclaw.io/docs/)
+  [HybridClaw Docs](https://hybridaione.github.io/hybridclaw/docs/)
 - Need a quick local setup path:
-  [Getting Started](https://www.hybridclaw.io/docs/getting-started/quickstart)
+  [Getting Started](https://hybridaione.github.io/hybridclaw/content/getting-started/quickstart.md)
 - Need maintainer and runtime internals:
   [docs/content/README.md](./docs/content/README.md)
 

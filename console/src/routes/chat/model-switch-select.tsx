@@ -2,6 +2,9 @@
  * Model choices retain their provider identity and highlight local routing zones.
  * Local availability reflects the latest discovery result, not installation.
  * Badges do not enforce routing policy; automatic routing can use other zones.
+ * Until the user searches or asks for all models, the list shows the primary
+ * models only: current ones, narrowed to the recommended ones for providers
+ * that recommend any. The selected model is always shown.
  */
 import {
   type ButtonHTMLAttributes,
@@ -73,7 +76,7 @@ import {
   SelectValue,
 } from '../../components/select';
 import { cx } from '../../lib/cx';
-import { formatCompactNumber } from '../../lib/format';
+import { formatCompactNumber, pluralize } from '../../lib/format';
 import css from './chat-page.module.css';
 import chrome from './model-switch-select.module.css';
 
@@ -251,6 +254,7 @@ const PROVIDER_LOGOS: Record<GatewayModelProviderKey, LogoComponent> = {
   dashscope: DashScopeLogo,
   xiaomi: XiaomiLogo,
   kilo: KiloLogo,
+  nebius: ServerIcon as LogoComponent,
   ollama: OllamaLogo,
   lmstudio: LMStudioLogo,
   llamacpp: LlamaCppLogo,
@@ -486,6 +490,41 @@ function formatSubtitle(model: ParsedModel): string | null {
   return parts.join(' · ');
 }
 
+const SHOW_ALL_VALUE = '__show-all-models__';
+
+function primaryModelIds(models: ParsedModel[], selectedId: string) {
+  const recommendingProviders = new Set(
+    models.filter((m) => m.meta.recommended).map((m) => m.meta.provider),
+  );
+  return new Set(
+    models
+      .filter(
+        (m) =>
+          m.id === selectedId ||
+          (m.meta.status !== 'legacy' &&
+            (m.meta.recommended ||
+              !recommendingProviders.has(m.meta.provider))),
+      )
+      .map((m) => m.id),
+  );
+}
+
+function LegacyBadge({ model }: { model: ParsedModel }) {
+  if (model.meta.status !== 'legacy') return null;
+  return (
+    <span
+      className={chrome.legacyBadge}
+      title={
+        model.meta.replacement
+          ? `Replaced by ${model.meta.replacement}`
+          : 'Superseded by a newer model'
+      }
+    >
+      Legacy
+    </span>
+  );
+}
+
 function modelMatchesQuery(model: ParsedModel, query: string): boolean {
   if (!query) return true;
   const haystack = [
@@ -511,12 +550,20 @@ export function ModelSwitchSelect(props: {
   selectedModelId: string;
   routing?: ChatModelRoutingContext | null;
   disabled?: boolean;
+  /** Accessible name for the trigger when a form field owns the picker. */
+  label?: string;
   onSwitch: (modelId: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [railFilter, setRailFilter] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const selectedModelId = props.selectedModelId.trim();
 
   const parsed = useMemo(() => props.models.map(parseModel), [props.models]);
+  const primaryIds = useMemo(
+    () => primaryModelIds(parsed, selectedModelId),
+    [parsed, selectedModelId],
+  );
 
   const railEntries = useMemo(() => {
     const counts = new Map<string, number>();
@@ -533,12 +580,17 @@ export function ModelSwitchSelect(props: {
       );
   }, [parsed]);
 
-  const groups = useMemo(() => {
-    const filtered = parsed.filter((m) => {
+  const folding = query.trim() === '';
+  const { groups, foldedCount } = useMemo(() => {
+    const matching = parsed.filter((m) => {
       if (!modelMatchesQuery(m, query)) return false;
       if (railFilter && railKeyOf(m) !== railFilter) return false;
       return true;
     });
+    const filtered =
+      folding && !showAll
+        ? matching.filter((m) => primaryIds.has(m.id))
+        : matching;
     const map = new Map<string, { head: ParsedModel; items: ParsedModel[] }>();
     for (const model of filtered) {
       let bucket = map.get(model.groupLabel);
@@ -554,15 +606,21 @@ export function ModelSwitchSelect(props: {
     for (const group of ordered) {
       group.items.sort(
         (a, b) =>
+          Number(a.meta.status === 'legacy') -
+            Number(b.meta.status === 'legacy') ||
           a.shortName.localeCompare(b.shortName) ||
           (a.routeLabel ?? '').localeCompare(b.routeLabel ?? '') ||
           a.id.localeCompare(b.id),
       );
     }
-    return ordered;
-  }, [parsed, query, railFilter]);
+    return {
+      groups: ordered,
+      foldedCount: folding
+        ? matching.filter((m) => !primaryIds.has(m.id)).length
+        : 0,
+    };
+  }, [parsed, query, railFilter, folding, showAll, primaryIds]);
 
-  const selectedModelId = props.selectedModelId.trim();
   const selectedFallback = buildSelectedModelFallback(selectedModelId);
   const selected =
     parsed.find((m) => m.id === selectedModelId) ??
@@ -593,13 +651,15 @@ export function ModelSwitchSelect(props: {
       value={selected ? selected.id : ''}
       disabled={props.disabled}
       onValueChange={(next) => {
+        if (next === SHOW_ALL_VALUE) return;
         if (!next || (!routing && next === selectedModelId)) return;
         props.onSwitch(next);
       }}
     >
       <SelectTrigger
         aria-label={
-          routing ? 'Switch model, automatic routing active' : 'Switch model'
+          props.label ??
+          (routing ? 'Switch model, automatic routing active' : 'Switch model')
         }
         aria-description={
           !routing &&
@@ -610,6 +670,11 @@ export function ModelSwitchSelect(props: {
         }
         title={routingDescription ?? 'Switch model'}
         data-local={!routing && triggerModel?.isLocal ? 'true' : undefined}
+        data-legacy={
+          !routing && triggerModel?.meta.status === 'legacy'
+            ? 'true'
+            : undefined
+        }
         className={cx(css.composerPill, chrome.triggerPill)}
       >
         {triggerModel ? (
@@ -633,6 +698,7 @@ export function ModelSwitchSelect(props: {
               : 'Local'}
           </span>
         )}
+        {!routing && triggerModel ? <LegacyBadge model={triggerModel} /> : null}
         <SelectIcon />
       </SelectTrigger>
       <SelectContent
@@ -672,7 +738,7 @@ export function ModelSwitchSelect(props: {
           </Rail>
         }
       >
-        {groups.length === 0 ? (
+        {groups.length === 0 && foldedCount === 0 ? (
           <SelectEmpty>No models match “{query}”.</SelectEmpty>
         ) : (
           groups.map((group) => (
@@ -727,6 +793,7 @@ export function ModelSwitchSelect(props: {
                             : 'Local'}
                         </span>
                       )}
+                      <LegacyBadge model={model} />
                       {ctx ? <span>{ctx}</span> : null}
                     </SelectItemMeta>
                   </SelectItem>
@@ -735,6 +802,29 @@ export function ModelSwitchSelect(props: {
             </SelectGroup>
           ))
         )}
+        {folding && (foldedCount > 0 || showAll) ? (
+          <SelectItem
+            value={SHOW_ALL_VALUE}
+            className={chrome.showAllItem}
+            onClick={(event) => {
+              event.preventDefault();
+              setShowAll((current) => !current);
+            }}
+          >
+            <SelectItemBody>
+              <SelectItemText>
+                {showAll
+                  ? 'Show fewer models'
+                  : `Show ${pluralize(foldedCount, 'more model', 'more models')}`}
+              </SelectItemText>
+              {showAll ? null : (
+                <SelectItemSubtitle>
+                  Legacy and non-recommended models
+                </SelectItemSubtitle>
+              )}
+            </SelectItemBody>
+          </SelectItem>
+        ) : null}
       </SelectContent>
     </Select>
   );

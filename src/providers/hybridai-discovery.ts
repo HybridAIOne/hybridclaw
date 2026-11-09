@@ -24,6 +24,7 @@ import {
   type ModelRoutingZone,
   normalizeModelRoutingZone,
 } from './model-routing.js';
+import { type ModelLifecycle, readListedModelStatus } from './model-status.js';
 import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
@@ -281,6 +282,7 @@ export interface HybridAIDiscoveryStore {
     model: string,
   ) => { input: number | null; output: number | null } | null;
   getModelFreeTier: (model: string) => boolean;
+  getModelLifecycle: (model: string) => ModelLifecycle | null;
 }
 
 interface HybridAIDiscoveryState {
@@ -298,6 +300,8 @@ interface HybridAIDiscoveryState {
   pricingModelKeyLookup: HybridAIModelKeyLookup;
   freeTierByModel: Map<string, boolean>;
   freeTierModelKeyLookup: HybridAIModelKeyLookup;
+  legacyModelByName: Map<string, ModelLifecycle>;
+  legacyModelKeyLookup: HybridAIModelKeyLookup;
 }
 
 const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
@@ -315,6 +319,8 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   pricingModelKeyLookup: buildHybridAIModelKeyLookup([]),
   freeTierByModel: new Map(),
   freeTierModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  legacyModelByName: new Map(),
+  legacyModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
 
 // HybridAI lists `pricing` in OpenRouter's shape but in EUR per token, the
@@ -384,11 +390,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const destinations = new Map<string, HybridAIDestination>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const freeTierByModel = new Map<string, boolean>();
+    const legacy = new Map<string, ModelLifecycle>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
       const normalized = readModelId(entry);
       if (!normalized) continue;
+      const status = readListedModelStatus(entry);
+      if (status === 'retired') continue;
+      if (status.status === 'legacy') legacy.set(normalized, status);
       discovered.add(normalized);
       const contextWindow = readHybridAIContextWindow(entry);
       if (contextWindow != null) {
@@ -433,6 +443,20 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (entry.free_tier === true) freeTierByModel.set(normalized, true);
     }
 
+    const discoveredKeys = new Map([...discovered].map((name) => [name, name]));
+    const discoveredLookup = buildHybridAIModelKeyLookup(discovered);
+    for (const [model, lifecycle] of legacy) {
+      if (!lifecycle.replacement) continue;
+      legacy.set(model, {
+        ...lifecycle,
+        replacement: resolveCachedHybridAIModelKey(
+          lifecycle.replacement,
+          discoveredKeys,
+          discoveredLookup,
+        ),
+      });
+    }
+
     lastError = null;
     return {
       discoveredModelNames: [...discovered],
@@ -455,6 +479,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       freeTierModelKeyLookup: buildHybridAIModelKeyLookup(
         freeTierByModel.keys(),
       ),
+      legacyModelByName: legacy,
+      legacyModelKeyLookup: buildHybridAIModelKeyLookup(legacy.keys()),
     };
   }
 
@@ -559,6 +585,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.freeTierByModel.get(normalized) === true;
     },
+    getModelLifecycle: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.legacyModelByName,
+        state.legacyModelKeyLookup,
+      );
+      return state.legacyModelByName.get(normalized) ?? null;
+    },
   };
 }
 
@@ -611,6 +646,12 @@ export function getDiscoveredHybridAIModelPricingUsdPerToken(
 /** Whether HybridAI's wallet never pays for this model (`free_tier`). */
 export function isDiscoveredHybridAIFreeTierModel(model: string): boolean {
   return defaultHybridAIDiscoveryStore.getModelFreeTier(model);
+}
+
+export function getDiscoveredHybridAIModelLifecycle(
+  model: string,
+): ModelLifecycle | null {
+  return defaultHybridAIDiscoveryStore.getModelLifecycle(model);
 }
 
 export function getDiscoveredHybridAIModelDestination(

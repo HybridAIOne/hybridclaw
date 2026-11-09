@@ -2,6 +2,112 @@
 
 ## Unreleased
 
+## [0.42.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.4) - 2026-11-08
+
+### Changed
+
+- **Model selection**: Show current and recommended models first, fold legacy
+  models and large aggregator catalogs in the console picker, and retain full
+  search. `/model list` and the TUI hide legacy models by default; use `all`
+  to list them. Automatic selections prefer current models (#2214, #2215).
+- **Docker coding tools**: Include `uv`, compiler/build tools and process
+  utilities in gateway and agent images. Gateway user-level installs and CLI
+  settings persist under `/workspace/.data/home` on the data volume (#2220).
+
+### Fixed
+
+- **Command output and search**: Preserve long command output through the
+  existing result-file mechanism, including its ending and build/test summaries.
+  Grep reports missing paths and identifies files skipped for size instead of
+  presenting those cases as an empty search (#2226, #2229).
+- **File preservation and lock recovery**: Browser exports respect existing
+  files and writer locks. Memory and approval-state writes recover locks only
+  when the operating system confirms the owner has died in the same boot and
+  PID namespace; live or unidentifiable owners remain protected
+  (#2219, #2224, #2230).
+- **Python approval checks**: Ignore eval-related comments without relaxing
+  execution checks, recognize supported downloaded-image resizing as data work,
+  and retain provenance for derived files and importable downloaded modules
+  across worker replacement (#2222, #2227, #2228).
+- **Vision source integrity**: Keep inference retries tied to the selected
+  image. Provider failures no longer trigger fallback downloads or another
+  inference sequence; unreadable image sources can still recover (#2231).
+- **Dialog focus**: Preserve a field selected while a console dialog opens
+  (#2217).
+
+### Upgrade Notes
+
+- Docker gateway `HOME` is `/workspace/.data/home`. Before replacing an existing
+  container, copy any needed user-installed tools or CLI settings from its
+  `/root` into the new home on the data volume, or reinstall them there. Custom
+  entrypoints must create the home directory before starting tools.
+- Browser exports require a new destination path. For an intentional
+  replacement, use checked `write`/`edit`. A failed save can follow page effects;
+  inspect the page before retrying its evaluation.
+- Locks without a verifiable owner, including older empty lock directories,
+  require manual recovery only after confirming no writer is running.
+
+## [0.42.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.3) - 2026-11-08
+
+### Changed
+
+- **Dependency maintenance**: Refresh runtime and development dependencies,
+  retain verified PDF canvas binaries, and support Electron's first-use
+  executable installation during desktop development (#2201).
+- **PDF tool guidance**: Clarify that literal-text searches and reading or
+  rendering selected PDF pages use separate calls (#2209).
+
+### Fixed
+
+- **Scheduled task recovery**: Prevent overlapping job runs, retain pauses
+  after late failures, and report interrupted one-shot tasks as paused failures
+  with guidance to review effects before rescheduling. Delivery retries retain
+  prepared results without rerunning settled routine editions (#2167, #2168,
+  #2170, #2173).
+- **Session and worker coordination**: Serialize session aliases and creation
+  through one turn queue, reject stale worker releases and lifecycle callbacks,
+  and refresh persistent workers after runtime credential or web-search setting
+  changes. Autonomous continuations retain work due during active runs and
+  ignore callbacks from cancelled runs (#2172, #2174, #2189, #2191, #2197).
+- **Reliable message delivery**: Serialize background queue flushes to prevent
+  duplicate sends. Pulled proactive messages remain queued until acknowledged,
+  allowing disconnected clients to recover them after the delivery lease
+  expires (#2203, #2204).
+- **Conversation and audit integrity**: Reject message writes to missing or
+  deleted sessions, create scheduled sessions before saving their messages,
+  and commit history, counters and semantic memory together. A torn audit-log
+  tail cannot consume the next acknowledged record (#2171, #2193, #2195).
+- **Checked file edits and preservation**: Reject malformed edit and memory
+  payloads, replace only original text matches, preserve literal replacement
+  text, and publish edits through the checked atomic writer. Automatic
+  collision recovery reviews requested changes while preserving unrelated
+  files; approvals and delegation retain the complete user request
+  (#2175–#2179).
+- **Shell approval boundaries**: Preserve destination and downloaded-code
+  checks through shell wrappers, redirects, pip installs, tar operations and
+  sed backups. Recognize supported Python data reads, harmless verification
+  commands and Conda environment names without unnecessary execution blocks
+  (#2181, #2183–#2188, #2200).
+- **Worker results and accounting**: Reject malformed worker replies before
+  gateway processing, validate transported file-preservation context, honor
+  explicit output wait limits, and retain known usage and completed tool
+  outcomes across worker interruption or replacement (#2190, #2196, #2202,
+  #2206, #2207).
+- **Model and tool recovery**: Report incomplete or failed HybridAI streams as
+  errors, retry supported temporary helper-model failures, report policy-blocked
+  delegation as blocked, allow fresh verification after file mutations, and
+  order vision reads after related image changes (#2180, #2192, #2194, #2198,
+  #2199).
+
+### Upgrade Notes
+
+- Update the gateway and TUI together. Custom proactive-pull clients must
+  POST `{ channelId, claimToken, ids }` to `/api/proactive/pull` after handling
+  each GET batch. Unacknowledged batches become available again after the
+  60-second lease expires; clients should tolerate redelivery if an
+  acknowledgement is lost. The schema migration preserves queued messages.
+- Checked edits reject symlink inputs; use the real permitted file path.
+
 ## [0.42.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.2) - 2026-11-07
 
 ### Added

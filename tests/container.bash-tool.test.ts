@@ -103,7 +103,16 @@ describe.sequential('container bash tool persistence', () => {
     expect(emit).toHaveBeenCalledTimes(count);
   });
 
-  test('persists cwd across bash calls in the same session', async () => {
+  test('returns long output in full, including the summary at the end', async () => {
+    const { executeTool } = await createBashTestRuntime();
+    const result = await executeTool(
+      'bash',
+      bashCommand('seq 1 2000; echo "== 2000 passed =="; exit 1'),
+    );
+    expect(result).toContain('\n1999\n2000\n== 2000 passed ==');
+  });
+
+  test('starts every bash call in the workspace root', async () => {
     const { executeTool } = await createBashTestRuntime({
       nested: true,
       sessionId: `bash-session-cd-${Date.now()}`,
@@ -119,7 +128,18 @@ describe.sequential('container bash tool persistence', () => {
     );
 
     expect(first).toBe('nested');
-    expect(second).toBe('nested');
+    expect(second).toBe(path.basename(workspaceRoot));
+  });
+
+  test('shows the workspace root as . when the display root is its parent, as in host mode', async () => {
+    await createBashTestRuntime();
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', path.dirname(workspaceRoot));
+    vi.resetModules();
+    const { executeTool } = await loadTools();
+
+    const result = await executeTool('bash', bashCommand('pwd; mkdir sub && cd sub && pwd'));
+
+    expect(result).toBe('.\nsub\n');
   });
 
   test('treats shell metacharacters in the environment temp path as literal arguments', async () => {
@@ -198,29 +218,6 @@ describe.sequential('container bash tool persistence', () => {
     expect(result).toBe('alias-ok');
   });
 
-  test('recovers by falling back to the workspace root when the saved cwd disappears', async () => {
-    const { executeTool } = await createBashTestRuntime({
-      nested: true,
-      sessionId: `bash-session-cwd-fallback-${Date.now()}`,
-    });
-
-    const first = await executeTool(
-      'bash',
-      bashCommand('cd nested && printf %s "$(basename "$PWD")"'),
-    );
-    fs.rmSync(path.join(workspaceRoot, 'nested'), {
-      recursive: true,
-      force: true,
-    });
-    const second = await executeTool(
-      'bash',
-      bashCommand('printf %s "$(basename "$PWD")"'),
-    );
-
-    expect(first).toBe('nested');
-    expect(second).toBe(path.basename(workspaceRoot));
-  });
-
   test('keeps bash session state isolated when the session context changes', async () => {
     const { executeTool, setSessionContext } = await createBashTestRuntime();
 
@@ -248,35 +245,25 @@ describe.sequential('container bash tool persistence', () => {
     return restarted;
   }
 
-  function sessionCwdFiles(): string[] {
+  function sessionStateFiles(): string[] {
     const root = path.join(workspaceRoot, '.hybridclaw-runtime', 'sessions');
     if (!fs.existsSync(root)) return [];
-    return fs
-      .readdirSync(root)
-      .map((key) => path.join(root, key, 'bash-cwd'))
-      .filter((file) => fs.existsSync(file));
+    return fs.readdirSync(root, { recursive: true, encoding: 'utf-8' });
   }
 
-  test.each([
-    { removeNested: false, expectedDir: 'nested' },
-    { removeNested: true, expectedDir: '' },
-  ])('a restarted worker keeps the session cwd and flags the lost environment (cwd removed=$removeNested)', async ({ removeNested, expectedDir }) => {
+  test('a restarted worker flags the lost environment once and starts in the workspace root', async () => {
     const sessionId = `bash-session-restart-${Date.now()}`;
     const { executeTool } = await createBashTestRuntime({ nested: true, sessionId });
     await executeTool('bash', bashCommand('cd nested && export HYBRIDCLAW_TEST_VAR=worker-one'));
-    expect(sessionCwdFiles().map((file) => fs.readFileSync(file, 'utf-8').trim())).toEqual([fs.realpathSync(path.join(workspaceRoot, 'nested'))]);
-    if (removeNested) fs.rmSync(path.join(workspaceRoot, 'nested'), { recursive: true });
 
     const restarted = await restartWorker(sessionId);
     const probe = bashCommand('printf "%s:%s" "$(basename "$PWD")" "$HYBRIDCLAW_TEST_VAR"');
     const first = await restarted.executeTool('bash', probe);
     const second = await restarted.executeTool('bash', probe);
 
-    const dir = expectedDir || path.basename(workspaceRoot);
-    const [note, output] = first.split('\n\n');
-    expect(note).toMatch(/^\[.+\]$/);
-    expect(output).toBe(`${dir}:`);
-    expect(second).toBe(`${dir}:`);
+    const root = path.basename(workspaceRoot);
+    expect(first).toBe(`[The sandbox restarted since the previous bash call in this session: exported variables, aliases, and activated virtualenvs from earlier calls are gone.]\n\n${root}:`);
+    expect(second).toBe(`${root}:`);
   });
 
   test('a restarted worker gives other sessions a fresh shell without a note', async () => {
@@ -289,14 +276,14 @@ describe.sequential('container bash tool persistence', () => {
     expect(result).toBe(path.basename(workspaceRoot));
   });
 
-  test('the docker-exec sandbox keeps the session cwd in its own /tmp', async () => {
+  test('the docker-exec sandbox keeps its shell state in its own /tmp', async () => {
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
     await mockDockerSpawn('ok');
     const { executeTool } = await createBashTestRuntime({ sessionId: 'bash-session-docker' });
     expect(await executeTool('bash', bashCommand('pwd'))).toBe('ok');
-    const cwdFile = stdinFields(vi.mocked(spawn).mock.calls[0][2])[2];
-    expect(cwdFile.startsWith('/tmp/')).toBe(true);
-    expect(sessionCwdFiles()).toEqual([]);
+    const snapshotFile = stdinFields(vi.mocked(spawn).mock.calls[0][2])[1];
+    expect(snapshotFile.startsWith('/tmp/')).toBe(true);
+    expect(sessionStateFiles().filter((file) => file.endsWith('bash-shell'))).toEqual([]);
   });
 
   test('starts each bash call fresh when persistent bash state is disabled', async () => {
@@ -331,7 +318,7 @@ describe.sequential('container bash tool persistence', () => {
     expect(call).toBeDefined();
     expect(call![1]).not.toContain(command);
     expect(JSON.stringify(call![1])).not.toContain('trailing whitespace');
-    expect(stdinFields(call![2])).toHaveLength(persistBashState ? 6 : 2);
+    expect(stdinFields(call![2])).toHaveLength(persistBashState ? 5 : 2);
     expect(stdinFields(call![2]).at(-1)).toBe(command);
   });
 

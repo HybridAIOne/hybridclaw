@@ -4077,6 +4077,7 @@ async function handleApiChatStream(
         event.durationMs,
         event.preview,
         event.toolCallId,
+        event.browser?.signIn,
       );
     }
     sendEvent({

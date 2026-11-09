@@ -55,6 +55,21 @@ Set `HYBRIDCLAW_DATA_DIR` to an absolute path when you want to relocate the
 entire runtime home, including config, credentials, SQLite data, browser
 profiles, and agent workspaces.
 
+## Nebius Token Factory
+
+Use `hybridclaw auth login nebius` to configure a Token Factory API key in the
+encrypted credential store. Headless deployments can supply `NEBIUS_API_KEY`.
+This is a Token Factory key, separate from a Nebius Cloud IAM credential.
+
+The `nebius` configuration section contains `enabled`, `baseUrl`, and `models`.
+Its API endpoint is `https://api.tokenfactory.nebius.com/v1`; model IDs use the
+`nebius/` prefix, for example `nebius/zai-org/GLM-5.3-Flash`. Model discovery
+uses the authenticated `/models` endpoint. Nebius is a cloud provider and uses
+the same confidentiality and routing boundaries as other remote providers.
+
+See the [Token Factory documentation](https://docs.tokenfactory.nebius.com/)
+for model availability and billing.
+
 ## Seeding Config At Gateway Start
 
 Container hosts can pass deployment settings in `HYBRIDCLAW_CONFIG_SEED`

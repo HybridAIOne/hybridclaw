@@ -154,6 +154,7 @@ test('sendChunkedReply retries transient Teams transport failures', async () => 
       replyToId: 'incoming-1',
     });
 
+    await vi.advanceTimersByTimeAsync(0);
     expect(sendActivity).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(49);
     expect(sendActivity).toHaveBeenCalledTimes(1);

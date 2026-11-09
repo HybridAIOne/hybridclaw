@@ -88,6 +88,7 @@ import { reviewedEmailInstruction } from './email-draft-card';
 import { EditInline, MessageBlock } from './message-block';
 import { NotificationSettings } from './notification-settings';
 import { SessionOutputs } from './session-outputs';
+import { pendingSignIn, signInSavedMessage } from './sign-in-card';
 import { useChatNotifications } from './use-chat-notifications';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
@@ -616,6 +617,7 @@ export function ChatPage() {
       },
     ];
   }, [isBootstrapAutostartStarting, messages, sessionId]);
+  const signInAsk = useMemo(() => pendingSignIn(messages), [messages]);
   const approvalStates = useMemo(
     () => deriveApprovalStates(messages, resolvedApprovals, approvalNow),
     [messages, resolvedApprovals, approvalNow],
@@ -1523,6 +1525,14 @@ export function ChatPage() {
                       approvalState={approvalStates.get(msg.id)}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
                       onBranchNav={handleBranchNav}
+                      signInHost={
+                        signInAsk?.traceId === msg.id
+                          ? signInAsk.host
+                          : undefined
+                      }
+                      onSignInSaved={(host) =>
+                        stream.sendMessage(signInSavedMessage(host), [])
+                      }
                     />
                   ),
                 )}

@@ -1,6 +1,6 @@
 /**
  * Lazy loaders for the channel modules that pull in a heavy SDK (discord.js,
- * @slack/bolt, imapflow/mailparser/nodemailer, botbuilder).
+ * @slack/bolt, imapflow/mailparser/nodemailer, Microsoft Agents SDK).
  *
  * Core gateway code reaches these modules only through here, so a gateway
  * that never configures a channel never loads its SDK; each costs roughly

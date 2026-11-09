@@ -29,6 +29,7 @@ export const OPENAI_COMPAT_REMOTE_PROVIDER_IDS = [
   'dashscope',
   'xiaomi',
   'kilo',
+  'nebius',
 ];
 
 export const RUNTIME_PROVIDER_IDS = [

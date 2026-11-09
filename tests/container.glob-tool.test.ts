@@ -152,9 +152,9 @@ describe.sequential('container glob tool', () => {
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/app');
     const spawnSync = vi.fn((_command: string, args: string[]) => {
       const shellCommand = String(args.at(-1) || '');
-      expect(shellCommand).toContain('else true');
+      expect(shellCommand).toContain('else exit 3');
       return {
-        status: 0,
+        status: 3,
         stdout: '',
         stderr: '',
       };

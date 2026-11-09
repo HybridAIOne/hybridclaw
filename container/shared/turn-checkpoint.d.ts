@@ -1,5 +1,9 @@
 import type { TokenUsageStats } from './token-usage.js';
-import type { HistoryMessage } from './tool-history.js';
+import type {
+  FileBackedToolResult,
+  FileBackedToolResults,
+  HistoryMessage,
+} from './tool-history.js';
 
 type CheckpointMessage = Omit<HistoryMessage, 'content'> & { content: unknown };
 
@@ -39,7 +43,7 @@ export type RecoveryDisposition =
     };
 
 /** Conversation evidence cannot carry executable approvals or queued effects. */
-export interface TurnRecoveryEvidence {
+export interface TurnRecoveryEvidence extends FileBackedToolResults {
   recovery: RecoveryDisposition & { kind: 'recovered'; turnId: string };
   pendingApproval?: never;
   sideEffects?: never;
@@ -51,14 +55,16 @@ export interface TurnRecoveryEvidence {
   tokenUsage?: TokenUsageStats;
   toolHistory: HistoryMessage[];
   toolHistoryForReplay: HistoryMessage[];
-  toolExecutions: Array<{
-    name: string;
-    arguments: string;
-    toolCallId: string;
-    result: string;
-    isError: boolean;
-    durationMs: number;
-  }>;
+  toolExecutions: Array<
+    FileBackedToolResult & {
+      name: string;
+      arguments: string;
+      toolCallId: string;
+      result: string;
+      isError: boolean;
+      durationMs: number;
+    }
+  >;
 }
 export function checkpointOutput(
   data: TurnCheckpointData,

@@ -71,8 +71,10 @@ interface LegacyWhatsAppRegistration {
 
 async function whatsappDoctorChecks({
   enabled,
+  deliveryTarget,
 }: {
   enabled: boolean;
+  deliveryTarget: string | null;
 }): Promise<ChannelTransportDoctorFinding[]> {
   const { getConfigSnapshot } = await import('../../config/config.js');
   const config = getConfigSnapshot();
@@ -89,16 +91,13 @@ async function whatsappDoctorChecks({
   const findings: ChannelTransportDoctorFinding[] = [
     { severity: 'ok', message: 'WhatsApp linked' },
   ];
-  if (config.whatsapp.dmPolicy === 'disabled') {
-    const { getMostRecentSessionChannelId } = await import(
-      '../../memory/db.js'
-    );
-    const channelId =
-      (config.heartbeat?.enabled && config.heartbeat.channel.trim()) ||
-      getMostRecentSessionChannelId();
-    if (channelId && isWhatsAppJid(channelId) && !isGroupJid(channelId)) {
-      findings.push({ severity: 'warn', message: WHATSAPP_SELF_CHAT_ADVISORY });
-    }
+  if (
+    config.whatsapp.dmPolicy === 'disabled' &&
+    deliveryTarget &&
+    isWhatsAppJid(deliveryTarget) &&
+    !isGroupJid(deliveryTarget)
+  ) {
+    findings.push({ severity: 'warn', message: WHATSAPP_SELF_CHAT_ADVISORY });
   }
   return findings;
 }

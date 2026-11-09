@@ -1,5 +1,5 @@
-import type { TurnContext } from 'botbuilder-core';
-import type { Activity } from 'botframework-schema';
+import type { Activity } from '@microsoft/agents-activity';
+import type { TurnContext } from '@microsoft/agents-hosting';
 import { classifyGatewayError } from '../../gateway/gateway-error-utils.js';
 import { withTransportRetry } from '../../utils/transport-retry.js';
 
@@ -138,7 +138,7 @@ export function sendMSTeamsActivityWithRetry(
   label: string,
 ) {
   return withMSTeamsRetry(label, async () =>
-    turnContext.sendActivity(activity),
+    turnContext.sendActivity(activity as Activity),
   );
 }
 
@@ -148,6 +148,6 @@ export function updateMSTeamsActivityWithRetry(
   label: string,
 ) {
   return withMSTeamsRetry(label, async () =>
-    turnContext.updateActivity(activity),
+    turnContext.updateActivity(activity as Activity),
   );
 }

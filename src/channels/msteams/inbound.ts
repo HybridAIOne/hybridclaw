@@ -1,5 +1,4 @@
-import { TurnContext } from 'botbuilder-core';
-import type { Activity } from 'botframework-schema';
+import { Activity } from '@microsoft/agents-activity';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
@@ -277,14 +276,18 @@ export function hasBotMention(
 ): boolean {
   const botId = normalizeValue(recipientId);
   if (!botId) return false;
-  return TurnContext.getMentions(activity).some((mention) => {
+  const parsed = Activity.fromObject({ type: 'message', ...activity });
+  return parsed.getMentions(parsed).some((mention) => {
     const mentionedId = normalizeValue(mention.mentioned?.id);
     return Boolean(mentionedId && mentionedId === botId);
   });
 }
 
 export function extractPrimaryText(activity: Partial<Activity>): string {
-  const stripped = TurnContext.removeRecipientMention(activity) || '';
+  const parsed = Activity.fromObject({ type: 'message', ...activity });
+  const stripped = parsed.recipient?.id
+    ? parsed.removeRecipientMention()
+    : parsed.text || '';
   return stripHtml(stripped);
 }
 

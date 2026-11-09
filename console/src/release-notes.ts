@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.42.2',
+  version: '0.42.4',
   highlights: [
-    'Scheduled approvals in chat',
-    'Safer interrupted-turn recovery',
-    'Agent-scoped API tokens',
-    'Git and gh with connected GitHub accounts',
+    'Cleaner model picker',
+    'Persistent Docker tool settings',
+    'Safer file and image handling',
+    'Long command output preserved',
   ],
 } as const;
 

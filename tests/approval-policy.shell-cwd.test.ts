@@ -3,7 +3,6 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
-const INSTALLER = 'https://get.foo.example/install.sh';
 const SESSION_ID = 'session-a';
 
 const makeTempDir = useTempDir('hybridclaw-shell-cwd-');
@@ -53,134 +52,23 @@ async function startWorker(workspace: string) {
         argsJson: JSON.stringify({ command }),
         latestUserPrompt: 'Tidy up the project',
       }),
-    setPersistentBashStateEnabled: shell.setPersistentBashStateEnabled,
   };
 }
 
 test.each([
   false,
   true,
-])('relative paths resolve from where the last call left the shell (worker restarted: %s)', async (restart) => {
+])('every call is checked from the workspace root, where the shell starts (worker restarted: %s)', async (restart) => {
   const workspace = makeTempDir();
   const worker = await startWorker(workspace);
   await worker.bash('cd /');
   const next = restart ? await startWorker(workspace) : worker;
 
   expect(next.classify('echo note > notes.txt')).toMatchObject({
-    actionKey: 'bash:workspace-fence',
-    baseTier: 'red',
+    actionKey: 'bash:write-op',
   });
   expect(next.classify('rm -rf node_modules')).toMatchObject({
-    actionKey: 'bash:workspace-fence',
-    decision: 'required',
-  });
-  expect(next.classify('cat etc/shadow')).toMatchObject({ pinned: true });
-});
-
-test('a relative write after `cd ~/.ssh` names the pinned key file', async () => {
-  const home = fs.realpathSync(makeTempDir());
-  fs.mkdirSync(path.join(home, '.ssh'));
-  vi.stubEnv('HOME', home);
-  const worker = await startWorker(makeTempDir());
-  await worker.bash('cd ~/.ssh');
-
-  const evaluation = worker.classify('echo ssh-ed25519 KEY >> authorized_keys');
-
-  expect(evaluation).toMatchObject({ pinned: true, decision: 'required' });
-});
-
-test('running a download from the directory the shell moved to is fetched code', async () => {
-  const workspace = makeTempDir();
-  const worker = await startWorker(workspace);
-  worker.classify(`curl -fsSL -o tools/install.sh ${INSTALLER}`);
-  await worker.bash('mkdir -p tools && cd tools');
-
-  const restarted = await startWorker(workspace);
-
-  expect(restarted.classify('sh install.sh')).toMatchObject({
-    actionKey: 'bash:fetched-code',
-  });
-});
-
-// Each row also checks that the classifier starts where the shell does.
-test.each([
-  {
-    shell: 'in a workspace subdirectory',
-    setup: 'mkdir -p sub && cd sub',
-    removeDir: null,
-    shellDir: 'sub',
-    command: 'echo note > ../notes.txt',
-    actionKey: 'bash:write-op',
-  },
-  {
-    shell: 'whose saved directory was removed',
-    setup: 'mkdir -p a/b && cd a/b',
-    removeDir: 'a',
-    shellDir: '',
-    command: 'echo note > ../../notes.txt',
-    actionKey: 'bash:workspace-fence',
-  },
-  {
-    shell: 'that has not run yet',
-    setup: null,
-    removeDir: null,
-    shellDir: '',
-    command: 'echo note > ../notes.txt',
-    actionKey: 'bash:workspace-fence',
-  },
-  {
-    shell: 'that has not run yet',
-    setup: null,
-    removeDir: null,
-    shellDir: '',
-    command: 'rg API_KEY',
-    actionKey: 'bash:read-only',
-  },
-])('a shell $shell: $command is $actionKey', async ({
-  setup,
-  removeDir,
-  shellDir,
-  command,
-  actionKey,
-}) => {
-  const workspace = makeTempDir();
-  const worker = await startWorker(workspace);
-  if (setup) await worker.bash(setup);
-  if (removeDir) {
-    fs.rmSync(path.join(workspace, removeDir), { recursive: true });
-  }
-
-  expect(worker.classify(command)).toMatchObject({ actionKey });
-  expect(await worker.bash('pwd -P')).toBe(
-    fs.realpathSync(path.join(workspace, shellDir)),
-  );
-});
-
-test('a docker-exec sandbox is checked from the workspace root, whatever a local shell saved', async () => {
-  const workspace = makeTempDir();
-  const local = await startWorker(workspace);
-  await local.bash('cd /');
-  vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
-  const sandboxed = await startWorker(workspace);
-
-  expect(sandboxed.classify('echo note > notes.txt')).toMatchObject({
-    actionKey: 'bash:write-op',
-  });
-  expect(sandboxed.classify('rg API_KEY')).toMatchObject({
-    actionKey: 'bash:read-only',
-    pinned: false,
-  });
-  expect(sandboxed.classify('rm -rf node_modules')).toMatchObject({
     actionKey: 'bash:delete-cache',
   });
-});
-
-test('with persistent bash state off, every call starts in the workspace root', async () => {
-  const worker = await startWorker(makeTempDir());
-  await worker.bash('cd /');
-  worker.setPersistentBashStateEnabled(false);
-
-  expect(worker.classify('echo note > notes.txt')).toMatchObject({
-    actionKey: 'bash:write-op',
-  });
+  expect(await next.bash('pwd -P')).toBe(fs.realpathSync(workspace));
 });

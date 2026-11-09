@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
@@ -151,7 +151,7 @@ test('expiry pruning preserves live requests from all sessions', () => {
   ).toEqual(['session-b']);
 });
 
-test('a held or abandoned lock fails closed without stealing it', () => {
+test('a held lock fails closed without stealing it', () => {
   const file = path.join(makeDir(), 'pending.json');
   const release = lockMemoryFile(file);
   const pending = request('session-a');
@@ -169,6 +169,28 @@ test('a held or abandoned lock fails closed without stealing it', () => {
     now.mockRestore();
     release();
   }
+});
+
+test('a lock abandoned by a dead writer is reclaimed', () => {
+  const file = path.join(makeDir(), 'pending.json');
+  saveSessionPendingApprovals(file, 'session-a', [request('session-a')]);
+  const moduleUrl = new URL(
+    '../container/shared/memory-file.js',
+    import.meta.url,
+  ).href;
+  const deadWriter = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', `
+    import { lockMemoryFile } from ${JSON.stringify(moduleUrl)};
+    lockMemoryFile(process.argv[1]);
+  `, file],
+    { encoding: 'utf8', timeout: 5_000 },
+  );
+  expect(deadWriter.status, deadWriter.stderr).toBe(0);
+  expect(
+    loadSessionPendingApprovals(file, 'session-a').map((item) => item.id),
+  ).toEqual(['session-a']);
+  expect(fs.existsSync(`${file}.lock`)).toBe(false);
 });
 
 test('a session cannot save requests owned by another session', () => {

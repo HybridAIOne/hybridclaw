@@ -133,8 +133,10 @@ npm run eval -- terminal-bench-2.0 run --num-tasks 2 --n-concurrent 1 \
 Admission includes every concurrent task's RAM and swap allowance, another
 1 GiB RAM per host agent, and cumulative disk demand across **all** tasks.
 Swap also reserves disk space. It keeps at least 2 GiB available RAM on both
-the host and engine, and 20 GiB free disk on both. On macOS, the kernel must
-report normal live memory pressure; retained swap alone does not refuse a run.
+the host and engine, and 20 GiB free disk on both. On macOS, the monitor allows
+brief warning-level memory pressure for up to 60 seconds when capacity
+checks pass. Normal samples reset that grace period. Critical pressure and
+capacity failures stop immediately; retained swap alone does not refuse a run.
 Missing or unknown pressure telemetry fails closed. Linux host swap and engine
 swap use above 2 GiB still refuse a run. Zero task swap is supported; other budgets
 must be positive. Task containers receive the corresponding memory and
@@ -148,12 +150,29 @@ An exclusive lock permits one native benchmark run per engine on this host;
 ordinary services continue to run. After an unclean process exit, verify the
 PID in the reported lock has exited before removing that lock manually.
 
-Cleanup verifies the admitted engine's identity, removes only the runner's
-named probe and queries Docker to confirm it is absent on that engine. A failed
-query, changed engine or remaining probe reports failure and retains the
-engine lock; cleanup can be retried after the admitted engine recovers.
-An already absent probe permits lock release. If the run and cleanup both
-fail, both errors are retained, with the run failure as the cause.
+Cleanup verifies the admitted engine's identity and confirms every owned task
+container and the resource probe is absent before releasing the engine lock.
+A failed query, changed engine or remaining container stops admission and retains
+the lock; cleanup can be retried after the admitted engine recovers. Task names
+include a unique per-container identifier. Per-task cancellation and finalization
+share one removal attempt. An already absent container counts as confirmed
+removal, even if the remove command fails. If execution and cleanup both fail,
+both errors are retained with the execution failure as the cause.
+
+Each job has a new directory even when two runs start in the same clock tick.
+Within it, each task has a `task-<uuid>` directory and unique execution, container
+and image identities. Dataset names remain labels in `result.json` and each
+task's `summary.json`; punctuation, case differences and repeated names cannot
+make tasks share files or sessions.
+
+Environment and verifier archives use the suite's `.venv` Python, the same
+interpreter used to load the dataset. Extraction requires Python's
+[`tarfile.data_filter`](https://docs.python.org/3/library/tarfile.html#extraction-filters):
+escaping paths or links and special files are refused, while ordinary files,
+executable scripts and contained links remain supported. Archive ownership and
+privileged permission bits are discarded. A Python environment without the
+filter fails before extracting files; rerun suite setup with a current Python
+environment (the `uv` setup uses managed Python 3.12).
 
 Checks run before each task and every five seconds during builds, execution,
 copies and verification. Crossing a resource floor or losing engine health

@@ -173,17 +173,44 @@ test('summary input stays bounded and prioritizes the newest messages', async ()
   expect(input.at(-1)?.text).toBe('The most recent question');
 });
 
+test('with no compression model configured, the chat is summarized with its own model', async () => {
+  mocks.session.mockReturnValue({
+    agent_id: 'hy',
+    channel_id: 'web',
+    session_summary: null,
+    model: 'gpt-chat-model',
+    chatbot_id: 'chat-bot',
+  });
+  mocks.owner.mockReturnValue('caller-operator');
+  mocks.history.mockReturnValue([turn('user', 'Earlier chat')]);
+  await loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator');
+  expect(mocks.summarize).toHaveBeenCalledWith(
+    expect.objectContaining({
+      fallbackModel: 'gpt-chat-model',
+      fallbackChatbotId: 'chat-bot',
+      allowFallback: false,
+    }),
+  );
+});
+
 test.each(['failure', 'empty'])(
-  'failed or empty auxiliary output starts the call without a summary: %s',
+  'failed or empty auxiliary output starts the call with the recent turns: %s',
   async (mode) => {
-    ownedSession();
-    mocks.history.mockReturnValue([turn('user', 'Earlier chat')]);
+    ownedSession('We are planning tomorrow.');
+    mocks.history.mockReturnValue([
+      turn('user', 'Earlier chat'),
+      turn('assistant', 'Earlier reply', 'assistant'),
+    ]);
     if (mode === 'failure')
       mocks.summarize.mockRejectedValue(new Error('offline'));
     else mocks.summarize.mockResolvedValue({ content: ' ' });
     await expect(
       loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator'),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual([
+      { role: 'user', text: expect.stringContaining('We are planning tomorrow.') },
+      { role: 'user', text: 'Earlier chat' },
+      { role: 'assistant', text: 'Earlier reply' },
+    ]);
     expect(mocks.summarize).toHaveBeenCalledTimes(1);
   },
 );

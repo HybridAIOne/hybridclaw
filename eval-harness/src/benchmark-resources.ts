@@ -1,8 +1,8 @@
 /**
- * Benchmark admission protects shared engine capacity, including VM backing disk.
- * This harness guard owns only its probe and run lock; it never prunes Docker or
- * restarts services. Ownership remains until probe absence is verified.
- * Estimates and polling cannot enforce a disk write quota.
+ * Benchmark capacity checks bound brief warnings; critical pressure stops immediately.
+ * This guard owns its probe, registered task containers and run lock. Admission
+ * stays locked until absence is confirmed against the original engine. It never
+ * prunes or restarts services; estimates and polling cannot enforce disk quotas.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -28,7 +28,16 @@ const MAX_SWAP_USED = 2 * GIB;
 // alone is not a current-pressure signal on macOS.
 // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_memorystatus_notify.c
 const MAC_PRESSURE_NORMAL = 1;
-const MAC_PRESSURE_LEVELS = new Set([MAC_PRESSURE_NORMAL, 2, 4]);
+const MAC_PRESSURE_WARNING = 2;
+const MAC_PRESSURE_CRITICAL = 4;
+const MAC_PRESSURE_LEVELS = new Set([
+  MAC_PRESSURE_NORMAL,
+  MAC_PRESSURE_WARNING,
+  MAC_PRESSURE_CRITICAL,
+]);
+// 60s (owner-approved policy, 2026-11-07): tolerate brief macOS warnings while
+// preserving immediate capacity/critical-pressure stops; per-host tuning deferred.
+const MAC_WARNING_GRACE_MS = 60_000;
 const POLL_MS = 5_000;
 const PROBE_TIMEOUT_MS = 10_000;
 export const BENCHMARK_PROBE_IMAGE = 'busybox:1.37';
@@ -120,9 +129,9 @@ export function assertBenchmarkCapacity(
   if (pressure !== undefined) {
     if (!MAC_PRESSURE_LEVELS.has(pressure))
       throw new Error('Invalid macOS memory-pressure metric');
-    if (pressure !== MAC_PRESSURE_NORMAL)
+    if (pressure === MAC_PRESSURE_CRITICAL)
       throw new Error(
-        'Benchmark resource admission refused: macOS reports elevated memory pressure.',
+        'Benchmark resource admission refused: macOS reports critical memory pressure.',
       );
   }
   if (
@@ -144,7 +153,8 @@ export class BenchmarkResources {
   private checking = false;
   private engineId?: string;
   private failure?: Error;
-  private probeStarted = false;
+  private readonly ownedContainers = new Set<string>();
+  private macWarningSince?: number;
 
   constructor(
     private readonly paths: string[],
@@ -238,7 +248,7 @@ export class BenchmarkResources {
   async start(slots: number, tasks: number): Promise<void> {
     this.signal.throwIfAborted();
     const host = await this.hostResources();
-    // Refuse host pressure before even creating the small, cached probe container.
+    // Refuse critical pressure and capacity failures before creating the probe.
     assertBenchmarkCapacity(
       {
         ...host,
@@ -251,6 +261,7 @@ export class BenchmarkResources {
       slots,
       tasks,
     );
+    this.checkMacWarningDuration(host.hostMemoryPressureLevel);
     const info = JSON.parse(
       await this.docker(['info', '--format', '{{json .}}']),
     ) as { ID?: string; MemoryLimit?: boolean; SwapLimit?: boolean };
@@ -280,7 +291,7 @@ export class BenchmarkResources {
         );
       }
       this.signal.throwIfAborted();
-      this.probeStarted = true;
+      this.registerContainer(this.probeName);
       await this.docker([
         'run',
         '-d',
@@ -316,6 +327,19 @@ export class BenchmarkResources {
     }
   }
 
+  private checkMacWarningDuration(level: number | undefined): void {
+    if (level !== MAC_PRESSURE_WARNING) {
+      this.macWarningSince = undefined;
+      return;
+    }
+    this.macWarningSince ??= Date.now();
+    if (Date.now() - this.macWarningSince >= MAC_WARNING_GRACE_MS) {
+      throw new Error(
+        'Benchmark resource admission refused: macOS warning-level memory pressure persisted for 60 seconds.',
+      );
+    }
+  }
+
   abort(error: Error): void {
     this.failure ??= error;
     this.controller.abort(this.failure);
@@ -340,6 +364,7 @@ export class BenchmarkResources {
           const snapshot = { ...host, ...parseEngineResources(output) };
           this.record(snapshot);
           assertBenchmarkCapacity(snapshot, this.budget, slots, tasks);
+          this.checkMacWarningDuration(snapshot.hostMemoryPressureLevel);
         } catch (error) {
           this.abort(
             new Error(
@@ -354,14 +379,23 @@ export class BenchmarkResources {
     return this.pending;
   }
 
-  async close(): Promise<void> {
-    clearInterval(this.timer);
-    await this.pending.catch(() => {});
-    if (this.probeStarted) {
+  registerContainer(name: string): void {
+    this.signal.throwIfAborted();
+    if (!this.lockPath || this.ownedContainers.has(name))
+      throw new Error(
+        'Container ownership requires active, unique benchmark admission.',
+      );
+    this.ownedContainers.add(name);
+  }
+
+  async removeContainer(name: string): Promise<void> {
+    if (!this.ownedContainers.has(name))
+      throw new Error(`Cannot remove an unowned benchmark container: ${name}`);
+    try {
       await this.verifyEngine();
       await benchmarkCommand({
         command: 'docker',
-        args: ['rm', '-f', this.probeName],
+        args: ['rm', '-f', name],
         timeout: PROBE_TIMEOUT_MS,
         allowFailure: true,
       });
@@ -371,7 +405,7 @@ export class BenchmarkResources {
           'ps',
           '-a',
           '--filter',
-          `name=^/${this.probeName}$`,
+          `name=^/${name}$`,
           '--format',
           '{{.Names}}',
         ],
@@ -379,13 +413,23 @@ export class BenchmarkResources {
         allowFailure: true,
       });
       await this.verifyEngine();
-      if (state.status !== 0 || state.stdout.trim()) {
-        throw new Error(
-          `Benchmark probe cleanup is unconfirmed: ${this.probeName}; engine lock retained.`,
-        );
-      }
-      this.probeStarted = false;
+      if (state.status !== 0 || state.stdout.trim())
+        throw new Error('Container absence could not be confirmed.');
+      this.ownedContainers.delete(name);
+    } catch (error) {
+      const failure = new Error(
+        `Benchmark container cleanup is unconfirmed: ${name}; engine lock retained: ${String(error)}`,
+        { cause: error },
+      );
+      this.abort(failure);
+      throw failure;
     }
+  }
+
+  async close(): Promise<void> {
+    clearInterval(this.timer);
+    await this.pending.catch(() => {});
+    for (const name of this.ownedContainers) await this.removeContainer(name);
     if (this.lockPath) {
       fs.unlinkSync(this.lockPath);
       this.lockPath = undefined;

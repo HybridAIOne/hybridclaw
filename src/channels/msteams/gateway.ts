@@ -3,7 +3,7 @@
  * The descriptor owns lifecycle selection; this module only connects the
  * channel runtime to gateway execution and does not classify targets.
  */
-import type { Attachment } from 'botframework-schema';
+import type { Attachment } from '@microsoft/agents-activity';
 import { isSilentReply, stripSilentToken } from '../../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../../agent/silent-reply-stream.js';
 import {

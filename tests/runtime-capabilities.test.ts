@@ -98,6 +98,38 @@ describe('runtime capability hints', () => {
     });
   });
 
+  test('startup guidance is idempotent and preserves prior tool exchanges', async () => {
+    const { injectRuntimeCapabilitiesMessage } = await import(
+      '../container/src/runtime-capabilities.ts'
+    );
+    const original = [
+      { role: 'system' as const, content: 'base instructions' },
+      { role: 'user' as const, content: 'Repair the parser.' },
+      {
+        role: 'assistant' as const,
+        content: null,
+        tool_calls: [
+          {
+            id: 'call-1',
+            type: 'function' as const,
+            function: { name: 'bash', arguments: '{"command":"npm test"}' },
+          },
+        ],
+      },
+      { role: 'tool' as const, content: '1 failed', tool_call_id: 'call-1' },
+    ];
+    const snapshot = structuredClone(original);
+    const capabilities = { hasSoffice: false, hasPdftoppm: false };
+    const prepared = injectRuntimeCapabilitiesMessage(original, capabilities);
+
+    expect(injectRuntimeCapabilitiesMessage(prepared, capabilities)).toEqual(
+      prepared,
+    );
+    expect(prepared.slice(1)).toEqual(original.slice(1));
+    expect(original).toEqual(snapshot);
+    expect(prepared[0]?.content).not.toBe(original[0]?.content);
+  });
+
   test('adds runtime hints to the static core without collapsing later system blocks', async () => {
     const { injectRuntimeCapabilitiesMessage } = await import(
       '../container/src/runtime-capabilities.ts'

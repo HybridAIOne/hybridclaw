@@ -48,6 +48,7 @@ import {
   ReadAloudControl,
   textFromRenderedMarkdown,
 } from './read-aloud-control';
+import { SignInCard } from './sign-in-card';
 import { TraceBlock } from './trace-block';
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
@@ -444,6 +445,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
   approvalState?: ApprovalItemState;
   branchInfo: { current: number; total: number } | null;
   onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
+  /** Set on the trace whose turn ended asking for this site's sign-in. */
+  signInHost?: string;
+  onSignInSaved?: (host: string) => Promise<boolean>;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -529,7 +533,19 @@ export const MessageBlock = memo(function MessageBlock(props: {
   });
 
   if (msg.role === 'trace') {
-    return <TraceBlock message={msg} />;
+    return (
+      <>
+        <TraceBlock message={msg} />
+        {props.signInHost && props.onSignInSaved ? (
+          <SignInCard
+            host={props.signInHost}
+            token={token}
+            disabled={props.isStreaming || Boolean(props.draftActionsDisabled)}
+            onSaved={props.onSignInSaved}
+          />
+        ) : null}
+      </>
+    );
   }
 
   if (msg.role === 'thinking') {

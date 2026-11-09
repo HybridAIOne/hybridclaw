@@ -1,6 +1,6 @@
 /**
  * Fetch public text within one timeout and the existing SSRF boundary.
- * Body read failures propagate; only explicit size limits allow partial output.
+ * Body failures retain HTTP status and error causes; only size limits allow partial output.
  * HTML comments and non-content elements stay out of readable output.
  * Short heading groups retain structure; leading main-page context is bounded.
  * Extraction hints distinguish visible challenges from browser-only pages.
@@ -410,6 +410,34 @@ Article:
 }
 
 async function readResponseText(
+  res: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<{ text: string; truncated: boolean }> {
+  try {
+    return await readResponseBody(res, maxBytes, signal);
+  } catch (error) {
+    if (signal.aborted) throw abortError(signal);
+    const details: string[] = [];
+    const seen = new Set<Error>();
+    let current = error;
+    while (current instanceof Error && !seen.has(current)) {
+      seen.add(current);
+      const code =
+        'code' in current && typeof current.code === 'string'
+          ? ` [${current.code}]`
+          : '';
+      details.push(`${current.message}${code}`);
+      current = current.cause;
+    }
+    throw new Error(
+      `Web fetch response body failed (HTTP ${res.status}): ${details.join('; caused by: ') || String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+async function readResponseBody(
   res: Response,
   maxBytes: number,
   signal: AbortSignal,

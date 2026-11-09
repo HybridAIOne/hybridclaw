@@ -67,6 +67,7 @@ export interface ChatActivityTraceToolStep {
   argsPreview?: string;
   resultPreview?: string;
   durationMs?: number;
+  signIn?: { host: string };
 }
 
 export type ChatActivityTraceStep =

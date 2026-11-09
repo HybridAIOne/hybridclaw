@@ -76,8 +76,9 @@ test('retained macOS swap does not veto normal pressure with sufficient headroom
   expect(() => assertBenchmarkCapacity({ ...healthy, hostSwapUsed: 24 * GIB, engineSwapUsed: 3 * GIB }, budget, 1, 1)).toThrow(/swap pressure/);
 });
 
-test.each([2, 4])('refuses active macOS pressure level %s even with little swap used', (hostMemoryPressureLevel) => {
-  expect(() => assertBenchmarkCapacity({ ...healthy, hostMemoryPressureLevel }, budget, 1, 1)).toThrow(/elevated memory pressure/);
+test('critical pressure stops immediately; warning duration belongs to the monitor', () => {
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostMemoryPressureLevel: 4 }, budget, 1, 1)).toThrow(/critical memory pressure/);
+  expect(() => assertBenchmarkCapacity({ ...healthy, hostMemoryPressureLevel: 2 }, budget, 1, 1)).not.toThrow();
 });
 
 test('retains the swap threshold on hosts without a kernel pressure signal', () => {
@@ -93,7 +94,7 @@ test.each([1, 2, 4])('parses kernel pressure level %s', (level) => {
   expect(parseMacMemoryPressure(`${level}\n`)).toBe(level);
 });
 
-test.each(['2\n', '4\n', '', '9\n'])('refuses bad macOS pressure before Docker creation: %j', async (pressure) => {
+test.each(['4\n', '', '9\n'])('refuses bad macOS pressure before Docker creation: %j', async (pressure) => {
   const original = mocks.command.getMockImplementation()!;
   mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
     ? {status: 0, stdout: pressure, stderr: ''} : original(params));
@@ -175,7 +176,7 @@ test.each(['disk', 'memory', 'engine', 'telemetry', 'pressure'])('aborts active 
   if (failure === 'engine') mocks.command.mockRejectedValue(new Error('engine unavailable'));
   if (failure === 'pressure') {
     mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
-      ? {status: 0, stdout: '2\n', stderr: ''} : original(params));
+      ? {status: 0, stdout: '4\n', stderr: ''} : original(params));
   }
   await vi.advanceTimersByTimeAsync(5000);
   expect(resources.signal.aborted).toBe(true);
@@ -303,4 +304,53 @@ test('startup retains the original failure and the cleanup failure', async () =>
     });
     expect(fs.readdirSync(root).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
   } finally { mocks.command.mockImplementation(original); }
+});
+
+
+test('warning admission has a bounded grace period; sustained warning aborts', async () => {
+  vi.useFakeTimers();
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
+    ? { status: 0, stdout: '2\n', stderr: '' } : original(params));
+  const { resources } = guard();
+  await resources.start(1, 1);
+  await vi.advanceTimersByTimeAsync(55_000);
+  expect(resources.signal.aborted).toBe(false);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(resources.signal.aborted).toBe(true);
+  expect(resources.signal.reason.message).toMatch(/persisted for 60 seconds/);
+});
+
+test('normal samples reset the warning grace period instead of accumulating brief spikes', async () => {
+  vi.useFakeTimers();
+  let pressure = 2;
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
+    ? { status: 0, stdout: `${pressure}\n`, stderr: '' } : original(params));
+  const { resources } = guard();
+  await resources.start(1, 1);
+  await vi.advanceTimersByTimeAsync(55_000);
+  pressure = 1;
+  await vi.advanceTimersByTimeAsync(5_000);
+  pressure = 2;
+  await vi.advanceTimersByTimeAsync(55_000);
+  expect(resources.signal.aborted).toBe(false);
+  pressure = 1;
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(resources.signal.aborted).toBe(false);
+});
+
+test.each(['critical', 'headroom', 'invalid telemetry'])('warning grace never delays %s stops', async (failure) => {
+  vi.useFakeTimers();
+  let pressure = '2';
+  const original = mocks.command.getMockImplementation()!;
+  mocks.command.mockImplementation(async (params) => params.command === '/usr/sbin/sysctl' && params.args[0] === '-n'
+    ? { status: 0, stdout: pressure, stderr: '' } : original(params));
+  const { resources } = guard();
+  await resources.start(1, 1);
+  if (failure === 'critical') pressure = '4';
+  if (failure === 'invalid telemetry') pressure = 'unknown';
+  if (failure === 'headroom') engine = engineOutput(GIB);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(resources.signal.aborted).toBe(true);
 });

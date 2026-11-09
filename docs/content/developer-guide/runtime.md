@@ -167,7 +167,18 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Cooperative file locks persist a unique owner entry beside the locked file.
+Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
+describe confirmed-death recovery and unknown-owner handling.
+
+Native Responses reasoning items travel with assistant tool-call history for
+OpenAI and OpenAI Codex workers, including after worker replacement. Both
+encrypted items and compatible providers' plaintext reasoning items are replayed
+as provider metadata; they do not become the assistant's visible answer. Other
+providers discard this foreign metadata before preparing their requests.
+
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
+and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
 
@@ -184,6 +195,14 @@ The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
 Docker workers continue to use their mounted workspace for both purposes.
 Transcript and compaction archive references use absolute paths when their files
 live outside the execution workspace, so the read tool can still resolve them.
+
+File-tool relative paths always start at the execution workspace, independently
+of the persistent shell's current directory. Every path component is preserved:
+with display root `/app`, `app/config.txt` means `/app/app/config.txt`, while
+`config.txt` means `/app/config.txt`. Only absolute display paths are aliases.
+Host and task-sandbox file tools follow the same rule, including when a child
+directory has the same name as the display root. Traversal fences and checked
+replacement requirements still apply.
 
 HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
 against the worker state root, independently of its execution directory. Reads,
@@ -311,6 +330,13 @@ of external side effects or file appends.
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
+Checkpoints retain which completed calls use these files, so gateway recovery
+restores their full audit and transcript evidence while replay stays bounded.
+Saved filenames include a bounded call-ID label and the result digest. Repeated
+IDs retain each distinct outcome; restoration verifies the recorded bytes and leaves an
+explicit reference if the file changed. Identity metadata is internal and is
+removed before model requests. Unbound references remain available for direct
+reads; gateway restoration never guesses which saved outcome they meant.
 
 The shell/network-denial replan budget uses the current request's tool execution records.
 It grants one replan per request, not per session; it does not persist across
@@ -350,8 +376,8 @@ own path. The gateway binds delegated workers to their root worker's conflict
 store through authenticated input. Parents, children and siblings reload that
 store before each decision; unrelated conversations retain separate stores.
 Shared updates use the existing cooperative file lock, preserving concurrent
-additions and resolutions. An active or abandoned lock fails closed until its
-writer finishes or the operator removes a verified abandoned lock.
+additions and resolutions. Lock recovery follows the ownership checks for
+[file-write transactions](#agent-tool-and-runtime-internals); unidentified locks fail closed.
 Replacement workers reload the conflicts. Corrupt or unreadable guard
 state and persistence errors fail closed; these records contain paths, never file contents.
 The existing pinned approval-state rules protect this directory.
@@ -461,10 +487,15 @@ also participate in protected-path checks, including backups and nested calls.
 Backup-name expansion substitutes filenames literally and has a 64 KiB
 inspection budget per interpretation; larger batches fail before execution.
 
-Inline Python data reads use a bounded, non-executing AST recognizer instead
+Inline Python data operations use a bounded, non-executing AST recognizer instead
 of treating their filenames as shell executables. The supported subset reads
-files or stdin, parses JSON and performs ordinary data transformations. It does
-not admit arbitrary imports, callbacks, evaluation or write modes. Explicit
+files or stdin, parses JSON and performs ordinary data transformations. Pillow
+image open, thumbnail, size and save operations support literal workspace paths;
+their write intent and pinned-path checks remain active, including in commands
+that also contact HTTP endpoints. Possible output paths derived from fetched
+inputs are recorded before the decision, so later execution still requires
+provenance review after a worker replacement. Other imports, callbacks,
+evaluation and write modes are outside this recognized subset. Explicit
 interactive/import-customizing startup options, downloaded importable code,
 unknown provenance, unsupported syntax or parser failures retain conservative
 inspection. Unsupported inline Python that can consume fetched operands or
@@ -472,7 +503,19 @@ stdin requires provenance review. This does not validate arbitrary ambient inter
 import hooks and does not replace other approval and protected-path checks.
 The parser accepts at most 32 KiB of source and 4,096 AST nodes, with a one-second
 timeout and four parser invocations shared across nested shells per tool call.
-Reading data does not remove its saved download provenance.
+Reading or transforming data does not remove its saved download provenance.
+Python startup uses the current directory for inline, module and stdin execution,
+and the resolved script directory for direct scripts. Downloaded modules in those
+roots require review, including package initializers and visible namespace
+imports. Isolated startup excludes these roots; inline use of `sys` beyond stdin
+access, dynamic `__import__` access or importlib use conservatively requires
+review when downloaded importable files exist.
+Version/help options count as non-executing only before a program operand;
+`-W`/`-X` values and arguments after `-c`, `-m` or a filename are not startup flags.
+The same bounded parser supplies import metadata even when the data exemption is
+refused. Unknown inline syntax or exhausted inspection budget cannot certify
+isolated imports. Local script bodies, arbitrary copies, dynamically computed
+imports and ambient hooks remain outside this static provenance analysis.
 
 If a proposed wrapper command hides a download's destination, the fetched-code
 guard records that uncertainty before execution. Later file execution requires provenance
@@ -524,7 +567,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
 | Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
-| Fetched paths and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
+| Fetched paths, recognized derived outputs and unresolved download locations (fetched-code guard) | Session state dir `fetched-files.json` | Kept; unreadable state fails closed |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
@@ -737,6 +780,30 @@ A first shell-safety or unpinned network-policy denial permits one replan per tu
 omits the prohibited effects. The denied call and remaining calls in its batch
 do not execute; every new call faces policy again. Repeated denials stop the
 turn, and required human approvals still pause execution.
+
+## Verification Before Completion
+
+The container's startup guidance asks the agent to derive observable acceptance
+checks from the task's requirements, reproduce failures when practical, and
+compare behavior with independent expected results. Verification covers affected
+requirements, component interactions, and relevant boundary and failure cases.
+Stateful and concurrent checks also inspect intermediate observable states,
+using deterministic barriers or events to control ordering.
+After the last edit, the agent reruns affected checks and reviews the changes
+against those requirements. A successful example or syntax check supports only
+that check, not an overall completion claim.
+
+This guidance is composed with runtime capabilities before the loop; it does not
+rewrite instructions or tool schemas during execution. It guides model behavior
+rather than certifying correctness or enforcing a completion gate. The agent
+reports failed or unverified work when a blocker or execution budget prevents
+completion. Runs that skip the container system prompt also skip this guidance.
+
+Verification guidance also directs the agent to resolve a rejected write on its
+original path before proceeding with other mutations or test commands. Shell
+checks use explicit timeouts that leave room for repair; concurrency checks use
+bounded waits so a hung check does not consume the rest of a run. These are model
+instructions, not exemptions from the existing overwrite or approval guards.
 
 ## Tool Recovery
 
@@ -1243,6 +1310,11 @@ The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
 
+Response-body failures from `web_fetch` and `web_extract` report the HTTP status
+and underlying error messages and codes, such as `Z_DATA_ERROR` for invalid
+compressed data. Failed reads are not cached or returned as complete content;
+the overall timeout still reports `TimeoutError`.
+
 `web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
 binary responses fail with a download continuation instead of entering model
 context as text. If available, `http_request` with `responseArtifact` saves the
@@ -1662,8 +1734,14 @@ Publication is atomic, and cooperative `.lock` directories serialize `write` and
 `edit` checks and replacements across workers, including task sandboxes. An edit
 uses the complete bytes it read as its expected content. A change detected since
 that read rejects the edit before publication. These checks use current disk
-state and survive worker replacement. A crashed writer's lock
-fails closed until removed after verifying no writer is active. External editors,
+state and survive worker replacement. Node writers record a unique owner entry
+inside each lock directory. A contender reclaims it only when its boot and PID
+namespace match and the operating system confirms that the owner PID is absent.
+Age alone never establishes that a writer died. Unknown, incomplete, malformed,
+and foreign-namespace owners, including empty task-sandbox locks, fail closed;
+remove those only after independently verifying that no writer remains active.
+Recovery removes the unique owner entry before the directory, so competing
+reapers cannot remove a fresh writer's lock. External editors,
 `bash`, and generated-artifact tools do not participate in this protocol;
 a change they make during the check/publication window can still race a write.
 These controls supplement existing path and approval checks.
@@ -1765,7 +1843,11 @@ file/browser vision calls, because text redaction cannot sanitize document bytes
 or pixels. The gateway sends visual-data permission independently of the primary
 model's image capability. A text-only primary can use an otherwise permitted,
 configured auxiliary vision model; a confidentiality block cannot be bypassed by
-switching models. Both flags and tool-call permission snapshots are rebuilt from
+switching models. Image-source fallback is used only when loading the preferred
+source fails. Once its bytes are loaded, provider errors retain that source;
+bounded provider retries reuse the same image and model. They do not download
+an alternate image or start another inference sequence through the fallback.
+Both flags and tool-call permission snapshots are rebuilt from
 each ContainerInput after worker replacement. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
 
@@ -1833,6 +1915,7 @@ read/modify/atomic-write transaction. Concurrent sessions retain each other's
 requests. Reads reject malformed state, and write or lock failures propagate
 before consent can grant replay or trust. Lock acquisition waits synchronously
 for at most the existing five-second bound because policy evaluation is synchronous.
-A crashed writer's lock is not stolen: remove it only after verifying no writer
-is running. The file format and worker validation of arguments, user, session,
-and pinned one-time scope are unchanged.
+Confirmed dead owners in the same boot/PID namespace are recovered using the
+file-write transaction protocol; unknown owners remain locked. The file format
+and worker validation of arguments, user, session, and pinned one-time scope
+are unchanged.

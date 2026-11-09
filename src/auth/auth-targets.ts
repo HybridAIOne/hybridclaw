@@ -55,6 +55,7 @@ const AUTH_TARGET_DEFS = {
   dashscope: { provider: 'dashscope' },
   xiaomi: { provider: 'xiaomi' },
   kilo: { provider: 'kilo' },
+  nebius: { provider: 'nebius' },
   local: {},
   msteams: { aliases: ['teams', 'ms-teams'] },
   slack: {},

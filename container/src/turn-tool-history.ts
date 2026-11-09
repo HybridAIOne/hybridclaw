@@ -6,13 +6,16 @@
  * Models and replay see bounded excerpts with durable file references; the
  * gateway restores full evidence only for audit and transcript storage.
  * Call starts and individual results are checkpointed before batch assembly,
- * so an abrupt worker kill cannot erase completed outcomes or known usage.
+ * including file-backed result IDs, so recovery can restore full evidence
+ * without expanding model replay after a worker kill.
+ * Saved results bind their content digest, not a reusable provider call ID.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../shared/atomic-write.js';
 import { validateTokenUsage } from '../shared/token-usage.js';
 import {
+  toolResultDigest,
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
@@ -32,7 +35,7 @@ export class TurnToolHistory {
   /** Full text and its IPC reference for results saved to a file. */
   private readonly savedResults = new Map<
     string,
-    { full: string; reference: string }
+    { full: string; reference: string; resultDigest: string }
   >();
   private activeHistory: ChatMessage[] | undefined;
   private readonly checkpoint?: TurnCheckpoint;
@@ -92,7 +95,10 @@ export class TurnToolHistory {
   recordResult(message: ChatMessage): ChatMessage {
     const visible = this.forContext(message);
     this.checkpoint?.result(visible);
-    this.messages.push(structuredClone(message));
+    this.messages.push({
+      ...structuredClone(message),
+      ...(visible.resultDigest ? { resultDigest: visible.resultDigest } : {}),
+    });
     this.replayMessages.push(visible);
     return visible;
   }
@@ -140,16 +146,23 @@ export class TurnToolHistory {
     threshold = TOOL_RESULT_SPILL_THRESHOLD_CHARS,
     recovering = false,
   ): ChatMessage {
-    const existingReference = String(
-      toolResultForTransport(
-        message,
-        this.contextPath(
-          toolResultFilePath(this.sessionId, message.tool_call_id),
-        ),
-      ).content,
-    );
+    const existingReference = message.resultDigest
+      ? String(
+          toolResultForTransport(
+            message,
+            this.contextPath(
+              toolResultFilePath(
+                this.sessionId,
+                message.tool_call_id,
+                message.resultDigest,
+              ),
+            ),
+          ).content,
+        )
+      : undefined;
     if (
       recovering &&
+      existingReference !== undefined &&
       message.role === 'tool' &&
       typeof message.content === 'string' &&
       message.content.startsWith(existingReference)
@@ -166,17 +179,21 @@ export class TurnToolHistory {
       typeof message.content !== 'string'
     )
       return message;
-    const contextPath = this.contextPath(savedPath);
+    const contextPath = this.contextPath(savedPath.relative);
     const reference = String(
       toolResultForTransport(message, contextPath).content,
     );
-    this.savedResults.set(message.tool_call_id, {
+    this.savedResults.set(savedPath.relative, {
       full: message.content,
-      reference: String(toolResultForTransport(message, savedPath).content),
+      reference: String(
+        toolResultForTransport(message, savedPath.relative).content,
+      ),
+      resultDigest: savedPath.resultDigest,
     });
     const headChars = Math.floor(excerptChars * 0.75);
     return {
       ...message,
+      resultDigest: savedPath.resultDigest,
       content: `${reference}\n${message.content.length} characters total. Excerpt only; use read with path=${JSON.stringify(contextPath)}, char_offset/max_chars for slices or query for literal search.\n\n${message.content.slice(0, headChars)}\n\n[... omitted ...]\n\n${message.content.slice(-(excerptChars - headChars))}`,
     };
   }
@@ -207,14 +224,39 @@ export class TurnToolHistory {
   /** Send file references across IPC; leave context compaction edits intact. */
   withSpilledReferences(output: ContainerOutput): ContainerOutput {
     if (!this.savedResults.size) return output;
+    const spilledIds = new Set(output.spilledToolCallIds || []);
+    const savedResult = (
+      id: string | undefined,
+      content: ChatMessage['content'],
+      digest?: string,
+    ) => {
+      if (!id || typeof content !== 'string') return undefined;
+      const saved = this.savedResults.get(
+        toolResultFilePath(
+          this.sessionId,
+          id,
+          digest ?? toolResultDigest(content),
+        ),
+      );
+      if (saved) spilledIds.add(id);
+      return saved;
+    };
     const transportHistory = (history: ChatMessage[] | undefined) =>
       history?.map((message) => {
         const saved =
-          message.role === 'tool' && message.tool_call_id
-            ? this.savedResults.get(message.tool_call_id)
+          message.role === 'tool'
+            ? savedResult(
+                message.tool_call_id,
+                message.content,
+                message.resultDigest,
+              )
             : undefined;
         return saved && message.content === saved.full
-          ? { ...message, content: saved.reference }
+          ? {
+              ...message,
+              content: saved.reference,
+              resultDigest: saved.resultDigest,
+            }
           : message;
       });
     return {
@@ -230,31 +272,43 @@ export class TurnToolHistory {
       ...(output.toolExecutions
         ? {
             toolExecutions: output.toolExecutions.map((execution) => {
-              const reference =
-                execution.toolCallId &&
-                this.savedResults.get(execution.toolCallId)?.reference;
-              return reference
-                ? { ...execution, result: reference }
+              const saved = savedResult(
+                execution.toolCallId,
+                execution.result,
+                execution.resultDigest,
+              );
+              return saved && execution.result === saved.full
+                ? {
+                    ...execution,
+                    result: saved.reference,
+                    resultDigest: saved.resultDigest,
+                  }
                 : execution;
             }),
           }
         : {}),
-      spilledToolCallIds: [...this.savedResults.keys()],
+      spilledToolCallIds: [...spilledIds],
     };
   }
 
   private saveFullResult(
     message: ChatMessage,
     threshold: number,
-  ): string | undefined {
+  ): { relative: string; resultDigest: string } | undefined {
     if (
       message.role !== 'tool' ||
+      !message.tool_call_id ||
       !this.workspaceRoot ||
       typeof message.content !== 'string' ||
       message.content.length <= threshold
     )
       return undefined;
-    const relative = toolResultFilePath(this.sessionId, message.tool_call_id);
+    const resultDigest = toolResultDigest(message.content);
+    const relative = toolResultFilePath(
+      this.sessionId,
+      message.tool_call_id,
+      resultDigest,
+    );
     try {
       const filePath = path.join(this.workspaceRoot, relative);
       const root = fs.realpathSync(this.workspaceRoot);
@@ -267,7 +321,7 @@ export class TurnToolHistory {
       if (fs.lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink())
         return undefined;
       writeFileAtomic(filePath, message.content, { mode: 0o600 });
-      return relative;
+      return { relative, resultDigest };
     } catch {
       return undefined;
     }

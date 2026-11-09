@@ -1,18 +1,12 @@
 /**
- * Fetched-code detection: does a bash script run code that curl or wget
- * brought in? It covers a fetch piped into an interpreter (`curl … | sh`) or
- * substituted into one (`sh -c "$(curl …)"`, `bash <(curl …)`), and running a
- * file a fetch saved, earlier in the same script or (through the caller's
- * `savedBefore`) in an earlier call.
- *
- * A bounded, non-executing Python syntax check recognizes data-only consumers.
- * Unsupported interpreter bodies keep conservative provenance inspection.
- * Opaque wrappers retain uncertainty; hidden download locations are recorded
- * across workers so later file execution still needs provenance review.
- * NOT a policy: the approval policy decides the tier, and tools.ts still
- * hard-blocks `curl | sh`. Copies of a saved file (`cp`, `tar x`) and code the
- * model re-types through the write tool are not followed.
+ * Fetched-code provenance follows curl/wget inputs through scripts and workers.
+ * Bounded Python inspection distinguishes data use and retains derived files;
+ * Python startup import roots also retain downloaded-module provenance.
+ * Unknown wrappers or source stay conservative; other copies are not followed.
+ * Unlike approval policy, this records origins and effects, never permission;
+ * hard safety blocks and sandbox boundaries remain independent.
  */
+import path from 'node:path';
 import {
   type Cwd,
   commandProgram,
@@ -25,7 +19,11 @@ import {
   scriptCommands,
   splitShellCommands,
 } from './bash-commands.js';
-import { isReadOnlyPythonInline } from './python-data-reader.js';
+import {
+  inspectPythonInline,
+  pythonImportRisk,
+} from './python-data-inspection.js';
+import { resolveCanonicalPath, resolveWorkspacePath } from './runtime-paths.js';
 
 const FETCH_PROGRAMS = new Set(['curl', 'wget']);
 // NUL cannot be a filesystem path. Persist this provenance marker when a
@@ -41,19 +39,12 @@ const INTERPRETERS: Array<{
   inline?: RegExp;
   value?: RegExp;
   stdin?: RegExp;
-  python?: true;
 }> = [
   {
     program: /^(?:bash|dash|ksh|sh|zsh)$/,
     inline: /^-[a-zA-Z]*c[a-zA-Z]*$/,
     value: /^[-+][a-zA-Z]*o$/,
     stdin: /^-[a-zA-Z]*s/,
-  },
-  {
-    program: PYTHON_PROGRAM_RE,
-    python: true,
-    inline: /^-[a-zA-Z]*[cm]$/,
-    value: /^-[a-zA-Z]*[WX]$/,
   },
   {
     program: /^(?:node|nodejs)$/,
@@ -72,7 +63,7 @@ const STDIN_PATH_RE = /^(?:-|\/dev\/stdin|\/dev\/fd\/0|\/proc\/self\/fd\/0)$/;
 // Where a command takes code from. `substituted` is a `$(…)`, `<(…)`, or
 // `<<<` result the parser cannot see into. `opaque` is a wrapper whose argv or
 // working directory cannot be interpreted; its executable path stays visible.
-type CodeSource =
+type CodeSource = (
   | {
       inline: string;
       input?: string;
@@ -82,7 +73,8 @@ type CodeSource =
   | { file: string; opaque?: true }
   | { stdin: true }
   | { substituted: true }
-  | { opaque: true };
+  | { opaque: true }
+) & { pythonStartup?: { isolated: boolean; script?: string } };
 
 function redirectedInput(args: string[]): string | undefined {
   let input: string | undefined;
@@ -97,6 +89,62 @@ function redirectedInput(args: string[]): string | undefined {
     index += width - 1;
   }
   return input;
+}
+
+function pythonCodeSource(
+  args: string[],
+  input: string | undefined,
+  dataStartup: boolean,
+): CodeSource | null {
+  const startup: { isolated: boolean; script?: string } = { isolated: false };
+  let options = true;
+  const stdin = (): CodeSource =>
+    input === undefined
+      ? { stdin: true, pythonStartup: startup }
+      : input === '' || input.includes('$()')
+        ? { substituted: true, pythonStartup: startup }
+        : { file: input, pythonStartup: startup };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const width = redirectWidth(arg);
+    if (width > 0) {
+      index += width - 1;
+      continue;
+    }
+    if (options && arg === '--') {
+      options = false;
+      continue;
+    }
+    if (!options || !arg.startsWith('-') || arg === '-') {
+      return STDIN_PATH_RE.test(arg)
+        ? stdin()
+        : { file: arg, pythonStartup: { ...startup, script: arg } };
+    }
+    if (/^--(?:version|help(?:-all|-env|-xoptions)?)$/.test(arg)) return null;
+    if (arg.startsWith('--')) return { opaque: true, pythonStartup: startup };
+    for (let flagIndex = 1; flagIndex < arg.length; flagIndex += 1) {
+      const flag = arg[flagIndex];
+      if (flag === 'h' || flag === 'V' || flag === '?') return null;
+      if (flag === 'I') startup.isolated = true;
+      if (flag === 'c' || flag === 'm') {
+        const inline = arg.slice(flagIndex + 1) || (args[index + 1] ?? '');
+        return {
+          inline,
+          ...(input === undefined ? {} : { input }),
+          pythonStartup: startup,
+          ...(flag === 'c'
+            ? { python: true, pythonDataOnlyStartup: dataStartup }
+            : {}),
+        };
+      }
+      if (!PYTHON_DATA_FLAGS.has(flag)) dataStartup = false;
+      if (flag === 'W' || flag === 'X') {
+        if (flagIndex === arg.length - 1) index += 1;
+        break;
+      }
+    }
+  }
+  return stdin();
 }
 
 export function codeSource({
@@ -116,6 +164,12 @@ export function codeSource({
       : { opaque: true };
   }
   if (program === 'eval') return { inline: args.join(' ') };
+  if (PYTHON_PROGRAM_RE.test(program))
+    return pythonCodeSource(
+      args,
+      redirectedInput(args),
+      !words.slice(0, start).some((word) => /^PYTHON[A-Z_]*=/.test(word)),
+    );
   const interpreter = INTERPRETERS.find((entry) => entry.program.test(program));
   if (!interpreter) {
     // A path as the program runs that file: `./install.sh`, `/tmp/foo`.
@@ -124,9 +178,6 @@ export function codeSource({
   }
   const input = redirectedInput(args);
   let readsStdin = false;
-  let pythonDataOnlyStartup = !words
-    .slice(0, start)
-    .some((word) => /^PYTHON[A-Z_]*=/.test(word));
   const operands: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -138,23 +189,8 @@ export function codeSource({
         return {
           inline: args[index + 1] ?? '',
           ...(input === undefined ? {} : { input }),
-          ...(interpreter.python && arg.endsWith('c')
-            ? {
-                python: true as const,
-                pythonDataOnlyStartup:
-                  pythonDataOnlyStartup &&
-                  [...arg.slice(1, -1)].every((flag) =>
-                    PYTHON_DATA_FLAGS.has(flag),
-                  ),
-              }
-            : {}),
         };
       }
-      if (
-        interpreter.python &&
-        ![...arg.slice(1)].every((flag) => PYTHON_DATA_FLAGS.has(flag))
-      )
-        pythonDataOnlyStartup = false;
       if (interpreter.value?.test(arg)) index += 1;
       if (interpreter.stdin?.test(arg)) readsStdin = true;
     } else {
@@ -177,10 +213,18 @@ export function findFetchedCode(
   // Codex, 2026-11-08: at most four bounded parser processes per
   // tool call, shared by nested shells. Further candidates stay conservative.
   parseBudget = { remaining: 4 },
-): { saved: string[]; runs: boolean; uncertain: boolean } {
+): {
+  saved: string[];
+  runs: boolean;
+  uncertain: boolean;
+  pathHints: string[];
+  writeIntent: boolean;
+} {
   const saved: string[] = [];
   let runs = false;
   let uncertain = false;
+  const pathHints: string[] = [];
+  let writeIntent = false;
   let unknownLocation = savedBefore.has(UNKNOWN_FETCH_LOCATION);
   // Whether the current pipeline carries fetched bytes: a fetch, or a command
   // naming a saved file (`cat install.sh | sh`).
@@ -213,6 +257,41 @@ export function findFetchedCode(
     const programPath = words[command.start] ?? '';
     if (programPath.includes('/') && isSaved(programPath, cwd)) runs = true;
     const source = codeSource(command);
+    const inspection =
+      source &&
+      'inline' in source &&
+      source.python &&
+      !source.inline.includes('$()') &&
+      parseBudget.remaining-- > 0
+        ? inspectPythonInline(source.inline, [...savedBefore, ...saved], cwd)
+        : null;
+    if (source?.pythonStartup) {
+      const startup = source.pythonStartup;
+      const script =
+        startup.script === undefined
+          ? undefined
+          : resolvePath(startup.script, cwd);
+      const importRoot =
+        script === undefined
+          ? cwd
+          : script === null
+            ? null
+            : path.dirname(
+                resolveCanonicalPath(resolveWorkspacePath(script) ?? script),
+              );
+      if (
+        pythonImportRisk(
+          [...savedBefore, ...saved],
+          importRoot,
+          startup.isolated &&
+            (!('inline' in source) || !source.python || inspection !== null),
+          inspection,
+        )
+      ) {
+        runs = true;
+        uncertain = true;
+      }
+    }
     if (
       source &&
       'opaque' in source &&
@@ -241,6 +320,7 @@ export function findFetchedCode(
         uncertain = true;
       }
     } else if ('inline' in source) {
+      const data = source.pythonDataOnlyStartup ? inspection?.data : null;
       if (
         source.python &&
         !source.pythonDataOnlyStartup &&
@@ -252,18 +332,26 @@ export function findFetchedCode(
       if (source.inline.includes('$()')) {
         runs ||= substitutesFetched || unknownLocation;
         uncertain ||= unknownLocation;
-      } else if (
-        source.pythonDataOnlyStartup &&
-        parseBudget.remaining-- > 0 &&
-        isReadOnlyPythonInline(source.inline, [...savedBefore, ...saved])
-      ) {
-        // Python data paths are operands, not shell executables.
+      } else if (data) {
+        pathHints.push(...data.pathHints);
+        writeIntent ||= data.writes.length > 0;
+        if (
+          data.reads.some((file) => isSaved(file, cwd)) ||
+          (piped && pipelineFetched) ||
+          (source.input !== undefined && isSaved(source.input, cwd))
+        ) {
+          for (const file of data.writes) {
+            const resolved = resolvePath(file, cwd);
+            if (resolved !== null) saved.push(resolved);
+          }
+        }
       } else if (depth < MAX_NESTED_SCRIPT_DEPTH) {
         const innerCommands = scriptCommands(source.inline, cwd);
         if (
           source.python &&
           ((piped && pipelineFetched) ||
             (source.input !== undefined && isSaved(source.input, cwd)) ||
+            inspection?.literals.some((text) => isSaved(text, cwd)) ||
             words.some((word) => isSaved(word, cwd)) ||
             innerCommands.some(({ words }) =>
               words.some((word) => isSaved(word, cwd)),
@@ -281,6 +369,8 @@ export function findFetchedCode(
           parseBudget,
         );
         saved.push(...nested.saved);
+        pathHints.push(...nested.pathHints);
+        writeIntent ||= nested.writeIntent;
         unknownLocation ||= nested.saved.includes(UNKNOWN_FETCH_LOCATION);
         runs ||= nested.runs;
         uncertain ||=
@@ -304,5 +394,5 @@ export function findFetchedCode(
     pipelineOpaque =
       (piped && pipelineOpaque) || Boolean(source && 'opaque' in source);
   }
-  return { saved, runs, uncertain };
+  return { saved, runs, uncertain, pathHints, writeIntent };
 }

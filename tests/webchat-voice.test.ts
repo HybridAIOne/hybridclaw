@@ -692,6 +692,21 @@ test('starting without an OpenAI key fails closed', async () => {
   expect(finished).toHaveBeenCalled();
 });
 
+test('a realtime refusal reaches the browser with its error code', async () => {
+  const { browser, realtime } = await createConnection();
+  await browser.clientFrame({ type: 'start' });
+  realtime.open();
+
+  realtime.serverEvent({
+    type: 'error',
+    error: { code: 'insufficient_quota', message: 'No credits.' },
+  });
+
+  expect(browser.sentOfType('error')).toEqual([
+    { type: 'error', message: 'No credits.', errorCode: 'insufficient_quota' },
+  ]);
+});
+
 test('stream tokens are single-use and carry the minted identity', async () => {
   const { mintWebchatVoiceStreamToken, consumeWebchatVoiceStreamToken } =
     await loadWebchatVoiceModule();
