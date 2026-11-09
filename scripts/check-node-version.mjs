@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { checkNodeVersion } from '../packages/shared/src/node-version.js';
+import { checkNodeVersion } from '../packages/shared/src/node-version.ts';
 
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),

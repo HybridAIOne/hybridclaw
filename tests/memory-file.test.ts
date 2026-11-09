@@ -18,7 +18,7 @@ afterEach(() => {
 
 test('serializes read-modify-write across independent processes', async () => {
   const file = temporaryFile();
-  const moduleUrl = new URL('../packages/shared/src/memory-file.js', import.meta.url).href;
+  const moduleUrl = new URL('../packages/shared/src/memory-file.ts', import.meta.url).href;
   await Promise.all(Array.from({ length: 8 }, (_, index) => new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', `
       import fs from 'node:fs';

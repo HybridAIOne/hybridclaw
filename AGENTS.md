@@ -442,7 +442,7 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. Add the id to `packages/shared/src/provider-ids.js` and its `.d.ts` (the one
+1. Add the id to `packages/shared/src/provider-ids.ts` (the one
    id list; OpenAI-compatible remote providers go in
    `OPENAI_COMPAT_REMOTE_PROVIDER_IDS`) and its label, secret key, env vars,
    and defaults to `PROVIDER_META` in `src/providers/provider-meta.ts`. Unions,

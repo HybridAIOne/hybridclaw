@@ -3,8 +3,8 @@ import YAML from 'yaml';
 import {
   evaluateNetworkPolicyAccess,
   readNetworkPolicyState,
-} from '../../packages/shared/src/network-policy.js';
-import { asRecord } from '../../packages/shared/src/primitive-values.js';
+} from '../../packages/shared/src/network-policy.ts';
+import { asRecord } from '../../packages/shared/src/primitive-values.ts';
 
 const POLICY_CACHE_TTL_MS = 10_000;
 const policyCache = new Map();

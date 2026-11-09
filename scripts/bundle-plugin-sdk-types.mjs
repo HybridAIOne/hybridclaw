@@ -1,35 +1,56 @@
 #!/usr/bin/env node
 
 // Writes dist/plugin-sdk.d.ts, the only declarations the package ships, as one
-// self-contained file. tsc emits per-module declarations into a cache dir, and
-// rollup-plugin-dts inlines everything the SDK reaches, including types from
-// @hybridclaw/shared: that workspace package is private, so a plugin's type
+// self-contained file. tsc emits per-module declarations for src/ and for
+// @hybridclaw/shared into a cache dir, and rollup-plugin-dts inlines everything
+// the SDK reaches: the shared workspace package is private, so a plugin's type
 // check could not resolve an import of it.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { rollup } from 'rollup';
 import { dts } from 'rollup-plugin-dts';
 
 // Not under node_modules, whose files rollup-plugin-dts leaves external.
 const declarationsDir = 'dist/.declarations';
+const sharedDeclarationsDir = path.resolve(declarationsDir, '.shared');
 
 fs.rmSync(declarationsDir, { recursive: true, force: true });
 const tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc');
-const emitted = spawnSync(
-  process.execPath,
-  [tsc, '--outDir', declarationsDir],
-  { stdio: 'inherit' },
-);
-if (emitted.status !== 0) process.exit(emitted.status ?? 1);
+for (const args of [
+  ['--outDir', declarationsDir],
+  [
+    '-p',
+    'packages/shared',
+    '--noEmit',
+    'false',
+    '--declaration',
+    '--emitDeclarationOnly',
+    '--outDir',
+    sharedDeclarationsDir,
+  ],
+]) {
+  const emitted = spawnSync(process.execPath, [tsc, ...args], {
+    stdio: 'inherit',
+  });
+  if (emitted.status !== 0) process.exit(emitted.status ?? 1);
+}
+
+// rollup-plugin-dts cannot read the package's .ts sources directly, so its
+// imports resolve to the declarations emitted above.
+const sharedDeclarations = {
+  name: 'shared-declarations',
+  resolveId(source) {
+    const match = /^@hybridclaw\/shared\/(.+)$/.exec(source);
+    return match ? path.join(sharedDeclarationsDir, `${match[1]}.d.ts`) : null;
+  },
+};
 
 const bundle = await rollup({
   input: `${declarationsDir}/plugin-sdk.d.ts`,
-  // The tsconfig's NodeNext resolution reads the shared package's exports map.
-  plugins: [
-    dts({ tsconfig: 'tsconfig.json', includeExternal: ['@hybridclaw/shared'] }),
-  ],
+  plugins: [sharedDeclarations, dts({ tsconfig: 'tsconfig.json' })],
   onwarn(warning) {
     // npm packages and node: builtins stay imports, as in the JS bundle.
     if (
