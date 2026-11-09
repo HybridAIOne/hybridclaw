@@ -72,8 +72,9 @@ Maintainer overrides:
 - `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
   even on an interactive terminal
 
-Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
-local secrets or artifacts into published images.
+The agent image builds from the repository root, and
+`container/Dockerfile.dockerignore` limits its context to the files the
+Dockerfile copies, so local secrets and artifacts stay out of published images.
 
 Published images export with `rewrite-timestamp=true` under a fixed
 `SOURCE_DATE_EPOCH`, so a step that reruns still yields byte-identical filesystem
@@ -89,10 +90,12 @@ of source checkouts only.
 
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
-terminal all use `dist/cli.js`. Both gateway and agent bundles inline
-`container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds, npm packages, and desktop packages also run the
-gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
+private `@hybridclaw/shared` workspace package (`packages/shared`); the image
+does not ship that package or plain gateway `tsc` output. Source builds, npm
+packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
+the build rolls the plugin SDK's declarations, shared types included, into
+the one file `dist/plugin-sdk.d.ts` beside it. A rebuild
 keeps earlier content-hashed chunks so a gateway already running from the
 checkout can still load its own lazily; `npm run clean` removes them, and
 `prepack` cleans before packaging.
@@ -1523,7 +1526,7 @@ tool-call rounds.
 
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
-`container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
+`packages/shared/src/ipc-output-files.js`), and `readOutput()` waits for that file
 only:
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
@@ -1571,7 +1574,7 @@ memory and never writes to disk or the environment.
 
 Every later turn arrives as `input.json` in the session IPC directory, which the
 agent can also reach. So the gateway wraps each follow-up in an authenticity
-envelope keyed by that secret (`container/shared/ipc-input-auth.js`), and the
+envelope keyed by that secret (`packages/shared/src/ipc-input-auth.js`), and the
 agent runs a follow-up only when the envelope verifies against the secret it
 received on stdin. Input it cannot verify is dropped, never run.
 
@@ -1584,7 +1587,7 @@ echo and never turns a health file into a turn, so it needs no envelope.
 agent makes an inbox directory, `steer-<requestId>`, in the IPC directory when
 it takes a request of a user turn; the gateway delivers a note by renaming a
 finished file into it, signed with the per-worker secret like follow-up input
-(`container/shared/steer-inbox.js`). An agent image without steering makes no
+(`packages/shared/src/steer-inbox.js`). An agent image without steering makes no
 inbox, so its turns refuse every note. The agent shows waiting notes to the
 model:
 

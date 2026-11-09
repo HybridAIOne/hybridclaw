@@ -9,7 +9,7 @@ WORKDIR /app
 COPY infra/managed-browser/package.json ./infra/managed-browser/package.json
 RUN cd infra/managed-browser && npm install --engine-strict --omit=dev --no-audit --fund=false
 
-COPY container/shared ./container/shared
+COPY packages/shared ./packages/shared
 COPY infra/managed-browser ./infra/managed-browser
 
 WORKDIR /app/infra/managed-browser

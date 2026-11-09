@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { lockMemoryFile } from '../container/shared/memory-file.js';
+import { lockMemoryFile } from '@hybridclaw/shared/memory-file';
 import {
   loadSessionPendingApprovals,
   saveSessionPendingApprovals,
@@ -175,7 +175,7 @@ test('a lock abandoned by a dead writer is reclaimed', () => {
   const file = path.join(makeDir(), 'pending.json');
   saveSessionPendingApprovals(file, 'session-a', [request('session-a')]);
   const moduleUrl = new URL(
-    '../container/shared/memory-file.js',
+    '../packages/shared/src/memory-file.js',
     import.meta.url,
   ).href;
   const deadWriter = spawnSync(

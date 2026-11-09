@@ -11,11 +11,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { platformApprovalId } from '@hybridclaw/shared/connector-approval';
+import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import { SHELL_RUNTIME_ENV_PATH } from '@hybridclaw/shared/shell-runtime-env';
+import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '@hybridclaw/shared/two-factor-detection';
 import * as yazl from 'yazl';
-import { platformApprovalId } from '../../container/shared/connector-approval.js';
-import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
-import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
 import {
   extractA2AMtlsPublicKeyPem,
   handleA2AHttpEnvelopeInbound,

@@ -7,7 +7,7 @@ import { afterEach, expect, test } from 'vitest';
 import {
   encodeSteerNote,
   steerInboxDirName,
-} from '../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/steer-inbox';
 import type {
   ChatMessage,
   ContainerInput,

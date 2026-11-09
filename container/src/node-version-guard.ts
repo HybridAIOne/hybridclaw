@@ -3,7 +3,7 @@
  * Gateway startup checks do not establish the runtime of a separate worker.
  */
 import { readFileSync } from 'node:fs';
-import { checkNodeVersion } from '../shared/node-version.js';
+import { checkNodeVersion } from '@hybridclaw/shared/node-version';
 
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),

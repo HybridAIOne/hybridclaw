@@ -477,7 +477,7 @@ describe('ensureContainerImageReady', () => {
   });
 
   test.each([
-    'container/shared/regex.js',
+    'packages/shared/src/regex.js',
     'container/scripts/bundle.mjs',
   ])('rebuilds after a %s edit in a source checkout', async (input) => {
     const cwd = createTempDir();

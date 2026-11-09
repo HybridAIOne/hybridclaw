@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { OPENAI_COMPAT_REMOTE_PROVIDER_IDS } from '../container/shared/provider-ids.js';
+import { OPENAI_COMPAT_REMOTE_PROVIDER_IDS } from '@hybridclaw/shared/provider-ids';
 import {
   DEFAULT_REMOTE_PROVIDER_CONFIG,
   normalizeRemoteProviderConfigs,

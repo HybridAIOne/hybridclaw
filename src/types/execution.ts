@@ -3,14 +3,14 @@
  * Approval fields describe recorded decisions, not fresh consent; file
  * restoration verifies the saved bytes rather than trusting provider IDs.
  */
-import type { ApprovalObservation } from '../../container/shared/approval-mode.js';
-import type { ApprovalRule } from '../../container/shared/approval-rules.js';
-import type { BoostPrompt } from '../../container/shared/boost-offer.js';
+import type { ApprovalObservation } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalRule } from '@hybridclaw/shared/approval-rules';
+import type { BoostPrompt } from '@hybridclaw/shared/boost-offer';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
-} from '../../container/shared/stakes-classifier.js';
-import type { FileBackedToolResult } from '../../container/shared/tool-history.js';
+} from '@hybridclaw/shared/stakes-classifier';
+import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
 
 export interface RuntimeToolSchemaProperty {
   type: string | string[];

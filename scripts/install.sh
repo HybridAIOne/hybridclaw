@@ -190,7 +190,7 @@ detect_platform() {
 # in one place. Callers append --max-time/--retry/-o and the URL.
 fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
 
-# Standalone Bash equivalent of shared/node-version.js; no Node is needed yet.
+# Standalone Bash equivalent of packages/shared/src/node-version.js; no Node is needed yet.
 is_supported_node() {
   local version="${1#v}" major minor patch min_major min_minor min_patch
   [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1

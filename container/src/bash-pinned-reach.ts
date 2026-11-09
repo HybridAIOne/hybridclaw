@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { escapeRegExp } from '../shared/regex.js';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 import {
   type Cwd,
   commandWriteTargets,

@@ -4,11 +4,11 @@
  * without logging their content or granting authority to valid tool history.
  */
 
-import { validateTokenUsage } from '../../container/shared/token-usage.js';
+import { validateTokenUsage } from '@hybridclaw/shared/token-usage';
 import {
   isToolResultDigest,
   validateToolHistory,
-} from '../../container/shared/tool-history.js';
+} from '@hybridclaw/shared/tool-history';
 import type { ContainerOutput } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 

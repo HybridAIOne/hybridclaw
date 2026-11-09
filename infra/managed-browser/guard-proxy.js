@@ -2,8 +2,8 @@ import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
-import { browserPrivateNetworkAllowed } from '../../container/shared/browser-navigation.js';
-import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
+import { browserPrivateNetworkAllowed } from '../../packages/shared/src/browser-navigation.js';
+import { isPrivateNetworkAddress } from '../../packages/shared/src/private-network.js';
 import { evaluateTenantNavigation } from './policy.js';
 
 function send(res, status, text) {

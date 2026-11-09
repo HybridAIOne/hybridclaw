@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { escapeRegExp } from '../../container/shared/regex.js';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 import {
   parseJsonObject,
   readAuditBoolean as readBoolean,

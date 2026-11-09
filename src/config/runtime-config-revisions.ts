@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import Database from 'better-sqlite3';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 

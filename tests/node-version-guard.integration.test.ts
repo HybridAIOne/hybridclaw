@@ -4,6 +4,8 @@ import {
   existsSync,
   mkdirSync,
   realpathSync,
+  rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -18,7 +20,8 @@ beforeEach(() => {
   root = realpathSync(makeTempDir());
   for (const dir of [
     'dist',
-    'container/shared',
+    'packages/shared/src',
+    'node_modules/@hybridclaw',
     'container/dist',
     'scripts',
     'desktop/scripts',
@@ -36,9 +39,17 @@ beforeEach(() => {
     'container/src/node-version-guard.ts',
     path.join(root, 'container/dist/node-version-guard.ts'),
   );
-  copyFileSync(
-    'container/shared/node-version.js',
-    path.join(root, 'container/shared/node-version.js'),
+  for (const file of ['package.json', 'src/node-version.js']) {
+    copyFileSync(
+      `packages/shared/${file}`,
+      path.join(root, 'packages/shared', file),
+    );
+  }
+  // The workspace link `npm ci` creates; the source probes import through it.
+  symlinkSync(
+    '../../packages/shared',
+    path.join(root, 'node_modules/@hybridclaw/shared'),
+    'dir',
   );
   copyFileSync(
     'scripts/check-node-version.mjs',
@@ -108,4 +119,12 @@ test('desktop packaging rejects an unsupported binary before staging it', () => 
   expect(result.status).toBe(1);
   expect(result.stderr).toContain(range);
   expect(existsSync(path.join(root, 'desktop/build'))).toBe(false);
+});
+
+test('scripts/check-node-version.mjs runs before dependencies are installed', () => {
+  rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
+  const range = `>=${major}.${minor}.${patch + 1} <${major + 1}`;
+  const result = runProbe(range, 'scripts/check-node-version.mjs');
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(range);
 });

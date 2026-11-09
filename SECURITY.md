@@ -82,7 +82,7 @@ program. Bounded syntax inspection never executes the program; unsupported
 shell forms, non-UTF-8 source encodings and failed inspection retain text matching.
 Executable code, strings and independent safety rules remain checked.
 
-Implementation: [shared catalog](./container/shared/safety-rules.js),
+Implementation: [shared catalog](./packages/shared/src/safety-rules.js),
 [worker enforcement](./container/src/safety-rules.ts), and
 [admin controls](./src/gateway/safety-rules-admin.ts)
 
@@ -201,7 +201,7 @@ Tool execution runs inside Docker with sandbox constraints:
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
 [src/security/mount-security.ts](./src/security/mount-security.ts),
-[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
+[packages/shared/src/ipc-input-auth.js](./packages/shared/src/ipc-input-auth.js)
 
 ### 4) Session Isolation
 

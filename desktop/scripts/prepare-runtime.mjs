@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { checkNodeVersion } from '../../container/shared/node-version.js';
+import { checkNodeVersion } from '@hybridclaw/shared/node-version';
 
 const RUNTIME_CACHE_VERSION = 3;
 const currentFile = fileURLToPath(import.meta.url);

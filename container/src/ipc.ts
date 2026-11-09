@@ -9,7 +9,7 @@
  *
  * `input.json` lives where this agent's own tools can write, so a follow-up is
  * honored only when its authenticity envelope verifies against the per-worker
- * secret received on stdin (`setIpcAuthSecret`, see shared/ipc-input-auth.js);
+ * secret received on stdin (`setIpcAuthSecret`, see packages/shared/src/ipc-input-auth.js);
  * an input that fails to verify or was already consumed is dropped, not run.
  * `health-input.json` is read as a liveness probe only: it yields a turn's input never — just the
  * nonce to echo — so an unauthenticated health file cannot become a turn.
@@ -24,16 +24,19 @@ import path from 'node:path';
 import {
   encodeFileWriteGuardContext,
   type FileWriteGuardRequest,
-} from '../shared/file-write-guard.js';
+} from '@hybridclaw/shared/file-write-guard';
 
-import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../shared/ipc-output-files.js';
+import { decodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import {
   createIpcWakeup,
   IPC_RECONCILE_INTERVAL_MS,
-} from '../shared/ipc-wakeup.js';
-import { writeMemoryFileAtomic } from '../shared/memory-file.js';
-import { decodeSteerNote, type SteerNote } from '../shared/steer-inbox.js';
+} from '@hybridclaw/shared/ipc-wakeup';
+import { writeMemoryFileAtomic } from '@hybridclaw/shared/memory-file';
+import {
+  decodeSteerNote,
+  type SteerNote,
+} from '@hybridclaw/shared/steer-inbox';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';

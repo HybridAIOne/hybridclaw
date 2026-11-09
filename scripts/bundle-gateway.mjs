@@ -2,10 +2,11 @@
 
 // Bundles the CLI (and the plugin SDK it links for plugins) from source into
 // dist/, the gateway's only runtime JS: the npm package, desktop app, and
-// container image all run dist/cli.js; `tsc` emits only the declarations beside
-// it. Startup otherwise resolves and reads about a thousand separate modules,
-// and under a syscall-intercepting sandbox runtime such as gVisor each lookup is
-// slow enough to cost seconds per boot.
+// container image all run dist/cli.js, with the plugin SDK's declarations
+// rolled into dist/plugin-sdk.d.ts beside it. Startup otherwise resolves and
+// reads about a thousand separate modules, and under a syscall-intercepting
+// sandbox runtime such as gVisor each lookup is slow enough to cost seconds per
+// boot.
 //
 // The output sits one level below the package root, so code that locates
 // package files relative to its own module keeps working.
@@ -13,10 +14,12 @@
 import fs from 'node:fs';
 import { build } from 'esbuild';
 
-// Pure-JS dependencies loaded during gateway startup. All other dependencies
-// stay external: native addons, packages that resolve their own files at
-// runtime (pino transports, browsers), and ones that are only loaded on demand.
+// The first-party shared package and the pure-JS dependencies loaded during
+// gateway startup. All other dependencies stay external: native addons,
+// packages that resolve their own files at runtime (pino transports, browsers),
+// and ones that are only loaded on demand.
 const BUNDLED_DEPENDENCIES = new Set([
+  '@hybridclaw/shared',
   'ajv',
   'cron-parser',
   'jose',

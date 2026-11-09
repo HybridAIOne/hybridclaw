@@ -5,11 +5,11 @@
  * saved evidence and are removed before provider requests.
  */
 
-import type { FileBackedToolResult } from '../../container/shared/tool-history.js';
+import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
-} from '../../container/shared/visual-snapshots.js';
+} from '@hybridclaw/shared/visual-snapshots';
 
 export interface ChatContentTextPart {
   type: 'text';

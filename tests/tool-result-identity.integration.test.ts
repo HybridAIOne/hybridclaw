@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { toolResultFilePath } from '@hybridclaw/shared/tool-history';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 

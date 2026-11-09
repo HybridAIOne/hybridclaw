@@ -7,41 +7,41 @@
 import type {
   ApprovalMode,
   ApprovalObservation,
-} from '../shared/approval-mode.js';
+} from '@hybridclaw/shared/approval-mode';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
-} from '../shared/approval-reply.js';
-import type { ApprovalRule } from '../shared/approval-rules.js';
-import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
+} from '@hybridclaw/shared/approval-reply';
+import type { ApprovalRule } from '@hybridclaw/shared/approval-rules';
+import type { BoostOffer, BoostPrompt } from '@hybridclaw/shared/boost-offer';
+import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
 import type {
   FileWriteGuardContext,
   FileWriteGuardReceipt,
-} from '../shared/file-write-guard.js';
-import type { RuntimeProviderId } from '../shared/provider-ids.js';
-import type { ReasoningEffort } from '../shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
-import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
+} from '@hybridclaw/shared/file-write-guard';
+import type { RuntimeProviderId } from '@hybridclaw/shared/provider-ids';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { SessionAttachmentAccess } from '@hybridclaw/shared/session-attachment-access';
+import type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
-} from '../shared/stakes-classifier.js';
+} from '@hybridclaw/shared/stakes-classifier';
 import type {
   ModelCallTiming,
   TokenUsageStats,
-} from '../shared/token-usage.js';
-import type { ToolCallLimits } from '../shared/tool-call-limits.js';
+} from '@hybridclaw/shared/token-usage';
+import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
 import type {
   FileBackedToolResult,
   FileBackedToolResults,
-} from '../shared/tool-history.js';
-import type { RecoveryDisposition } from '../shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/tool-history';
+import type { RecoveryDisposition } from '@hybridclaw/shared/turn-checkpoint';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
-} from '../shared/visual-snapshots.js';
-import type { WebSearchConfig } from '../shared/web-search-config.js';
+} from '@hybridclaw/shared/visual-snapshots';
+import type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
 import type { McpServerConfig } from './mcp/types.js';
 import type { ModelBehavior } from './model-behavior.js';
 
@@ -49,7 +49,7 @@ export type {
   ModelCallPerformanceSample,
   ModelCallTiming,
   TokenUsageStats,
-} from '../shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -226,8 +226,8 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
-export type { WebSearchConfig } from '../shared/web-search-config.js';
+export type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
+export type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
 
 export interface AddressEnvelope {
   to: string | string[];
@@ -245,7 +245,7 @@ export interface ContainerInput
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see shared/ipc-output-files.js. */
+  /** Names this request's reply file; see packages/shared/src/ipc-output-files.js. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -255,7 +255,7 @@ export interface ContainerInput
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * shared/ipc-input-auth.js).
+   * packages/shared/src/ipc-input-auth.js).
    */
   ipcAuthSecret?: string;
   baseUrl: string;

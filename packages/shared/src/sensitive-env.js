@@ -1,4 +1,4 @@
-// container/shared modules are plain JS so both the root TypeScript build and
+// @hybridclaw/shared modules are plain JS so both the root TypeScript build and
 // container runtime can import one implementation without widening tsconfig roots.
 export const SENSITIVE_ENV_RULES = {
   exact: new Set([

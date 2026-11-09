@@ -6,7 +6,7 @@ import { expect, test, vi } from 'vitest';
 import {
   DYNAMIC_CONTEXT_MESSAGE_PREFIX,
   isDynamicContextMessageText,
-} from '../container/shared/dynamic-context.js';
+} from '@hybridclaw/shared/dynamic-context';
 import { buildDynamicContextMessage } from '../src/agent/conversation.js';
 import { readDynamicContextMessage } from '../src/gateway/gateway-service.js';
 

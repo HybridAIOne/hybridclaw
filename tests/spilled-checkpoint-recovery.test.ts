@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
-import { toolResultDigest } from '../container/shared/tool-history.js';
+import { toolResultDigest } from '@hybridclaw/shared/tool-history';
 import {
   checkpointOutput,
   readTurnCheckpoint,
   TurnCheckpoint,
-} from '../container/shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/turn-checkpoint';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { recoverWorkerOutput } from '../src/infra/worker-recovery.js';

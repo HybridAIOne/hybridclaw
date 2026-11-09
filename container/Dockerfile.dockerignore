@@ -1,0 +1,25 @@
+# The agent image builds from the repository root so it can reach
+# packages/shared; send only what container/Dockerfile copies.
+*
+!container/package.json
+!container/package-lock.json
+!container/scripts/bundle.mjs
+!container/src/
+!container/tools/
+!packages/shared/
+
+**/node_modules
+**/dist
+**/*.md
+**/.env
+**/.env.*
+**/.npmrc
+**/*.log
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/*.pfx
+**/*.kubeconfig
+**/*.sqlite
+**/*.db
