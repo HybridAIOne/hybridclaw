@@ -72,8 +72,9 @@ Maintainer overrides:
 - `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
   even on an interactive terminal
 
-Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
-local secrets or artifacts into published images.
+The agent image builds from the repository root, and
+`container/Dockerfile.dockerignore` limits its context to the files the
+Dockerfile copies, so local secrets and artifacts stay out of published images.
 
 Published images export with `rewrite-timestamp=true` under a fixed
 `SOURCE_DATE_EPOCH`, so a step that reruns still yields byte-identical filesystem

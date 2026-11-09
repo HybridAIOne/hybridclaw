@@ -11,7 +11,7 @@
  * waiting, forged and previous-request notes cannot change that intent.
  *
  * NOT the gateway's half (src/infra/steer-inbox.ts) and NOT the on-disk
- * format (shared/steer-inbox.js). Notes of a turn that fails or is stopped
+ * format (packages/shared/src/steer-inbox.js). Notes of a turn that fails or is stopped
  * are dropped with it, as its other work is.
  */
 import fs from 'node:fs';
