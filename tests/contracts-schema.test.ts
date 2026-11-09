@@ -7,8 +7,6 @@ import {
   number,
   object,
   optional,
-  record,
-  refine,
   type Schema,
   string,
   unchecked,
@@ -23,9 +21,7 @@ describe('contract schema checks', () => {
     ['literal', literal('a', 'b'), ['a', 'b'], ['c', null]],
     ['nullable', nullable(string()), ['x', null], [undefined, 1]],
     ['array', array(number()), [[], [1, 2]], [[1, 'x'], {}, null]],
-    ['record', record(boolean()), [{}, { a: true }], [{ a: 1 }, [], null]],
     ['union', union(string(), number()), ['a', 1], [true, null]],
-    ['refine', refine(number(), (n) => n > 0), [1], [0, 'x']],
     ['unchecked', unchecked<string>(), [1, null, undefined], []],
   ])('%s accepts and rejects', (_name, schema, accepted, rejected) => {
     for (const value of accepted) expect(schema.check(value)).toBe(true);

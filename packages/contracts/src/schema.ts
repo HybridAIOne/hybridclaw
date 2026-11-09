@@ -71,12 +71,6 @@ export function array<T>(item: Schema<T>): Schema<T[]> {
   return schema((value) => Array.isArray(value) && value.every(item.check));
 }
 
-export function record<T>(item: Schema<T>): Schema<Record<string, T>> {
-  return schema(
-    (value) => isPlainObject(value) && Object.values(value).every(item.check),
-  );
-}
-
 export function union<const S extends readonly Schema<unknown>[]>(
   ...members: S
 ): Schema<Infer<S[number]>> {
@@ -102,17 +96,9 @@ export function object<P extends Shape>(shape: P): ObjectSchema<P> {
   };
 }
 
-/** Narrows an accepted value further, e.g. with a validator from elsewhere. */
-export function refine<T>(
-  inner: Schema<T>,
-  accept: (value: T) => boolean,
-): Schema<T> {
-  return schema((value) => inner.check(value) && accept(value));
-}
-
 /**
  * Accepts any value as `T`: for data whose shape another module owns and
- * checks, such as tool history. Pair it with `refine` where a check exists.
+ * checks, such as tool history, which the receiver validates separately.
  */
 export function unchecked<T>(): Schema<T> {
   return schema(() => true);
