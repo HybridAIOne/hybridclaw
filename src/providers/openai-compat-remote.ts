@@ -26,6 +26,7 @@ import {
   OPENROUTER_API_KEY,
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
+  readProviderSecretValue,
   XAI_API_KEY,
   XAI_BASE_URL,
   XAI_ENABLED,
@@ -36,6 +37,8 @@ import {
   ZAI_BASE_URL,
   ZAI_ENABLED,
 } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import { readStoredRuntimeSecrets } from '../security/runtime-secrets.js';
 import { readProviderApiKey } from './provider-api-key-utils.js';
 import {
   OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
@@ -143,6 +146,11 @@ const CONFIG_READERS = {
     enabled: () => XIAOMI_ENABLED,
     baseUrl: () => XIAOMI_BASE_URL,
     apiKey: () => XIAOMI_API_KEY,
+  },
+  nebius: {
+    enabled: () => getRuntimeConfig().nebius.enabled,
+    baseUrl: () => getRuntimeConfig().nebius.baseUrl,
+    apiKey: () => readProviderSecretValue('nebius', readStoredRuntimeSecrets()),
   },
   kilo: {
     enabled: () => KILO_ENABLED,

@@ -26,6 +26,7 @@ const BASE_URL_SUFFIX_BY_ID = {
   dashscope: '/v1',
   xiaomi: '/v1',
   kilo: '/api/gateway',
+  nebius: '/v1',
 } as const satisfies Record<
   'openai' | Exclude<OpenAICompatRemoteProviderId, DedicatedLoginProviderId>,
   string

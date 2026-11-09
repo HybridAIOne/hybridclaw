@@ -254,6 +254,7 @@ const PROVIDER_LOGOS: Record<GatewayModelProviderKey, LogoComponent> = {
   dashscope: DashScopeLogo,
   xiaomi: XiaomiLogo,
   kilo: KiloLogo,
+  nebius: ServerIcon as LogoComponent,
   ollama: OllamaLogo,
   lmstudio: LMStudioLogo,
   llamacpp: LlamaCppLogo,
