@@ -131,6 +131,31 @@ describe('serialize/parseActivityTrace round-trip', () => {
     expect(parsed).toEqual(trace);
   });
 
+  it('keeps the site a sign-in was asked for, and only a site', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.startTool('browser_sign_in', '{}', 'call-1');
+    builder.finishTool('browser_sign_in', 40, 'asked', 'call-1', {
+      host: 'shop.example',
+    });
+    const trace = builder.build();
+    if (!trace) throw new Error('expected a trace');
+    const parsed = parseActivityTrace(serializeActivityTrace(trace));
+    expect(parsed?.steps[0]).toMatchObject({
+      toolName: 'browser_sign_in',
+      signIn: { host: 'shop.example' },
+    });
+    expect(
+      parseActivityTrace(
+        JSON.stringify({
+          steps: [
+            { kind: 'tool', toolName: 'a', signIn: { host: 7 } },
+            { kind: 'tool', toolName: 'b', signIn: 'shop.example' },
+          ],
+        }),
+      )?.steps.map((step) => 'signIn' in step),
+    ).toEqual([false, false]);
+  });
+
   it('returns null for corrupt or non-trace JSON', () => {
     expect(parseActivityTrace(null)).toBeNull();
     expect(parseActivityTrace('')).toBeNull();

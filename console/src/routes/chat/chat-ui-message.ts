@@ -32,6 +32,8 @@ export interface TraceToolStep
   argsPreview?: string;
   resultPreview?: string;
   durationMs?: number;
+  /** `browser_sign_in` asked for this site's sign-in; persisted with the trace. */
+  signIn?: { host: string };
 }
 
 export type TraceStep = TraceThinkingStep | TraceDraftStep | TraceToolStep;
