@@ -480,7 +480,7 @@ the message tool; it asks the registration for the channel-specific facts:
 | `getAuthStatus()` | yes | Gateway status, doctor, sends; returns `linked` plus fields gateway status publishes |
 | `resetAuth()` | yes | `hybridclaw auth <kind> reset` and `channels <kind> setup --reset`; returns the cleared directory |
 | `getPairingState()` | no | The admin console pairing prompt (`pairingQrText`, `updatedAt`, `error`, extra fields) |
-| `doctorChecks({ enabled })` | no | `hybridclaw doctor` findings |
+| `doctorChecks({ enabled, deliveryTarget })` | no | `hybridclaw doctor` findings; `deliveryTarget` is the heartbeat channel, else the most recent session channel |
 | `messageToolHints()` | no | Channel-specific lines in the system prompt, the same for every conversation; the current chat id reaches the model in the per-turn context |
 | `describeSend({ target, auth })` | no | `sentFrom`, `recipient`, and `note` on message-tool results |
 
