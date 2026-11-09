@@ -4,8 +4,8 @@
  * journal survives worker replacement with known usage; it grants no tool authority.
  * Executed calls progress proposed → started → result_recorded. Terminal
  * receipts without a start (denials/rejections) never authorize a later start.
- * File-backed results retain their call keys so recovery can restore evidence;
- * repeated provider IDs never select an ambiguous saved file automatically.
+ * File-backed results retain content digests so recovery selects the exact
+ * bytes even when a provider reuses a call ID; replay grants no authority.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -87,9 +87,6 @@ export function checkpointOutput(data) {
     !Array.isArray(data.messages) ||
     !Array.isArray(data.started) ||
     data.started.some((id) => typeof id !== 'string') ||
-    (data.spilled !== undefined &&
-      (!Array.isArray(data.spilled) ||
-        data.spilled.some((key) => typeof key !== 'string'))) ||
     (data.assistantText !== undefined && typeof data.assistantText !== 'string')
   )
     throw new Error('Invalid turn checkpoint; automatic replay refused.');
@@ -98,10 +95,7 @@ export function checkpointOutput(data) {
   const calls = [];
   const starts = new Set(data.started);
   const knownCalls = new Set();
-  const spilled = new Set(data.spilled || []);
-  const knownSpills = new Set();
-  const occurrences = new Map();
-  const spilledIds = [];
+  const spilledIds = new Set();
   for (let index = 0; index < data.messages.length; ) {
     const messageIndex = index;
     const message = data.messages[index++];
@@ -122,11 +116,7 @@ export function checkpointOutput(data) {
       const result = results.get(call.id);
       const key = callKey(messageIndex, call.id);
       knownCalls.add(key);
-      occurrences.set(call.id, (occurrences.get(call.id) || 0) + 1);
-      if (spilled.has(key) && result) {
-        knownSpills.add(key);
-        spilledIds.push(call.id);
-      }
+      if (result?.resultDigest !== undefined) spilledIds.add(call.id);
       const started = starts.has(key);
       if (!result && index < data.messages.length)
         throw new Error('Checkpoint contains an unfinished earlier exchange.');
@@ -154,6 +144,9 @@ export function checkpointOutput(data) {
           arguments: call.function.arguments,
           toolCallId: call.id,
           result: outcome.content,
+          ...(outcome.resultDigest === undefined
+            ? {}
+            : { resultDigest: outcome.resultDigest }),
           isError: outcome.is_error === true,
           durationMs: 0,
         });
@@ -164,16 +157,6 @@ export function checkpointOutput(data) {
     [...starts].some((key) => !knownCalls.has(key))
   )
     throw new Error('Checkpoint start does not match its calls.');
-  if (
-    spilled.size !== (data.spilled?.length || 0) ||
-    [...spilled].some((key) => !knownSpills.has(key))
-  )
-    throw new Error('Checkpoint spill does not match a recorded outcome.');
-  // Files are currently named by provider ID (Codex choice, 2026-11-09).
-  // Ambiguous IDs retain excerpts; occurrence-specific files are a separate fix.
-  const spilledToolCallIds = spilledIds.filter(
-    (id) => occurrences.get(id) === 1,
-  );
   const history = validateToolHistory(messages);
   return {
     status: 'error',
@@ -188,7 +171,7 @@ export function checkpointOutput(data) {
     toolExecutions: executions,
     toolHistory: history,
     toolHistoryForReplay: history,
-    ...(spilledToolCallIds.length ? { spilledToolCallIds } : {}),
+    ...(spilledIds.size ? { spilledToolCallIds: [...spilledIds] } : {}),
     ...(data.tokenUsage === undefined
       ? {}
       : { tokenUsage: validateTokenUsage(data.tokenUsage) }),
@@ -258,14 +241,13 @@ export class TurnCheckpoint {
     this.persist(next); // A failed write prevents the action from starting.
   }
 
-  result(message, spilled = false) {
-    if (message?.role !== 'tool' || typeof spilled !== 'boolean')
+  result(message) {
+    if (message?.role !== 'tool')
       throw new Error('Invalid checkpoint result message.');
     const next = structuredClone(this.data);
     const assistantIndex = next.messages.findLastIndex(
       (entry) => entry.role === 'assistant',
     );
-    const key = callKey(assistantIndex, message.tool_call_id);
     const previous = next.messages.find(
       (entry, index) =>
         index > assistantIndex &&
@@ -276,7 +258,6 @@ export class TurnCheckpoint {
     // It may acknowledge that result, but must never replace durable evidence.
     if (previous) {
       if (
-        Boolean(next.spilled?.includes(key)) !== spilled ||
         !isDeepStrictEqual(
           JSON.parse(JSON.stringify(previous)),
           JSON.parse(JSON.stringify(message)),
@@ -287,10 +268,6 @@ export class TurnCheckpoint {
         );
     } else {
       next.messages.push(structuredClone(message));
-      if (spilled) {
-        next.spilled ||= [];
-        next.spilled.push(key);
-      }
     }
     this.persist(next);
   }
