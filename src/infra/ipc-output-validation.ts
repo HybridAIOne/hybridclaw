@@ -5,7 +5,10 @@
  */
 
 import { validateTokenUsage } from '../../container/shared/token-usage.js';
-import { validateToolHistory } from '../../container/shared/tool-history.js';
+import {
+  isToolResultDigest,
+  validateToolHistory,
+} from '../../container/shared/tool-history.js';
 import type { ContainerOutput } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -85,6 +88,7 @@ const tool = shape(
     writeIntent: boolean,
     blockedReason: string,
     toolCallId: string,
+    resultDigest: isToolResultDigest,
   },
 );
 

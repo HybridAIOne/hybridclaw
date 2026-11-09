@@ -1,8 +1,11 @@
 /**
  * Model messages retain tool IDs and opaque provider replay metadata across
  * gateway/worker boundaries. These types describe protocol data, not approval
- * or the transport-facing conversation presentation.
+ * or the transport-facing conversation presentation. Result digests identify
+ * saved evidence and are removed before provider requests.
  */
+
+import type { FileBackedToolResult } from '../../container/shared/tool-history.js';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
@@ -35,7 +38,9 @@ export type ChatContentPart =
 
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
-export interface ChatMessage extends VisualAttachmentMessage {
+export interface ChatMessage
+  extends VisualAttachmentMessage,
+    FileBackedToolResult {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];

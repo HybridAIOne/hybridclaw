@@ -1,5 +1,9 @@
 import type { TokenUsageStats } from './token-usage.js';
-import type { FileBackedToolResults, HistoryMessage } from './tool-history.js';
+import type {
+  FileBackedToolResult,
+  FileBackedToolResults,
+  HistoryMessage,
+} from './tool-history.js';
 
 type CheckpointMessage = Omit<HistoryMessage, 'content'> & { content: unknown };
 
@@ -8,7 +12,6 @@ export interface TurnCheckpointData {
   turnId: string;
   messages: HistoryMessage[];
   started: string[];
-  spilled?: string[];
   assistantText?: string;
   tokenUsage?: TokenUsageStats;
 }
@@ -52,14 +55,16 @@ export interface TurnRecoveryEvidence extends FileBackedToolResults {
   tokenUsage?: TokenUsageStats;
   toolHistory: HistoryMessage[];
   toolHistoryForReplay: HistoryMessage[];
-  toolExecutions: Array<{
-    name: string;
-    arguments: string;
-    toolCallId: string;
-    result: string;
-    isError: boolean;
-    durationMs: number;
-  }>;
+  toolExecutions: Array<
+    FileBackedToolResult & {
+      name: string;
+      arguments: string;
+      toolCallId: string;
+      result: string;
+      isError: boolean;
+      durationMs: number;
+    }
+  >;
 }
 export function checkpointOutput(
   data: TurnCheckpointData,
@@ -80,5 +85,5 @@ export class TurnCheckpoint {
   snapshot(): TurnRecoveryEvidence;
   assistant(message: CheckpointMessage): void;
   start(id: string): void;
-  result(message: CheckpointMessage, spilled?: boolean): void;
+  result(message: CheckpointMessage): void;
 }
