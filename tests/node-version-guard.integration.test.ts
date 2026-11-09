@@ -133,3 +133,13 @@ test('scripts/check-node-version.mjs runs before dependencies are installed', ()
   expect(result.status).toBe(1);
   expect(result.stderr).toContain(range);
 });
+
+// Node releases before 22.18 cannot import .ts, which is what the guard rejects.
+test('scripts/check-node-version.mjs rejects a runtime without type stripping', () => {
+  const range = `>=${major}.${minor}.${patch} <${major + 1}`;
+  const result = runProbe(range, 'scripts/check-node-version.mjs', [
+    '--no-experimental-strip-types',
+  ]);
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(range);
+});
