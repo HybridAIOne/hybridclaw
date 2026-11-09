@@ -8,6 +8,12 @@ import { useCleanMocks, useTempDir } from './test-utils.js';
 const temp = useTempDir();
 useCleanMocks({ resetModules: true, unstubAllEnvs: true });
 const valid = { status: 'success', result: 'ok', toolsUsed: [] };
+const execution = {
+  name: 'bash',
+  arguments: '{"command":"ls"}',
+  result: 'README.md',
+  durationMs: 12,
+};
 test.each([
   null,
   [],
@@ -23,6 +29,15 @@ test.each([
   { ...valid, pendingApproval: { approvalId: 'a' } },
   { ...valid, tokenUsage: {} },
   { ...valid, toolHistory: [42] },
+  { ...valid, toolExecutions: [{ ...execution, approvalTier: 'purple' }] },
+  {
+    ...valid,
+    toolExecutions: [
+      { ...execution, anomaly: { score: 1, status: 'unknown' } },
+    ],
+  },
+  { ...valid, recovery: { kind: 'recovered' } },
+  { ...valid, errorCode: 'crashed' },
   {
     ...valid,
     outputPresentation: {
@@ -52,6 +67,42 @@ test('accepts ordinary success, error, and delegation replies', () => {
           { action: 'delegate', mode: 'single', prompt: 'Prepare a report' },
         ],
       },
+    }),
+  ).toBe(true);
+});
+test('accepts a reply carrying every contract part', () => {
+  expect(
+    isContainerOutput({
+      ...valid,
+      toolExecutions: [
+        {
+          ...execution,
+          approvalTier: 'yellow',
+          approvalDecision: 'approved_session',
+          escalationTarget: { channel: 'slack', recipient: 'user_a' },
+          anomaly: {
+            score: 0.2,
+            threshold: null,
+            reason: 'typical',
+            status: 'scored',
+            model: 'test-model',
+            trajectoryCount: 3,
+            tuple: 'bash:ls',
+          },
+        },
+      ],
+      recovery: {
+        kind: 'recovered',
+        turnId: 'turn-a',
+        calls: [
+          { messageIndex: 1, toolCallId: 'call-a', outcome: 'not_executed' },
+        ],
+      },
+      approvalReply: { decision: 'approve', approvalId: 'a', scope: 'once' },
+      memoryCitations: [
+        { ref: '[mem:1]', memoryId: 1, content: 'note', confidence: 0.9 },
+      ],
+      fileWriteGuardSessionId: 'session-a',
     }),
   ).toBe(true);
 });

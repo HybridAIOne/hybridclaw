@@ -28,17 +28,10 @@ export interface TurnCheckpointData {
   assistantText?: string;
   tokenUsage?: TokenUsageStats;
 }
-export type RecoveryDisposition =
-  | { kind: 'refused'; turnId?: string }
-  | {
-      kind: 'recovered';
-      turnId: string;
-      calls: Array<{
-        messageIndex: number;
-        toolCallId: string;
-        outcome: 'result_recorded' | 'outcome_unknown' | 'not_executed';
-      }>;
-    };
+
+import type { RecoveryDisposition } from '@hybridclaw/contracts/agent-io';
+
+export type { RecoveryDisposition };
 
 /** Conversation evidence cannot carry executable approvals or queued effects. */
 export interface TurnRecoveryEvidence {

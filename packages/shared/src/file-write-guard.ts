@@ -3,23 +3,17 @@
  * Unlike a tool argument it authenticates where the request came from; it
  * grants no approval. Its MAC domain cannot authenticate IPC inputs or steering.
  */
+
+import type {
+  FileWriteGuardContext,
+  FileWriteGuardReceipt,
+} from '@hybridclaw/contracts/agent-io';
 import {
   decodeAuthenticatedInput,
   encodeAuthenticatedInput,
 } from './ipc-input-auth.ts';
 
-/** Gateway-owned delegation lineage for conflict state, never an approval grant. */
-export interface FileWriteGuardContext {
-  /** Root worker session whose write conflicts this delegated worker shares. */
-  fileWriteGuardSessionId?: string;
-  /** Gateway-owned root request; a model-authored delegation cannot replace it. */
-  fileWriteGuardUserPrompt?: string;
-}
-
-/** Controller-authenticated request context; never supplied by model tool args. */
-export interface FileWriteGuardReceipt {
-  fileWriteGuardProof?: string;
-}
+export type { FileWriteGuardContext, FileWriteGuardReceipt };
 
 export interface FileWriteGuardRequest {
   sessionId: string;

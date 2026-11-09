@@ -13,6 +13,7 @@
         "desktop",
         "console",
         "container",
+        "packages/contracts",
         "packages/shared"
       ],
       "dependencies": {
@@ -125,6 +126,7 @@
         "yaml": "2.9.1"
       },
       "devDependencies": {
+        "@hybridclaw/contracts": "file:../packages/contracts",
         "@hybridclaw/shared": "file:../packages/shared",
         "@types/node": "22.20.4",
         "esbuild": "0.28.2",
@@ -1902,6 +1904,10 @@
     },
     "node_modules/@hybridaione/hybridclaw-desktop-packaging-anchor": {
       "resolved": "desktop/support/packaging-anchor",
+      "link": true
+    },
+    "node_modules/@hybridclaw/contracts": {
+      "resolved": "packages/contracts",
       "link": true
     },
     "node_modules/@hybridclaw/shared": {
@@ -13603,6 +13609,11 @@
       "peerDependencies": {
         "zod": "^3.25.28 || ^4"
       }
+    },
+    "packages/contracts": {
+      "name": "@hybridclaw/contracts",
+      "version": "0.0.0",
+      "license": "MIT"
     },
     "packages/shared": {
       "name": "@hybridclaw/shared",

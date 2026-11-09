@@ -13,13 +13,16 @@ RUN printf '%s\n' \
     'min-release-age=7' \
     > .npmrc
 # The build context is the repository root. The agent package links its
-# devDependency @hybridclaw/shared from ../packages/shared, which is /packages
-# beside /app; the bundle inlines it, so later stages never see it.
+# devDependencies @hybridclaw/contracts and @hybridclaw/shared from
+# ../packages, which is /packages beside /app; the bundle inlines them, so
+# later stages never see them.
 COPY container/package.json container/package-lock.json ./
+COPY packages/contracts/package.json /packages/contracts/
 COPY packages/shared/package.json /packages/shared/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
 COPY container/scripts/bundle.mjs scripts/
+COPY packages/contracts/src/ /packages/contracts/src/
 COPY packages/shared/src/ /packages/shared/src/
 COPY container/src/ src/
 RUN node scripts/bundle.mjs

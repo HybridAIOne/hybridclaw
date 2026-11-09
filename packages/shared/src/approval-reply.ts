@@ -8,13 +8,9 @@ export interface ApprovalReplyContext {
   approvalReplyDecision?: ApprovalReplyDecision;
 }
 
-/** An interpretation is not proof of execution; tool audit events record that. */
-export interface ApprovalReplyInterpretation {
-  decision: 'approve' | 'deny' | 'revise' | 'unclear' | 'unrelated' | 'error';
-  approvalId: string | null;
-  scope: 'once' | 'session' | 'agent' | 'all' | null;
-  model?: string;
-}
+import type { ApprovalReplyInterpretation } from '@hybridclaw/contracts/agent-io';
+
+export type { ApprovalReplyInterpretation };
 
 export interface ApprovalReplyDecision extends ApprovalReplyInterpretation {
   reply: string;

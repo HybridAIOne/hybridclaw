@@ -1,11 +1,12 @@
 # The agent image builds from the repository root so it can reach
-# packages/shared; send only what container/Dockerfile copies.
+# packages/; send only what container/Dockerfile copies.
 *
 !container/package.json
 !container/package-lock.json
 !container/scripts/bundle.mjs
 !container/src/
 !container/tools/
+!packages/contracts/
 !packages/shared/
 
 **/node_modules

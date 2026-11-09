@@ -197,13 +197,13 @@ import {
 } from './tools.js';
 import { TurnToolHistory } from './turn-tool-history.js';
 import {
+  AGENT_TASK_MODEL_KEYS,
   type ArtifactMetadata,
   type ChatCompletionResponse,
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
   type EscalationTarget,
-  TASK_MODEL_KEYS,
   type ToolCall,
   type ToolDefinition,
   type ToolExecution,
@@ -265,7 +265,7 @@ function resolveTaskModelsForRequest(
   }
 
   const merged: NonNullable<ContainerInput['taskModels']> = {};
-  for (const key of TASK_MODEL_KEYS) {
+  for (const key of AGENT_TASK_MODEL_KEYS) {
     const incomingTaskModel = taskModels[key];
     if (!incomingTaskModel) continue;
 
