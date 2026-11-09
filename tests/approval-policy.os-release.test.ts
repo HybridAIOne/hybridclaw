@@ -42,6 +42,18 @@ function evaluate(
 
 describe('OS identification reads', () => {
   test.each([
+    ['read', { path: '/etc/hosts' }],
+    ['bash', { command: 'ls /etc/example-policy-path' }],
+  ])('does not resolve the OS file for unrelated %s calls', (tool, args) => {
+    vi.mocked(fs.realpathSync).mockClear();
+    expect(evaluate(tool, args)).toMatchObject({
+      pinned: true,
+      decision: 'required',
+    });
+    expect(fs.realpathSync).not.toHaveBeenCalledWith('/etc/os-release');
+  });
+
+  test.each([
     ['read', { path: '/etc/os-release' }],
     ['bash', { command: 'cat /etc/os-release' }],
     [

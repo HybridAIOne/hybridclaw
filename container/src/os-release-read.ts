@@ -13,11 +13,7 @@ import {
 const OS_RELEASE_PATH = '/etc/os-release';
 const OS_READERS = new Set(['cat', 'head', 'tail']);
 
-export function osReleaseReadPath(
-  toolName: string,
-  args: Record<string, unknown>,
-): string | null {
-  if (toolName !== 'read' && toolName !== 'bash') return null;
+function verifiedOsReleasePath(): string | null {
   // Owner request, 2026-11-08: classify access to the OS file, not its neighbours.
   try {
     const target = fs.realpathSync(OS_RELEASE_PATH);
@@ -26,8 +22,16 @@ export function osReleaseReadPath(
   } catch {
     return null;
   }
+  return OS_RELEASE_PATH;
+}
+
+export function osReleaseReadPath(
+  toolName: string,
+  args: Record<string, unknown>,
+): string | null {
+  if (toolName !== 'read' && toolName !== 'bash') return null;
   if (toolName === 'read')
-    return args.path === OS_RELEASE_PATH ? OS_RELEASE_PATH : null;
+    return args.path === OS_RELEASE_PATH ? verifiedOsReleasePath() : null;
   if (typeof args.command !== 'string') return null;
   let read = false;
   let readingPipe = false;
@@ -65,5 +69,5 @@ export function osReleaseReadPath(
     read = true;
     readingPipe = entry.pipesOut;
   }
-  return read ? OS_RELEASE_PATH : null;
+  return read ? verifiedOsReleasePath() : null;
 }
