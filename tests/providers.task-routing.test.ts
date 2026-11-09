@@ -844,6 +844,8 @@ test('returns a deferred policy error when no discovered vision fallback is avai
   }));
 
   const taskRouting = await importFreshTaskRouting(homeDir);
+  const discovery = await import('../src/providers/hybridai-discovery.js');
+  vi.spyOn(discovery, 'getDiscoveredHybridAIModelVisionCapability').mockReturnValue(false);
   const policy = await taskRouting.resolveTaskModelPolicy('vision', {
     agentId: 'main',
     sessionModel: 'text-only-test-model',

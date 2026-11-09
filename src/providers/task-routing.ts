@@ -2,7 +2,8 @@
  * Auxiliary policies resolve defaults and keep task budgets separate from model capacity.
  * Disabled policies remain explicit across the worker boundary, preventing fallback.
  * Routing classification has its own task identity and explicit model; Skills Hub
- * settings cannot enable, disable or redirect that classifier.
+ * settings cannot enable, disable or redirect that classifier. Unknown vision
+ * capabilities retain endpoint negotiation; known text-only models use fallback.
  */
 
 import {
@@ -27,6 +28,7 @@ import { parsePositiveInteger } from '../utils/number-normalization.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import { isLocalEndpointModelForBackend } from './local-endpoints.js';
 import {
+  canModelAcceptVisualMedia,
   findVisionCapableModel,
   getAvailableModelList,
   isModelVisionCapable,
@@ -257,17 +259,18 @@ export async function resolveTaskModelPolicy(
 
   if (providerSelection === 'auto' && !rawModel) {
     // For the vision task, verify that the session/fallback model actually
-    // supports image inputs.  If it does not, find a vision-capable model
-    // from the catalog and return it as an override so the container never
-    // attempts a vision call against a text-only model.
+    // supports image inputs. Known text-only models need a capable override;
+    // unfamiliar models keep the same endpoint negotiation as image attachments.
     if (task === 'vision' && params.sessionModel) {
-      let sessionModelIsVisionCapable = isModelVisionCapable(
+      let sessionModelIsVisionCapable = await canModelAcceptVisualMedia(
         params.sessionModel,
       );
       let discoveredOpenRouterModels: string[] = [];
       if (!sessionModelIsVisionCapable) {
         discoveredOpenRouterModels = await discoverOpenRouterModels();
-        sessionModelIsVisionCapable = isModelVisionCapable(params.sessionModel);
+        sessionModelIsVisionCapable = await canModelAcceptVisualMedia(
+          params.sessionModel,
+        );
       }
 
       if (!sessionModelIsVisionCapable) {

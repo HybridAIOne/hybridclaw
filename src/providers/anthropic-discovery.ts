@@ -1,3 +1,7 @@
+/**
+ * Anthropic discovery distinguishes a cached text-only model from missing metadata.
+ * Capability reads describe the catalog; they neither probe nor authorize inference.
+ */
 import {
   requireAnthropicApiKey,
   requireAnthropicClaudeCliCredential,
@@ -254,4 +258,13 @@ export function isDiscoveredAnthropicModelVisionCapable(
   model: string,
 ): boolean {
   return defaultAnthropicDiscoveryStore.isModelVisionCapable(model);
+}
+
+export function getDiscoveredAnthropicModelVisionCapability(
+  model: string,
+): boolean | null {
+  const canonical = normalizeAnthropicModelName(model);
+  return defaultAnthropicDiscoveryStore.getModelNames().includes(canonical)
+    ? defaultAnthropicDiscoveryStore.isModelVisionCapable(canonical)
+    : null;
 }

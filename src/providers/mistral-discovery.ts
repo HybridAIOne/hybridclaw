@@ -1,3 +1,7 @@
+/**
+ * Mistral discovery distinguishes a cached text-only model from missing metadata.
+ * Capability reads describe the catalog; they neither probe nor authorize inference.
+ */
 import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
 import { parsePositiveInteger } from '../utils/number-normalization.js';
@@ -269,4 +273,14 @@ export function getDiscoveredMistralModelLifecycle(
 
 export function isDiscoveredMistralModelVisionCapable(model: string): boolean {
   return defaultMistralDiscoveryStore.isModelVisionCapable(model);
+}
+
+export function getDiscoveredMistralModelVisionCapability(
+  model: string,
+): boolean | null {
+  const canonical =
+    defaultMistralDiscoveryStore.resolveCanonicalModelName(model);
+  return defaultMistralDiscoveryStore.getModelNames().includes(canonical)
+    ? defaultMistralDiscoveryStore.isModelVisionCapable(canonical)
+    : null;
 }
