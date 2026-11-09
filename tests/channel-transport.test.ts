@@ -36,15 +36,19 @@ function createTransportRegistration() {
       sendText: vi.fn(async () => {}),
       sendMedia: vi.fn(async () => {}),
     })),
+    matchesTarget: () => false,
+    normalizeTarget: () => null,
+    getAuthStatus: async () => ({ linked: false }),
+    resetAuth: async () => '/tmp/unused',
   };
 }
 
-test('registers, resolves, and unregisters a channel transport', () => {
+test('registers, resolves, and unregisters a channel transport as-is', () => {
   const registration = createTransportRegistration();
-  const registered = registerChannelTransport(registration);
+  expect(registerChannelTransport(registration)).toBe(registration);
 
   expect(hasChannelTransport('whatsapp')).toBe(true);
-  expect(getChannelTransport('whatsapp')).toBe(registered);
+  expect(getChannelTransport('whatsapp')).toBe(registration);
   expect(() =>
     registerChannelTransport(createTransportRegistration()),
   ).toThrow('already registered');
@@ -53,36 +57,16 @@ test('registers, resolves, and unregisters a channel transport', () => {
   expect(hasChannelTransport('whatsapp')).toBe(false);
 });
 
-test('a registration that answers every hook is stored as-is', () => {
-  const registration = {
-    ...createTransportRegistration(),
-    matchesTarget: () => false,
-    normalizeTarget: () => null,
-    getAuthStatus: async () => ({ linked: false }),
-    resetAuth: async () => '/tmp/unused',
-  };
-  expect(registerChannelTransport(registration)).toBe(registration);
-});
-
-test('the released create-only WhatsApp plugin gets the compat hooks', () => {
-  const registered = registerChannelTransport(createTransportRegistration());
-  expect(registered.matchesTarget('491701234567@s.whatsapp.net')).toBe(true);
-  expect(registered.normalizeTarget('whatsapp:+49 170 1234567')).toBe(
-    '491701234567@s.whatsapp.net',
-  );
-  expect(registered.normalizeTarget('telegram:123')).toBeNull();
-  expect(registered.getPairingState?.()).toMatchObject({
-    pairingQrText: null,
-    error: null,
-  });
-});
-
 test.each([
   { kind: 'telegram', error: 'Unknown channel transport kind "telegram"' },
   { kind: 'constructor', error: 'Unknown channel transport kind' },
   {
     kind: 'line',
     error: 'retired create-only contract. Update the plugin: hybridclaw plugin reinstall line',
+  },
+  {
+    kind: 'whatsapp',
+    error: `retired create-only contract. Update the plugin: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry('whatsapp')?.installSource}`,
   },
 ])('rejects $kind registrations loudly', ({ kind, error }) => {
   expect(() =>
@@ -94,7 +78,8 @@ test.each([
 test('rejects a registration that skips required hooks', () => {
   expect(() =>
     registerChannelTransport({
-      ...createTransportRegistration(),
+      kind: 'whatsapp',
+      create: vi.fn(),
       matchesTarget: () => false,
     } as never),
   ).toThrow(
@@ -125,11 +110,12 @@ test.each([
     missing: 'matchesTarget, normalizeTarget, getAuthStatus, resetAuth',
   },
 ])(
-  'a WhatsApp registration with $name is refused, not adapted as legacy',
+  'a WhatsApp registration with $name is refused',
   ({ hooks, missing }) => {
     expect(() =>
       registerChannelTransport({
-        ...createTransportRegistration(),
+        kind: 'whatsapp',
+        create: vi.fn(),
         ...hooks,
       } as never),
     ).toThrow(`Channel transport "whatsapp" is missing ${missing}.`);
@@ -245,6 +231,10 @@ test('plugin registration rollback removes a transport from a failed plugin', as
       '    api.registerChannelTransport({',
       "      kind: 'whatsapp',",
       '      create() { throw new Error("not used"); },',
+      '      matchesTarget: () => false,',
+      '      normalizeTarget: () => null,',
+      '      getAuthStatus: async () => ({ linked: false }),',
+      "      resetAuth: async () => '/tmp/unused',",
       '    });',
       '    throw new Error("registration failed");',
       '  },',

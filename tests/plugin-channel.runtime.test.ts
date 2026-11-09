@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
+import { getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
 import {
   registerChannelTransport,
   unregisterChannelTransport,
@@ -13,7 +14,7 @@ import {
 import { sendPluginChannelProactive } from '../src/channels/plugin-channel/proactive.js';
 import {
   createFakeTransportInstance,
-  legacyWhatsAppRegistration,
+  fakeWhatsAppRegistration,
 } from './helpers/fake-channel-transport.js';
 
 vi.mock('../src/channels/plugin-channel/host.js', () => ({
@@ -61,7 +62,7 @@ test('prefers the registered plugin and retains its instance for shutdown', asyn
   const instance = createFakeTransportInstance({
     createPairingSession: vi.fn(async () => pairingSession),
   });
-  const registration = legacyWhatsAppRegistration(instance);
+  const registration = fakeWhatsAppRegistration(instance);
   registerChannelTransport(registration);
 
   const handler = vi.fn(async () => {});
@@ -75,9 +76,7 @@ test('prefers the registered plugin and retains its instance for shutdown', asyn
     pairingSession,
   );
 
-  expect(
-    (registration as unknown as { create: ReturnType<typeof vi.fn> }).create,
-  ).toHaveBeenCalledTimes(1);
+  expect(registration.create).toHaveBeenCalledTimes(1);
   expect(instance.init).toHaveBeenCalledWith(handler);
   expect(instance.sendText).toHaveBeenCalledWith(
     '491701234567@s.whatsapp.net',
@@ -93,7 +92,7 @@ test('preserves plugin send IDs for text and media', async () => {
   const textResult = { messageIds: ['chunk-1', 'chunk-2'] };
   const mediaResult = { messageIds: ['attachment-1'] };
   registerChannelTransport(
-    legacyWhatsAppRegistration(
+    fakeWhatsAppRegistration(
       createFakeTransportInstance({
         sendText: async () => textResult,
         sendMedia: async () => mediaResult,
@@ -111,27 +110,18 @@ test('preserves plugin send IDs for text and media', async () => {
   ).resolves.toBe(mediaResult);
 });
 
-test('the legacy WhatsApp host keeps the auth, pairing, and phone helpers', async () => {
-  const create = vi.fn(() => createFakeTransportInstance());
-  registerChannelTransport({ kind: 'whatsapp', create } as never);
-  await sendPluginChannelText('whatsapp', '15550100200@s.whatsapp.net', 'hi');
-
-  const host = create.mock.calls[0]?.[0] as unknown as Record<
-    string,
-    Record<string, unknown>
-  >;
-  expect(host.kind).toBe('whatsapp');
-  expect(host.auth.authDir).toMatch(/credentials[/\\]whatsapp$/);
-  expect(Object.keys(host.pairing).sort()).toEqual([
-    'clear',
-    'setError',
-    'setQrText',
-  ]);
-  expect(
-    (host.phone.normalizePhoneNumber as (raw: string) => string | null)(
-      'whatsapp:(555) 123-4567',
-    ),
-  ).toBe('+5551234567');
+test.each([
+  'whatsapp',
+  'line',
+] as const)('refuses a create-only %s registration with the reinstall command', (kind) => {
+  expect(() =>
+    registerChannelTransport({
+      kind,
+      create: () => createFakeTransportInstance(),
+    } as never),
+  ).toThrow(
+    `uses the retired create-only contract. Update the plugin: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry(kind)?.installSource}`,
+  );
 });
 
 test.each([

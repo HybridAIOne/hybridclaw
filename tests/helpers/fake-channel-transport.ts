@@ -1,5 +1,13 @@
 import { vi } from 'vitest';
-import type { ChannelTransportInstance } from '../../src/channels/channel-transport.js';
+import type {
+  ChannelTransportAuthStatus,
+  ChannelTransportInstance,
+  ChannelTransportRegistration,
+} from '../../src/channels/channel-transport.js';
+import {
+  isWhatsAppJid,
+  normalizeWhatsAppTarget,
+} from '../../src/channels/whatsapp/phone.js';
 
 /**
  * A transport instance whose methods are spies, for registering a fake
@@ -18,12 +26,31 @@ export function createFakeTransportInstance(
 }
 
 /**
- * The create-only shape the released hybridclaw-whatsapp 0.1.x plugin
- * registers; core adapts it through the WhatsApp compat registration.
+ * A full-contract WhatsApp registration over a fake instance. The real plugin
+ * owns JID formatting and send descriptions; these fakes only give core
+ * something to route through.
  */
-export function legacyWhatsAppRegistration(instance: ChannelTransportInstance) {
+export function fakeWhatsAppRegistration(
+  instance: ChannelTransportInstance,
+  overrides: Partial<ChannelTransportRegistration> = {},
+) {
   return {
     kind: 'whatsapp',
     create: vi.fn(() => instance),
-  } as never;
+    matchesTarget: isWhatsAppJid,
+    normalizeTarget: normalizeWhatsAppTarget,
+    getAuthStatus: vi.fn(
+      async (): Promise<ChannelTransportAuthStatus> => ({ linked: true }),
+    ),
+    resetAuth: vi.fn(async () => '/tmp/unused'),
+    describeSend: ({ target, auth }) => ({
+      sentFrom:
+        typeof auth.jid === 'string' ? auth.jid : 'the linked WhatsApp account',
+      recipient: target,
+    }),
+    messageToolHints: () => [FAKE_WHATSAPP_HINT],
+    ...overrides,
+  } satisfies ChannelTransportRegistration;
 }
+
+export const FAKE_WHATSAPP_HINT = 'fake WhatsApp transport hint';

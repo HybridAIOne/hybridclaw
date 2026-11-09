@@ -1,245 +1,33 @@
-import fsSync from 'node:fs';
-import fs from 'node:fs/promises';
+/**
+ * Read-only view of the WhatsApp link the plugin stores under
+ * `<data dir>/credentials/whatsapp`, for core decisions that must stay
+ * synchronous (binding a running channel to its agent).
+ *
+ * The plugin owns this directory: credential writes, the lock, pairing, and
+ * reset live there. NOT the plugin's `getAuthStatus`, which is what gateway
+ * status, doctor, and sends ask.
+ */
+import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../../config/runtime-paths.js';
-import { sleep } from '../../utils/sleep.js';
 
-export const WHATSAPP_AUTH_DIR = path.join(
+const WHATSAPP_CREDS_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'credentials',
   'whatsapp',
+  'creds.json',
 );
-const WHATSAPP_AUTH_LOCK_TIMEOUT_MS = 2_000;
-const WHATSAPP_AUTH_LOCK_CORRUPT_STALE_MS = 10_000;
-const WHATSAPP_AUTH_LOCK_PROCESS_START_SKEW_MS = 1_000;
-const WHATSAPP_AUTH_FILE_MODE = 0o600;
 
-interface WhatsAppAuthLockMetadata {
-  pid: number | null;
-  startedAt: string;
-  purpose: string;
-}
-
-export class WhatsAppAuthLockError extends Error {
-  readonly lockPath: string;
-  readonly ownerPid: number | null;
-
-  constructor(
-    message: string,
-    options: { lockPath: string; ownerPid?: number | null },
-  ) {
-    super(message);
-    this.name = 'WhatsAppAuthLockError';
-    this.lockPath = options.lockPath;
-    this.ownerPid = options.ownerPid ?? null;
-  }
-}
-
-export function whatsappAuthLockPath(authDir = WHATSAPP_AUTH_DIR): string {
-  return `${authDir}.lock`;
-}
-
-function isProcessRunning(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
+export function isWhatsAppLinked(): boolean {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === 'ESRCH') return false;
-    // EPERM means the process exists but belongs to another user.
-    if (code === 'EPERM') return true;
-    return false;
-  }
-}
-
-function readLockMetadata(lockPath: string): WhatsAppAuthLockMetadata | null {
-  try {
-    const raw = fsSync.readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<WhatsAppAuthLockMetadata>;
-    const pid =
-      typeof parsed.pid === 'number' && Number.isFinite(parsed.pid)
-        ? Math.trunc(parsed.pid)
-        : null;
-    return {
-      pid,
-      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
-      purpose: typeof parsed.purpose === 'string' ? parsed.purpose : '',
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseLockStartedAt(metadata: WhatsAppAuthLockMetadata): number | null {
-  const startedAtMs = Date.parse(metadata.startedAt);
-  return Number.isFinite(startedAtMs) ? startedAtMs : null;
-}
-
-function isLockFromPreviousCurrentProcessLifetime(
-  metadata: WhatsAppAuthLockMetadata,
-): boolean {
-  if (metadata.pid !== process.pid) return false;
-  const startedAtMs = parseLockStartedAt(metadata);
-  if (startedAtMs == null) return false;
-  const processStartedAtMs = Date.now() - process.uptime() * 1000;
-  return (
-    startedAtMs < processStartedAtMs - WHATSAPP_AUTH_LOCK_PROCESS_START_SKEW_MS
-  );
-}
-
-function maybeClearInactiveAuthLock(lockPath: string): boolean {
-  const metadata = readLockMetadata(lockPath);
-  if (metadata?.pid != null) {
-    if (isLockFromPreviousCurrentProcessLifetime(metadata)) {
-      try {
-        fsSync.rmSync(lockPath, { force: true });
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    if (isProcessRunning(metadata.pid)) return false;
-    try {
-      fsSync.rmSync(lockPath, { force: true });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  try {
-    const stat = fsSync.statSync(lockPath);
-    if (Date.now() - stat.mtimeMs <= WHATSAPP_AUTH_LOCK_CORRUPT_STALE_MS) {
-      return false;
-    }
-    fsSync.rmSync(lockPath, { force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function acquireWhatsAppAuthLock(
-  authDir = WHATSAPP_AUTH_DIR,
-  options?: {
-    purpose?: string;
-    timeoutMs?: number;
-  },
-): Promise<() => void> {
-  const lockPath = whatsappAuthLockPath(authDir);
-  const timeoutMs = Math.max(
-    0,
-    options?.timeoutMs ?? WHATSAPP_AUTH_LOCK_TIMEOUT_MS,
-  );
-  const startedAt = Date.now();
-  let backoffMs = 50;
-
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-
-  while (true) {
-    try {
-      const fd = fsSync.openSync(lockPath, 'wx', WHATSAPP_AUTH_FILE_MODE);
-      const payload: WhatsAppAuthLockMetadata = {
-        pid: process.pid,
-        startedAt: new Date().toISOString(),
-        purpose: String(options?.purpose || 'runtime').trim() || 'runtime',
-      };
-      fsSync.writeFileSync(
-        fd,
-        `${JSON.stringify(payload, null, 2)}\n`,
-        'utf-8',
-      );
-      fsSync.closeSync(fd);
-      return () => {
-        try {
-          fsSync.rmSync(lockPath, { force: true });
-        } catch {
-          // best effort
-        }
-      };
-    } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code !== 'EEXIST') {
-        throw new WhatsAppAuthLockError(
-          `Failed to acquire WhatsApp auth lock at ${lockPath}.`,
-          { lockPath },
-        );
-      }
-      if (maybeClearInactiveAuthLock(lockPath)) continue;
-      if (Date.now() - startedAt >= timeoutMs) break;
-      await sleep(backoffMs);
-      backoffMs = Math.min(backoffMs * 2, 250);
-    }
-  }
-
-  const owner = readLockMetadata(lockPath);
-  const ownerHint = owner?.pid != null ? ` (owned by pid ${owner.pid})` : '';
-  throw new WhatsAppAuthLockError(
-    `WhatsApp auth state is already in use${ownerHint}. Stop the other HybridClaw process before linking or resetting WhatsApp.`,
-    {
-      lockPath,
-      ownerPid: owner?.pid ?? null,
-    },
-  );
-}
-
-export async function ensureWhatsAppAuthDir(
-  authDir = WHATSAPP_AUTH_DIR,
-): Promise<string> {
-  await fs.mkdir(authDir, { recursive: true });
-  return authDir;
-}
-
-export async function resetWhatsAppAuthState(
-  authDir = WHATSAPP_AUTH_DIR,
-): Promise<string> {
-  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
-    purpose: 'reset',
-  });
-  try {
-    await fs.rm(authDir, { recursive: true, force: true });
-    await fs.mkdir(authDir, { recursive: true });
-    return authDir;
-  } finally {
-    releaseLock();
-  }
-}
-
-type WhatsAppAuthStatus = {
-  linked: boolean;
-  jid: string | null;
-};
-
-function parseWhatsAppAuthStatus(raw: string): WhatsAppAuthStatus {
-  const parsed = JSON.parse(raw) as {
-    registered?: unknown;
-    me?: { id?: unknown } | null;
-  };
-  const jid =
-    typeof parsed?.me?.id === 'string' && parsed.me.id.trim()
-      ? parsed.me.id.trim()
-      : null;
-  return { linked: jid != null || parsed?.registered === true, jid };
-}
-
-export async function getWhatsAppAuthStatus(
-  authDir = WHATSAPP_AUTH_DIR,
-): Promise<WhatsAppAuthStatus> {
-  try {
-    return parseWhatsAppAuthStatus(
-      await fs.readFile(path.join(authDir, 'creds.json'), 'utf-8'),
+    const parsed = JSON.parse(
+      fs.readFileSync(WHATSAPP_CREDS_PATH, 'utf-8'),
+    ) as { registered?: unknown; me?: { id?: unknown } | null };
+    const id = parsed?.me?.id;
+    return (
+      (typeof id === 'string' && id.trim() !== '') ||
+      parsed?.registered === true
     );
-  } catch {
-    return { linked: false, jid: null };
-  }
-}
-
-export function isWhatsAppLinked(authDir = WHATSAPP_AUTH_DIR): boolean {
-  try {
-    return parseWhatsAppAuthStatus(
-      fsSync.readFileSync(path.join(authDir, 'creds.json'), 'utf-8'),
-    ).linked;
   } catch {
     return false;
   }

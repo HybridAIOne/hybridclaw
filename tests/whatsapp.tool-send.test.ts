@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import {
+  type ChannelTransportAuthStatus,
   registerChannelTransport,
   unregisterChannelTransport,
 } from '../src/channels/channel-transport.js';
@@ -9,21 +10,22 @@ import {
 } from '../src/channels/plugin-channel/tool-send.js';
 import {
   createFakeTransportInstance,
-  legacyWhatsAppRegistration,
+  fakeWhatsAppRegistration,
 } from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn() }));
-vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getWhatsAppAuthStatus: mocks.auth,
-}));
 vi.mock('../src/channels/plugin-channel/host.js', () => ({
   createChannelTransportHost: () => ({}),
 }));
 
 const instance = createFakeTransportInstance();
-registerChannelTransport(legacyWhatsAppRegistration(instance));
+const mocks = {
+  auth: vi.fn(async (): Promise<ChannelTransportAuthStatus> => ({ linked: true })),
+};
+const registration = fakeWhatsAppRegistration(instance, {
+  getAuthStatus: mocks.auth,
+});
+registerChannelTransport(registration);
 
 useCleanMocks({ cleanup: () => vi.clearAllMocks() });
 afterEach(() => {
@@ -57,8 +59,8 @@ test.each([null, '/tmp/image.png'])(
     expect(result).toMatchObject({
       ok: true,
       transport: 'whatsapp',
-      sentFrom: '+15550100100',
-      recipient: '+15550100200',
+      sentFrom: '15550100100:7@s.whatsapp.net',
+      recipient: params.channelId,
       messageIds: filePath ? ['attachment-1'] : ['chunk-1', 'chunk-2'],
       deliveryStatus: 'unknown-recipient',
       deliveryConfirmed: false,
@@ -101,6 +103,6 @@ test('fails loudly once the WhatsApp plugin is gone', async () => {
       'WhatsApp transport plugin is not installed',
     );
   } finally {
-    registerChannelTransport(legacyWhatsAppRegistration(instance));
+    registerChannelTransport(registration);
   }
 });
