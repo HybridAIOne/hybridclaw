@@ -2880,6 +2880,10 @@ async function importFreshHealth(options?: {
     callOpenAICompatibleModelStream,
     mapOpenAICompatibleUsageToTokenStats,
   }));
+  vi.doMock('../src/usage/model-cost.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/usage/model-cost.js')>()),
+    resolveUsageCostUsdAfterMetadataRefresh: async () => 0,
+  }));
   vi.doMock('../src/providers/auxiliary.js', () => ({
     callAuxiliaryModel,
   }));
