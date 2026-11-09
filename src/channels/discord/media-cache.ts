@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import * as config from '../../config/config.js';
 import { logger } from '../../logger.js';
+import { sanitizeFilenameSegment } from '../../media/uploaded-media-cache.js';
 
 const CONTAINER_DISCORD_MEDIA_CACHE_DIR = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR_MODE = 0o700;
@@ -11,8 +12,6 @@ const DISCORD_MEDIA_CACHE_FILE_MODE = 0o644;
 const DISCORD_MEDIA_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 const DISCORD_MEDIA_CACHE_CLEANUP_MIN_INTERVAL_MS = 5 * 60 * 1_000;
 const MAX_SANITIZED_FILENAME_CHARS = 60;
-const INVALID_FILENAME_CHARS_RE = /[^\p{L}\p{N}._-]+/gu;
-const TRIM_FILENAME_PUNCTUATION_RE = /^[-_.]+|[-_.]+$/g;
 
 let cleanupPromise: Promise<void> | null = null;
 let lastCleanupStartedAt = 0;
@@ -40,16 +39,6 @@ export function normalizeAttachmentPathForRuntime(
     return hostPath;
   }
   return normalizeAttachmentPathForContainer(hostPath);
-}
-
-function sanitizeFilenameSegment(value: string): string {
-  return value
-    .normalize('NFKC')
-    .trim()
-    .replace(INVALID_FILENAME_CHARS_RE, '-')
-    .replace(/-+/g, '-')
-    .replace(/\.{2,}/g, '.')
-    .replace(TRIM_FILENAME_PUNCTUATION_RE, '');
 }
 
 export function sanitizeAttachmentFilename(name: string): string {
