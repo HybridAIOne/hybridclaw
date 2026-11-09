@@ -4,6 +4,7 @@ import { checkChannels } from './channels.js';
 import { checkConfig } from './config.js';
 import { checkCredentials } from './credentials.js';
 import { checkDatabase } from './database.js';
+import { checkDefaultModel } from './default-model.js';
 import { checkDisk } from './disk.js';
 import { checkDocker } from './docker.js';
 import { checkGateway } from './gateway.js';
@@ -46,6 +47,11 @@ export function doctorChecks(): DoctorCheck[] {
       category: 'providers',
       label: 'Providers',
       run: checkProviders,
+    },
+    {
+      category: 'providers',
+      label: 'Default model',
+      run: checkDefaultModel,
     },
     {
       category: 'local-backends',
