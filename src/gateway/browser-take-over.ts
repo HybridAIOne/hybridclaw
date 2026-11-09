@@ -25,7 +25,10 @@ import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getResolvedSandboxMode } from '../config/config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import { listApiTokens } from '../security/api-tokens.js';
 import { asRecord } from '../utils/type-guards.js';
+import { isOwnerDeviceToken } from './device-grants.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export const TAKE_OVER_OPEN_PATH = '/api/browser/take-over';
@@ -122,6 +125,18 @@ function requireTakeOver(raw: unknown): TakeOver {
   return takeOver;
 }
 
+// Only the owner's paired phone can open a take-over, so without one the
+// agent would wait minutes for nobody.
+function hasTakeOverDevice(now = Date.now()): boolean {
+  return listApiTokens().some(
+    (token) =>
+      !token.revoked_at &&
+      (!token.expires_at || Date.parse(token.expires_at) > now) &&
+      isOwnerDeviceToken(token.claims) &&
+      isAdminActionAllowed(token.claims, 'browser.control'),
+  );
+}
+
 /** The worker's routes, called with the gateway token. */
 export async function handleApiTakeOverRuntime(
   req: IncomingMessage,
@@ -134,6 +149,12 @@ export async function handleApiTakeOverRuntime(
       throw new GatewayRequestError(
         409,
         'Taking over the browser needs the host sandbox mode.',
+      );
+    }
+    if (!hasTakeOverDevice()) {
+      throw new GatewayRequestError(
+        409,
+        'No paired phone can take over the browser. For a sign-in, use browser_sign_in, which asks the user in chat.',
       );
     }
     const sessionId = text(body.sessionId, 256);
