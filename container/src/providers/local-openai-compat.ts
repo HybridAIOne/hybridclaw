@@ -1,7 +1,7 @@
 /**
  * Compatible API transport preserves tool calls, reasoning, and finish reasons.
- * MLX uses streaming on the wire even for a collected answer so ongoing thought
- * remains observable to idle timeouts; this adapter never sets its context budget.
+ * Final answers take precedence over reasoning-only call recovery.
+ * MLX streams keep thought observable; context budgets remain caller-owned.
  */
 import { createHash } from 'node:crypto';
 import { isRecord } from '../../shared/primitive-values.js';
@@ -514,6 +514,7 @@ function adaptLocalOpenAICompatResponse(
   );
   if (
     normalized.toolCalls.length === 0 &&
+    thinking.thinkingOnly &&
     thinking.thinking &&
     (normalizationOptions.parser === 'qwen' ||
       normalizationOptions.parser === 'qwen3_coder')
@@ -524,10 +525,7 @@ function adaptLocalOpenAICompatResponse(
       normalizationOptions,
     );
     if (thinkingToolCalls.toolCalls.length > 0) {
-      normalized = {
-        content: thinking.thinkingOnly ? null : normalized.content,
-        toolCalls: thinkingToolCalls.toolCalls,
-      };
+      normalized = { content: null, toolCalls: thinkingToolCalls.toolCalls };
     }
   }
   return {
