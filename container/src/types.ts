@@ -31,6 +31,7 @@ import type {
   TokenUsageStats,
 } from '@hybridclaw/shared/token-usage';
 import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
+import type { FileBackedToolResults } from '@hybridclaw/shared/tool-history';
 import type { RecoveryDisposition } from '@hybridclaw/shared/turn-checkpoint';
 import type {
   PdfFilePart,
@@ -442,7 +443,8 @@ export interface OutputPresentationMetadata {
 
 export interface ContainerOutput
   extends FileWriteGuardContext,
-    FileWriteGuardReceipt {
+    FileWriteGuardReceipt,
+    FileBackedToolResults {
   recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
@@ -453,8 +455,6 @@ export interface ContainerOutput
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
-  /** Results sent as file references; model input retains the complete text. */
-  spilledToolCallIds?: string[];
   /** Steering notes the model was shown during the turn, in order. */
   steerNoteIds?: string[];
   pendingApproval?: PendingApproval;

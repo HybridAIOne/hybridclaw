@@ -1,5 +1,5 @@
-import type { TurnContext } from 'botbuilder-core';
-import { ActivityTypes } from 'botframework-schema';
+import { Activity, ActivityTypes } from '@microsoft/agents-activity';
+import type { TurnContext } from '@microsoft/agents-hosting';
 import { logger } from '../../logger.js';
 
 const DEFAULT_TYPING_INTERVAL_MS = 4_000;
@@ -13,7 +13,7 @@ export function createMSTeamsTypingController(
 
   const sendTyping = async (): Promise<void> => {
     try {
-      await turnContext.sendActivity({ type: ActivityTypes.Typing });
+      await turnContext.sendActivity(new Activity(ActivityTypes.Typing));
     } catch (error) {
       logger.debug({ error }, 'Teams typing indicator failed');
     }

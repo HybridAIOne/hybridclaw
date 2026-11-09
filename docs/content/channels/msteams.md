@@ -6,7 +6,8 @@ sidebar_position: 9
 
 # Microsoft Teams
 
-HybridClaw uses the Microsoft Bot Framework webhook flow for Teams. The same
+HybridClaw uses the Microsoft 365 Agents SDK to authenticate Azure Bot Service
+webhooks for Teams. The same
 single-tenant Microsoft Entra application ID connects the Entra app
 registration, HybridClaw channel, Azure Bot resource, and Teams app.
 
@@ -64,7 +65,7 @@ Keep the app page open. You need it again when creating the client secret.
 
 Use the client secret **Value**, not its **Secret ID**. On a running gateway,
 setting or rotating `MSTEAMS_APP_PASSWORD` from the Credentials page refreshes
-the Teams credential and Bot Framework adapter in process. A container restart
+the Teams credential and adapter in process. A container restart
 is not required.
 
 ## Step 4: Create the Azure Bot resource

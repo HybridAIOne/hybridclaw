@@ -34,7 +34,7 @@ const BUNDLED_DEPENDENCIES = new Set([
 ]);
 
 // Matched on what first-party code imports, not on package.json: src also
-// imports transitive packages such as botbuilder-core, and inlining those would
+// imports packages from the same SDK family, and inlining those would
 // load a second copy beside the one their external parent package uses.
 const externalUnlessBundled = {
   name: 'external-unless-bundled',

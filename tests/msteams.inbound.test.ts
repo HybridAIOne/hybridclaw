@@ -2,14 +2,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 async function importInboundModule() {
   vi.resetModules();
-  vi.doMock('botbuilder-core', () => ({
-    TurnContext: {
-      getMentions: vi.fn(() => []),
-      removeRecipientMention: vi.fn(
-        (activity: { text?: string | null }) => activity.text || '',
-      ),
-    },
-  }));
   vi.doMock('../src/command-registry.js', () => ({
     isRegisteredTextCommandName: vi.fn(() => false),
   }));
