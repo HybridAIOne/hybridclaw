@@ -46,7 +46,14 @@ afterEach(() => {
 });
 
 describe('OpenAI API provider', () => {
-  test('sends Responses API requests with tools and adapts function calls', async () => {
+  test.each([
+    { encrypted_content: 'encrypted-reasoning-state' },
+    {
+      encrypted_content: null,
+      content: [{ type: 'reasoning_text', text: 'Synthetic provider state.' }],
+    },
+  ])('replays native reasoning alongside function calls: %j', async (state) => {
+    const reasoning = { type: 'reasoning', id: 'rs_1', summary: [], ...state };
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('https://api.openai.com/v1/responses');
       expect(new Headers(init?.headers).get('authorization')).toBe(
@@ -86,12 +93,7 @@ describe('OpenAI API provider', () => {
           id: 'resp_openai_1',
           model: 'gpt-5.6-sol',
           output: [
-            {
-              type: 'reasoning',
-              id: 'rs_1',
-              encrypted_content: 'encrypted-reasoning-state',
-              summary: [],
-            },
+            reasoning,
             {
               type: 'function_call',
               id: 'fc_1',
@@ -122,14 +124,8 @@ describe('OpenAI API provider', () => {
       },
     ]);
     expect(response.choices[0]?.finish_reason).toBe('tool_calls');
-    expect(response.choices[0]?.message.openai_response_items).toEqual([
-      {
-        type: 'reasoning',
-        id: 'rs_1',
-        encrypted_content: 'encrypted-reasoning-state',
-        summary: [],
-      },
-    ]);
+    expect(response.choices[0]?.message.openai_response_items).toEqual([reasoning]);
+    expect(response.choices[0]?.message.content).toBeNull();
 
     fetchMock.mockClear();
     vi.stubGlobal(
@@ -139,12 +135,7 @@ describe('OpenAI API provider', () => {
           input?: unknown[];
         };
         expect(body.input).toEqual([
-          {
-            type: 'reasoning',
-            id: 'rs_1',
-            encrypted_content: 'encrypted-reasoning-state',
-            summary: [],
-          },
+          reasoning,
           {
             type: 'function_call',
             call_id: 'call_1',

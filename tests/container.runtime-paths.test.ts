@@ -131,7 +131,7 @@ describe.sequential('container runtime path aliases', () => {
       path.join(workspaceRoot, 'ars.R'),
     );
     expect(resolveWorkspacePath('app/ars.R')).toBe(
-      path.join(workspaceRoot, 'ars.R'),
+      path.join(workspaceRoot, 'app', 'ars.R'),
     );
     expect(resolveWorkspacePath('ars.R')).toBe(
       path.join(workspaceRoot, 'ars.R'),

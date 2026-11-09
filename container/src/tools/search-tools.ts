@@ -15,6 +15,7 @@ import {
 } from '../pinned-paths.js';
 import {
   replaceWorkspaceRootInOutput,
+  resolveTaskSandboxPath,
   resolveWorkspaceGlobPattern,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
@@ -253,36 +254,6 @@ function shellEscape(value: string): string {
 
 function isTaskSandboxSearchEnabled(): boolean {
   return TASK_SANDBOX_CONTAINER.length > 0;
-}
-
-function resolveTaskSandboxPath(rawPath: string): string | null {
-  const input = String(rawPath || '').trim();
-  if (!input) return null;
-  const normalized = input.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function resolveTaskSandboxGlobPattern(rawPattern: string): string | null {
