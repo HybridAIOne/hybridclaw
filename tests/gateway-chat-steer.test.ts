@@ -9,7 +9,7 @@ import {
   closedSteerInboxDirName,
   decodeSteerNote,
   steerInboxDirName,
-} from '../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/steer-inbox';
 import type { ExecutorRequest } from '../src/agent/executor-types.js';
 import type { ContainerOutput } from '../src/types/container.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';

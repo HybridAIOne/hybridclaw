@@ -18,7 +18,7 @@ beforeEach(() => {
   root = realpathSync(makeTempDir());
   for (const dir of [
     'dist',
-    'container/shared',
+    'node_modules/@hybridclaw/shared/src',
     'container/dist',
     'scripts',
     'desktop/scripts',
@@ -36,10 +36,12 @@ beforeEach(() => {
     'container/src/node-version-guard.ts',
     path.join(root, 'container/dist/node-version-guard.ts'),
   );
-  copyFileSync(
-    'container/shared/node-version.js',
-    path.join(root, 'container/shared/node-version.js'),
-  );
+  for (const file of ['package.json', 'src/node-version.js']) {
+    copyFileSync(
+      `packages/shared/${file}`,
+      path.join(root, 'node_modules/@hybridclaw/shared', file),
+    );
+  }
   copyFileSync(
     'scripts/check-node-version.mjs',
     path.join(root, 'scripts/check-node-version.mjs'),

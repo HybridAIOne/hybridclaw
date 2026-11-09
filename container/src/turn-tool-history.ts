@@ -10,14 +10,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import { validateTokenUsage } from '../shared/token-usage.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import { validateTokenUsage } from '@hybridclaw/shared/token-usage';
 import {
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
-} from '../shared/tool-history.js';
-import { TurnCheckpoint } from '../shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/tool-history';
+import { TurnCheckpoint } from '@hybridclaw/shared/turn-checkpoint';
 import { createTokenUsageStats, finalizeTokenUsage } from './token-usage.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 

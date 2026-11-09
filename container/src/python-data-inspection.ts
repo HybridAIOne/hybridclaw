@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { type Cwd, resolvePath } from './bash-commands.js';
 import {
   isWithinRoot,

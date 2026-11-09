@@ -1,18 +1,18 @@
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
-} from '../../container/shared/approval-reply.js';
+} from '@hybridclaw/shared/approval-reply';
 import type {
   FileWriteGuardContext,
   FileWriteGuardReceipt,
-} from '../../container/shared/file-write-guard.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
-import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
-import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
-import type { RecoveryDisposition } from '../../container/shared/turn-checkpoint.js';
-import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+} from '@hybridclaw/shared/file-write-guard';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { SessionAttachmentAccess } from '@hybridclaw/shared/session-attachment-access';
+import type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
+import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
+import type { RecoveryDisposition } from '@hybridclaw/shared/turn-checkpoint';
+import type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -47,8 +47,8 @@ export interface MediaContextItem {
   unavailableReason?: string | null;
 }
 
-export type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
-export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+export type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
+export type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
 
 export interface AddressEnvelope {
   to: string | string[];
@@ -66,7 +66,7 @@ export interface ContainerInput
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see container/shared/ipc-output-files.js. */
+  /** Names this request's reply file; see packages/shared/src/ipc-output-files.js. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -76,7 +76,7 @@ export interface ContainerInput
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * container/shared/ipc-input-auth.js); stripped by buildRedactedInput.
+   * packages/shared/src/ipc-input-auth.js); stripped by buildRedactedInput.
    */
   ipcAuthSecret?: string;
   baseUrl: string;

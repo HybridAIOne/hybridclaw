@@ -24,6 +24,7 @@ COPY console/package.json console/package.json
 COPY desktop/package.json desktop/package.json
 COPY desktop/support/packaging-anchor/ desktop/support/packaging-anchor/
 COPY container/ container/
+COPY packages/shared/ packages/shared/
 COPY scripts/ scripts/
 COPY src/ src/
 COPY tsconfig.json ./

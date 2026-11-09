@@ -5,7 +5,7 @@
  * Terminal policy denials remain blocked; a recovered denial can still complete.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
-import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import { runAgent } from '../agent/agent.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
 import {

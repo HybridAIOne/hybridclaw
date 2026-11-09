@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { escapeRegExp } from '../container/shared/regex.js';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 
 const SYNTAX_CHARACTERS = '^$\\.*+?()[]{}|';
 

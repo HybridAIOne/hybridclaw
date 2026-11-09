@@ -3,7 +3,7 @@
  * schema. Unlike snapshot validation, this module interprets provider payloads;
  * it does not price requests or infer charges for unfinished calls.
  */
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -47,7 +47,7 @@ function firstDefined(values: unknown[]): unknown {
 export {
   createTokenUsageStats,
   finalizeTokenUsage,
-} from '../shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 
 export function createTokenEstimateCache(): TokenEstimateCache {
   return new WeakMap<ChatMessage, number>();

@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
+import { currentDateStampInTimezone } from '@hybridclaw/shared/workspace-time';
 import { logger } from '../logger.js';
 
 const CLEANUP_METHODS = {

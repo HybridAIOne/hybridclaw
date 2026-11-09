@@ -12,7 +12,7 @@ import type {
   WebNotificationKind,
   WebNotificationState,
   WebPushSubscription,
-} from '../../container/shared/web-notifications.js';
+} from '@hybridclaw/shared/web-notifications';
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
 import { getConfigSnapshot } from '../config/config.js';
 import { logger } from '../logger.js';

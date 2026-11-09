@@ -6,7 +6,7 @@
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
-} from '../../container/shared/visual-snapshots.js';
+} from '@hybridclaw/shared/visual-snapshots';
 
 export interface ChatContentTextPart {
   type: 'text';

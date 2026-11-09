@@ -3,8 +3,9 @@
  * Failure bookkeeping may pause a job, never resume it; dispatch belongs to
  * the scheduler rather than this persistence layer.
  */
+
+import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import type Database from 'better-sqlite3';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import type {
@@ -53,9 +54,7 @@ export interface CreateJobInput {
 export interface TaskExecutionOptions {
   title?: string | null;
   model?: string | null;
-  effort?:
-    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-    | null;
+  effort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort | null;
   freshSession?: boolean;
 }
 
@@ -190,9 +189,7 @@ function addOptionsOf(rawAction: string): {
   eventParentId?: number;
   title?: string | null;
   model?: string | null;
-  effort?:
-    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
-    | null;
+  effort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort | null;
   freshSession?: boolean;
   trigger?: TaskTrigger;
   triggerEvent?: TriggerEvent;
@@ -209,7 +206,7 @@ function addOptionsOf(rawAction: string): {
     title?: string | null;
     model?: string | null;
     effort?:
-      | import('../../container/shared/reasoning-effort.js').ReasoningEffort
+      | import('@hybridclaw/shared/reasoning-effort').ReasoningEffort
       | null;
     freshSession?: boolean;
   } | null>(rawAction, null);

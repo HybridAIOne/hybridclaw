@@ -7,7 +7,7 @@ import {
   readTurnCheckpoint,
   TurnCheckpoint,
   turnCheckpointPath,
-} from '../container/shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/turn-checkpoint';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import { recoverWorkerOutput } from '../src/infra/worker-recovery.js';
 import { useTempDir } from './test-utils.js';

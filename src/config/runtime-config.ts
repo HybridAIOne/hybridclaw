@@ -14,21 +14,21 @@ import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   normalizeApprovalMode,
-} from '../../container/shared/approval-mode.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+} from '@hybridclaw/shared/approval-mode';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '@hybridclaw/shared/context-guard-config';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
   normalizeMcpToolMode,
-} from '../../container/shared/local-tool-config.js';
-import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
-import { normalizeDisabledSafetyRules } from '../../container/shared/safety-rules.js';
+} from '@hybridclaw/shared/local-tool-config';
+import { parseMcpToolBehaviorConfig } from '@hybridclaw/shared/mcp-server-config';
+import { normalizeDisabledSafetyRules } from '@hybridclaw/shared/safety-rules';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,

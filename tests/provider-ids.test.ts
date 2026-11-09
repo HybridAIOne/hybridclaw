@@ -5,13 +5,13 @@ import {
   LOCAL_BACKEND_IDS,
   OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
   RUNTIME_PROVIDER_IDS,
-} from '../container/shared/provider-ids.js';
+} from '@hybridclaw/shared/provider-ids';
 import { GATEWAY_MODEL_PROVIDER_KEYS } from '../src/gateway/model-provider-keys.js';
 import { PROVIDER_META } from '../src/providers/provider-meta.js';
 
 function declaredTupleLiterals(name: string): string[] {
   const declarations = fs.readFileSync(
-    new URL('../container/shared/provider-ids.d.ts', import.meta.url),
+    new URL('../packages/shared/src/provider-ids.d.ts', import.meta.url),
     'utf8',
   );
   const body =

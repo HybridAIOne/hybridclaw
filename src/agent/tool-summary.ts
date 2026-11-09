@@ -1,4 +1,4 @@
-import { BUILTIN_TOOLS } from '../../container/shared/builtin-tools.js';
+import { BUILTIN_TOOLS } from '@hybridclaw/shared/builtin-tools';
 
 export interface ToolGroup {
   label: string;

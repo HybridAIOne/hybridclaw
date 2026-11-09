@@ -126,7 +126,8 @@ export async function readPdfPages(filePath, options = {}) {
     throw new Error('PDF must be a regular file of at most 50 MiB');
   const runtimeUrl =
     options.runtimeUrl ??
-    new URL('../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url).href;
+    new URL('../../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url)
+      .href;
   const runtime = await import(runtimeUrl);
   const extracted = await runtime.extractPdfText(filePath, selection);
   if (
@@ -211,7 +212,8 @@ export async function searchPdfPages(filePath, query, runtimeUrl) {
     throw new Error('PDF must be a regular file of at most 50 MiB');
   const runtime = await import(
     runtimeUrl ??
-      new URL('../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url).href
+      new URL('../../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url)
+        .href
   );
   return runtime.searchPdfText(filePath, query.trim());
 }

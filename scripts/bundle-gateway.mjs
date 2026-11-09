@@ -13,10 +13,12 @@
 import fs from 'node:fs';
 import { build } from 'esbuild';
 
-// Pure-JS dependencies loaded during gateway startup. All other dependencies
-// stay external: native addons, packages that resolve their own files at
-// runtime (pino transports, browsers), and ones that are only loaded on demand.
+// The first-party shared package and the pure-JS dependencies loaded during
+// gateway startup. All other dependencies stay external: native addons,
+// packages that resolve their own files at runtime (pino transports, browsers),
+// and ones that are only loaded on demand.
 const BUNDLED_DEPENDENCIES = new Set([
+  '@hybridclaw/shared',
   'ajv',
   'cron-parser',
   'jose',

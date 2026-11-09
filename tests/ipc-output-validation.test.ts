@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import { isContainerOutput } from '../src/infra/ipc-output-validation.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

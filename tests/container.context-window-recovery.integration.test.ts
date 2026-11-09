@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { toolResultFilePath } from '@hybridclaw/shared/tool-history';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import type { ChatMessage } from '../src/types/api.js';
 import type { ContainerInput } from '../src/types/container.js';

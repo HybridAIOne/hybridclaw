@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+
+// Writes dist/plugin-sdk.d.ts, the only declarations the package ships, as one
+// self-contained file. tsc emits per-module declarations into a cache dir, and
+// rollup-plugin-dts inlines everything the SDK reaches, including types from
+// @hybridclaw/shared: that workspace package is private, so a plugin's type
+// check could not resolve an import of it.
+
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import { rollup } from 'rollup';
+import { dts } from 'rollup-plugin-dts';
+
+// Not under node_modules, whose files rollup-plugin-dts leaves external.
+const declarationsDir = 'dist/.declarations';
+
+fs.rmSync(declarationsDir, { recursive: true, force: true });
+const tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc');
+const emitted = spawnSync(
+  process.execPath,
+  [tsc, '--outDir', declarationsDir],
+  { stdio: 'inherit' },
+);
+if (emitted.status !== 0) process.exit(emitted.status ?? 1);
+
+const bundle = await rollup({
+  input: `${declarationsDir}/plugin-sdk.d.ts`,
+  // The tsconfig's NodeNext resolution reads the shared package's exports map.
+  plugins: [
+    dts({ tsconfig: 'tsconfig.json', includeExternal: ['@hybridclaw/shared'] }),
+  ],
+  onwarn(warning) {
+    // npm packages and node: builtins stay imports, as in the JS bundle.
+    if (
+      warning.code === 'UNRESOLVED_IMPORT' &&
+      !warning.exporter.startsWith('.')
+    )
+      return;
+    throw new Error(warning.message);
+  },
+});
+await bundle.write({ file: 'dist/plugin-sdk.d.ts', format: 'es' });
+await bundle.close();
+fs.rmSync(declarationsDir, { recursive: true, force: true });

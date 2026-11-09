@@ -1,7 +1,7 @@
 import {
   type EmailDraft,
   normalizeEmailDraft,
-} from '../../../../container/shared/email-draft.js';
+} from '@hybridclaw/shared/email-draft';
 import { EmailDraftCard } from './email-draft-card';
 import { RoutingTags } from './routing-tags';
 /**

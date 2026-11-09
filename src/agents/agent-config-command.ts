@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   normalizeOptionalTrimmedString,

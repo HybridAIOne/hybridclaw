@@ -2,12 +2,12 @@ import { expect, test } from 'vitest';
 import {
   decodeFileWriteGuardContext,
   encodeFileWriteGuardContext,
-} from '../container/shared/file-write-guard.js';
+} from '@hybridclaw/shared/file-write-guard';
 import {
   decodeAuthenticatedInput,
   encodeAuthenticatedInput,
-} from '../container/shared/ipc-input-auth.js';
-import { encodeSteerNote } from '../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/ipc-input-auth';
+import { encodeSteerNote } from '@hybridclaw/shared/steer-inbox';
 import {
   beginFileWriteReviewContext,
   resolveFileWriteReviewContext,

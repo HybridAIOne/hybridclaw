@@ -9,7 +9,7 @@
  * NOT the ladder or tier choice (`providers/model-routing.ts`,
  * `routing/policy.ts`).
  */
-import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type {

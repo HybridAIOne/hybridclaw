@@ -2,12 +2,12 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { lockMemoryFile } from '../container/shared/memory-file.js';
+import { lockMemoryFile } from '@hybridclaw/shared/memory-file';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeDir = useTempDir('memory-lock-owner-');
 useCleanMocks({ restoreAllMocks: true });
-const moduleUrl = new URL('../container/shared/memory-file.js', import.meta.url)
+const moduleUrl = new URL('../packages/shared/src/memory-file.js', import.meta.url)
   .href;
 const children: ChildProcess[] = [];
 

@@ -24,16 +24,19 @@ import path from 'node:path';
 import {
   encodeFileWriteGuardContext,
   type FileWriteGuardRequest,
-} from '../shared/file-write-guard.js';
+} from '@hybridclaw/shared/file-write-guard';
 
-import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../shared/ipc-output-files.js';
+import { decodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import {
   createIpcWakeup,
   IPC_RECONCILE_INTERVAL_MS,
-} from '../shared/ipc-wakeup.js';
-import { writeMemoryFileAtomic } from '../shared/memory-file.js';
-import { decodeSteerNote, type SteerNote } from '../shared/steer-inbox.js';
+} from '@hybridclaw/shared/ipc-wakeup';
+import { writeMemoryFileAtomic } from '@hybridclaw/shared/memory-file';
+import {
+  decodeSteerNote,
+  type SteerNote,
+} from '@hybridclaw/shared/steer-inbox';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';

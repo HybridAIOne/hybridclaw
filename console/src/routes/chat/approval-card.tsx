@@ -1,6 +1,6 @@
+import { parseApprovalRule } from '@hybridclaw/shared/approval-rules';
+import { parseBoostPrompt } from '@hybridclaw/shared/boost-offer';
 import { useMemo } from 'react';
-import { parseApprovalRule } from '../../../../container/shared/approval-rules.js';
-import { parseBoostPrompt } from '../../../../container/shared/boost-offer.js';
 import type { ChatStreamApproval } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';

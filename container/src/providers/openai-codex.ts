@@ -1,8 +1,8 @@
-import { isRecord } from '../../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../shared/server-sent-events.js';
+} from '@hybridclaw/shared/server-sent-events';
 import type {
   ChatCompletionResponse,
   ChatContentPart,

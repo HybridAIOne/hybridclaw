@@ -9,7 +9,7 @@ import {
   matchesNetworkPathPatterns,
   normalizeNetworkRule,
   readNetworkPolicyState,
-} from '../container/shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 import {
   loadPolicyFromDisk,
   TrustedAgentApprovalRuntime,

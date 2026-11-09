@@ -5,6 +5,8 @@
  * NOT the chat transport; it prepares reviewed input and delegates submission.
  */
 
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -17,8 +19,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ApprovalMode } from '../../../../container/shared/approval-mode.js';
-import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { fetchChatCommands } from '../../api/chat';
 import type {
   ChatCommandSuggestion,

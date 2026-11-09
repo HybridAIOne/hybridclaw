@@ -21,7 +21,7 @@ import {
   closedSteerInboxDirName,
   type SteerNote,
   steerInboxDirName,
-} from '../shared/steer-inbox.js';
+} from '@hybridclaw/shared/steer-inbox';
 import { decodeSteerNoteFile } from './ipc.js';
 import { IPC_DIR } from './runtime-paths.js';
 import type { ChatMessage, ToolCall } from './types.js';

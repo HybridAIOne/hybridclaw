@@ -9,7 +9,7 @@ import {
   DEFAULT_COMPRESSION_MAX_TOKENS,
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
-} from '../../container/shared/request-max-tokens.js';
+} from '@hybridclaw/shared/request-max-tokens';
 import {
   DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,

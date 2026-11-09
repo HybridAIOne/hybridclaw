@@ -12,12 +12,16 @@ RUN printf '%s\n' \
     'save-exact=true' \
     'min-release-age=7' \
     > .npmrc
-COPY package.json package-lock.json ./
+# The build context is the repository root. The agent package links its
+# devDependency @hybridclaw/shared from ../packages/shared, which is /packages
+# beside /app; the bundle inlines it, so later stages never see it.
+COPY container/package.json container/package-lock.json ./
+COPY packages/shared/package.json /packages/shared/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
-COPY scripts/bundle.mjs scripts/
-COPY shared/ shared/
-COPY src/ src/
+COPY container/scripts/bundle.mjs scripts/
+COPY packages/shared/src/ /packages/shared/src/
+COPY container/src/ src/
 RUN node scripts/bundle.mjs
 
 # --- Runtime base (no LibreOffice) ---
@@ -53,7 +57,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Agent tool libraries: one lockfile-backed manifest shared with the gateway
 # image (container/tools). Agent-written scripts resolve them via NODE_PATH.
-COPY tools/ /opt/hybridclaw-tools/
+COPY container/tools/ /opt/hybridclaw-tools/
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --break-system-packages --require-hashes \
       -r /opt/hybridclaw-tools/requirements.txt

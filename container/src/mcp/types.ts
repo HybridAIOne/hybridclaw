@@ -3,13 +3,14 @@
  * Approval consumes kind/annotations; parallelSafe also identifies reviewed
  * reads eligible for direct schemas, without granting execution permission.
  */
+
+import type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import type { McpServerConfig } from '../../shared/mcp-server-config.js';
 import type { ToolKind } from './tool-classifier.js';
 
-export type { McpServerConfig } from '../../shared/mcp-server-config.js';
+export type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
 
 export interface McpToolDefinition {
   serverName: string;
@@ -34,7 +35,7 @@ export interface McpToolDefinition {
 export const DEFER_LOADING_META = 'hybridai/deferLoading';
 
 /**
- * Boost handshake with the HybridAI server (`container/shared/boost-offer.js`):
+ * Boost handshake with the HybridAI server (`packages/shared/src/boost-offer.js`):
  * every call says the runtime can ask the user (`BOOST_OFFERS_META`), a result
  * may carry an offer (`BOOST_OFFER_META`), and the repeated call carries the
  * user's answer (`BOOST_META`). All three ride in request or result `_meta`.
