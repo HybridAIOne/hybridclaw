@@ -137,18 +137,37 @@ function staticImportsBeforeBody(entry: string): string[] {
   return specifiers;
 }
 
-async function stopGateway(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise<void>((resolve) =>
-    child.once('exit', () => resolve()),
-  );
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+function signalProcessGroup(pgid: number, signal: NodeJS.Signals | 0): boolean {
   try {
-    await exited;
-  } finally {
-    clearTimeout(timer);
+    process.kill(-pgid, signal);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+// SIGTERM drains in-flight turns for up to 15s, so the SIGKILL below can orphan
+// a host worker that later writes its turn output into the data dir. Kill the
+// gateway's whole process group before the temp dir is removed.
+async function stopGateway(child: ChildProcess): Promise<void> {
+  const pgid = child.pid;
+  if (!pgid) return;
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise<void>((resolve) =>
+      child.once('exit', () => resolve()),
+    );
+    child.kill('SIGTERM');
+    const timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  signalProcessGroup(pgid, 'SIGKILL');
+  await expect
+    .poll(() => signalProcessGroup(pgid, 0), { timeout: 5_000 })
+    .toBe(false);
 }
 
 test('the image gateway, package CLI, and plugin SDK run without container/shared', async () => {
@@ -306,6 +325,7 @@ export default {
     [...command.slice(1), '--sandbox=host'],
     {
       cwd: runtime,
+      detached: true,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     },

@@ -1,9 +1,10 @@
 /**
- * File writes create exclusively unless an explicit replacement matches current bytes.
+ * File writes create exclusively unless replacement matches bytes or their SHA-256.
  * Unlike approval policy, this checks file state; it grants no path access or approval.
  * Failures report any persistent mutation fence together with the original error.
  * Cooperative locks serialize tool writers, not external editors or shell commands.
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { writeFileAtomicExclusive } from '../../shared/atomic-write.js';
 import {
@@ -23,7 +24,7 @@ export const WRITE_TOOL_DEFINITION: ToolDefinition = {
   function: {
     name: 'write',
     description:
-      'Create a new text file. Existing files are protected: intentional replacement requires overwrite=true and expected_content matching the entire current file exactly. Read the file first; on mismatch, read again and reconsider the replacement. Use edit for targeted changes. Use write for new code/program files instead of shell heredocs or code-only replies.',
+      'Create a new text file. For intentional replacement, set overwrite=true and provide either expected_sha256 from a write result or expected_content matching the entire current file exactly. Prefer the returned revision hash; do not reconstruct long files from memory. On mismatch, read and review the current file before retrying with its revision, or use edit for targeted changes. Never delete or use shell writes to bypass a rejected replacement.',
     parameters: {
       type: 'object',
       properties: {
@@ -37,7 +38,12 @@ export const WRITE_TOOL_DEFINITION: ToolDefinition = {
         expected_content: {
           type: 'string',
           description:
-            'Required with overwrite=true: exact full current file content, including whitespace and trailing newlines. A mismatch or missing file fails without writing.',
+            'Alternative to expected_sha256 with overwrite=true: exact full current file content, including whitespace and trailing newlines. A mismatch or missing file fails without writing.',
+        },
+        expected_sha256: {
+          type: 'string',
+          description:
+            'Alternative to expected_content: exact SHA-256 revision returned by a previous write or computed after reading the current file. Requires overwrite=true; provide only one precondition.',
         },
       },
       required: ['path', 'contents'],
@@ -47,6 +53,9 @@ export const WRITE_TOOL_DEFINITION: ToolDefinition = {
 
 const STALE_WRITE =
   'Stale write: expected_content does not match; read the file again.';
+function revisionOf(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 const missingFinalEnding = (ending: 'LF' | 'CRLF') =>
   `Stale write: expected_content is missing the file's final ${ending}. Include that line ending in the exact current content before retrying.`;
 
@@ -73,11 +82,15 @@ IFS= read -r -d '' contents
 mkdir -p -- "$(dirname -- "$target")"
 mkdir -- "$target.lock" || { echo 'File is locked; retry after the writer finishes.' >&2; exit 1; }
 stage=''
-trap 'rm -rf -- "$stage"; rmdir -- "$target.lock"' EXIT
+trap 'status=$?; if [ "$status" != 0 ] && [ ! -L "$target" ] && [ -f "$target" ] && actual=$(sha256sum -- "$target"); then echo "Current revision SHA-256: \${actual%% *}" >&2; fi; rm -rf -- "$stage"; rmdir -- "$target.lock"' EXIT
 stage=$(mktemp -d "$(dirname -- "$target")/.hybridclaw-write.XXXXXX")
 printf '%s' "$contents" | base64 -d > "$stage/content"
 if [ "$overwrite" = true ]; then
   [ ! -L "$target" ] && [ -f "$target" ] || { echo 'Replacement requires an existing regular file.' >&2; exit 1; }
+  if [[ "$expected" == sha256:* ]]; then
+    actual=$(sha256sum -- "$target")
+    [ "\${actual%% *}" = "\${expected#sha256:}" ] || { echo 'Stale write: expected_sha256 does not match; read the file again.' >&2; exit 1; }
+  else
   printf '%s' "$expected" | base64 -d > "$stage/expected"
   if ! cmp -s -- "$stage/expected" "$target"; then
     case $(( $(wc -c < "$target") - $(wc -c < "$stage/expected") )) in
@@ -91,6 +104,7 @@ if [ "$overwrite" = true ]; then
       echo '${STALE_WRITE}' >&2
     fi
     exit 1
+  fi
   fi
   chmod --reference="$target" -- "$stage/content"
   mv -fT -- "$stage/content" "$target"
@@ -127,13 +141,36 @@ export async function runFileWrite(
   const target = resolvePath(args.path);
   if (!target) throw new Error(`Path escapes workspace: ${args.path}`);
   try {
-    if (overwrite && typeof args.expected_content !== 'string') {
+    if (
+      args.expected_sha256 !== undefined &&
+      (typeof args.expected_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(args.expected_sha256))
+    ) {
+      throw new Error('expected_sha256 must be a lowercase SHA-256 digest');
+    }
+    if (
+      args.expected_sha256 !== undefined &&
+      args.expected_content !== undefined
+    ) {
       throw new Error(
-        'Replacement requires expected_content matching the entire current file',
+        'Provide only one of expected_content and expected_sha256',
       );
     }
-    if (!overwrite && args.expected_content !== undefined) {
-      throw new Error('expected_content requires overwrite=true');
+    if (
+      overwrite &&
+      typeof args.expected_content !== 'string' &&
+      typeof args.expected_sha256 !== 'string'
+    ) {
+      throw new Error(
+        'Replacement requires expected_content matching the entire current file or expected_sha256 from the previous write result. Use a checked replacement, not delete or shell writes.',
+      );
+    }
+    if (
+      !overwrite &&
+      (args.expected_content !== undefined ||
+        args.expected_sha256 !== undefined)
+    ) {
+      throw new Error('Replacement preconditions require overwrite=true');
     }
     if (sandbox) {
       const result = sandbox.run({
@@ -141,9 +178,11 @@ export async function runFileWrite(
         input: [
           target,
           String(overwrite),
-          Buffer.from(
-            overwrite ? (args.expected_content as string) : '',
-          ).toString('base64'),
+          typeof args.expected_sha256 === 'string'
+            ? `sha256:${args.expected_sha256}`
+            : Buffer.from(
+                overwrite ? (args.expected_content as string) : '',
+              ).toString('base64'),
           Buffer.from(args.contents).toString('base64'),
         ]
           .map((field) => `${field}\0`)
@@ -165,9 +204,16 @@ export async function runFileWrite(
             throw new Error('Replacement requires an existing regular file');
           }
           const current = fs.readFileSync(target);
-          const expected = Buffer.from(args.expected_content as string);
-          if (!current.equals(expected)) {
-            throw new Error(staleWriteReason(current, expected));
+          if (typeof args.expected_sha256 === 'string') {
+            if (revisionOf(current) !== args.expected_sha256) {
+              throw new Error(
+                'Stale write: expected_sha256 does not match; read the file again.',
+              );
+            }
+          } else {
+            const expected = Buffer.from(args.expected_content as string);
+            if (!current.equals(expected))
+              throw new Error(staleWriteReason(current, expected));
           }
           writeMemoryFileAtomic(target, args.contents);
         } else {
@@ -185,15 +231,30 @@ export async function runFileWrite(
       }
     }
   } catch (error) {
+    let revision = '';
+    if (!sandbox) {
+      try {
+        if (fs.lstatSync(target).isFile()) {
+          revision = ` Current revision SHA-256: ${revisionOf(fs.readFileSync(target))}. Read and review the file before retrying with overwrite=true and expected_sha256.`;
+        }
+      } catch {
+        /* The original write failure remains authoritative. */
+      }
+    }
     const recovery = await recordFileWriteConflict(sessionId, args.path);
     if (recovery) {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\n${recovery}`,
+        `${error instanceof Error ? error.message : String(error)}${revision}\n${recovery}`,
         { cause: error },
       );
     }
+    if (revision)
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}${revision}`,
+        { cause: error },
+      );
     throw error;
   }
   await resolveFileWriteConflict(sessionId, args.path);
-  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}${fileSyntaxFeedback(args.path, args.contents)}`;
+  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}\nRevision SHA-256: ${revisionOf(args.contents)}${fileSyntaxFeedback(args.path, args.contents)}`;
 }

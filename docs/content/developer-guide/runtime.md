@@ -171,6 +171,12 @@ Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
 
+Native Responses reasoning items travel with assistant tool-call history for
+OpenAI and OpenAI Codex workers, including after worker replacement. Both
+encrypted items and compatible providers' plaintext reasoning items are replayed
+as provider metadata; they do not become the assistant's visible answer. Other
+providers discard this foreign metadata before preparing their requests.
+
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
 and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
@@ -189,6 +195,14 @@ The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
 Docker workers continue to use their mounted workspace for both purposes.
 Transcript and compaction archive references use absolute paths when their files
 live outside the execution workspace, so the read tool can still resolve them.
+
+File-tool relative paths always start at the execution workspace, independently
+of the persistent shell's current directory. Every path component is preserved:
+with display root `/app`, `app/config.txt` means `/app/app/config.txt`, while
+`config.txt` means `/app/config.txt`. Only absolute display paths are aliases.
+Host and task-sandbox file tools follow the same rule, including when a child
+directory has the same name as the display root. Traversal fences and checked
+replacement requirements still apply.
 
 HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
 against the worker state root, independently of its execution directory. Reads,
@@ -316,6 +330,13 @@ of external side effects or file appends.
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
+Checkpoints retain which completed calls use these files, so gateway recovery
+restores their full audit and transcript evidence while replay stays bounded.
+Saved filenames include a bounded call-ID label and the result digest. Repeated
+IDs retain each distinct outcome; restoration verifies the recorded bytes and leaves an
+explicit reference if the file changed. Identity metadata is internal and is
+removed before model requests. Unbound references remain available for direct
+reads; gateway restoration never guesses which saved outcome they meant.
 
 The shell/network-denial replan budget uses the current request's tool execution records.
 It grants one replan per request, not per session; it does not persist across
@@ -759,6 +780,30 @@ A first shell-safety or unpinned network-policy denial permits one replan per tu
 omits the prohibited effects. The denied call and remaining calls in its batch
 do not execute; every new call faces policy again. Repeated denials stop the
 turn, and required human approvals still pause execution.
+
+## Verification Before Completion
+
+The container's startup guidance asks the agent to derive observable acceptance
+checks from the task's requirements, reproduce failures when practical, and
+compare behavior with independent expected results. Verification covers affected
+requirements, component interactions, and relevant boundary and failure cases.
+Stateful and concurrent checks also inspect intermediate observable states,
+using deterministic barriers or events to control ordering.
+After the last edit, the agent reruns affected checks and reviews the changes
+against those requirements. A successful example or syntax check supports only
+that check, not an overall completion claim.
+
+This guidance is composed with runtime capabilities before the loop; it does not
+rewrite instructions or tool schemas during execution. It guides model behavior
+rather than certifying correctness or enforcing a completion gate. The agent
+reports failed or unverified work when a blocker or execution budget prevents
+completion. Runs that skip the container system prompt also skip this guidance.
+
+Verification guidance also directs the agent to resolve a rejected write on its
+original path before proceeding with other mutations or test commands. Shell
+checks use explicit timeouts that leave room for repair; concurrency checks use
+bounded waits so a hung check does not consume the rest of a run. These are model
+instructions, not exemptions from the existing overwrite or approval guards.
 
 ## Tool Recovery
 

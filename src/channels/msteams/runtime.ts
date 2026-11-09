@@ -5,22 +5,17 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  type Request as BotFrameworkRequest,
-  type Response as BotFrameworkResponse,
-  CloudAdapter,
-  TeamsInfo,
-} from 'botbuilder';
-import {
-  ConfigurationBotFrameworkAuthentication,
-  ConfigurationServiceClientCredentialFactory,
-  type TurnContext,
-} from 'botbuilder-core';
-import {
   type Activity,
   ActivityTypes,
   type Attachment,
   type ConversationReference,
-} from 'botframework-schema';
+} from '@microsoft/agents-activity';
+import type {
+  CloudAdapter,
+  Request as TeamsRequest,
+  TurnContext,
+  WebResponse,
+} from '@microsoft/agents-hosting';
 import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
@@ -41,11 +36,13 @@ import {
   sendWebhookJson,
   WebhookHttpError,
 } from '../webhook-http.js';
+import { authorizeMSTeamsWebhook, createMSTeamsAdapter } from './adapter.js';
 import {
   buildTeamsAttachmentContext,
   buildTeamsUploadedFileAttachment,
   maybeHandleMSTeamsFileConsentInvoke,
 } from './attachments.js';
+import { requireMSTeamsConnectorClient } from './connector.js';
 import { sendChunkedReply } from './delivery.js';
 import {
   buildSessionIdFromActivity,
@@ -139,14 +136,19 @@ const MAX_WEBHOOK_BYTES = 1_000_000;
 const ACTIVE_MSTEAMS_SESSIONS = new Map<string, ActiveMSTeamsSession>();
 
 type ParsedWebhookRequest = IncomingMessage &
-  BotFrameworkRequest<Record<string, unknown>>;
+  TeamsRequest<Record<string, unknown>>;
+
+// Conversation references are durable HybridClaw records, independent of SDK naming.
+type StoredConversationReference = Omit<ConversationReference, 'agent'> & {
+  bot: NonNullable<ConversationReference['agent']>;
+};
 
 interface ActiveMSTeamsSession {
   channelId: string;
   isDm: boolean;
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
   replyToId?: string | null;
-  reference?: Partial<ConversationReference> | null;
+  reference?: StoredConversationReference | null;
   turnContext: TurnContext;
 }
 
@@ -155,35 +157,7 @@ interface StoredMSTeamsSession {
   isDm: boolean;
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
   replyToId: string | null;
-  reference: Partial<ConversationReference>;
-}
-
-function resolveWebhookAuthFailureStatus(error: unknown): 401 | 403 | null {
-  if (!isRecord(error)) {
-    return null;
-  }
-  const rawStatus = error.statusCode ?? error.status;
-  const statusCode =
-    typeof rawStatus === 'number'
-      ? rawStatus
-      : Number.isFinite(Number(rawStatus))
-        ? Number(rawStatus)
-        : null;
-  if (statusCode === 401 || statusCode === 403) {
-    return statusCode;
-  }
-
-  const name = normalizeValue(String(error.name || '')).toLowerCase();
-  const code = normalizeValue(String(error.code || '')).toLowerCase();
-  if (
-    name === 'authenticationerror' ||
-    code === 'authenticationerror' ||
-    code === 'unauthorized'
-  ) {
-    return 401;
-  }
-
-  return null;
+  reference: StoredConversationReference;
 }
 
 function shouldShowTypingForCommand(args: string[]): boolean {
@@ -197,7 +171,7 @@ function shouldShowTypingForCommand(args: string[]): boolean {
 
 function buildConversationReference(
   activity: Activity,
-): Partial<ConversationReference> | null {
+): StoredConversationReference | null {
   const channelId = normalizeValue(activity.channelId);
   const serviceUrl = normalizeValue(activity.serviceUrl);
   const conversationId = normalizeValue(activity.conversation?.id);
@@ -206,10 +180,10 @@ function buildConversationReference(
     return null;
   }
 
-  const reference: Partial<ConversationReference> = {
-    bot: activity.recipient,
+  const reference: StoredConversationReference = {
+    bot: { ...activity.recipient, id: botId },
     channelId,
-    conversation: activity.conversation,
+    conversation: { ...activity.conversation, id: conversationId },
     serviceUrl,
     user: activity.from,
   };
@@ -273,7 +247,7 @@ function readStoredConversationReference(
     reference: {
       activityId:
         normalizeOptionalValue(referenceValue.activityId) || undefined,
-      bot: bot as unknown as ConversationReference['bot'],
+      bot: bot as unknown as StoredConversationReference['bot'],
       channelId: referenceChannelId,
       conversation:
         conversation as unknown as ConversationReference['conversation'],
@@ -322,9 +296,10 @@ async function sendViaConversationReference(
   },
 ): Promise<number> {
   let attachmentCount = 0;
-  await ensureTeamsRuntimeReady().continueConversationAsync(
+  const { bot, ...reference } = session.reference;
+  await ensureTeamsRuntimeReady().continueConversation(
     MSTEAMS_APP_ID,
-    session.reference,
+    { ...reference, agent: bot },
     async (proactiveContext) => {
       const attachments = await buildTeamsMessageAttachments(
         proactiveContext,
@@ -386,10 +361,15 @@ function normalizeHeaderValue(
   return String(value);
 }
 
-function createAdapterResponse(res: ServerResponse): BotFrameworkResponse {
-  const response: BotFrameworkResponse = {
-    socket: res.socket,
-    header(name, value) {
+function createAdapterResponse(res: ServerResponse): WebResponse {
+  const response: WebResponse = {
+    get headersSent() {
+      return res.headersSent;
+    },
+    get writableEnded() {
+      return res.writableEnded;
+    },
+    setHeader(name, value) {
       if (!res.headersSent) {
         res.setHeader(name, normalizeHeaderValue(value));
       }
@@ -401,12 +381,10 @@ function createAdapterResponse(res: ServerResponse): BotFrameworkResponse {
     },
     send(body) {
       writeAdapterBody(res, body);
+      if (!res.writableEnded) res.end();
       return response;
     },
-    end(chunk) {
-      if (typeof chunk !== 'undefined') {
-        writeAdapterBody(res, chunk);
-      }
+    end() {
       if (!res.writableEnded) {
         res.end();
       }
@@ -519,21 +497,7 @@ function buildAdapter(): CloudAdapter {
     return adapter;
   }
 
-  const credentialsFactory = new ConfigurationServiceClientCredentialFactory({
-    MicrosoftAppId: MSTEAMS_APP_ID,
-    MicrosoftAppPassword: MSTEAMS_APP_PASSWORD,
-    MicrosoftAppType: MSTEAMS_TENANT_ID ? 'SingleTenant' : 'MultiTenant',
-    MicrosoftAppTenantId: MSTEAMS_TENANT_ID || undefined,
-  });
-  const auth = new ConfigurationBotFrameworkAuthentication(
-    {
-      MicrosoftAppId: MSTEAMS_APP_ID,
-      MicrosoftAppTenantId: MSTEAMS_TENANT_ID || undefined,
-    },
-    credentialsFactory,
-  );
-
-  adapter = new CloudAdapter(auth);
+  adapter = createMSTeamsAdapter(credentials);
   adapterCredentials = credentials;
   adapter.onTurnError = async (turnContext, error) => {
     logger.error({ error }, 'Teams turn failed');
@@ -649,11 +613,17 @@ async function fetchMSTeamsMemberEmail(
 ): Promise<string | null> {
   if (findChannelUserEmail('msteams', userId)) return null;
   try {
-    const member = await TeamsInfo.getMember(
+    const member: unknown = await requireMSTeamsConnectorClient(
       turnContext,
+    ).getConversationMember(
       normalizeValue(turnContext.activity.from?.id) || userId,
+      extractTeamsTeamId(turnContext.activity) ||
+        normalizeValue(turnContext.activity.conversation?.id),
     );
-    return member.email || member.userPrincipalName || null;
+    return isRecord(member)
+      ? normalizeOptionalValue(member.email) ||
+          normalizeOptionalValue(member.userPrincipalName)
+      : null;
   } catch (error) {
     logger.debug({ error, userId }, 'Teams member email lookup failed');
     return null;
@@ -909,36 +879,23 @@ export async function handleMSTeamsWebhook(
     }
     throw error;
   }
-  try {
-    // CloudAdapter.process() performs the Bot Framework auth/token validation
-    // before invoking the turn logic. This shared-port webhook only adapts the
-    // raw Node request/response into the shape the adapter expects.
-    await activeAdapter.process(
-      request,
-      createAdapterResponse(res),
-      async (turnContext) => {
-        if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) {
-          return;
-        }
-        if (await maybeHandleMSTeamsMessageReaction(turnContext)) {
-          return;
-        }
-        await handleIncomingMessage(turnContext);
-      },
+  const response = createAdapterResponse(res);
+  if (!(await authorizeMSTeamsWebhook(activeAdapter, request, response))) {
+    logger.warn(
+      { statusCode: res.statusCode },
+      'Rejected Teams webhook due to Teams authentication failure',
     );
-  } catch (error) {
-    const authStatus = resolveWebhookAuthFailureStatus(error);
-    if (authStatus) {
-      logger.warn(
-        { error, statusCode: authStatus },
-        'Rejected Teams webhook due to Bot Framework authentication failure',
-      );
-      if (!res.headersSent && !res.writableEnded) {
-        res.statusCode = authStatus;
-        res.end();
-      }
-      return;
-    }
-    throw error;
+    return;
+  }
+  await activeAdapter.process(request, response, async (turnContext) => {
+    if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) return;
+    if (await maybeHandleMSTeamsMessageReaction(turnContext)) return;
+    await handleIncomingMessage(turnContext);
+  });
+  if (res.statusCode === 400) {
+    logger.warn(
+      { statusCode: res.statusCode },
+      'Rejected invalid Teams webhook activity',
+    );
   }
 }

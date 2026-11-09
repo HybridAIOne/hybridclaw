@@ -1,3 +1,8 @@
+/**
+ * Catalog candidates require known capabilities; input eligibility permits negotiation.
+ * Explicit provider negatives override inferred metadata. This module describes
+ * models; tool permissions and provider credentials remain separate boundaries.
+ */
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
@@ -6,6 +11,7 @@ import {
   getDiscoveredAnthropicModelContextWindow,
   getDiscoveredAnthropicModelNames,
   getDiscoveredAnthropicModelPricingUsdPerToken,
+  getDiscoveredAnthropicModelVisionCapability,
   isDiscoveredAnthropicModelVisionCapable,
 } from './anthropic-discovery.js';
 import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
@@ -49,6 +55,7 @@ import {
   getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelLifecycle,
   getDiscoveredMistralModelPricingUsdPerToken,
+  getDiscoveredMistralModelVisionCapability,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
@@ -92,6 +99,7 @@ import {
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 import { PROVIDER_ALIASES } from './provider-aliases.js';
 import {
+  inferProviderFromModelPrefix,
   isRuntimeProviderId,
   LOCAL_BACKEND_IDS,
   OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
@@ -766,9 +774,17 @@ export async function canModelAcceptVisualMedia(
   if (hasModelPrefix(model, OPENROUTER_MODEL_PREFIX)) {
     // The executor resolves credentials later; first-turn IPC needs discovery now.
     await discoverOpenRouterModels();
-    const discovered = getDiscoveredOpenRouterModelVisionCapability(model);
-    if (discovered !== null) return discovered;
   }
+  const readers: Partial<Record<string, (name: string) => boolean | null>> = {
+    openrouter: getDiscoveredOpenRouterModelVisionCapability,
+    hybridai: getDiscoveredHybridAIModelVisionCapability,
+    anthropic: getDiscoveredAnthropicModelVisionCapability,
+    mistral: getDiscoveredMistralModelVisionCapability,
+  };
+  const provider =
+    inferProviderFromModelPrefix(model) ?? resolveModelProviderOrNull(model);
+  const discovered = provider ? readers[provider]?.(model) : null;
+  if (typeof discovered === 'boolean') return discovered;
   return (
     isModelVisionCapable(model) ||
     !resolveStaticModelCatalogMetadata(model).known
