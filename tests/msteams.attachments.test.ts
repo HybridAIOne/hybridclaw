@@ -54,7 +54,7 @@ test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', 
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
-  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const uploadAttachment = vi.fn(async () => ({ data: { id: 'attachment-123' } }));
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
     activity: {
@@ -68,9 +68,7 @@ test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', 
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment,
-          },
+          httpClient: { request: uploadAttachment },
         },
       ],
     ]),
@@ -82,15 +80,16 @@ test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', 
     mimeType: 'image/png',
   });
 
-  expect(uploadAttachment).toHaveBeenCalledWith(
-    'conversation-123',
-    expect.objectContaining({
+  expect(uploadAttachment).toHaveBeenCalledWith({
+    method: 'POST',
+    url: 'v3/conversations/conversation-123/attachments',
+    data: {
       name: 'hybridclaw-homepage.png',
-      originalBase64: expect.any(Uint8Array),
-      thumbnailBase64: expect.any(Uint8Array),
+      originalBase64: Buffer.from([1, 2, 3, 4]).toString('base64'),
+      thumbnailBase64: '',
       type: 'image/png',
-    }),
-  );
+    },
+  });
   expect(attachment).toEqual({
     contentType: 'image/png',
     contentUrl:
@@ -105,7 +104,7 @@ test('buildTeamsUploadedFileAttachment inlines small images for personal chats',
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
-  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const uploadAttachment = vi.fn(async () => ({ data: { id: 'attachment-123' } }));
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
     activity: {
@@ -122,9 +121,7 @@ test('buildTeamsUploadedFileAttachment inlines small images for personal chats',
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment,
-          },
+          httpClient: { request: uploadAttachment },
         },
       ],
     ]),
@@ -153,7 +150,7 @@ test('buildTeamsUploadedFileAttachment still inlines tall personal images under 
   const fileBuffer = Buffer.alloc(2_000_000, 1);
   fs.writeFileSync(filePath, fileBuffer);
 
-  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const uploadAttachment = vi.fn(async () => ({ data: { id: 'attachment-123' } }));
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
     activity: {
@@ -170,9 +167,7 @@ test('buildTeamsUploadedFileAttachment still inlines tall personal images under 
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment,
-          },
+          httpClient: { request: uploadAttachment },
         },
       ],
     ]),
@@ -198,7 +193,7 @@ test('buildTeamsUploadedFileAttachment uses a file consent card for personal non
   const filePath = path.join(tempDir, 'report.pdf');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
-  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const uploadAttachment = vi.fn(async () => ({ data: { id: 'attachment-123' } }));
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
     activity: {
@@ -215,9 +210,7 @@ test('buildTeamsUploadedFileAttachment uses a file consent card for personal non
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment,
-          },
+          httpClient: { request: uploadAttachment },
         },
       ],
     ]),
@@ -269,9 +262,7 @@ test('buildTeamsUploadedFileAttachment rejects non-image files outside personal 
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment: vi.fn(async () => ({ id: 'attachment-123' })),
-          },
+          httpClient: { request: vi.fn(async () => ({ data: { id: 'attachment-123' } })) },
         },
       ],
     ]),
@@ -289,9 +280,9 @@ test('buildTeamsUploadedFileAttachment rejects non-image files outside personal 
   expect(
     (
       turnContext.turnState.get(connectorKey) as {
-        conversations: { uploadAttachment: ReturnType<typeof vi.fn> };
+        httpClient: { request: ReturnType<typeof vi.fn> };
       }
-    ).conversations.uploadAttachment,
+    ).httpClient.request,
   ).not.toHaveBeenCalled();
 });
 
@@ -301,7 +292,7 @@ test('buildTeamsUploadedFileAttachment infers personal chat when Teams omits con
   const filePath = path.join(tempDir, 'report.pdf');
   fs.writeFileSync(filePath, Buffer.from('%PDF-1.7'));
 
-  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const uploadAttachment = vi.fn(async () => ({ data: { id: 'attachment-123' } }));
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
     activity: {
@@ -316,9 +307,7 @@ test('buildTeamsUploadedFileAttachment infers personal chat when Teams omits con
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment,
-          },
+          httpClient: { request: uploadAttachment },
         },
       ],
     ]),
@@ -362,9 +351,7 @@ test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a f
       [
         connectorKey,
         {
-          conversations: {
-            uploadAttachment: vi.fn(async () => ({ id: 'attachment-123' })),
-          },
+          httpClient: { request: vi.fn(async () => ({ data: { id: 'attachment-123' } })) },
         },
       ],
     ]),
@@ -1597,4 +1584,27 @@ test('buildTeamsAttachmentContext does not fetch contentUrl after the download i
   } finally {
     vi.useRealTimers();
   }
+});
+
+
+test('channel image upload sends base64 through the real authenticated SDK client', async () => {
+  const { ConnectorClient } = await import('@microsoft/agents-hosting');
+  const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
+  const filePath = path.join(makeTempDir('hybridclaw-teams-wire-'), 'example.png');
+  const bytes = Buffer.from([0, 1, 128, 255]);
+  fs.writeFileSync(filePath, bytes);
+  const connector = ConnectorClient.createClientWithToken('https://smba.trafficmanager.net/example/', 'example-token');
+  const key = Symbol('connector');
+  const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer example-token');
+    expect(JSON.parse(String(init?.body))).toEqual({ name: 'example.png', type: 'image/png', originalBase64: bytes.toString('base64'), thumbnailBase64: '' });
+    return Response.json({ id: 'example-attachment' });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const attachment = await buildTeamsUploadedFileAttachment({
+    turnContext: { activity: { conversation: { id: 'conversation/with?query', conversationType: 'channel' }, serviceUrl: 'https://smba.trafficmanager.net/example/' }, adapter: { ConnectorClientKey: key }, turnState: new Map([[key, connector]]) } as never,
+    filePath, mimeType: 'image/png',
+  });
+  expect(String(fetchMock.mock.calls[0][0])).toBe('https://smba.trafficmanager.net/example/v3/conversations/conversation%2Fwith%3Fquery/attachments');
+  expect(attachment.contentUrl).toContain('example-attachment');
 });

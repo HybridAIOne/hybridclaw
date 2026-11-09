@@ -31,6 +31,7 @@ import type {
   TokenUsageStats,
 } from '../shared/token-usage.js';
 import type { ToolCallLimits } from '../shared/tool-call-limits.js';
+import type { FileBackedToolResults } from '../shared/tool-history.js';
 import type { RecoveryDisposition } from '../shared/turn-checkpoint.js';
 import type {
   PdfFilePart,
@@ -442,7 +443,8 @@ export interface OutputPresentationMetadata {
 
 export interface ContainerOutput
   extends FileWriteGuardContext,
-    FileWriteGuardReceipt {
+    FileWriteGuardReceipt,
+    FileBackedToolResults {
   recovery?: RecoveryDisposition;
   approvalReply?: ApprovalReplyInterpretation;
   status: 'success' | 'error';
@@ -453,8 +455,6 @@ export interface ContainerOutput
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
-  /** Results sent as file references; model input retains the complete text. */
-  spilledToolCallIds?: string[];
   /** Steering notes the model was shown during the turn, in order. */
   steerNoteIds?: string[];
   pendingApproval?: PendingApproval;
