@@ -10,6 +10,10 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+// rollup is pinned at 4.62.3 (agent call, 2026-11-09): 4.62.4 through 4.67.x
+// publish the build-only @napi-rs/lzma-linux-x64-gnu optional dependency
+// (removed in 4.68.0, rollup#6627); move to 4.68+ once it passes the 7-day
+// release-age gate.
 import { rollup } from 'rollup';
 import { dts } from 'rollup-plugin-dts';
 
