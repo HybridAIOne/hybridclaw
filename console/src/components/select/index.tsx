@@ -327,6 +327,17 @@ export function SelectContent({
     }
   };
 
+  // Keys activate the highlighted item through its click handler, so an item
+  // that prevents the default click keeps the popup open for keyboard users.
+  const activateHighlighted = () => {
+    if (ctx.highlightedValue == null) return;
+    ctx.listEl
+      ?.querySelector<HTMLElement>(
+        `#${cssEsc(ctx.getItemId(ctx.highlightedValue))}`,
+      )
+      ?.click();
+  };
+
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Tab') {
       popover.setOpen(false);
@@ -355,16 +366,12 @@ export function SelectContent({
     if (event.key === 'Enter') {
       if (ctx.highlightedValue == null) return;
       event.preventDefault();
-      ctx.selectValue(ctx.highlightedValue);
-      popover.setOpen(false);
-      popover.triggerEl?.focus();
+      activateHighlighted();
       return;
     }
     if (!hasSearch && event.key === ' ' && ctx.highlightedValue != null) {
       event.preventDefault();
-      ctx.selectValue(ctx.highlightedValue);
-      popover.setOpen(false);
-      popover.triggerEl?.focus();
+      activateHighlighted();
       return;
     }
     if (

@@ -103,6 +103,15 @@ describe.sequential('container bash tool persistence', () => {
     expect(emit).toHaveBeenCalledTimes(count);
   });
 
+  test('returns long output in full, including the summary at the end', async () => {
+    const { executeTool } = await createBashTestRuntime();
+    const result = await executeTool(
+      'bash',
+      bashCommand('seq 1 2000; echo "== 2000 passed =="; exit 1'),
+    );
+    expect(result).toContain('\n1999\n2000\n== 2000 passed ==');
+  });
+
   test('persists cwd across bash calls in the same session', async () => {
     const { executeTool } = await createBashTestRuntime({
       nested: true,
@@ -120,6 +129,17 @@ describe.sequential('container bash tool persistence', () => {
 
     expect(first).toBe('nested');
     expect(second).toBe('nested');
+  });
+
+  test('shows the workspace root as . when the display root is its parent, as in host mode', async () => {
+    await createBashTestRuntime();
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', path.dirname(workspaceRoot));
+    vi.resetModules();
+    const { executeTool } = await loadTools();
+
+    const result = await executeTool('bash', bashCommand('pwd; mkdir sub && cd sub && pwd'));
+
+    expect(result).toBe('.\nsub\n');
   });
 
   test('treats shell metacharacters in the environment temp path as literal arguments', async () => {

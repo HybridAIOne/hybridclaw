@@ -1,8 +1,8 @@
 /**
  * Safety settings are a per-turn snapshot of authenticated gateway input.
  * Missing settings reset to all rules enabled; worker memory is never consent.
- * Eval matching distinguishes known environment operands from executable code;
- * denials report every enabled match, including independent source-script rules.
+ * Eval matching distinguishes environment operands and quoted Python comments
+ * from executable code; denials retain every independent enabled rule.
  * Unlike approval policy, this module cannot promote or authorize an action.
  */
 import path from 'node:path';
@@ -14,10 +14,12 @@ import {
 import {
   commandProgram,
   HOME_VARIABLE_RE,
+  PYTHON_PROGRAM_RE,
   scriptCommands,
   shellCommandsRun,
 } from './bash-commands.js';
 import { codeSource } from './bash-remote-code.js';
+import { withoutPythonComments } from './python-data-inspection.js';
 
 let disabledRuleIds: string[] = [];
 export function configureSafetyRules(value: unknown): void {
@@ -53,16 +55,36 @@ function evalCheckWords(words: string[]): string[] {
   });
 }
 
+function evalInspectionInput(value: string): string {
+  if (!value.includes('<<')) {
+    return shellCommandsRun(scriptCommands(value))
+      .flatMap(evalCheckWords)
+      .join(' ');
+  }
+  if (!value.toLowerCase().includes('eval')) return value;
+  // Codex, 2026-11-08: inspect only a single, quoted Python stdin program,
+  // optionally after a literal cd. Other shell forms retain raw-text matching.
+  const match = value.match(
+    /^[ \t]*(?:cd[ \t]+[\w./~-]+[ \t]*&&[ \t]*)?([\w.]+)[ \t]+<<[ \t]*(?:'(\w+)'|"(\w+)")[ \t]*\r?\n([\s\S]*)$/,
+  );
+  if (!match || !PYTHON_PROGRAM_RE.test(match[1])) return value;
+  const delimiter = match[2] ?? match[3];
+  const lines = match[4].split('\n');
+  const end = lines.findIndex((line) => line.replace(/\r$/, '') === delimiter);
+  if (end < 0 || lines.slice(end + 1).some((line) => line.trim())) return value;
+  const source = withoutPythonComments(lines.slice(0, end).join('\n'));
+  return source === null
+    ? value
+    : `${value.slice(0, value.indexOf('\n'))}\n${source}\n${delimiter}`;
+}
+
 export function activeSafetyBlock(
   scope: SafetyRule['scope'],
   value: string,
 ): string | null {
-  // Heredoc bodies are not shell words; retain conservative text matching there.
   const evalInput =
-    scope === 'bash' && !value.includes('<<')
-      ? shellCommandsRun(scriptCommands(value))
-          .flatMap(evalCheckWords)
-          .join(' ')
+    scope === 'bash' && !disabledRuleIds.includes('eval')
+      ? evalInspectionInput(value)
       : value;
   const rules = SAFETY_RULES.filter(
     (candidate) =>

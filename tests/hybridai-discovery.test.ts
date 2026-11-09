@@ -23,6 +23,7 @@ async function importFreshDiscovery() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.js');
@@ -260,6 +261,61 @@ describe('hybridai discovery', () => {
 
     expect(store.getModelContextWindow('small')).toBeNull();
     expect(store.getModelContextWindow('mistral/small')).toBe(128_000);
+  });
+
+  test('reads OpenAI-compatible deprecation fields as legacy or retired', async () => {
+    vi.useFakeTimers({
+      now: new Date('2026-11-08T00:00:00Z'),
+      toFake: ['Date'],
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              object: 'list',
+              data: [
+                { id: 'gpt-6-luna', object: 'model', owned_by: 'openai' },
+                {
+                  id: 'gpt-5.6-luna',
+                  object: 'model',
+                  owned_by: 'openai',
+                  deprecation: '2099-01-01T00:00:00Z',
+                  deprecation_replacement_model: 'gpt-6-luna',
+                },
+                {
+                  id: 'gpt-5.5',
+                  object: 'model',
+                  owned_by: 'openai',
+                  deprecation_replacement_model: 'gpt-6-luna',
+                },
+                {
+                  id: 'gpt-5.4-mini',
+                  object: 'model',
+                  owned_by: 'openai',
+                  deprecation: '2026-06-01T00:00:00Z',
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    const { createHybridAIDiscoveryStore } = await importFreshDiscovery();
+    const store = createHybridAIDiscoveryStore();
+
+    await expect(store.discoverModels({ force: true })).resolves.toEqual([
+      'hybridai/gpt-6-luna',
+      'hybridai/gpt-5.6-luna',
+      'hybridai/gpt-5.5',
+    ]);
+    for (const model of ['gpt-5.6-luna', 'gpt-5.5']) {
+      expect(store.getModelLifecycle(model)).toEqual({
+        status: 'legacy',
+        replacement: 'hybridai/gpt-6-luna',
+      });
+    }
+    expect(store.getModelLifecycle('hybridai/gpt-6-luna')).toBeNull();
   });
 
   test('logs a warning and returns stale models when discovery refresh fails', async () => {

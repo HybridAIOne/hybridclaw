@@ -29,6 +29,9 @@ function expectSystemRuntimeTools(runtime: string): void {
   expect(runtime).toMatch(/\bpython-is-python3\b/);
   expect(runtime).toMatch(/\bunzip\b/);
   expect(runtime).toMatch(/\bfile\b/);
+  expect(runtime).toMatch(/\bbuild-essential\b/);
+  expect(runtime).toMatch(/\bprocps\b/);
+  expect(runtime).toMatch(/--from=ghcr\.io\/astral-sh\/uv:[\d.]+@sha256:\w+ \/uv \/uvx /);
 }
 
 function expectRuntimePipInstallable(runtime: string): void {

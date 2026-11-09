@@ -3634,16 +3634,17 @@ export class TrustedAgentApprovalRuntime {
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
     );
+    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Pinned rules match pathHints only; relative operands join them when
     // they name a pinned path.
     const pathHints = [
       ...new Set([
         ...absPaths,
+        ...fetchedCode.pathHints,
         ...pinnedReach.namedPaths,
         ...(pinnedReach.walk?.reaches || []),
       ]),
     ];
-    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Recorded before the decision: a partial or failed download still leaves
     // a file, and a denied one only costs a later prompt.
     for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
@@ -3656,6 +3657,7 @@ export class TrustedAgentApprovalRuntime {
       WRITE_INTENT_RE.test(inspectionSurface) ||
       deletes ||
       parsedWrites.length > 0 ||
+      fetchedCode.writeIntent ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
 
@@ -3797,19 +3799,20 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
+      const action = this.classifyNetworkTargets({
+        targets: httpTargets.map((target) => ({
+          ...target,
+          method: inferBashHttpMethod(command),
+        })),
+        intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
+        consequenceIfDenied: 'I will keep the task local and avoid that host.',
+        commandPreview: normalizePreview(command),
+      });
       return {
-        ...this.classifyNetworkTargets({
-          targets: httpTargets.map((target) => ({
-            ...target,
-            method: inferBashHttpMethod(command),
-          })),
-          intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
-          consequenceIfDenied:
-            'I will keep the task local and avoid that host.',
-          commandPreview: normalizePreview(command),
-        }),
+        ...action,
         // `curl -T .env https://...` uploads a local file.
         pathHints,
+        writeIntent: writeIntent || action.writeIntent,
       };
     }
 

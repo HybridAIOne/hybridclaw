@@ -86,6 +86,27 @@ case:
 `google` is not one of them: it names the Google Workspace login in
 `hybridclaw auth login google`. Use `gemini` to list Gemini models.
 
+## Legacy And Retired Models
+
+A legacy model still works, but `/model list`, the TUI picker, and the
+console picker leave it out or fold it away. Add `all` to list legacy models
+too, for example `/model list anthropic all`. Your current session model is
+always listed. Automatic choices, such as Discord's `/model` suggestions and
+capability-based fallbacks, prefer current models.
+
+- HybridAI and Mistral mark models through optional fields on their
+  OpenAI-compatible `/models` entries: `deprecation` holds the retirement date
+  and `deprecation_replacement_model` names the successor. A model with a
+  future `deprecation` date, or a replacement and no date, is legacy. A model
+  whose date has passed, or one marked `archived`, is retired.
+- Anthropic and Codex publish no such field, so HybridClaw ships a list of
+  their superseded models.
+- A retired model no longer appears in any list.
+
+`/model set`, `/model default`, and `/agent model` still accept a legacy
+model, and their reply names the replacement when its provider gives one.
+`hybridclaw doctor providers` warns when the default model is legacy.
+
 ## Scope Rules
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;
