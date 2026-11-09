@@ -513,6 +513,7 @@ test('uses Anthropic discovery vision capability when routing vision fallbacks',
             data: [
               {
                 id: 'claude-text-only-from-discovery-test',
+                capabilities: { vision: false },
                 max_input_tokens: 200_000,
                 max_tokens: 16_000,
               },

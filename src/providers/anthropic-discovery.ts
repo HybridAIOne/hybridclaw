@@ -1,6 +1,7 @@
 /**
  * Anthropic discovery distinguishes a cached text-only model from missing metadata.
- * Capability reads describe the catalog; they neither probe nor authorize inference.
+ * Omitted capability fields stay unknown. Reads describe the catalog;
+ * they neither probe nor authorize inference.
  */
 import {
   requireAnthropicApiKey,
@@ -34,6 +35,7 @@ export interface AnthropicDiscoveryStore {
     model: string,
   ) => DiscoveredModelPricingUsdPerToken | null;
   isModelVisionCapable: (model: string) => boolean;
+  getModelVisionCapability: (model: string) => boolean | null;
 }
 
 interface AnthropicDiscoveryState {
@@ -41,7 +43,7 @@ interface AnthropicDiscoveryState {
   contextWindowByModel: Map<string, number>;
   maxTokensByModel: Map<string, number>;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
-  visionCapableModels: Set<string>;
+  visionCapabilityByModel: Map<string, boolean>;
 }
 
 const buildEmptyAnthropicDiscoveryState = (): AnthropicDiscoveryState => ({
@@ -49,7 +51,7 @@ const buildEmptyAnthropicDiscoveryState = (): AnthropicDiscoveryState => ({
   contextWindowByModel: new Map(),
   maxTokensByModel: new Map(),
   pricingByModel: new Map(),
-  visionCapableModels: new Set(),
+  visionCapabilityByModel: new Map(),
 });
 
 function resolveAnthropicModelDiscoveryHeaders(): Record<
@@ -95,14 +97,13 @@ function readNextPageCursor(payload: unknown): string | null {
     : null;
 }
 
-function isVisionCapableAnthropicModel(
+function readAnthropicVisionCapability(
   entry: Record<string, unknown>,
-): boolean {
+): boolean | null {
   const capabilities = isRecord(entry.capabilities) ? entry.capabilities : null;
-  if (!capabilities) return false;
-  const vision = capabilities.vision ?? capabilities.image;
-  if (isRecord(vision)) return vision.supported === true;
-  return vision === true;
+  const vision = capabilities?.vision ?? capabilities?.image;
+  const supported = isRecord(vision) ? vision.supported : vision;
+  return typeof supported === 'boolean' ? supported : null;
 }
 
 export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
@@ -117,7 +118,7 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
-    const visionCapable = new Set<string>();
+    const visionCapabilities = new Map<string, boolean>();
     let afterId: string | null = null;
 
     do {
@@ -153,9 +154,8 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
         if (pricing) {
           pricingByModel.set(normalized, pricing);
         }
-        if (isVisionCapableAnthropicModel(entry)) {
-          visionCapable.add(normalized);
-        }
+        const vision = readAnthropicVisionCapability(entry);
+        if (vision !== null) visionCapabilities.set(normalized, vision);
       }
       afterId = readNextPageCursor(payload);
     } while (afterId);
@@ -165,7 +165,7 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
       contextWindowByModel: contextWindows,
       maxTokensByModel: maxTokens,
       pricingByModel,
-      visionCapableModels: visionCapable,
+      visionCapabilityByModel: visionCapabilities,
     };
   }
 
@@ -198,6 +198,11 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
     return [...state.discoveredModelNames];
   }
 
+  const getModelVisionCapability = (model: string): boolean | null =>
+    discoveryStore
+      .getState()
+      .visionCapabilityByModel.get(normalizeAnthropicModelName(model)) ?? null;
+
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
@@ -216,11 +221,9 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
       const normalized = normalizeAnthropicModelName(model);
       return state.pricingByModel.get(normalized) ?? null;
     },
-    isModelVisionCapable: (model: string) => {
-      const state = discoveryStore.getState();
-      const normalized = normalizeAnthropicModelName(model);
-      return state.visionCapableModels.has(normalized);
-    },
+    getModelVisionCapability,
+    isModelVisionCapable: (model: string) =>
+      getModelVisionCapability(model) === true,
   };
 }
 
@@ -263,8 +266,5 @@ export function isDiscoveredAnthropicModelVisionCapable(
 export function getDiscoveredAnthropicModelVisionCapability(
   model: string,
 ): boolean | null {
-  const canonical = normalizeAnthropicModelName(model);
-  return defaultAnthropicDiscoveryStore.getModelNames().includes(canonical)
-    ? defaultAnthropicDiscoveryStore.isModelVisionCapable(canonical)
-    : null;
+  return defaultAnthropicDiscoveryStore.getModelVisionCapability(model);
 }

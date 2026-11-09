@@ -1,6 +1,7 @@
 /**
  * Mistral discovery distinguishes a cached text-only model from missing metadata.
- * Capability reads describe the catalog; they neither probe nor authorize inference.
+ * Omitted capability fields stay unknown. Reads describe the catalog;
+ * they neither probe nor authorize inference.
  */
 import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -26,9 +27,11 @@ function readMistralContextWindow(
   return parsePositiveInteger(entry.max_context_length);
 }
 
-function isVisionCapableMistralModel(entry: Record<string, unknown>): boolean {
+function readMistralVisionCapability(
+  entry: Record<string, unknown>,
+): boolean | null {
   const capabilities = isRecord(entry.capabilities) ? entry.capabilities : null;
-  return capabilities?.vision === true;
+  return typeof capabilities?.vision === 'boolean' ? capabilities.vision : null;
 }
 
 function readMistralModelAliases(entry: Record<string, unknown>): string[] {
@@ -64,6 +67,7 @@ export interface MistralDiscoveryStore {
   ) => DiscoveredModelPricingUsdPerToken | null;
   resolveCanonicalModelName: (model: string) => string;
   isModelVisionCapable: (model: string) => boolean;
+  getModelVisionCapability: (model: string) => boolean | null;
   getModelLifecycle: (model: string) => ModelLifecycle | null;
 }
 
@@ -73,7 +77,7 @@ interface MistralDiscoveryState {
   contextWindowByModel: Map<string, number>;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   legacyModelByName: Map<string, ModelLifecycle>;
-  visionCapableModels: Set<string>;
+  visionCapabilityByModel: Map<string, boolean>;
 }
 
 const buildEmptyMistralDiscoveryState = (): MistralDiscoveryState => ({
@@ -82,7 +86,7 @@ const buildEmptyMistralDiscoveryState = (): MistralDiscoveryState => ({
   contextWindowByModel: new Map(),
   pricingByModel: new Map(),
   legacyModelByName: new Map(),
-  visionCapableModels: new Set(),
+  visionCapabilityByModel: new Map(),
 });
 
 export function createMistralDiscoveryStore(): MistralDiscoveryStore {
@@ -113,7 +117,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
     const contextWindows = new Map<string, number>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const legacy = new Map<string, ModelLifecycle>();
-    const visionCapable = new Set<string>();
+    const visionCapabilities = new Map<string, boolean>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
       const normalized = normalizeMistralModelName(entry.id);
@@ -141,9 +145,8 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       if (pricing) {
         pricingByModel.set(canonical, pricing);
       }
-      if (isVisionCapableMistralModel(entry)) {
-        visionCapable.add(canonical);
-      }
+      const vision = readMistralVisionCapability(entry);
+      if (vision !== null) visionCapabilities.set(canonical, vision);
     }
     for (const [model, lifecycle] of legacy) {
       if (!lifecycle.replacement) continue;
@@ -159,7 +162,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       contextWindowByModel: contextWindows,
       pricingByModel,
       legacyModelByName: legacy,
-      visionCapableModels: visionCapable,
+      visionCapabilityByModel: visionCapabilities,
     };
   }
 
@@ -194,6 +197,13 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
     return [...state.discoveredModelNames];
   }
 
+  const getModelVisionCapability = (model: string): boolean | null => {
+    const state = discoveryStore.getState();
+    const normalized = normalizeMistralModelName(model);
+    const canonical = state.canonicalModelByName.get(normalized) ?? normalized;
+    return state.visionCapabilityByModel.get(canonical) ?? null;
+  };
+
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
@@ -225,13 +235,9 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
         ) ?? null
       );
     },
-    isModelVisionCapable: (model: string) => {
-      const state = discoveryStore.getState();
-      const normalized = normalizeMistralModelName(model);
-      return state.visionCapableModels.has(
-        state.canonicalModelByName.get(normalized) ?? normalized,
-      );
-    },
+    getModelVisionCapability,
+    isModelVisionCapable: (model: string) =>
+      getModelVisionCapability(model) === true,
   };
 }
 
@@ -278,9 +284,5 @@ export function isDiscoveredMistralModelVisionCapable(model: string): boolean {
 export function getDiscoveredMistralModelVisionCapability(
   model: string,
 ): boolean | null {
-  const canonical =
-    defaultMistralDiscoveryStore.resolveCanonicalModelName(model);
-  return defaultMistralDiscoveryStore.getModelNames().includes(canonical)
-    ? defaultMistralDiscoveryStore.isModelVisionCapable(canonical)
-    : null;
+  return defaultMistralDiscoveryStore.getModelVisionCapability(model);
 }

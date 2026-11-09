@@ -1,9 +1,7 @@
 /**
- * Auxiliary policies resolve defaults and keep task budgets separate from model capacity.
- * Disabled policies remain explicit across the worker boundary, preventing fallback.
- * Routing classification has its own task identity and explicit model; Skills Hub
- * settings cannot enable, disable or redirect that classifier. Unknown vision
- * capabilities retain endpoint negotiation; known text-only models use fallback.
+ * Auxiliary policies keep task budgets separate from model capacity and routing.
+ * Explicit disables survive IPC; unknown image support retains endpoint negotiation.
+ * Known text-only models use fallback. Skills Hub does not control the classifier.
  */
 
 import {

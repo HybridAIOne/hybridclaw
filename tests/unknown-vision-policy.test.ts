@@ -43,10 +43,12 @@ test.each(['anthropic', 'mistral'] as const)('discovered %s text-only metadata s
   vi.stubEnv('HYBRIDCLAW_DATA_DIR', root);
   vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
   vi.stubEnv(provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'MISTRAL_API_KEY', 'test-key');
-  fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify({ [provider]: { enabled: true } }));
+  fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify({ [provider]: { enabled: true }, routing: { enabled: false } }));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [
     { id: 'example-text', aliases: ['text-alias'], capabilities: { vision: false } },
     { id: 'example-vision', capabilities: { vision: true } },
+    { id: 'metadata-absent' },
+    { id: 'malformed-capability', capabilities: { vision: 'false' } },
   ], has_more: false })));
   vi.resetModules();
   let capability: (model: string) => boolean | null;
@@ -63,7 +65,14 @@ test.each(['anthropic', 'mistral'] as const)('discovered %s text-only metadata s
   expect(capability(`${provider}/example-text`)).toBe(false);
   expect(capability(`${provider}/example-vision`)).toBe(true);
   expect(capability(`${provider}/unlisted`)).toBeNull();
+  expect(capability(`${provider}/metadata-absent`)).toBeNull();
+  expect(capability(`${provider}/malformed-capability`)).toBeNull();
   const catalog = await import('../src/providers/model-catalog.js');
   expect(await catalog.canModelAcceptVisualMedia(`${provider}/example-text`)).toBe(false);
   expect(await catalog.canModelAcceptVisualMedia(`${provider}/unlisted`)).toBe(true);
+  expect(await catalog.canModelAcceptVisualMedia(`${provider}/metadata-absent`)).toBe(true);
+  const routing = await import('../src/providers/task-routing.js');
+  const policy = await routing.resolveTaskModelPolicy('vision', { sessionModel: `${provider}/metadata-absent` });
+  expect(policy).toMatchObject({ provider, model: `${provider}/metadata-absent` });
+  expect(policy?.error).toBeUndefined();
 });
