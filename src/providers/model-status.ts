@@ -27,14 +27,14 @@ export const CURRENT_MODEL: ModelLifecycle = {
  * Reads the optional fields a `/models` entry may add to the OpenAI shape:
  * Mistral's `archived`, `deprecation` (the retirement date) and
  * `deprecation_replacement_model`. HybridAI publishes the same fields so its
- * endpoint stays OpenAI-compatible.
+ * endpoint stays OpenAI-compatible, but sends only the replacement when no
+ * retirement date is known; either field marks the model legacy.
  */
 export function readListedModelStatus(
   entry: Record<string, unknown>,
   nowMs = Date.now(),
 ): ModelLifecycle | 'retired' {
   if (entry.archived === true) return 'retired';
-  if (!entry.deprecation) return CURRENT_MODEL;
   const retiresAtMs =
     typeof entry.deprecation === 'string'
       ? Date.parse(entry.deprecation)
@@ -44,6 +44,7 @@ export function readListedModelStatus(
     typeof entry.deprecation_replacement_model === 'string'
       ? entry.deprecation_replacement_model.trim()
       : '';
+  if (!entry.deprecation && !replacement) return CURRENT_MODEL;
   return { status: 'legacy', replacement: replacement || null };
 }
 

@@ -285,6 +285,12 @@ describe('hybridai discovery', () => {
                   deprecation_replacement_model: 'gpt-6-luna',
                 },
                 {
+                  id: 'gpt-5.5',
+                  object: 'model',
+                  owned_by: 'openai',
+                  deprecation_replacement_model: 'gpt-6-luna',
+                },
+                {
                   id: 'gpt-5.4-mini',
                   object: 'model',
                   owned_by: 'openai',
@@ -301,11 +307,14 @@ describe('hybridai discovery', () => {
     await expect(store.discoverModels({ force: true })).resolves.toEqual([
       'hybridai/gpt-6-luna',
       'hybridai/gpt-5.6-luna',
+      'hybridai/gpt-5.5',
     ]);
-    expect(store.getModelLifecycle('gpt-5.6-luna')).toEqual({
-      status: 'legacy',
-      replacement: 'hybridai/gpt-6-luna',
-    });
+    for (const model of ['gpt-5.6-luna', 'gpt-5.5']) {
+      expect(store.getModelLifecycle(model)).toEqual({
+        status: 'legacy',
+        replacement: 'hybridai/gpt-6-luna',
+      });
+    }
     expect(store.getModelLifecycle('hybridai/gpt-6-luna')).toBeNull();
   });
 
