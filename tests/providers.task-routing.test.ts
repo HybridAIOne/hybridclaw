@@ -513,6 +513,7 @@ test('uses Anthropic discovery vision capability when routing vision fallbacks',
             data: [
               {
                 id: 'claude-text-only-from-discovery-test',
+                capabilities: { vision: false },
                 max_input_tokens: 200_000,
                 max_tokens: 16_000,
               },
@@ -844,6 +845,8 @@ test('returns a deferred policy error when no discovered vision fallback is avai
   }));
 
   const taskRouting = await importFreshTaskRouting(homeDir);
+  const discovery = await import('../src/providers/hybridai-discovery.js');
+  vi.spyOn(discovery, 'getDiscoveredHybridAIModelVisionCapability').mockReturnValue(false);
   const policy = await taskRouting.resolveTaskModelPolicy('vision', {
     agentId: 'main',
     sessionModel: 'text-only-test-model',

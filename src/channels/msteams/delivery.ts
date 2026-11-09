@@ -1,5 +1,5 @@
-import type { TurnContext } from 'botbuilder-core';
-import type { Activity, Attachment } from 'botframework-schema';
+import type { Activity, Attachment } from '@microsoft/agents-activity';
+import type { TurnContext } from '@microsoft/agents-hosting';
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
@@ -65,8 +65,7 @@ export function stripUnusableMSTeamsArtifactLinks(text: string): string {
 export function buildAdaptiveCardAttachment(
   card: Record<string, unknown>,
 ): Attachment {
-  // Same shape as botbuilder's CardFactory.adaptiveCard; the gateway builds
-  // these replies without loading the Bot Framework SDK.
+  // Cards are wire payloads; building one does not load the Teams runtime.
   return {
     contentType: 'application/vnd.microsoft.card.adaptive',
     content: card,

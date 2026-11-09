@@ -1,7 +1,7 @@
 {
   "lockfiles": {
-    "package-lock.json": "27f0b113a85583c721075e0210be6656ce0476ea09edc820ee8405d7cd8328e9",
-    "npm-shrinkwrap.json": "27f0b113a85583c721075e0210be6656ce0476ea09edc820ee8405d7cd8328e9",
+    "package-lock.json": "5cb3fe15f6d8c2a2ae471ee64624b110afbace8f49e0d73b101d5ce6974d3be3",
+    "npm-shrinkwrap.json": "5cb3fe15f6d8c2a2ae471ee64624b110afbace8f49e0d73b101d5ce6974d3be3",
     "container/package-lock.json": "81508979b58c2bdf8d6c718bfd5df669535ca634ec37e96f7344422bde104932",
     "container/npm-shrinkwrap.json": "81508979b58c2bdf8d6c718bfd5df669535ca634ec37e96f7344422bde104932",
     "plugins/brevo-email/package-lock.json": "af4a4e9674a21282ec59d044c11123509a9bb104ff45924430d1010b3ee4ea86",

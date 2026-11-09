@@ -95,6 +95,7 @@ import {
   isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
+  resolveTaskSandboxPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
@@ -524,36 +525,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
 
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function resolveTaskSandboxPath(userPath: string): string | null {
-  const raw = String(userPath || '').trim();
-  if (!raw) return null;
-
-  const normalized = raw.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function runTaskSandboxDocker(params: {

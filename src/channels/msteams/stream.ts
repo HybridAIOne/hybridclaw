@@ -1,10 +1,10 @@
-import type { TurnContext } from 'botbuilder-core';
 import {
   type Activity,
   ActivityTypes,
   type Attachment,
   TextFormatTypes,
-} from 'botframework-schema';
+} from '@microsoft/agents-activity';
+import type { TurnContext } from '@microsoft/agents-hosting';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import {

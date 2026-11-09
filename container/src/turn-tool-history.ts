@@ -6,7 +6,8 @@
  * Models and replay see bounded excerpts with durable file references; the
  * gateway restores full evidence only for audit and transcript storage.
  * Call starts and individual results are checkpointed before batch assembly,
- * so an abrupt worker kill cannot erase completed outcomes or known usage.
+ * including file-backed result IDs, so recovery can restore full evidence
+ * without expanding model replay after a worker kill.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -91,7 +92,13 @@ export class TurnToolHistory {
 
   recordResult(message: ChatMessage): ChatMessage {
     const visible = this.forContext(message);
-    this.checkpoint?.result(visible);
+    this.checkpoint?.result(
+      visible,
+      Boolean(
+        message.tool_call_id &&
+          this.savedResults.get(message.tool_call_id)?.full === message.content,
+      ),
+    );
     this.messages.push(structuredClone(message));
     this.replayMessages.push(visible);
     return visible;
@@ -200,6 +207,7 @@ export class TurnToolHistory {
           ? { visualAttachments: result.visualAttachments }
           : {}),
       }),
+      this.savedResults.get(id)?.full === result.output,
     );
     return result;
   }

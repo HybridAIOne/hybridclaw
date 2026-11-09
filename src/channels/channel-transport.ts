@@ -172,9 +172,14 @@ export interface ChannelTransportRegistration {
   /** Clears the linked account and returns the credential directory it reset. */
   resetAuth(): Promise<string>;
   getPairingState?(): ChannelTransportPairingState;
-  /** `enabled` is the channel's config switch; the plugin may be loaded while off. */
+  /**
+   * `enabled` is the channel's config switch; the plugin may be loaded while
+   * off. `deliveryTarget` is where proactive output goes: the heartbeat
+   * channel, else the most recent session's channel id.
+   */
   doctorChecks?(params: {
     enabled: boolean;
+    deliveryTarget: string | null;
   }): Promise<ChannelTransportDoctorFinding[]>;
   /** Rendered into the system prompt every conversation shares; `channelId` is always null. */
   messageToolHints?(params: { channelId: null }): string[];

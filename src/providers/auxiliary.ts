@@ -1,4 +1,5 @@
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
   isAnthropicProviderModel,
@@ -259,24 +260,7 @@ function readAuxiliaryModelUsage(
     (inputTokens !== undefined && outputTokens !== undefined
       ? inputTokens + outputTokens
       : undefined);
-  const promptTokenDetails = isRecord(value.prompt_tokens_details)
-    ? value.prompt_tokens_details
-    : isRecord(value.input_tokens_details)
-      ? value.input_tokens_details
-      : undefined;
-  const cacheReadTokens = readFiniteNumber([
-    value.cacheReadTokens,
-    value.cache_read_tokens,
-    value.cache_read_input_tokens,
-    value.cached_tokens,
-    promptTokenDetails?.cached_tokens,
-  ]);
-  const cacheWriteTokens = readFiniteNumber([
-    value.cacheWriteTokens,
-    value.cache_write_tokens,
-    value.cache_creation_input_tokens,
-    promptTokenDetails?.cache_write_tokens,
-  ]);
+  const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(value);
   const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
 
   if (

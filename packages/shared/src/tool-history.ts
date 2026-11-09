@@ -9,6 +9,11 @@ import {
   validateVisualAttachments,
 } from './visual-snapshots.ts';
 
+/** Full results restore from derived files; bounded replay remains bounded. */
+export interface FileBackedToolResults {
+  spilledToolCallIds?: string[];
+}
+
 export interface HistoryMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
