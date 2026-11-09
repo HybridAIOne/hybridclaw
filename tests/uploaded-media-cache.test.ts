@@ -4,7 +4,10 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { sanitizeUploadedMediaFilename } from '../src/media/uploaded-media-cache.js';
+import {
+  sanitizeFilenameSegment,
+  sanitizeUploadedMediaFilename,
+} from '../src/media/uploaded-media-cache.js';
 
 const dataDirs: string[] = [];
 
@@ -23,6 +26,15 @@ test('sanitizeUploadedMediaFilename keeps an existing extension', () => {
   expect(sanitizeUploadedMediaFilename(' Screen Shot.PNG ', 'image/jpeg')).toBe(
     'Screen-Shot.png',
   );
+});
+
+test.each([
+  ['-_.report._-', 'report'],
+  ['..-_.', ''],
+  ['a.b', 'a.b'],
+  [`${'-_.'.repeat(20_000)}x${'._-'.repeat(20_000)}`, 'x'],
+])('sanitizeFilenameSegment trims edge punctuation from %#', (value, expected) => {
+  expect(sanitizeFilenameSegment(value)).toBe(expected);
 });
 
 test('sanitizeUploadedMediaFilename infers a preferred extension when missing', () => {
