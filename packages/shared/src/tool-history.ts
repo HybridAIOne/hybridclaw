@@ -3,6 +3,7 @@
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
  */
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   type VisualAttachmentMessage,
@@ -14,7 +15,14 @@ export interface FileBackedToolResults {
   spilledToolCallIds?: string[];
 }
 
-export interface HistoryMessage extends VisualAttachmentMessage {
+/** Digest binds one saved outcome; a provider call ID alone is not identity. */
+export interface FileBackedToolResult {
+  resultDigest?: string;
+}
+
+export interface HistoryMessage
+  extends VisualAttachmentMessage,
+    FileBackedToolResult {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{
@@ -42,11 +50,23 @@ export function sessionTranscriptFilename(sessionId: string): string {
   return `${safeName(sessionId, 'session')}.jsonl`;
 }
 
+export function toolResultDigest(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+export function isToolResultDigest(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
 export function toolResultFilePath(
   sessionId: string,
   toolCallId: string | undefined,
+  digest: string,
 ): string {
-  return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
+  if (!isToolResultDigest(digest))
+    throw new Error('Invalid tool result digest.');
+  // Bound the readable label by the digest width; the digest identifies bytes.
+  return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call').slice(0, digest.length)}.${digest}.txt`;
 }
 
 /** IPC references identify full evidence; model excerpts are managed separately. */
@@ -173,10 +193,18 @@ export function validateToolHistory(value: unknown): HistoryMessage[] {
       typeof message.content === 'string' &&
       pending.delete(message.tool_call_id)
     ) {
+      if (
+        message.resultDigest !== undefined &&
+        !isToolResultDigest(message.resultDigest)
+      )
+        throw new Error('Invalid tool result identity.');
       messages.push({
         role: 'tool',
         content: message.content,
         tool_call_id: message.tool_call_id,
+        ...(message.resultDigest === undefined
+          ? {}
+          : { resultDigest: message.resultDigest }),
         ...(message.is_error === true ? { is_error: true } : {}),
         ...(message.visualAttachments !== undefined
           ? {

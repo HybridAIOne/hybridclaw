@@ -26,6 +26,7 @@ import type {
 } from '@hybridclaw/shared/stakes-classifier';
 import type { TokenUsageStats } from '@hybridclaw/shared/token-usage';
 import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
+import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
 import type {
   PdfFilePart,
   VisualAttachmentMessage,
@@ -81,7 +82,9 @@ export interface AnthropicContentBlock {
 }
 
 /** Model messages keep tool ids and opaque provider replay metadata. */
-export interface ChatMessage extends VisualAttachmentMessage {
+export interface ChatMessage
+  extends VisualAttachmentMessage,
+    FileBackedToolResult {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
@@ -327,6 +330,8 @@ export const ToolExecutionSchema = object({
   arguments: string(),
   result: string(),
   toolCallId: optional(string()),
+  /** Identifies the saved result's bytes; the gateway checks its format. */
+  resultDigest: optional(string()),
   durationMs: number(),
   isError: optional(boolean()),
   blocked: optional(boolean()),

@@ -1,7 +1,8 @@
 /**
  * Worker protocol data shares usage snapshots with gateway recovery.
  * Provider parsing belongs to token-usage.ts; these types grant no tool
- * authority and do not define a second accounting schema.
+ * authority and do not define a second accounting schema. Saved-result
+ * identity is shared with gateway evidence and stays out of provider calls.
  */
 
 import type {
