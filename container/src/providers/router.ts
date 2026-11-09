@@ -108,7 +108,13 @@ function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
     requestHeaders: params.requestHeaders
       ? { ...params.requestHeaders }
       : undefined,
-    messages: Array.isArray(params.messages) ? params.messages : [],
+    messages: Array.isArray(params.messages)
+      ? params.messages.map((message) => {
+          if (message.resultDigest === undefined) return message;
+          const { resultDigest: _digest, ...wireMessage } = message;
+          return wireMessage;
+        })
+      : [],
     tools: Array.isArray(params.tools) ? params.tools : [],
     debugModelResponses: params.debugModelResponses === true,
     maxTokens: params.maxTokens,

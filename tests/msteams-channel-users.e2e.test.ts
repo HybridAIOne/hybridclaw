@@ -15,11 +15,10 @@ import {
 } from './helpers/docker-test-setup.js';
 import { cleanupTrackedTempDirs } from './test-utils.js';
 
-// The compiled gateway (dist/cli.js) receives Bot Framework activities on its
-// real Teams webhook and records senders in channel_users. Faked: Microsoft's
-// Bot Connector and the LLM (an LM Studio-compatible server), both local; Bot
-// Framework auth runs in botbuilder's own "authentication disabled" mode via a
-// preload. Gated behind HYBRIDCLAW_RUN_MSTEAMS_E2E=1; needs `npm run build`.
+// The compiled gateway receives real Teams SDK activities and persists channel users.
+// Connector and model endpoints are local. The preload stubs SDK authentication
+// and token acquisition; msteams-sdk.integration.test.ts exercises the real JWT
+// and MSAL boundary separately. Requires HYBRIDCLAW_RUN_MSTEAMS_E2E=1 and a build.
 const RUN = process.env.HYBRIDCLAW_RUN_MSTEAMS_E2E === '1';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -277,15 +276,18 @@ async function startGateway(): Promise<void> {
       },
     }),
   );
-  const botbuilder = createRequire(path.join(REPO, 'package.json')).resolve(
-    'botbuilder',
+  const hosting = createRequire(path.join(REPO, 'package.json')).resolve(
+    '@microsoft/agents-hosting',
   );
   const preload = path.join(root, 'teams-auth-off.cjs');
   fs.writeFileSync(
     preload,
-    `require(${JSON.stringify(
-      createRequire(botbuilder).resolve('botframework-connector'),
-    )}).PasswordServiceClientCredentialFactory.prototype.isAuthenticationDisabled = async () => true;\n`,
+    `const sdk = require(${JSON.stringify(hosting)});
+sdk.CloudAdapter.prototype.authorizeRequest = async (req, _res, next) => {
+  req.user = { aud: '00000000-0000-4000-8000-000000000001', iss: 'https://api.botframework.com', serviceurl: ${JSON.stringify(`${connectorUrl}/`)} };
+  next();
+};
+sdk.MsalTokenProvider.prototype.getAccessToken = async () => 'example-access-token';\n`,
   );
   runtimeEnv = {
     PATH: process.env.PATH ?? '',
@@ -462,4 +464,15 @@ describe.skipIf(!RUN)('Teams senders in channel_users on a live gateway', () => 
     },
     3 * TURN_TIMEOUT_MS,
   );
+  test('rejects a substituted reply path before routing the sender', async () => {
+    const before = usageAgents().length;
+    expect(
+      await sendActivity({
+        type: 'message',
+        text: 'hello',
+        serviceUrl: `${connectorUrl}/other/`,
+      }),
+    ).toBe(401);
+    expect(usageAgents()).toHaveLength(before);
+  });
 });
