@@ -4,6 +4,8 @@
  * journal survives worker replacement with known usage; it grants no tool authority.
  * Executed calls progress proposed → started → result_recorded. Terminal
  * receipts without a start (denials/rejections) never authorize a later start.
+ * File-backed results retain content digests so recovery selects the exact
+ * bytes even when a provider reuses a call ID; replay grants no authority.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -93,6 +95,7 @@ export function checkpointOutput(data) {
   const calls = [];
   const starts = new Set(data.started);
   const knownCalls = new Set();
+  const spilledIds = new Set();
   for (let index = 0; index < data.messages.length; ) {
     const messageIndex = index;
     const message = data.messages[index++];
@@ -113,6 +116,7 @@ export function checkpointOutput(data) {
       const result = results.get(call.id);
       const key = callKey(messageIndex, call.id);
       knownCalls.add(key);
+      if (result?.resultDigest !== undefined) spilledIds.add(call.id);
       const started = starts.has(key);
       if (!result && index < data.messages.length)
         throw new Error('Checkpoint contains an unfinished earlier exchange.');
@@ -140,6 +144,9 @@ export function checkpointOutput(data) {
           arguments: call.function.arguments,
           toolCallId: call.id,
           result: outcome.content,
+          ...(outcome.resultDigest === undefined
+            ? {}
+            : { resultDigest: outcome.resultDigest }),
           isError: outcome.is_error === true,
           durationMs: 0,
         });
@@ -164,6 +171,7 @@ export function checkpointOutput(data) {
     toolExecutions: executions,
     toolHistory: history,
     toolHistoryForReplay: history,
+    ...(spilledIds.size ? { spilledToolCallIds: [...spilledIds] } : {}),
     ...(data.tokenUsage === undefined
       ? {}
       : { tokenUsage: validateTokenUsage(data.tokenUsage) }),
@@ -258,7 +266,9 @@ export class TurnCheckpoint {
         throw new Error(
           'Checkpoint result conflicts with its recorded outcome.',
         );
-    } else next.messages.push(structuredClone(message));
+    } else {
+      next.messages.push(structuredClone(message));
+    }
     this.persist(next);
   }
 

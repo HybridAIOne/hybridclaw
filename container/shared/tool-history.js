@@ -3,6 +3,7 @@
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
  */
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { validateVisualAttachments } from './visual-snapshots.js';
 
@@ -20,8 +21,19 @@ export function sessionTranscriptFilename(sessionId) {
   return `${safeName(sessionId, 'session')}.jsonl`;
 }
 
-export function toolResultFilePath(sessionId, toolCallId) {
-  return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
+export function toolResultDigest(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+export function isToolResultDigest(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+export function toolResultFilePath(sessionId, toolCallId, digest) {
+  if (!isToolResultDigest(digest))
+    throw new Error('Invalid tool result digest.');
+  // Bound the readable label by the digest width; the digest identifies bytes.
+  return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call').slice(0, digest.length)}.${digest}.txt`;
 }
 
 /** IPC references identify full evidence; model excerpts are managed separately. */
@@ -143,10 +155,18 @@ export function validateToolHistory(value) {
       typeof message.content === 'string' &&
       pending.delete(message.tool_call_id)
     ) {
+      if (
+        message.resultDigest !== undefined &&
+        !isToolResultDigest(message.resultDigest)
+      )
+        throw new Error('Invalid tool result identity.');
       messages.push({
         role: 'tool',
         content: message.content,
         tool_call_id: message.tool_call_id,
+        ...(message.resultDigest === undefined
+          ? {}
+          : { resultDigest: message.resultDigest }),
         ...(message.is_error === true ? { is_error: true } : {}),
         ...(message.visualAttachments !== undefined
           ? {

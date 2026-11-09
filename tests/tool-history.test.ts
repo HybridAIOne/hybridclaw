@@ -2,15 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+  toolResultDigest,
+  toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
 } from '../container/shared/tool-history.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
+import { optimizeHistoryMessagesForPrompt } from '../src/session/token-efficiency.js';
 import {
   expandStoredMessage,
   sanitizeToolHistory,
 } from '../src/session/tool-history.js';
-import { optimizeHistoryMessagesForPrompt } from '../src/session/token-efficiency.js';
 import type { ChatMessage } from '../src/types/api.js';
 import { useTempDir } from './test-utils.js';
 
@@ -43,14 +45,24 @@ describe('persistent tool history', () => {
     expect(String(visible.content).length).toBeLessThan(9_000);
     expect(
       fs.readFileSync(
-        path.join(workspace, '.tool-results/session-a/a.txt'),
+        path.join(
+          workspace,
+          toolResultFilePath(
+            'session-a',
+            'a',
+            toolResultDigest(String(full.content ?? full)),
+          ),
+        ),
         'utf8',
       ),
     ).toBe(full.content);
     expect(String(visible.content)).toContain('head\n');
     expect(String(visible.content)).toMatch(/\ntail$/);
     const saved = recorder.finish('Turn ended');
-    expect(saved[1]).toEqual(full);
+    expect(saved[1]).toEqual({
+      ...full,
+      resultDigest: toolResultDigest(String(full.content)),
+    });
     const replay = expandStoredMessage({
       role: 'assistant',
       content: 'Done',
@@ -107,8 +119,14 @@ describe('persistent tool history', () => {
 
     expect(output.spilledToolCallIds).toEqual(['big']);
     expect(output.toolExecutions?.map((entry) => entry.result)).toEqual([
-      toolResultForTransport(visible, '.tool-results/session-a/big.txt')
-        .content,
+      toolResultForTransport(
+        visible,
+        toolResultFilePath(
+          'session-a',
+          'big',
+          toolResultDigest('x'.repeat(50_000)),
+        ),
+      ).content,
       'Inventory count: 42',
     ]);
   });
@@ -127,7 +145,10 @@ describe('persistent tool history', () => {
     expect(String(history[0].content).length).toBeLessThan(1_000);
     expect(
       fs.readFileSync(
-        path.join(workspace, '.tool-results/session-a/a.txt'),
+        path.join(
+          workspace,
+          toolResultFilePath('session-a', 'a', toolResultDigest(full)),
+        ),
         'utf8',
       ) === full,
     ).toBe(true);
@@ -162,7 +183,17 @@ describe('persistent tool history', () => {
         fs.symlinkSync(outside, path.join(workspace, '.tool-results'));
       else {
         fs.mkdirSync(resultDir, { recursive: true });
-        fs.symlinkSync(target, path.join(resultDir, 'a.txt'));
+        fs.symlinkSync(
+          target,
+          path.join(
+            workspace,
+            toolResultFilePath(
+              'session-a',
+              'a',
+              toolResultDigest('x'.repeat(50_000)),
+            ),
+          ),
+        );
       }
       const recorder = new TurnToolHistory('session-a', workspace);
       const original: ChatMessage = {
