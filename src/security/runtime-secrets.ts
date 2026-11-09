@@ -1,3 +1,8 @@
+/**
+ * Credential storage derives provider keys from the canonical provider catalog.
+ * Non-provider secrets retain their explicit allowlist; unknown names stay separate.
+ * Unlike provider authentication, this owns encrypted storage and file permissions.
+ */
 import {
   createCipheriv,
   createDecipheriv,
@@ -8,6 +13,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { PROVIDER_META } from '../providers/provider-meta.js';
 import { isRecord } from '../utils/type-guards.js';
 import { migrateLegacySecretFile } from './runtime-secrets-migration.js';
 
@@ -25,21 +31,18 @@ const SECRET_STORE_TAG_BYTES = 16;
 const RUNTIME_HOME_MODE = 0o700;
 const RUNTIME_SECRETS_MODE = 0o600;
 
+const PROVIDER_SECRET_KEYS = Object.values(PROVIDER_META).flatMap((meta) =>
+  'secretKey' in meta ? [meta.secretKey] : [],
+);
+
 const SECRET_KEYS = [
-  'HYBRIDAI_API_KEY',
+  ...PROVIDER_SECRET_KEYS,
   'JEV_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'OPENROUTER_API_KEY',
-  'MISTRAL_API_KEY',
-  'HF_TOKEN',
-  'OPENAI_API_KEY',
   'BFL_API_KEY',
   'BLACK_FOREST_LABS_API_KEY',
   'GROQ_API_KEY',
   'DEEPGRAM_API_KEY',
-  'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
-  'VLLM_API_KEY',
   'BRAVE_API_KEY',
   'PERPLEXITY_API_KEY',
   'TAVILY_API_KEY',
@@ -54,14 +57,6 @@ const SECRET_KEYS = [
   'SLACK_APP_TOKEN',
   'WEB_API_TOKEN',
   'GATEWAY_API_TOKEN',
-  'DEEPSEEK_API_KEY',
-  'XAI_API_KEY',
-  'ZAI_API_KEY',
-  'KIMI_API_KEY',
-  'MINIMAX_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'XIAOMI_API_KEY',
-  'KILO_API_KEY',
 ] as const;
 
 const NON_SECRET_RUNTIME_CONFIG_KEYS = [

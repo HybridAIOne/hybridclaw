@@ -94,7 +94,7 @@ function readRuntimeSecretValue(
   return '';
 }
 
-function readProviderSecretValue(
+export function readProviderSecretValue(
   provider: ApiKeyProviderId,
   storedSecrets: Record<string, string>,
 ): string {
