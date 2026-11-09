@@ -99,6 +99,7 @@ import {
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 import { PROVIDER_ALIASES } from './provider-aliases.js';
 import {
+  inferProviderFromModelPrefix,
   isRuntimeProviderId,
   LOCAL_BACKEND_IDS,
   OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
@@ -780,7 +781,8 @@ export async function canModelAcceptVisualMedia(
     anthropic: getDiscoveredAnthropicModelVisionCapability,
     mistral: getDiscoveredMistralModelVisionCapability,
   };
-  const provider = resolveModelProviderOrNull(model);
+  const provider =
+    inferProviderFromModelPrefix(model) ?? resolveModelProviderOrNull(model);
   const discovered = provider ? readers[provider]?.(model) : null;
   if (typeof discovered === 'boolean') return discovered;
   return (
