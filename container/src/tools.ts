@@ -1718,8 +1718,8 @@ async function typeSavedSecret(
 
 /**
  * Fill the sign-in the user saved for the page's site, or ask them for one.
- * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the Hy app
- * turns it into a Sign in card that saves to `/api/sign-ins`.
+ * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the web chat
+ * and the Hy app turn it into a Sign in card that saves to `/api/sign-ins`.
  */
 async function executeBrowserSignIn(
   args: Record<string, unknown>,
@@ -1739,7 +1739,7 @@ async function executeBrowserSignIn(
         success: true,
         host: page.host,
         sign_in_requested: true,
-        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The Hy app now shows the user a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
+        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The user's chat now shows a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
       },
       null,
       2,
