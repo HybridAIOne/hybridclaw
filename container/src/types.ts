@@ -1,7 +1,8 @@
 /**
  * Worker protocol data shares usage snapshots with gateway recovery.
  * Provider parsing belongs to token-usage.ts; these types grant no tool
- * authority and do not define a second accounting schema.
+ * authority and do not define a second accounting schema. Saved-result
+ * identity is shared with gateway evidence and stays out of provider calls.
  */
 import type {
   ApprovalMode,
@@ -31,7 +32,10 @@ import type {
   TokenUsageStats,
 } from '@hybridclaw/shared/token-usage';
 import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
-import type { FileBackedToolResults } from '@hybridclaw/shared/tool-history';
+import type {
+  FileBackedToolResult,
+  FileBackedToolResults,
+} from '@hybridclaw/shared/tool-history';
 import type { RecoveryDisposition } from '@hybridclaw/shared/turn-checkpoint';
 import type {
   PdfFilePart,
@@ -78,7 +82,9 @@ export interface AnthropicContentBlock {
   [key: string]: unknown;
 }
 
-export interface ChatMessage extends VisualAttachmentMessage {
+export interface ChatMessage
+  extends VisualAttachmentMessage,
+    FileBackedToolResult {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
@@ -352,7 +358,7 @@ export function normalizeEscalationTarget(
   return channel && recipient ? { channel, recipient } : undefined;
 }
 
-export interface ToolExecution {
+export interface ToolExecution extends FileBackedToolResult {
   approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;

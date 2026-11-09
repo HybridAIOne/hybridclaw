@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 import {
+  toolResultDigest,
+  toolResultFilePath,
+} from '@hybridclaw/shared/tool-history';
+import {
   checkpointOutput,
   readTurnCheckpoint,
   TurnCheckpoint,
@@ -127,7 +131,10 @@ test('a large completed outcome survives interruption with bounded replay and fu
     .recovered!;
   const replay = String(recovered.toolHistoryForReplay![1].content);
   expect(replay.length).toBeLessThan(16_000);
-  const evidence = path.join(state, '.tool-results', 'large', 'a.txt');
+  const evidence = path.join(
+    state,
+    toolResultFilePath('large', 'a', toolResultDigest(full)),
+  );
   expect(replay).toContain(evidence);
   expect(fs.readFileSync(evidence, 'utf8')).toBe(full);
   expect(fs.readdirSync(execution)).toEqual([]);
@@ -149,7 +156,9 @@ test('worker failure recovers evidence only for its own run, never queued side e
     toolsUsed: [],
     error: 'Worker exited.',
   };
-  expect(recoverWorkerOutput(failure, root, 'session-a', 'run-b').recovery?.kind).toBe('refused');
+  expect(
+    recoverWorkerOutput(failure, root, 'session-a', 'run-b').recovery?.kind,
+  ).toBe('refused');
   const recovered = recoverWorkerOutput(failure, root, 'session-a', 'run-a');
   expect(recovered.toolExecutions).toHaveLength(1);
   expect(recovered.sideEffects).toBeUndefined();

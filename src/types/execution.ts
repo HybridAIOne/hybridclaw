@@ -1,3 +1,8 @@
+/**
+ * Execution evidence carries result identity across the worker boundary.
+ * Approval fields describe recorded decisions, not fresh consent; file
+ * restoration verifies the saved bytes rather than trusting provider IDs.
+ */
 import type { ApprovalObservation } from '@hybridclaw/shared/approval-mode';
 import type { ApprovalRule } from '@hybridclaw/shared/approval-rules';
 import type { BoostPrompt } from '@hybridclaw/shared/boost-offer';
@@ -5,6 +10,7 @@ import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
 } from '@hybridclaw/shared/stakes-classifier';
+import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
 
 export interface RuntimeToolSchemaProperty {
   type: string | string[];
@@ -74,7 +80,7 @@ export function escalationTargetEquals(
   return a.channel === b.channel && a.recipient === b.recipient;
 }
 
-export interface ToolExecution {
+export interface ToolExecution extends FileBackedToolResult {
   approvalObservation?: ApprovalObservation;
   name: string;
   arguments: string;

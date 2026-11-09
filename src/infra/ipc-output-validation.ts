@@ -5,7 +5,10 @@
  */
 
 import { validateTokenUsage } from '@hybridclaw/shared/token-usage';
-import { validateToolHistory } from '@hybridclaw/shared/tool-history';
+import {
+  isToolResultDigest,
+  validateToolHistory,
+} from '@hybridclaw/shared/tool-history';
 import type { ContainerOutput } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -85,6 +88,7 @@ const tool = shape(
     writeIntent: boolean,
     blockedReason: string,
     toolCallId: string,
+    resultDigest: isToolResultDigest,
   },
 );
 
