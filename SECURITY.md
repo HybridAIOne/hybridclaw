@@ -112,6 +112,28 @@ isolated startup excludes those roots unless inline inspection observes access
 to the import-path machinery. Failed inline inspection cannot certify isolation.
 This does not inspect arbitrary local script contents or ambient import hooks.
 
+The default `/etc/**` pin permits a direct `read` of `/etc/os-release` and
+direct shell reads of that file. Its canonical target must be
+`/etc/os-release` or `/usr/lib/os-release`; missing or unexpected targets remain
+pinned. Shell calls are checked per access to this path: direct `cat`, `head`
+and `tail` reads and pipelines among those readers qualify. Unrelated commands
+keep their own normal classification; their executable names are not an OS-read
+whitelist. Commands that write or execute the OS file, write redirections on
+the OS-reader command (except discarded `/dev/null` output), other `/etc` files,
+and explicitly configured `approval.pinned_red` rules retain approval. A separate
+`cd /etc` remains a reference to the protected directory.
+This narrow exception does not make shell parsing a complete sandbox or remove
+the existing filesystem check/use race; isolation remains a separate boundary.
+Diagnostic arguments containing `>=` do not by themselves establish shell write
+intent. Parsed shell redirections still establish writes, including redirects
+whose destination starts with `=`; other opaque write-expression checks remain.
+
+Recursive shell search flags on verified regular-file operands do not imply a
+directory walk. Directories, unresolved paths, globs and symlinks retain walk
+checks; canonical targets still undergo pinned-path checks. These are static
+classification hints based on the filesystem at review time, not enforcement
+against a file being replaced before execution.
+
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation
 is created or its settings are explicitly reset. Existing conversations and forks
@@ -153,6 +175,16 @@ can request the stored technical review with `0` or `/approve view`; protected
 actions still show the policy warning and require one-time human approval.
 This presentation trades immediate command visibility for readability, so the
 details view remains necessary when reviewing a sensitive action.
+
+File replacement accepts either exact `expected_content` or an `expected_sha256`
+revision, with `overwrite=true`. Successful writes and rejected replacements of
+regular files expose a SHA-256 revision so the agent can perform a checked retry
+without reconstructing the full file. A revision is a byte precondition, not an
+authorization token: path approvals, symlink restrictions, cooperative locks,
+and the conflict fence still apply. A stale revision rejects without changing
+the file; a successful checked write clears only that path's conflict. Read and
+review changed content before retrying. Arbitrary shell mutations and external
+writers remain outside the cooperative lock, as with exact-content replacement.
 
 ### 3) Container Isolation
 
