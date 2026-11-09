@@ -10,13 +10,17 @@ import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
 import { requireCompleteModelResponse } from '../model-response-completion.js';
+import { observeModelUsage } from '../model-usage.js';
 import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
-import { callWithVisualContent } from './visual-content.js';
+import {
+  callWithVisualContent,
+  estimateVisualMessageTokens,
+} from './visual-content.js';
 
 export { extractResponseTextContent } from '../../shared/response-text.js';
 
@@ -139,7 +143,7 @@ function buildStreamCallArgs(
   };
 }
 
-export async function callProviderModel(
+async function dispatchProviderModel(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   if (args.provider === 'anthropic') {
@@ -160,7 +164,7 @@ export async function callProviderModel(
   return callHybridAIProvider(args);
 }
 
-export async function callProviderModelStream(
+async function dispatchProviderModelStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
   if (args.provider === 'anthropic') {
@@ -179,6 +183,38 @@ export async function callProviderModelStream(
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
+}
+
+export function callProviderModel(
+  args: NormalizedCallArgs,
+): Promise<ChatCompletionResponse> {
+  return observeModelUsage(
+    args,
+    () =>
+      estimateVisualMessageTokens(args.messages, args) +
+      estimateRoutedPromptOverheadTokens(args),
+    async () => {
+      const response = await dispatchProviderModel(args);
+      requireCompleteModelResponse(response);
+      return response;
+    },
+  );
+}
+
+export function callProviderModelStream(
+  args: NormalizedStreamCallArgs,
+): Promise<ChatCompletionResponse> {
+  return observeModelUsage(
+    args,
+    () =>
+      estimateVisualMessageTokens(args.messages, args) +
+      estimateRoutedPromptOverheadTokens(args),
+    async () => {
+      const response = await dispatchProviderModelStream(args);
+      requireCompleteModelResponse(response);
+      return response;
+    },
+  );
 }
 
 export function estimateRoutedPromptOverheadTokens(
@@ -204,7 +240,6 @@ export async function callRoutedModel(
 ): Promise<ChatCompletionResponse> {
   const args = buildCallArgs(params);
   const response = await callWithVisualContent(args, callProviderModel);
-  requireCompleteModelResponse(response);
   if (args.debugModelResponses) {
     logModelResponseDebug({
       provider: args.provider,
@@ -236,7 +271,6 @@ export async function callRoutedModelStream(
     callProviderModelStream,
     () => emitted,
   );
-  requireCompleteModelResponse(response);
   if (args.debugModelResponses) {
     logModelResponseDebug({
       provider: args.provider,

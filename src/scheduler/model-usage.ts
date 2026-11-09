@@ -1,28 +1,23 @@
+/**
+ * Scheduled usage reuses the worker's per-model audit projection.
+ * Adds tool counts and timestamps; helpers are never repriced as the primary.
+ * Unlike chargeback persistence, this only shapes and appends usage evidence.
+ */
+
 import { recordAuditEvent } from '../audit/audit-events.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { buildTokenUsageAuditPayload } from '../usage/worker-model-usage.js';
 
-export interface ModelUsageAuditStats {
-  modelCalls: number;
+export type ModelUsageAuditStats = Omit<
+  ReturnType<typeof buildTokenUsageAuditPayload>,
+  'apiCacheUsageAvailable'
+> & {
   toolCallCount: number;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  estimatedPromptTokens: number;
-  estimatedCompletionTokens: number;
-  estimatedTotalTokens: number;
-  apiUsageAvailable: boolean;
-  apiPromptTokens: number;
-  apiCompletionTokens: number;
-  apiTotalTokens: number;
   apiCacheUsageAvailable: boolean;
   apiCacheReadTokens: number;
   apiCacheWriteTokens: number;
-}
+};
 
 export function buildModelUsageAuditStats(params: {
   messages: ChatMessage[];
@@ -30,45 +25,17 @@ export function buildModelUsageAuditStats(params: {
   toolCallCount: number;
   tokenUsage?: TokenUsageStats;
 }): ModelUsageAuditStats {
-  const estimatedPromptTokens =
-    params.tokenUsage?.estimatedPromptTokens ||
-    estimateTokenCountFromMessages(params.messages);
-  const estimatedCompletionTokens =
-    params.tokenUsage?.estimatedCompletionTokens ||
-    estimateTokenCountFromText(params.resultText || '');
-  const estimatedTotalTokens =
-    params.tokenUsage?.estimatedTotalTokens ||
-    estimatedPromptTokens + estimatedCompletionTokens;
-  const apiUsageAvailable = params.tokenUsage?.apiUsageAvailable === true;
-  const apiPromptTokens = params.tokenUsage?.apiPromptTokens || 0;
-  const apiCompletionTokens = params.tokenUsage?.apiCompletionTokens || 0;
-  const apiTotalTokens =
-    params.tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-  const apiCacheUsageAvailable =
-    params.tokenUsage?.apiCacheUsageAvailable === true;
-  const apiCacheReadTokens = params.tokenUsage?.apiCacheReadTokens || 0;
-  const apiCacheWriteTokens = params.tokenUsage?.apiCacheWriteTokens || 0;
-
+  const usage = buildTokenUsageAuditPayload(
+    params.messages,
+    params.resultText,
+    params.tokenUsage,
+  );
   return {
-    modelCalls: params.tokenUsage
-      ? Math.max(1, params.tokenUsage.modelCalls)
-      : 0,
+    ...usage,
     toolCallCount: params.toolCallCount,
-    promptTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
-    completionTokens: apiUsageAvailable
-      ? apiCompletionTokens
-      : estimatedCompletionTokens,
-    totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
-    estimatedPromptTokens,
-    estimatedCompletionTokens,
-    estimatedTotalTokens,
-    apiUsageAvailable,
-    apiPromptTokens,
-    apiCompletionTokens,
-    apiTotalTokens,
-    apiCacheUsageAvailable,
-    apiCacheReadTokens,
-    apiCacheWriteTokens,
+    apiCacheUsageAvailable: usage.apiCacheUsageAvailable ?? false,
+    apiCacheReadTokens: usage.apiCacheReadTokens ?? 0,
+    apiCacheWriteTokens: usage.apiCacheWriteTokens ?? 0,
   };
 }
 
@@ -89,29 +56,7 @@ export function recordModelUsageAuditEvent(params: {
       provider: params.provider,
       model: params.model,
       durationMs: Date.now() - params.startedAt,
-      toolCallCount: usage.toolCallCount,
-      modelCalls: usage.modelCalls,
-      promptTokens: usage.promptTokens,
-      completionTokens: usage.completionTokens,
-      totalTokens: usage.totalTokens,
-      estimatedPromptTokens: usage.estimatedPromptTokens,
-      estimatedCompletionTokens: usage.estimatedCompletionTokens,
-      estimatedTotalTokens: usage.estimatedTotalTokens,
-      apiUsageAvailable: usage.apiUsageAvailable,
-      apiPromptTokens: usage.apiPromptTokens,
-      apiCompletionTokens: usage.apiCompletionTokens,
-      apiTotalTokens: usage.apiTotalTokens,
-      ...(usage.apiCacheUsageAvailable
-        ? {
-            apiCacheUsageAvailable: usage.apiCacheUsageAvailable,
-            apiCacheReadTokens: usage.apiCacheReadTokens,
-            apiCacheWriteTokens: usage.apiCacheWriteTokens,
-            cacheReadTokens: usage.apiCacheReadTokens,
-            cacheReadInputTokens: usage.apiCacheReadTokens,
-            cacheWriteTokens: usage.apiCacheWriteTokens,
-            cacheWriteInputTokens: usage.apiCacheWriteTokens,
-          }
-        : {}),
+      ...usage,
     },
   });
 }

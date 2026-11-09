@@ -40,12 +40,16 @@ import {
   trackedTaskPrompt,
 } from '../tracking/track-store.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
-import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import {
+  explicitUsageCostSource,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
 import { taskCostFromUsage } from '../usage/task-cost.js';
 import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { startWork, updateWork } from '../work/work-store.js';
 import { beginWork, workPrompt } from '../work/work-tool.js';
 import { isConnectorEventCurrent } from './connector-events.js';
@@ -303,12 +307,22 @@ export async function runIsolatedScheduledTask(params: {
       costUsd,
       auditRunId: runId,
     });
+    const auxiliaryUsage = await recordWorkerAuxiliaryUsage({
+      sessionId: activeSessionId,
+      agentId,
+      auditRunId: runId,
+      usages: [output.tokenUsage],
+    });
     noteTaskRun(params.taskRunId, {
       workId: runId,
       cost: taskCostFromUsage({
         model,
-        costUsd,
-        requests: output.tokenUsage?.modelCalls ?? null,
+        costUsd:
+          explicitUsageCostSource(output.tokenUsage) === 'unknown'
+            ? null
+            : costUsd,
+        requests: usage.modelCalls,
+        additionalCalls: auxiliaryUsage,
       }),
     });
     for (const event of buildMediaGenerationUsageEvents({

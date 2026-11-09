@@ -5,6 +5,7 @@
  * Terminal policy denials remain blocked; a recovered denial can still complete.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
+
 import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import { runAgent } from '../agent/agent.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
@@ -40,6 +41,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { sleep } from '../utils/sleep.js';
 import {
   getActiveDelegationChildContext,
@@ -134,6 +136,12 @@ async function persistDelegationAttempt(params: {
         usage: usagePayload,
       }),
       auditRunId: runId,
+    });
+    await recordWorkerAuxiliaryUsage({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      auditRunId: runId,
+      usages: [params.output.tokenUsage],
     });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: params.sessionId,

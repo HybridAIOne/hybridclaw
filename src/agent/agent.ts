@@ -5,6 +5,7 @@
  * worker execution. Audit records never become authoritative instructions.
  */
 import { randomUUID } from 'node:crypto';
+import { validateTokenUsage } from '../../container/shared/token-usage.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
 import { findAgentBudgetHardStop } from '../board/budget-chip.js';
@@ -249,6 +250,15 @@ async function runAgentInner(
       'agent.approval_progress',
     ),
   });
+  if (workerOutput.tokenUsage !== undefined) {
+    try {
+      workerOutput.tokenUsage = validateTokenUsage(workerOutput.tokenUsage);
+    } catch (cause) {
+      throw new Error('Worker returned invalid model usage metadata.', {
+        cause,
+      });
+    }
+  }
   // Before rehydration: saved result files hold the text the worker saw.
   const output = restoreSpilledToolResults(workerOutput, {
     sessionId,

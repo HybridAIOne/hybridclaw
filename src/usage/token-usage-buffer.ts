@@ -17,6 +17,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { primaryTokenUsage } from '../../container/shared/token-usage.js';
 import {
   makeAuditRunId,
   recordAuditEventStrict,
@@ -59,8 +60,11 @@ export function readCacheTokenUsage(
   tokenUsage?: Pick<
     TokenUsageStats,
     'apiCacheUsageAvailable' | 'apiCacheReadTokens' | 'apiCacheWriteTokens'
-  >,
+  > &
+    Pick<TokenUsageStats, 'modelUsage'>,
 ): Pick<TokenUsageEvent, 'cacheReadTokens' | 'cacheWriteTokens'> {
+  if (tokenUsage?.modelUsage)
+    tokenUsage = primaryTokenUsage(tokenUsage as TokenUsageStats);
   if (!tokenUsage?.apiCacheUsageAvailable) return {};
   return {
     cacheReadTokens: tokenUsage.apiCacheReadTokens,
