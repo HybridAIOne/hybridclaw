@@ -1,50 +1,19 @@
 /**
- * Provider ids — the one list of model providers, shared by the gateway, the
- * container, and the console. Every other provider list, union, prefix table,
- * or slash-command choice derives from these arrays.
- *
- * A model id names its provider with a `${id}/` prefix; a bare id is a HybridAI
- * passthrough. Labels, secret keys, and default URLs live in
+ * Provider id runtime: the derived id lists, membership guards, and the
+ * `${id}/` model-prefix helpers. The id lists themselves are wire data and
+ * live in `@hybridclaw/contracts/provider-ids`; everything here derives from
+ * them. Labels, secret keys, and default URLs live in
  * `src/providers/provider-meta.ts`, not here.
  */
+import {
+  LOCAL_BACKEND_IDS,
+  type LocalBackendType,
+  OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
+  type OpenAICompatRemoteProviderId,
+  RUNTIME_PROVIDER_IDS,
+  type RuntimeProviderId,
+} from '@hybridclaw/contracts/provider-ids';
 
-export const LOCAL_BACKEND_IDS = [
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-  'mlx',
-] as const;
-
-export const OPENAI_COMPAT_REMOTE_PROVIDER_IDS = [
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'nebius',
-] as const;
-
-export const RUNTIME_PROVIDER_IDS = [
-  'hybridai',
-  'openai',
-  'openai-codex',
-  'anthropic',
-  ...OPENAI_COMPAT_REMOTE_PROVIDER_IDS,
-  ...LOCAL_BACKEND_IDS,
-] as const;
-
-export type LocalBackendType = (typeof LOCAL_BACKEND_IDS)[number];
-export type OpenAICompatRemoteProviderId =
-  (typeof OPENAI_COMPAT_REMOTE_PROVIDER_IDS)[number];
-export type RuntimeProviderId = (typeof RUNTIME_PROVIDER_IDS)[number];
 export type OpenAICompatProviderId =
   | OpenAICompatRemoteProviderId
   | Exclude<LocalBackendType, 'ollama'>;

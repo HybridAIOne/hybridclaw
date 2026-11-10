@@ -1,3 +1,8 @@
+/**
+ * Web search settings the gateway hands a worker with each turn
+ * (`ContainerInput.webSearch`). NOT the search runtime
+ * (`container/src/web-search.ts`).
+ */
 export type SearchProviderName =
   | 'brave'
   | 'perplexity'
