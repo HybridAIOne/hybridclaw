@@ -1,14 +1,15 @@
-import { fetchHybridAIDestination } from '../../container/shared/hybridai-destination.js';
-import { getProviderContextError } from '../../container/shared/provider-context.js';
+import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
-} from '../../container/shared/request-max-tokens.js';
-import { extractResponseTextContent } from '../../container/shared/response-text.js';
+} from '@hybridclaw/shared/request-max-tokens';
+import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../container/shared/server-sent-events.js';
+} from '@hybridclaw/shared/server-sent-events';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
@@ -259,24 +260,7 @@ function readAuxiliaryModelUsage(
     (inputTokens !== undefined && outputTokens !== undefined
       ? inputTokens + outputTokens
       : undefined);
-  const promptTokenDetails = isRecord(value.prompt_tokens_details)
-    ? value.prompt_tokens_details
-    : isRecord(value.input_tokens_details)
-      ? value.input_tokens_details
-      : undefined;
-  const cacheReadTokens = readFiniteNumber([
-    value.cacheReadTokens,
-    value.cache_read_tokens,
-    value.cache_read_input_tokens,
-    value.cached_tokens,
-    promptTokenDetails?.cached_tokens,
-  ]);
-  const cacheWriteTokens = readFiniteNumber([
-    value.cacheWriteTokens,
-    value.cache_write_tokens,
-    value.cache_creation_input_tokens,
-    promptTokenDetails?.cache_write_tokens,
-  ]);
+  const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(value);
   const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
 
   if (

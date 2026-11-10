@@ -12,7 +12,7 @@
  * delegated preservation checks use the gateway-owned root request.
  */
 
-import { approvalRuleFor } from '../shared/approval-rules.js';
+import { approvalRuleFor } from '@hybridclaw/shared/approval-rules';
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ApprovalPrelude,

@@ -10,15 +10,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
-import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
-import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
+import { buildMcpServerNamespaces } from '@hybridclaw/shared/mcp-tool-namespaces';
+import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import { fetchA2AAgentCard } from '../a2a/a2a-agent-card.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {

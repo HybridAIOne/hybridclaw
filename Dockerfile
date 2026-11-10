@@ -11,6 +11,8 @@ RUN npm install --global npm@11.10.0 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY container/package*.json container/
 RUN npm --prefix container ci --ignore-scripts
@@ -37,6 +39,8 @@ RUN npm install --global npm@11.10.0 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/shared/package.json packages/shared/
 COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
 RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true

@@ -72,8 +72,9 @@ Maintainer overrides:
 - `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
   even on an interactive terminal
 
-Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
-local secrets or artifacts into published images.
+The agent image builds from the repository root, and
+`container/Dockerfile.dockerignore` limits its context to the files the
+Dockerfile copies, so local secrets and artifacts stay out of published images.
 
 Published images export with `rewrite-timestamp=true` under a fixed
 `SOURCE_DATE_EPOCH`, so a step that reruns still yields byte-identical filesystem
@@ -89,10 +90,12 @@ of source checkouts only.
 
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
-terminal all use `dist/cli.js`. Both gateway and agent bundles inline
-`container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds, npm packages, and desktop packages also run the
-gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
+private `@hybridclaw/shared` workspace package (`packages/shared`); the image
+does not ship that package or plain gateway `tsc` output. Source builds, npm
+packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
+the build rolls the plugin SDK's declarations, shared types included, into
+the one file `dist/plugin-sdk.d.ts` beside it. A rebuild
 keeps earlier content-hashed chunks so a gateway already running from the
 checkout can still load its own lazily; `npm run clean` removes them, and
 `prepack` cleans before packaging.
@@ -171,6 +174,12 @@ Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
 
+Native Responses reasoning items travel with assistant tool-call history for
+OpenAI and OpenAI Codex workers, including after worker replacement. Both
+encrypted items and compatible providers' plaintext reasoning items are replayed
+as provider metadata; they do not become the assistant's visible answer. Other
+providers discard this foreign metadata before preparing their requests.
+
 The fetched-code guard refuses unreadable or invalid saved history. Downloads
 and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
@@ -203,6 +212,14 @@ The host runner sets `HYBRIDCLAW_AGENT_STATE_ROOT` to that owner directory;
 Docker workers continue to use their mounted workspace for both purposes.
 Transcript and compaction archive references use absolute paths when their files
 live outside the execution workspace, so the read tool can still resolve them.
+
+File-tool relative paths always start at the execution workspace, independently
+of the persistent shell's current directory. Every path component is preserved:
+with display root `/app`, `app/config.txt` means `/app/app/config.txt`, while
+`config.txt` means `/app/config.txt`. Only absolute display paths are aliases.
+Host and task-sandbox file tools follow the same rule, including when a child
+directory has the same name as the display root. Traversal fences and checked
+replacement requirements still apply.
 
 HTTP artifact read aliases (`/workspace/.http-artifacts/<filename>`) resolve
 against the worker state root, independently of its execution directory. Reads,
@@ -330,6 +347,13 @@ of external side effects or file appends.
 Large tool results live in `.tool-results/` in the owning state workspace.
 Their file paths travel with bounded model excerpts, so a replacement worker
 can read or search the complete text without restoring it into model context.
+Checkpoints retain which completed calls use these files, so gateway recovery
+restores their full audit and transcript evidence while replay stays bounded.
+Saved filenames include a bounded call-ID label and the result digest. Repeated
+IDs retain each distinct outcome; restoration verifies the recorded bytes and leaves an
+explicit reference if the file changed. Identity metadata is internal and is
+removed before model requests. Unbound references remain available for direct
+reads; gateway restoration never guesses which saved outcome they meant.
 
 The shell/network-denial replan budget uses the current request's tool execution records.
 It grants one replan per request, not per session; it does not persist across
@@ -779,6 +803,30 @@ A first shell-safety or unpinned network-policy denial permits one replan per tu
 omits the prohibited effects. The denied call and remaining calls in its batch
 do not execute; every new call faces policy again. Repeated denials stop the
 turn, and required human approvals still pause execution.
+
+## Verification Before Completion
+
+The container's startup guidance asks the agent to derive observable acceptance
+checks from the task's requirements, reproduce failures when practical, and
+compare behavior with independent expected results. Verification covers affected
+requirements, component interactions, and relevant boundary and failure cases.
+Stateful and concurrent checks also inspect intermediate observable states,
+using deterministic barriers or events to control ordering.
+After the last edit, the agent reruns affected checks and reviews the changes
+against those requirements. A successful example or syntax check supports only
+that check, not an overall completion claim.
+
+This guidance is composed with runtime capabilities before the loop; it does not
+rewrite instructions or tool schemas during execution. It guides model behavior
+rather than certifying correctness or enforcing a completion gate. The agent
+reports failed or unverified work when a blocker or execution budget prevents
+completion. Runs that skip the container system prompt also skip this guidance.
+
+Verification guidance also directs the agent to resolve a rejected write on its
+original path before proceeding with other mutations or test commands. Shell
+checks use explicit timeouts that leave room for repair; concurrency checks use
+bounded waits so a hung check does not consume the rest of a run. These are model
+instructions, not exemptions from the existing overwrite or approval guards.
 
 ## Tool Recovery
 
@@ -1498,8 +1546,11 @@ tool-call rounds.
 
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
-`container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
-only:
+`packages/shared/src/ipc-output-files.ts`), and `readOutput()` waits for that file
+only. The reply is untrusted: before anything reads it, the gateway checks it
+against `ContainerOutputSchema` in `packages/contracts/src/agent-io.ts`, the
+one definition of the gateway ↔ agent messages, plus the shared tool-history
+and token-usage validators. A reply that fails becomes an error result.
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
   the tool calls that ran and any delegations it had queued. The interrupted
@@ -1546,7 +1597,7 @@ memory and never writes to disk or the environment.
 
 Every later turn arrives as `input.json` in the session IPC directory, which the
 agent can also reach. So the gateway wraps each follow-up in an authenticity
-envelope keyed by that secret (`container/shared/ipc-input-auth.js`), and the
+envelope keyed by that secret (`packages/shared/src/ipc-input-auth.ts`), and the
 agent runs a follow-up only when the envelope verifies against the secret it
 received on stdin. Input it cannot verify is dropped, never run.
 
@@ -1559,7 +1610,7 @@ echo and never turns a health file into a turn, so it needs no envelope.
 agent makes an inbox directory, `steer-<requestId>`, in the IPC directory when
 it takes a request of a user turn; the gateway delivers a note by renaming a
 finished file into it, signed with the per-worker secret like follow-up input
-(`container/shared/steer-inbox.js`). An agent image without steering makes no
+(`packages/shared/src/steer-inbox.ts`). An agent image without steering makes no
 inbox, so its turns refuse every note. The agent shows waiting notes to the
 model:
 

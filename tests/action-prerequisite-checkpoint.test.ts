@@ -2,8 +2,8 @@ import { expect, test } from 'vitest';
 import {
   ACTION_PREREQUISITE_CHECKPOINT,
   ACTION_PREREQUISITE_LINES,
-} from '../container/shared/action-prerequisites.js';
-import { TOOL_ARGUMENT_CARDINALITY } from '../container/shared/tool-argument-contract.js';
+} from '@hybridclaw/shared/action-prerequisites';
+import { TOOL_ARGUMENT_CARDINALITY } from '@hybridclaw/shared/tool-argument-contract';
 import { appendActionPrerequisiteCheckpoint } from '../container/src/action-prerequisite-checkpoint.js';
 import type { ChatMessage } from '../container/src/types.js';
 

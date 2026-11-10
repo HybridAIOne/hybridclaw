@@ -8,22 +8,22 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import {
   DAILY_MEMORY_MAX_CHARS,
   readDailyMemoryFile,
   truncateDailyMemoryText,
-} from '../../container/shared/daily-memory.js';
+} from '@hybridclaw/shared/daily-memory';
 import {
   lockMemoryFile,
   writeMemoryFileAtomic,
-} from '../../container/shared/memory-file.js';
-import { escapeRegExp } from '../../container/shared/regex.js';
+} from '@hybridclaw/shared/memory-file';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 
 import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
-} from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import {
   listAgents,
   resolveAgentForRequest,

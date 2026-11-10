@@ -2,9 +2,10 @@
  * UI saves preserve the selected scope and observed mode; rejected edits remain drafts.
  * Auth and durable session semantics are covered at the real gateway boundary.
  */
+
+import type { ApprovalSettingsResponse } from '@hybridclaw/shared/approval-mode';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { ApprovalSettingsResponse } from '../../../container/shared/approval-mode.js';
 import {
   fetchApprovalSettings,
   saveApprovalSettings,

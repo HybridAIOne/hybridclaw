@@ -64,6 +64,11 @@ container/              Sandboxed runtime (separate npm package)
   Dockerfile            Container build definition
   package.json          Container-specific deps (Playwright, agent-browser, PDF, MCP SDK)
 
+packages/contracts/     @hybridclaw/contracts: the gateway ↔ agent messages (agent-io.ts) and
+                        the in-house schema builders (schema.ts) their checks come from
+packages/shared/        @hybridclaw/shared: private workspace package of code the gateway,
+                        container, and console share; both bundles inline it
+
 skills/                 Bundled SKILL.md skills (pdf, docx, xlsx, pptx, office, personality, etc.)
 templates/              Runtime workspace bootstrap files seeded into agent workspaces
 tests/                  Vitest suites: unit, integration, e2e, live
@@ -141,14 +146,17 @@ core, not dead code).
   and any type that crosses the gateway / container / console boundary, has
   exactly one definition. Before writing one, search for it and derive from it:
   import it, generate from it, or look it up. If a second copy is unavoidable,
-  generate it and add a test that fails when the two diverge.
+  generate it and add a test that fails when the two diverge. Gateway ↔ agent
+  messages live in `packages/contracts/src/agent-io.ts`; data the receiver must
+  check is a schema there (`packages/contracts/src/schema.ts`), and its type is
+  `Infer<typeof Schema>`, never a separate interface.
 - **Logic:** duplicate small local logic when it preserves clarity; extract a
   helper on the third copy. Reusing a helper that already exists is never
-  premature: check `src/utils/`, `container/shared/`, and the owning module
+  premature: check `src/utils/`, `packages/shared/`, and the owning module
   before writing `isRecord`, `sleep`, `parseJsonObject`, a base-URL
   normalizer, or a private-network check.
 - When extracting, preserve module boundaries. Code both the gateway and the
-  container need lives in `container/shared/`.
+  container need lives in `packages/shared/` (`@hybridclaw/shared`).
 
 ### 3.4 Core Is for What Every Install Needs
 
@@ -439,7 +447,7 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. Add the id to `container/shared/provider-ids.js` and its `.d.ts` (the one
+1. Add the id to `packages/shared/src/provider-ids.ts` (the one
    id list; OpenAI-compatible remote providers go in
    `OPENAI_COMPAT_REMOTE_PROVIDER_IDS`) and its label, secret key, env vars,
    and defaults to `PROVIDER_META` in `src/providers/provider-meta.ts`. Unions,

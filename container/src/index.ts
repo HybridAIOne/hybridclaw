@@ -11,13 +11,13 @@ import './node-version-guard.js';
 
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import { CONTEXT_GUARD_DEFAULTS } from '../shared/context-guard-config.js';
-import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
-import { shouldOfferMessageTool } from '../shared/message-tool-channels.js';
-import { isRetrySafeRun } from '../shared/retry-safety.js';
-import { compileToolPatterns } from '../shared/tool-patterns.js';
+import type { BoostAnswer, BoostOffer } from '@hybridclaw/shared/boost-offer';
+import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
+import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config';
+import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
+import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
+import { compileToolPatterns } from '@hybridclaw/shared/tool-patterns';
 import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
 import { withApprovalReplyUsage } from './approval-reply.js';
@@ -201,13 +201,13 @@ import {
 } from './tools.js';
 import { TurnToolHistory } from './turn-tool-history.js';
 import {
+  AGENT_TASK_MODEL_KEYS,
   type ArtifactMetadata,
   type ChatCompletionResponse,
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
   type EscalationTarget,
-  TASK_MODEL_KEYS,
   type ToolCall,
   type ToolDefinition,
   type ToolExecution,
@@ -269,7 +269,7 @@ function resolveTaskModelsForRequest(
   }
 
   const merged: NonNullable<ContainerInput['taskModels']> = {};
-  for (const key of TASK_MODEL_KEYS) {
+  for (const key of AGENT_TASK_MODEL_KEYS) {
     const incomingTaskModel = taskModels[key];
     if (!incomingTaskModel) continue;
 
@@ -1232,7 +1232,8 @@ async function processRequestInner(
     // HybridAI relays Claude and needs the signed blocks back for a cache hit.
     if (provider !== 'anthropic' && provider !== 'hybridai')
       delete next.anthropic_content;
-    if (provider !== 'openai-codex') delete next.openai_response_items;
+    if (provider !== 'openai-codex' && provider !== 'openai')
+      delete next.openai_response_items;
     return next;
   });
   if (toolCatalog && tools === toolCatalog.tools) {

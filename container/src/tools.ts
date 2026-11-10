@@ -9,26 +9,26 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describeBashStatePersistence } from '../shared/bash-state.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
+import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
+import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
+import { DAILY_MEMORY_MAX_CHARS } from '@hybridclaw/shared/daily-memory';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
-} from '../shared/memory-file.js';
+} from '@hybridclaw/shared/memory-file';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
-} from '../shared/message-tool-channels.js';
+} from '@hybridclaw/shared/message-tool-channels';
 import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
-} from '../shared/msteams-session-ids.js';
+} from '@hybridclaw/shared/msteams-session-ids';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   readUserTimezoneFile,
-} from '../shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import {
   BASH_DOCKER_CONTAINER,
   BASH_EXEC_MAX_BUFFER_BYTES,
@@ -95,6 +95,7 @@ import {
   isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
+  resolveTaskSandboxPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
@@ -524,36 +525,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
 
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function resolveTaskSandboxPath(userPath: string): string | null {
-  const raw = String(userPath || '').trim();
-  if (!raw) return null;
-
-  const normalized = raw.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function runTaskSandboxDocker(params: {

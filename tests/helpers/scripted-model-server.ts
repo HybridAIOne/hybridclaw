@@ -5,7 +5,7 @@
  * a gateway's local-backend discovery accepts the endpoint.
  */
 import http from 'node:http';
-import { ACTION_PREREQUISITE_CHECKPOINT } from '../../container/shared/action-prerequisites.js';
+import { ACTION_PREREQUISITE_CHECKPOINT } from '@hybridclaw/shared/action-prerequisites';
 import type { ChatMessage, ToolDefinition } from '../../container/src/types.js';
 
 export type ModelRequestBody = {

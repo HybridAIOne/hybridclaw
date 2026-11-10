@@ -20,7 +20,7 @@ import {
   setSkillDiscoveryTools,
 } from '../container/src/tools/skills-list.js';
 import { TOOL_DEFINITIONS } from '../container/src/tools.js';
-import { ACTION_PREREQUISITE_CHECKPOINT } from '../container/shared/action-prerequisites.js';
+import { ACTION_PREREQUISITE_CHECKPOINT } from '@hybridclaw/shared/action-prerequisites';
 import { buildSystemPromptBlocksFromHooks } from '../src/agent/prompt-hooks.js';
 import { resolveAgentForRequest } from '../src/agents/agent-registry.js';
 import { agentWorkspaceDir } from '../src/infra/ipc.js';

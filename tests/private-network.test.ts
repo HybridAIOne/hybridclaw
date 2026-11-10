@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { isPrivateNetworkAddress } from '../container/shared/private-network.js';
+import { isPrivateNetworkAddress } from '@hybridclaw/shared/private-network';
 
 test.each([
   '0.0.0.0',

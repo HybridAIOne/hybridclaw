@@ -14,10 +14,8 @@ const LAZY_ONLY_PACKAGES = [
   '@modelcontextprotocol/sdk',
   '@slack/bolt',
   '@slack/web-api',
-  'botbuilder',
-  'botbuilder-core',
-  'botframework-connector',
-  'botframework-schema',
+  '@microsoft/agents-activity',
+  '@microsoft/agents-hosting',
   // Vendor browser providers are plugins (#1801); none may come back as core.
   'camoufox-js',
   'discord.js',

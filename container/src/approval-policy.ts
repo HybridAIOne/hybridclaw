@@ -3,6 +3,8 @@
  * Explicit learning mode observes approvals, including pinned prompts, without
  * granting trust; other modes enforce the pinned approval floor. Fetched-code
  * history must load and persist successfully before a download is allowed.
+ * Verified OS-identification reads bypass only default path pins, never
+ * explicit operator rules.
  * The loop must unwrap catalog calls first; only list/describe are read-only
  * discovery here, never the underlying action requested through the catalog.
  * Replay retains full stored request and draft text; scoped consent still grants execution.
@@ -13,12 +15,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-import YAML from 'yaml';
 import type {
   ApprovalObservation,
   ApprovalMode as SessionApprovalMode,
-} from '../shared/approval-mode.js';
-import type { ApprovalReplyInterpretation } from '../shared/approval-reply.js';
+} from '@hybridclaw/shared/approval-mode';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -27,23 +28,23 @@ import {
   LEGACY_AGENT_TRUST_STORE_FILE,
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
-} from '../shared/approval-rules.js';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
+} from '@hybridclaw/shared/approval-rules';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
+import { isAllowedHostlessBrowserNavigationUrl } from '@hybridclaw/shared/browser-navigation';
 import {
   type BrowserStealthPolicyAccessEvaluation,
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../shared/browser-stealth-policy.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
-import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
+} from '@hybridclaw/shared/browser-stealth-policy';
+import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
+import type { ClassifierMiddlewareSkill } from '@hybridclaw/shared/middleware-contract';
+import { applyClassifierMiddlewareSync } from '@hybridclaw/shared/middleware-runner';
 import type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 import {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
@@ -51,8 +52,9 @@ import {
   normalizeNetworkHostScope,
   normalizeNetworkPort,
   readNetworkPolicyState,
-} from '../shared/network-policy.js';
-import { asRecord } from '../shared/primitive-values.js';
+} from '@hybridclaw/shared/network-policy';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
+import YAML from 'yaml';
 import {
   type ApprovalDirective,
   parseApprovalUserResponse,
@@ -104,6 +106,7 @@ import { buildConnectorApproval } from './connector-approvals.js';
 import { guardFileWriteConflict } from './file-write-conflicts.js';
 import { classifyMcpAction } from './mcp/approval-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
+import { osReleaseReadPath } from './os-release-read.js';
 import {
   loadSessionPendingApprovals,
   type PendingApproval,
@@ -145,12 +148,12 @@ import {
 export type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export { parseApprovalUserResponse } from './approval-directive.js';
 export type {
   StakesClassificationInput,
@@ -511,8 +514,11 @@ const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
 // `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor, and a redirect to
 // /dev/null discards output. None writes a file, so adding one never changes
 // the tier (owner calls, 2026-09-27 and 2026-09-29).
+// `>=` in opaque arguments can be a comparison, not shell redirection.
+// Actual shell redirects (including a filename starting `=`) are covered by
+// commandWriteTargets; retain the fallback for other opaque write expressions.
 const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!=)(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
@@ -3965,7 +3971,11 @@ export class TrustedAgentApprovalRuntime {
     const fullText =
       `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
 
-    if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
+    const publicReadPath = osReleaseReadPath(input.toolName, input.args);
+    const defaultPathHints = input.pathHints.filter(
+      (hint) => !publicReadPath || path.resolve(hint) !== publicReadPath,
+    );
+    if (defaultPathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
       return true;
     }
     if (changesApprovalState(input.toolName, input.pathHints)) return true;
@@ -3989,7 +3999,10 @@ export class TrustedAgentApprovalRuntime {
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
-        for (const pathHint of input.pathHints) {
+        for (const pathHint of this.loadedPolicy.pinnedRed ===
+        DEFAULT_POLICY.pinnedRed
+          ? defaultPathHints
+          : input.pathHints) {
           if (
             rule.paths.some((pattern) => matchesPathPattern(pathHint, pattern))
           ) {

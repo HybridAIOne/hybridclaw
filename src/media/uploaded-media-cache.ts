@@ -22,7 +22,6 @@ const UPLOADED_MEDIA_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 const UPLOADED_MEDIA_CACHE_CLEANUP_MIN_INTERVAL_MS = 5 * 60 * 1_000;
 const MAX_SANITIZED_FILENAME_CHARS = 80;
 const INVALID_FILENAME_CHARS_RE = /[^\p{L}\p{N}._-]+/gu;
-const TRIM_FILENAME_PUNCTUATION_RE = /^[-_.]+|[-_.]+$/g;
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
@@ -94,14 +93,25 @@ export function normalizeUploadedMediaPathForRuntime(
   return normalizeUploadedMediaPathForContainer(hostPath);
 }
 
-function sanitizeFilenameSegment(value: string): string {
-  return value
-    .normalize('NFKC')
-    .trim()
-    .replace(INVALID_FILENAME_CHARS_RE, '-')
-    .replace(/-+/g, '-')
-    .replace(/\.{2,}/g, '.')
-    .replace(TRIM_FILENAME_PUNCTUATION_RE, '');
+// Index loops, not an anchored regex: `[-_.]+$` rescans a long punctuation run
+// from every start position, which is quadratic on an untrusted filename.
+function trimFilenamePunctuation(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && '-_.'.includes(value[start])) start += 1;
+  while (end > start && '-_.'.includes(value[end - 1])) end -= 1;
+  return value.slice(start, end);
+}
+
+export function sanitizeFilenameSegment(value: string): string {
+  return trimFilenamePunctuation(
+    value
+      .normalize('NFKC')
+      .trim()
+      .replace(INVALID_FILENAME_CHARS_RE, '-')
+      .replace(/-+/g, '-')
+      .replace(/\.{2,}/g, '.'),
+  );
 }
 
 export function sanitizeUploadedMediaFilename(

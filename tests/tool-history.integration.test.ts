@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+import { toolResultFilePath } from '@hybridclaw/shared/tool-history';
 import type { ChatMessage } from '../src/types/api.js';
 import type {
   ContainerInput,
   ContainerOutput,
 } from '../src/types/container.js';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
 import { runContainerWorker } from './helpers/container-worker.js';
 
 let root: string;
@@ -364,7 +364,11 @@ test('a file reference reaches the outbound request but never the recorded call'
 
 test('a large tool result crosses IPC by reference with full evidence and bounded model replay', async () => {
   // Two full copies of a 6 MB result used to exceed the 10 MB output limit.
-  const session = memory.getOrCreateSession('large-result', null, 'test-channel');
+  const session = memory.getOrCreateSession(
+    'large-result',
+    null,
+    'test-channel',
+  );
   const body = 'row,value\n'.repeat(600_000);
   let observedModelResult: unknown;
   const server = http.createServer(async (req, res) => {
@@ -435,11 +439,12 @@ test('a large tool result crosses IPC by reference with full evidence and bounde
       sessionId: session.id,
       workspaceRoot: workspace,
     });
-    const resultPath = toolResultFilePath(session.id, 'export-get');
-    const saved = fs.readFileSync(
-      path.join(workspace, resultPath),
-      'utf8',
+    const resultPath = toolResultFilePath(
+      session.id,
+      'export-get',
+      output.toolExecutions![0].resultDigest!,
     );
+    const saved = fs.readFileSync(path.join(workspace, resultPath), 'utf8');
     expect(JSON.parse(saved).body === body).toBe(true);
     expect(typeof observedModelResult).toBe('string');
     expect(String(observedModelResult).length).toBeLessThan(9_000);

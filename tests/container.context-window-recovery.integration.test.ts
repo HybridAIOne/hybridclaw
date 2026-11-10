@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import {
+  toolResultDigest,
+  toolResultFilePath,
+} from '@hybridclaw/shared/tool-history';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import type { ChatMessage } from '../src/types/api.js';
 import type { ContainerInput } from '../src/types/container.js';
@@ -189,7 +192,11 @@ describe('provider context-length rejections in the tool loop', () => {
         HYBRIDCLAW_AGENT_STATE_ROOT: stateRoot,
         HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify([workspace, stateRoot]),
       };
-      const resultPath = toolResultFilePath('context-recovery', 'large-http');
+      const resultPath = toolResultFilePath(
+        'context-recovery',
+        'large-http',
+        toolResultDigest(fullResult),
+      );
       const modelPath = separateStateRoot
         ? path.join(stateRoot, resultPath)
         : resultPath;
@@ -329,7 +336,11 @@ describe('provider context-length rejections in the tool loop', () => {
         fs.readFileSync(
           path.join(
             workspace,
-            toolResultFilePath('context-recovery', 'old-http'),
+            toolResultFilePath(
+              'context-recovery',
+              'old-http',
+              toolResultDigest(content),
+            ),
           ),
           'utf8',
         ),

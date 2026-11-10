@@ -1,4 +1,4 @@
-import type { ApprovalMode } from '../../../container/shared/approval-mode.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
 import type { StructuredReply } from '../../../src/gateway/structured-reply';
 import type { PendingApproval } from '../../../src/types/execution';

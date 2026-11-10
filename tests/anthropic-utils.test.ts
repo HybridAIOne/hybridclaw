@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import * as shared from '../container/shared/anthropic-utils.js';
+import * as shared from '@hybridclaw/shared/anthropic-utils';
 import * as host from '../src/providers/anthropic-utils.js';
 
 describe('Anthropic shared utilities', () => {

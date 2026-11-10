@@ -30,8 +30,8 @@ import {
   normalizeDashboard,
   readDashboardSchedules,
   withDashboardRefresh,
-} from '../../container/shared/dashboard.js';
-import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/dashboard';
+import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
 import { listAgents } from '../agents/agent-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';

@@ -20,7 +20,7 @@ async function load() {
   );
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { readUserTimezoneFile } = await import(
-    '../container/shared/workspace-time.js'
+    '@hybridclaw/shared/workspace-time'
   );
   initDatabase({ quiet: true });
 

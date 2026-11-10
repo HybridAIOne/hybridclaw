@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
-import { createTokenUsageStats } from '../container/shared/token-usage.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
+import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import {
   TurnCheckpoint,
   turnCheckpointPath,
-} from '../container/shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/turn-checkpoint';
 import type { ContainerOutput } from '../src/types/container.js';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';

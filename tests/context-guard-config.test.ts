@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../container/shared/context-guard-config.js';
+} from '@hybridclaw/shared/context-guard-config';
 
 describe('normalizeContextGuardConfig', () => {
   test('clamps the shared guard bounds from one place', () => {
