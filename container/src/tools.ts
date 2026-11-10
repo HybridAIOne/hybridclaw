@@ -3872,7 +3872,7 @@ async function executeToolInternal(
       }
       if (result.nextPageUrl) {
         lines.push(
-          `Next page: ${result.nextPageUrl} (paginated; fetch it for more items).`,
+          `Next link: ${result.nextPageUrl} (may lead to more items or a separate document; check relevance before fetching).`,
         );
       }
       let outputText = result.text;

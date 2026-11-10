@@ -610,8 +610,8 @@ function includesAny(haystack: string, needles: readonly string[]): boolean {
   return false;
 }
 
-// Readability drops pagination wrappers as unlikely content, so paginated
-// lists (e.g. Webflow "Load more") would look complete to the model.
+// Readability drops navigation wrappers. Keep next links visible, but rel=next
+// can point to a sibling document rather than another page of the same list.
 function findNextPageUrl(html: string, baseUrl: string): string | undefined {
   for (const [tag] of html.matchAll(/<(?:a|link)\b[^>]*>/gi)) {
     const isNext =

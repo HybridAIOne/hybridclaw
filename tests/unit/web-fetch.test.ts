@@ -321,6 +321,11 @@ describe('web fetch escalation and pagination', () => {
       link: '<link rel="next" href="/exhibition/page/2?a=1&amp;b=2">',
       expected: 'https://93.184.216.34/exhibition/page/2?a=1&b=2',
     },
+    {
+      name: 'sibling document navigation',
+      link: '<link rel="next" href="/manual/next-topic.html">',
+      expected: 'https://93.184.216.34/manual/next-topic.html',
+    },
     { name: 'no pagination', link: '', expected: undefined },
   ])('reports the next page for $name', async ({ link, expected }) => {
     vi.stubGlobal(
