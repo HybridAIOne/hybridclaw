@@ -64,6 +64,8 @@ container/              Sandboxed runtime (separate npm package)
   Dockerfile            Container build definition
   package.json          Container-specific deps (Playwright, agent-browser, PDF, MCP SDK)
 
+packages/contracts/     @hybridclaw/contracts: the gateway ↔ agent messages (agent-io.ts) and
+                        the in-house schema builders (schema.ts) their checks come from
 packages/shared/        @hybridclaw/shared: private workspace package of code the gateway,
                         container, and console share; both bundles inline it
 
@@ -144,7 +146,10 @@ core, not dead code).
   and any type that crosses the gateway / container / console boundary, has
   exactly one definition. Before writing one, search for it and derive from it:
   import it, generate from it, or look it up. If a second copy is unavoidable,
-  generate it and add a test that fails when the two diverge.
+  generate it and add a test that fails when the two diverge. Gateway ↔ agent
+  messages live in `packages/contracts/src/agent-io.ts`; data the receiver must
+  check is a schema there (`packages/contracts/src/schema.ts`), and its type is
+  `Infer<typeof Schema>`, never a separate interface.
 - **Logic:** duplicate small local logic when it preserves clarity; extract a
   helper on the third copy. Reusing a helper that already exists is never
   premature: check `src/utils/`, `packages/shared/`, and the owning module

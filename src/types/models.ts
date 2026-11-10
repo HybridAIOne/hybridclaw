@@ -1,52 +1,15 @@
 import type { RuntimeProviderId } from '../providers/provider-ids.js';
-import type { ModelBehavior } from './model-behavior.js';
 
 export type ProviderKind = RuntimeProviderId;
 
 export type AnthropicMethod = 'api-key' | 'claude-cli';
 
+export type {
+  ContextGuardConfig,
+  TaskModelKey,
+  TaskModelPolicies,
+  TaskModelPolicy,
+} from '@hybridclaw/contracts/agent-io';
+
+export { TASK_MODEL_KEYS } from '@hybridclaw/contracts/agent-io';
 export type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
-
-export interface TaskModelPolicy {
-  provider?: ProviderKind;
-  providerMethod?: string;
-  baseUrl?: string;
-  apiKey?: string;
-  requestHeaders?: Record<string, string>;
-  isLocal?: boolean;
-  contextWindow?: number;
-  modelBehavior?: ModelBehavior;
-  thinkingFormat?: 'qwen';
-  model: string;
-  chatbotId?: string;
-  maxTokens?: number;
-  error?: string;
-}
-
-export const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'eval_judge',
-  'goal_judge',
-  'mcp',
-  'flush_memories',
-  'btw',
-  'second_opinion',
-  'session_title',
-] as const;
-
-export type TaskModelKey = (typeof TASK_MODEL_KEYS)[number];
-
-export type TaskModelPolicies = {
-  [K in TaskModelKey]?: TaskModelPolicy;
-};
-
-export interface ContextGuardConfig {
-  enabled: boolean;
-  compactionRatio: number;
-  overflowRatio: number;
-  maxRetries: number;
-}

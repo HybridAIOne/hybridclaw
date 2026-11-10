@@ -1,62 +1,15 @@
-/**
- * Execution evidence carries result identity across the worker boundary.
- * Approval fields describe recorded decisions, not fresh consent; file
- * restoration verifies the saved bytes rather than trusting provider IDs.
- */
-import type { ApprovalObservation } from '@hybridclaw/shared/approval-mode';
-import type { ApprovalRule } from '@hybridclaw/shared/approval-rules';
-import type { BoostPrompt } from '@hybridclaw/shared/boost-offer';
-import type {
-  StakesScore as CanonicalStakesScore,
-  StakesSignal as CanonicalStakesSignal,
-} from '@hybridclaw/shared/stakes-classifier';
-import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
+import type { EscalationTarget } from '@hybridclaw/contracts/agent-io';
 
-export interface RuntimeToolSchemaProperty {
-  type: string | string[];
-  description?: string;
-  items?: RuntimeToolSchemaProperty;
-  properties?: Record<string, RuntimeToolSchemaProperty>;
-  required?: string[];
-  enum?: string[];
-  minItems?: number;
-  maxItems?: number;
-}
-
-export interface RuntimeToolSchema {
-  type: 'object';
-  properties: Record<string, RuntimeToolSchemaProperty>;
-  required: string[];
-}
-
-export interface PluginRuntimeToolDefinition {
-  name: string;
-  description: string;
-  parameters: RuntimeToolSchema;
-}
-
-export type ToolExecutionStakesSignal = CanonicalStakesSignal;
-export type ToolExecutionStakesScore = CanonicalStakesScore;
-
-export interface ToolExecutionAnomalyScore {
-  score: number;
-  threshold: number | null;
-  reason: string;
-  status: 'scored' | 'abstained' | 'borderline';
-  model: string;
-  trajectoryCount: number;
-  tuple: string;
-  traceJudge?: {
-    verdict: 'normal' | 'anomalous' | 'inconclusive' | 'error';
-    score: number | null;
-    reason: string;
-  };
-}
-
-export interface EscalationTarget {
-  channel: string;
-  recipient: string;
-}
+export type {
+  ArtifactMetadata,
+  EscalationTarget,
+  PendingApproval,
+  PluginRuntimeToolDefinition,
+  ToolExecution,
+  ToolExecutionAnomalyScore,
+  ToolExecutionStakesScore,
+  ToolExecutionStakesSignal,
+} from '@hybridclaw/contracts/agent-io';
 
 export function normalizeEscalationTarget(
   value: unknown,
@@ -78,75 +31,6 @@ export function escalationTargetEquals(
   if (a === b) return true;
   if (!a || !b) return false;
   return a.channel === b.channel && a.recipient === b.recipient;
-}
-
-export interface ToolExecution extends FileBackedToolResult {
-  approvalObservation?: ApprovalObservation;
-  name: string;
-  arguments: string;
-  result: string;
-  toolCallId?: string;
-  durationMs: number;
-  isError?: boolean;
-  blocked?: boolean;
-  blockedReason?: string;
-  approvalTier?: 'green' | 'yellow' | 'red';
-  approvalBaseTier?: 'green' | 'yellow' | 'red';
-  /** The approval policy's call: this changes or sends something. */
-  writeIntent?: boolean;
-  autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
-  stakes?: 'low' | 'medium' | 'high';
-  stakesScore?: ToolExecutionStakesScore;
-  anomaly?: ToolExecutionAnomalyScore;
-  escalationRoute?:
-    | 'none'
-    | 'implicit_notice'
-    | 'approval_request'
-    | 'policy_denial';
-  escalationTarget?: EscalationTarget;
-  approvalDecision?:
-    | 'auto'
-    | 'implicit'
-    | 'approved_once'
-    | 'approved_session'
-    | 'approved_agent'
-    | 'approved_all'
-    | 'approved_fullauto'
-    | 'promoted'
-    | 'required'
-    | 'denied';
-  approvalActionKey?: string;
-  approvalIntent?: string;
-  approvalReason?: string;
-  approvalRequestId?: string;
-  approvalExpiresAt?: number;
-  approvalAllowSession?: boolean;
-  approvalAllowAgent?: boolean;
-  approvalAllowAll?: boolean;
-}
-
-export interface PendingApproval {
-  approvalId: string;
-  prompt: string;
-  intent: string;
-  reason: string;
-  approvalTier?: 'green' | 'yellow' | 'red';
-  toolName?: string;
-  commandPreview?: string;
-  /** Complete allowlisted review facts; never credentials or attachment bytes. */
-  reviewArguments?: string;
-  allowSession: boolean;
-  allowAgent: boolean;
-  allowAll: boolean;
-  expiresAt: number | null;
-  /**
-   * The rule that paused the call and the kind of action an "always allow"
-   * (`yes for agent`) would cover from now on.
-   */
-  rule?: ApprovalRule;
-  escalationTarget?: EscalationTarget;
-  /** Set when the question is whether to spend one of the user's boosts. */
-  boost?: BoostPrompt;
 }
 
 /** Where the agent's browser is after a browser tool ran. */
@@ -180,10 +64,4 @@ export interface ToolProgressEvent {
   durationMs?: number;
   browser?: BrowserFrame;
   slideSamples?: SlideSamples;
-}
-
-export interface ArtifactMetadata {
-  path: string;
-  filename: string;
-  mimeType: string;
 }

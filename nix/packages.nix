@@ -133,6 +133,7 @@
           cp -r container/dist "$INSTALL_DIR/container/dist"
           cp -r container/src "$INSTALL_DIR/container/src"
           mkdir -p "$INSTALL_DIR/packages"
+          cp -r packages/contracts "$INSTALL_DIR/packages/contracts"
           cp -r packages/shared "$INSTALL_DIR/packages/shared"
           # Locked manifest for `hybridclaw skill setup xlsx` (host-sandbox libraries).
           mkdir -p "$INSTALL_DIR/container/tools"

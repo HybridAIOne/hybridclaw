@@ -11,6 +11,7 @@ RUN npm install --global npm@11.10.0 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
 COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY container/package*.json container/
@@ -38,6 +39,7 @@ RUN npm install --global npm@11.10.0 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
 COPY packages/shared/package.json packages/shared/
 COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci

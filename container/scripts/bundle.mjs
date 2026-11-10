@@ -2,17 +2,17 @@
 
 // Bundles the agent runtime from source into dist/index.js, the only JS the
 // agent image, host sandbox, and hybridclaw-agent package run; `tsc` only type-
-// checks. The first-party @hybridclaw/shared package is inlined; every npm
-// package, declared or only transitive, stays external and loads from
+// checks. The first-party @hybridclaw/* workspace packages are inlined; every
+// npm package, declared or only transitive, stays external and loads from
 // node_modules next to dist/.
 
 import { build } from 'esbuild';
 
-const externalExceptShared = {
-  name: 'external-except-shared',
+const externalExceptWorkspace = {
+  name: 'external-except-workspace',
   setup(build) {
     build.onResolve({ filter: /^[^./]/ }, (args) =>
-      args.path.startsWith('@hybridclaw/shared/')
+      /^@hybridclaw\/(contracts|shared)\//.test(args.path)
         ? undefined
         : { external: true },
     );
@@ -31,6 +31,6 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  plugins: [externalExceptShared],
+  plugins: [externalExceptWorkspace],
   logLevel: 'warning',
 });

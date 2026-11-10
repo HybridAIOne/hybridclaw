@@ -14,11 +14,12 @@
 import fs from 'node:fs';
 import { build } from 'esbuild';
 
-// The first-party shared package and the pure-JS dependencies loaded during
+// The first-party workspace packages and the pure-JS dependencies loaded during
 // gateway startup. All other dependencies stay external: native addons,
 // packages that resolve their own files at runtime (pino transports, browsers),
 // and ones that are only loaded on demand.
 const BUNDLED_DEPENDENCIES = new Set([
+  '@hybridclaw/contracts',
   '@hybridclaw/shared',
   'ajv',
   'cron-parser',

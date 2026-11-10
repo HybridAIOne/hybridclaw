@@ -1527,7 +1527,10 @@ tool-call rounds.
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
 `packages/shared/src/ipc-output-files.ts`), and `readOutput()` waits for that file
-only:
+only. The reply is untrusted: before anything reads it, the gateway checks it
+against `ContainerOutputSchema` in `packages/contracts/src/agent-io.ts`, the
+one definition of the gateway ↔ agent messages, plus the shared tool-history
+and token-usage validators. A reply that fails becomes an error result.
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
   the tool calls that ran and any delegations it had queued. The interrupted
