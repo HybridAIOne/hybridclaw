@@ -98,9 +98,12 @@ Tool actions are risk-tiered at runtime:
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
 
-Fetched-code review recognizes bounded JSON readers and Pillow image
-open/thumbnail/save operations with literal workspace paths. Inspection never
-executes supplied Python. Recognized image writes retain write intent and
+Fetched-code review recognizes bounded JSON and read-only ElementTree XML
+readers, and Pillow image open/thumbnail/save operations with literal workspace
+paths. XML file operands retain their resolved and canonical pinned-path checks,
+including scratch-directory reads. Custom XML parsers and XML mutations remain
+unrecognized. Output pipes and redirects from recognized fetched-data readers
+retain provenance across workers. Inspection never executes supplied Python. Recognized image writes retain write intent and
 pinned-path checks; outputs derived from fetched inputs retain provenance
 across workers. Unsupported Python string literals remain visible to the
 existing fetched-file checks. Downloaded importable files and unknown download
