@@ -93,6 +93,7 @@ import { useChatNotifications } from './use-chat-notifications';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useComputerPresence } from './use-computer-presence';
+import { useQueuedMessages } from './use-queued-messages';
 import { useStickToBottom } from './use-stick-to-bottom';
 import { useVoiceSession } from './use-voice-session';
 import { VoicePanel } from './voice-panel';
@@ -1070,6 +1071,14 @@ export function ChatPage() {
     ],
   );
 
+  const queue = useQueuedMessages({
+    sessionId,
+    isStreaming: stream.isStreaming,
+    steer: stream.steerMessage,
+    send: handleSendMessage,
+    stop: stream.stopRequest,
+  });
+
   // Auto-send a seeded conversation (Apps builder / `/app`): when arriving at
   // `/chat?prompt=…&send=1`, fire the first message once the chat API is ready.
   const autoSentSeedRef = useRef(false);
@@ -1572,8 +1581,10 @@ export function ChatPage() {
           ) : null}
           <Composer
             isStreaming={stream.isStreaming}
-            onSend={handleSendMessage}
+            onSend={stream.isStreaming ? queue.submit : handleSendMessage}
             onStop={() => void stream.stopRequest()}
+            queued={queue.queued}
+            onRemoveQueued={queue.remove}
             onUploadFiles={handleUploadFiles}
             token={auth.token}
             agents={agentOptions}

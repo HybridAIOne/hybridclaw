@@ -145,6 +145,19 @@ export function createChatBranch(
   });
 }
 
+/** `accepted: false` means nothing happened; send it as a turn later. */
+export function steerChat(
+  token: string,
+  sessionId: string,
+  content: string,
+): Promise<{ accepted: boolean }> {
+  return requestJson<{ accepted: boolean }>('/api/chat/steer', {
+    token,
+    method: 'POST',
+    body: { sessionId, content },
+  });
+}
+
 export function rateChatResponse(
   token: string,
   payload: RateResponseRequest,
