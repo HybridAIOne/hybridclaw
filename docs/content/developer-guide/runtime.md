@@ -1618,6 +1618,11 @@ fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
 
+The web console keeps its composer open while a reply runs. A text message
+goes to `/api/chat/steer`; one the route refuses, or one with attachments,
+waits above the composer and is sent as a turn once the reply ends. `/stop`
+stops the reply, and an empty send stops it too.
+
 Tool approvals and intent reviews receive the complete current user request,
 including trailing constraints and text parts. The bounded status excerpt is
 not their source of intent. A worker adds verified steering to its local
