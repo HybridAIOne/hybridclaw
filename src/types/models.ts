@@ -12,4 +12,4 @@ export type {
 } from '@hybridclaw/contracts/agent-io';
 
 export { TASK_MODEL_KEYS } from '@hybridclaw/contracts/agent-io';
-export type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
+export type { McpServerConfig } from '@hybridclaw/contracts/mcp-server-config';

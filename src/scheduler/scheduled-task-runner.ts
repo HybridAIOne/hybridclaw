@@ -71,7 +71,7 @@ export async function runIsolatedScheduledTask(params: {
   channelId: string;
   chatbotId: string;
   model: string;
-  reasoningEffort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort;
+  reasoningEffort?: import('@hybridclaw/contracts/reasoning-effort').ReasoningEffort;
   agentId: string;
   sessionId?: string;
   sessionKey?: string;

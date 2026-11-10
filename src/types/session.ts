@@ -1,4 +1,4 @@
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import type { MessageEmailDraft } from '@hybridclaw/shared/email-draft';
 import type { MessageApproval } from '../memory/message-approval.js';
 import type { ActivityTrace } from './activity-trace.js';

@@ -5,8 +5,8 @@
  * NOT the chat transport; it prepares reviewed input and delegates submission.
  */
 
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import {
   type ChangeEvent,
   type ClipboardEvent,

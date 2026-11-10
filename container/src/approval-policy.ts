@@ -15,14 +15,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/contracts/agent-io';
 import type {
   ApprovalObservation,
   ApprovalMode as SessionApprovalMode,
-} from '@hybridclaw/shared/approval-mode';
-import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
+} from '@hybridclaw/contracts/approval-mode';
+import type { ApprovalPauseCause } from '@hybridclaw/contracts/approval-rules';
 import {
   APPROVAL_TRUST_STORE_FILES,
-  type ApprovalPauseCause,
   type ApprovalTrustStore,
   grantApprovalTrust,
   LEGACY_AGENT_TRUST_STORE_FILE,

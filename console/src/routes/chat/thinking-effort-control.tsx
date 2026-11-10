@@ -6,7 +6,7 @@
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
-} from '@hybridclaw/shared/reasoning-effort';
+} from '@hybridclaw/contracts/reasoning-effort';
 import { useMemo, useState } from 'react';
 import { ChevronDown, Lightbulb } from '../../components/icons';
 import {

@@ -10,9 +10,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ApprovalActionCategory } from '@hybridclaw/contracts/approval-rules';
 import {
   APPROVAL_TRUST_STORE_FILES,
-  type ApprovalActionCategory,
   type ApprovalTrustScope,
   type ApprovalTrustStore,
   describeApprovalAction,

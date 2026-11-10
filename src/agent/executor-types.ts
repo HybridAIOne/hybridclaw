@@ -1,9 +1,9 @@
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
-import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
+import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
+import type { SessionAttachmentAccess } from '@hybridclaw/contracts/session-attachment-access';
+import type { ToolCallLimits } from '@hybridclaw/contracts/tool-call-limits';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
-import type { SessionAttachmentAccess } from '@hybridclaw/shared/session-attachment-access';
-import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 import type { ChatMessage } from '../types/api.js';

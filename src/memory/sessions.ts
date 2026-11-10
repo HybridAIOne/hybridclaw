@@ -4,7 +4,7 @@
  * their source choice. Unlike worker state, these settings survive restarts.
  */
 import { randomUUID } from 'node:crypto';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import type Database from 'better-sqlite3';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
