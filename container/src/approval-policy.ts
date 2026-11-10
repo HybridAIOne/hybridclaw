@@ -86,6 +86,7 @@ import {
 import { fenceCandidates } from './bash-fence.js';
 import {
   inferBashHttpMethod,
+  isHttpClientCommand,
   isReadOnlyHttpMethod,
   normalizeHttpMethod,
 } from './bash-http-method.js';
@@ -3248,13 +3249,17 @@ export class TrustedAgentApprovalRuntime {
           stickyYellow: true,
         };
       }
-      return this.classifyNetworkTargets({
-        targets: providerTargets,
-        intent: `search the web via ${provider || 'configured providers'}`,
-        consequenceIfDenied:
-          'I will avoid external search providers and continue with local context only.',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-      });
+      return {
+        ...this.classifyNetworkTargets({
+          targets: providerTargets,
+          intent: `search the web via ${provider || 'configured providers'}`,
+          consequenceIfDenied:
+            'I will avoid external search providers and continue with local context only.',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+        }),
+        // Perplexity and Tavily take the query by POST; a search still reads.
+        writeIntent: false,
+      };
     }
 
     if (
@@ -3832,8 +3837,14 @@ export class TrustedAgentApprovalRuntime {
         ...network,
         // `curl -T .env https://...` uploads a local file.
         pathHints,
-        // `curl -o MEMORY.md` or `> MEMORY.md` writes locally too.
-        writeIntent: network.writeIntent || writeIntent,
+        // `curl -o MEMORY.md` or `> MEMORY.md` writes locally too, and the
+        // allowed host vouches only for the HTTP clients, not `; node -e ...`.
+        writeIntent:
+          network.writeIntent ||
+          writeIntent ||
+          !commandsRun.every(
+            (words) => isHttpClientCommand(words) || isReadOnlyCommand(words),
+          ),
       };
     }
 

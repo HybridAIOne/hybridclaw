@@ -13,6 +13,9 @@ network:
     - action: allow
       host: "api.example.com"
       methods: ["*"]
+    - action: allow
+      host: "api.tavily.com"
+      methods: ["*"]
 `;
 
 function createRuntime(dryRun: boolean): TrustedAgentApprovalRuntime {
@@ -54,6 +57,17 @@ test.each([
   ['bash', { command: 'curl -X POST https://api.example.com/orders' }],
   ['bash', { command: 'curl -d status=shipped https://api.example.com/o/42' }],
   ['bash', { command: 'curl -T orders.csv https://api.example.com/upload' }],
+  ['bash', { command: 'curl -sX POST https://api.example.com/orders' }],
+  ['bash', { command: 'curl -sd status=shipped https://api.example.com/o/42' }],
+  ['bash', { command: 'curl -fsSLT orders.csv https://api.example.com/upload' }],
+  ['bash', { command: 'http POST https://api.example.com/orders a=b' }],
+  ['bash', { command: 'http https://api.example.com/o/42 status=shipped' }],
+  [
+    'bash',
+    {
+      command: `echo https://api.example.com/o; node -e "require('fs').writeFileSync('MEMORY.md','')"`,
+    },
+  ],
   ['bash', { command: 'curl -s https://api.example.com/o/42 -o MEMORY.md' }],
   ['bash', { command: 'curl -s https://api.example.com/o/42 > MEMORY.md' }],
 ])('a dry run refuses green %s %j, which starts work or changes something', (toolName, args) => {
@@ -70,6 +84,10 @@ test.each([
   ['read', { path: 'MEMORY.md' }],
   ['http_request', { url: 'https://api.example.com/orders', method: 'GET' }],
   ['bash', { command: 'curl https://api.example.com/orders/42' }],
+  ['bash', { command: 'curl -sAfeed-reader https://api.example.com/orders/42' }],
+  ['bash', { command: 'curl -s https://api.example.com/orders/42 | head -5' }],
+  ['bash', { command: 'http https://api.example.com/orders page==2' }],
+  ['web_search', { query: 'order 42 shipping', provider: 'tavily' }],
 ])('a dry run runs the read %s %j', (toolName, args) => {
   const evaluation = evaluate(createRuntime(true), toolName, args);
   expect(evaluation.tier).toBe('green');
