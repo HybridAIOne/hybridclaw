@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { readTurnCheckpoint } from '../container/shared/turn-checkpoint.js';
+import { readTurnCheckpoint } from '@hybridclaw/shared/turn-checkpoint';
 import type { ChatMessage, ContainerInput } from '../container/src/types.js';
 import { recoverWorkerOutput } from '../src/infra/worker-recovery.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';

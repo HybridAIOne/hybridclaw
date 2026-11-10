@@ -1,4 +1,4 @@
-export { asRecord, isRecord } from '../../container/shared/primitive-values.js';
+export { asRecord, isRecord } from '@hybridclaw/shared/primitive-values';
 
 export function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value)

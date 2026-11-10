@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { createTokenUsageStats } from '../container/shared/token-usage.js';
+import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 

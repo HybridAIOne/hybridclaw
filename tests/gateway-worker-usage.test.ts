@@ -1,9 +1,9 @@
 import { expect, test, vi } from 'vitest';
-import type { ModelCallUsage } from '../container/shared/token-usage.js';
+import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
 import {
   createTokenUsageStats,
   finalizeTokenUsage,
-} from '../container/shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { runAgent } = vi.hoisted(() => ({ runAgent: vi.fn() }));

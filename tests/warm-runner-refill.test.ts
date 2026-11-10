@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
-import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
-import { readWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import { encodeFileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
+import { readWarmWorkerFrame } from '@hybridclaw/shared/warm-worker-frame';
 import type { ContainerInput } from '../src/types/container.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 

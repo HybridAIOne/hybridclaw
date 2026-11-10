@@ -14,7 +14,7 @@ import {
   type PdfReadOptions,
   readPdfPages,
   searchPdfPages,
-} from '../shared/pdf-reader.js';
+} from '@hybridclaw/shared/pdf-reader';
 import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';
 

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
-import type { TokenUsageStats } from '../container/shared/token-usage.js';
-import { createTokenUsageStats } from '../container/shared/token-usage.js';
+import type { TokenUsageStats } from '@hybridclaw/shared/token-usage';
+import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import { readCacheTokenUsage } from '../src/usage/token-usage-buffer.js';
 
 test('primary cache pricing excludes helper cache counters', () => {

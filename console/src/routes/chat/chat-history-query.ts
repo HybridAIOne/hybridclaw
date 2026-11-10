@@ -119,6 +119,7 @@ function hydrateActivityTrace(
       ...(typeof step.durationMs === 'number'
         ? { durationMs: step.durationMs }
         : {}),
+      ...(step.signIn ? { signIn: step.signIn } : {}),
     });
   }
   return {

@@ -5,11 +5,11 @@
  * execute model-proposed tools or grant permissions.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { getProviderContextError } from '../../shared/provider-context.js';
+import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
   DEFAULT_VISION_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
-} from '../../shared/request-max-tokens.js';
+} from '@hybridclaw/shared/request-max-tokens';
 import { modelRetryDelayMs } from '../model-retry.js';
 import { withModelTask } from '../model-usage.js';
 import { haltIfShuttingDown } from '../shutdown-latch.js';

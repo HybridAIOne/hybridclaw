@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, test, vi } from 'vitest';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
+import { readPdfPages } from '@hybridclaw/shared/pdf-reader';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
@@ -49,7 +49,7 @@ describe('bounded PDF read', () => {
       }`,
     ].join('\n'));
     await fs.copyFile(path.resolve('skills/pdf/scripts/render_pdf_pages.mjs'), path.join(root, 'render_pdf_pages.mjs'));
-    const reader = pathToFileURL(path.resolve('container/shared/pdf-reader.js')).href;
+    const reader = pathToFileURL(path.resolve('packages/shared/src/pdf-reader.ts')).href;
     const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import { readPdfPages } from ${JSON.stringify(reader)};
       const options = { runtimeUrl: ${JSON.stringify(pathToFileURL(runtime).href)}, outputDir: ${JSON.stringify(root)}, workspaceRoot: ${JSON.stringify(root)}, pages: '1' };

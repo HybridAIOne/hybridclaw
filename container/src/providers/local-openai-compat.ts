@@ -2,10 +2,11 @@
  * Compatible API transport preserves tool calls, reasoning, and finish reasons.
  * Final answers take precedence over reasoning-only call recovery.
  * MLX streams keep thought observable; context budgets remain caller-owned.
+ * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 import { createHash } from 'node:crypto';
-import { isRecord } from '../../shared/primitive-values.js';
-import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
+import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
 import { resolveModelBehavior } from '../model-behavior.js';
 import {
   finalizeParsedToolCalls,
@@ -354,6 +355,14 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   if (args.tools.length > 0) {
     request.tools = args.tools;
     request.tool_choice = 'auto';
+  }
+  // Owner experiment, 2026-11-08: explicit non-thinking Qwen calls on vLLM.
+  if (
+    args.provider === 'vllm' &&
+    usesQwenCompat(args) &&
+    args.reasoningEffort === 'none'
+  ) {
+    request.chat_template_kwargs = { enable_thinking: false };
   }
   if (
     typeof args.maxTokens === 'number' &&

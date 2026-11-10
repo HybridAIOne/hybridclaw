@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
   lockMemoryFile,
   writeMemoryFileAtomic,
-} from '../../container/shared/memory-file.js';
+} from '@hybridclaw/shared/memory-file';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { isRecord } from '../utils/type-guards.js';
 import {

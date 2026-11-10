@@ -18,7 +18,7 @@ const run = promisify(execFile);
 const makeTempDir = useTempDir('hc-gateway-bundle-');
 
 // Exercise the real bundlers and the Dockerfile's gateway COPY instructions.
-// The runtime fixture deliberately has no source tree or container/shared.
+// The runtime fixture deliberately has no source tree or shared package.
 async function buildRuntime(root: string): Promise<string> {
   const builder = path.join(root, 'builder');
   const runtime = path.join(root, 'runtime');
@@ -37,6 +37,7 @@ async function buildRuntime(root: string): Promise<string> {
   const modules = path.join(runtime, 'node_modules');
   fs.mkdirSync(modules);
   for (const name of fs.readdirSync(path.join(REPO, 'node_modules'))) {
+    if (name === '@hybridclaw') continue;
     const source = path.join(REPO, 'node_modules', name);
     const destination = path.join(modules, name);
     // The gateway repairs node-pty's executable helper. Keep that dependency
@@ -51,11 +52,6 @@ async function buildRuntime(root: string): Promise<string> {
   fs.copyFileSync(
     path.join(REPO, 'tsconfig.json'),
     path.join(builder, 'tsconfig.json'),
-  );
-  fs.cpSync(
-    path.join(REPO, 'container/shared'),
-    path.join(builder, 'container/shared'),
-    { recursive: true },
   );
   await run(process.execPath, [path.join(REPO, 'scripts/bundle-gateway.mjs')], {
     cwd: builder,
@@ -137,21 +133,40 @@ function staticImportsBeforeBody(entry: string): string[] {
   return specifiers;
 }
 
-async function stopGateway(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise<void>((resolve) =>
-    child.once('exit', () => resolve()),
-  );
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+function signalProcessGroup(pgid: number, signal: NodeJS.Signals | 0): boolean {
   try {
-    await exited;
-  } finally {
-    clearTimeout(timer);
+    process.kill(-pgid, signal);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-test('the image gateway, package CLI, and plugin SDK run without container/shared', async () => {
+// SIGTERM drains in-flight turns for up to 15s, so the SIGKILL below can orphan
+// a host worker that later writes its turn output into the data dir. Kill the
+// gateway's whole process group before the temp dir is removed.
+async function stopGateway(child: ChildProcess): Promise<void> {
+  const pgid = child.pid;
+  if (!pgid) return;
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise<void>((resolve) =>
+      child.once('exit', () => resolve()),
+    );
+    child.kill('SIGTERM');
+    const timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  signalProcessGroup(pgid, 'SIGKILL');
+  await expect
+    .poll(() => signalProcessGroup(pgid, 0), { timeout: 5_000 })
+    .toBe(false);
+}
+
+test('the image gateway, package CLI, and plugin SDK run without the shared package', async () => {
   const root = makeTempDir();
   const runtime = await buildRuntime(root);
   const home = path.join(root, 'home');
@@ -205,7 +220,7 @@ export default {
     HYBRIDAI_API_KEY: 'hai-test-placeholder',
     WEB_API_TOKEN: 'test-token',
   };
-  expect(fs.existsSync(path.join(runtime, 'container/shared'))).toBe(false);
+  expect(fs.existsSync(path.join(runtime, 'node_modules/@hybridclaw'))).toBe(false);
   expect(fs.existsSync(path.join(runtime, 'src'))).toBe(false);
 
   const packageJsonPath = path.join(runtime, 'package.json');
@@ -306,6 +321,7 @@ export default {
     [...command.slice(1), '--sandbox=host'],
     {
       cwd: runtime,
+      detached: true,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     },

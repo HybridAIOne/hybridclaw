@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import * as runtimeConfig from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';

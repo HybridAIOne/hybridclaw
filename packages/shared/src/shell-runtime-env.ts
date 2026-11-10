@@ -1,0 +1,9 @@
+// The only credentials handed to shell tools; shared with snapshot filtering.
+export const SHELL_RUNTIME_ENV_NAMES: readonly string[] = [
+  'GOG_ACCESS_TOKEN',
+  'GOOGLE_WORKSPACE_CLI_TOKEN',
+  'GOG_ACCOUNT',
+  'GH_TOKEN',
+];
+
+export const SHELL_RUNTIME_ENV_PATH: string = '/api/runtime/shell-env';

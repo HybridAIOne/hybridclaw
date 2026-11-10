@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import type { ContainerOutput } from '../src/types/container.js';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

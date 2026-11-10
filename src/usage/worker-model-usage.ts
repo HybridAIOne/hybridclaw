@@ -5,8 +5,8 @@
  * missing reports remain unknown in the routing trace.
  */
 
-import type { ModelCallUsage } from '../../container/shared/token-usage.js';
-import { primaryTokenUsage } from '../../container/shared/token-usage.js';
+import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
+import { primaryTokenUsage } from '@hybridclaw/shared/token-usage';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { UsageAttribution } from '../memory/usage.js';
 import {

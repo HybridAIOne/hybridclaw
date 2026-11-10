@@ -1773,6 +1773,24 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 3978,
     },
     {
+      path: 'nebius.baseUrl',
+      section: 'nebius',
+      kind: 'string',
+      defaultValue: 'https://api.tokenfactory.nebius.com/v1',
+    },
+    {
+      path: 'nebius.enabled',
+      section: 'nebius',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
+      path: 'nebius.models',
+      section: 'nebius',
+      kind: 'list',
+      defaultValue: ['nebius/zai-org/GLM-5.3-Flash'],
+    },
+    {
       path: 'observability.baseUrl',
       section: 'observability',
       kind: 'string',

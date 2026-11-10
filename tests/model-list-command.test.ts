@@ -11,7 +11,7 @@ vi.mock('../src/providers/model-catalog.js', () => ({
   isAvailableModelFree: () => false,
 }));
 
-const { buildModelListResult } = await import(
+const { buildModelListResult, legacyModelNote } = await import(
   '../src/gateway/model-list-command.js'
 );
 
@@ -104,4 +104,22 @@ test('points at the provider-scoped command when legacy models are hidden', () =
   expect(result.text.split('\n').at(-1)).toBe(
     '1 model · 1 legacy hidden (`model list hybridai all`)',
   );
+});
+
+test.each([
+  { model: 'hybridai/current-a', note: [] },
+  {
+    model: 'hybridai/legacy-a',
+    note: [
+      '`hybridai/legacy-a` is a legacy model; `hybridai/current-b` replaces it.',
+    ],
+  },
+  {
+    model: 'hybridai/legacy-b',
+    note: [
+      '`hybridai/legacy-b` is a legacy model; `model list` shows current ones.',
+    ],
+  },
+])('notes a legacy pick for $model', ({ model, note }) => {
+  expect(legacyModelNote(model)).toEqual(note);
 });

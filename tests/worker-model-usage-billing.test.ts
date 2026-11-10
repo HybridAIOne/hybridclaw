@@ -1,10 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { ModelCallUsage } from '../container/shared/token-usage.js';
+import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
 import {
   createTokenUsageStats,
   finalizeTokenUsage,
   primaryTokenUsage,
-} from '../container/shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 import { withChatRoutingTrace } from '../src/gateway/chat-routing-trace.js';
 import type { GatewayChatRequest } from '../src/gateway/gateway-types.js';
 import {

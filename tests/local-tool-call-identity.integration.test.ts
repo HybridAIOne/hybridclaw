@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+import { validateToolHistory } from '@hybridclaw/shared/tool-history';
 import type { ContainerInput } from '../container/src/types.js';
 import { runContainerWorker } from './helpers/container-worker.js';
 import { useTempDir } from './test-utils.js';

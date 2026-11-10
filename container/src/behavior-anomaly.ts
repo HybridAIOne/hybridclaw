@@ -6,6 +6,7 @@
  * recorded twin always share one; no clock, policy, or classifier facts enter
  * it. The score can only raise a tier through `anomaly_reranker` in
  * approval-policy.ts; this module decides no tier and abstains without history.
+ * The judge band leaves room for attainable scores above the learned threshold.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -230,11 +231,11 @@ function scoreTupleWithModel(
     'totalTuples' | 'tupleCounts' | 'contextCounts' | 'transitionCounts'
   >,
   previous: string[],
-  tuple: string,
+  tuple: string | null,
 ): number {
   if (model.totalTuples <= 0 || model.tupleCounts.size === 0) return 0;
   const vocabularySize = Math.max(1, model.tupleCounts.size);
-  const tupleCount = model.tupleCounts.get(tuple) || 0;
+  const tupleCount = tuple === null ? 0 : model.tupleCounts.get(tuple) || 0;
   const frequencyProbability =
     (tupleCount + 1) / (model.totalTuples + vocabularySize);
   const frequencyRarity = 1 - frequencyProbability;
@@ -242,7 +243,8 @@ function scoreTupleWithModel(
 
   const key = contextKey(previous.slice(-2));
   const contextCount = model.contextCounts.get(key) || 0;
-  const transitionCount = model.transitionCounts.get(key)?.get(tuple) || 0;
+  const transitionCount =
+    tuple === null ? 0 : model.transitionCounts.get(key)?.get(tuple) || 0;
   const transitionProbability =
     (transitionCount + 1) / (contextCount + vocabularySize);
   return clamp01((frequencyRarity + (1 - transitionProbability)) / 2);
@@ -468,7 +470,16 @@ export class BehaviorAnomalyReranker {
       };
     }
     const distance = score - model.threshold;
-    if (Math.abs(distance) <= this.epsilon) {
+    // Null represents an unseen tuple: its zero counts give the maximum score
+    // attainable in this context, which is below the nominal ceiling of 1.
+    const maximumScore = scoreTupleWithModel(model, this.recentTuples, null);
+    // 2026-11-09, Codex: reserve half the attainable upper tail for direct
+    // escalation; keep the lower-side judge band unchanged.
+    const upperMargin = Math.min(
+      this.epsilon,
+      Math.max(0, (maximumScore - model.threshold) / 2),
+    );
+    if (distance >= -this.epsilon && distance <= upperMargin) {
       return {
         score,
         threshold: model.threshold,

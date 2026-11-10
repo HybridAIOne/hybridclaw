@@ -6,7 +6,7 @@
 import {
   isMiniSkillInstructions,
   MAX_MINI_SKILL_CHARS,
-} from '../../container/shared/skill-catalog.js';
+} from '@hybridclaw/shared/skill-catalog';
 import { logger } from '../logger.js';
 import { loadSkillBody, type Skill } from './skills.js';
 

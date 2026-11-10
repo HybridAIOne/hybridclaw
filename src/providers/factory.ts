@@ -51,6 +51,7 @@ const KNOWN_PROVIDER_BY_ID: ReadonlyMap<RuntimeProviderId, AIProvider> =
       dashscope: getOpenAICompatRemoteProvider('dashscope'),
       xiaomi: getOpenAICompatRemoteProvider('xiaomi'),
       kilo: getOpenAICompatRemoteProvider('kilo'),
+      nebius: getOpenAICompatRemoteProvider('nebius'),
       ollama: ollamaProvider,
       lmstudio: lmstudioProvider,
       llamacpp: llamacppProvider,

@@ -5,7 +5,7 @@
  * worker execution. Audit records never become authoritative instructions.
  */
 import { randomUUID } from 'node:crypto';
-import { validateTokenUsage } from '../../container/shared/token-usage.js';
+import { validateTokenUsage } from '@hybridclaw/shared/token-usage';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
 import { findAgentBudgetHardStop } from '../board/budget-chip.js';

@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
     "rootDir": "./src",
     "strict": true,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

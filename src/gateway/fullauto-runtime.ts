@@ -5,7 +5,7 @@
  * delivery never needs to store the same assistant message a second time.
  */
 
-import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
+import type { MessageEmailDraft } from '@hybridclaw/shared/email-draft';
 import {
   FULLAUTO_COOLDOWN_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,

@@ -485,7 +485,8 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
         'npm-e2e-pdf',
         `RUN: pwd && ${NODE} skills/pdf/scripts/create_pdf.mjs report.pdf --text "Grüße aus Köln: 42 € — Łódź" && ${NODE} skills/pdf/scripts/extract_pdf_text.mjs report.pdf && ${NODE} skills/pdf/scripts/render_pdf_pages.mjs report.pdf pages`,
       );
-      workspaceDir = result.split('\n')[0].trim();
+      expect(result.split('\n')[0].trim()).toBe('.');
+      workspaceDir = path.join(dataDir(), 'data', 'agents', 'main', 'workspace');
       expect(result).toContain('Grüße aus Köln: 42 € — Łódź');
       expect(fs.readdirSync(path.join(workspaceDir, 'pages'))).toEqual([
         'page_1.png',

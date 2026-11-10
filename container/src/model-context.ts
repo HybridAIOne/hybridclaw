@@ -8,7 +8,7 @@
 import type { AuxiliaryTaskContext } from './providers/auxiliary.js';
 import { resolveRuntimeProviderContext } from './providers/provider-ids.js';
 import { isVisualMediaAllowed } from './providers/visual-content.js';
-import { TASK_MODEL_KEYS, type TaskModelPolicies } from './types.js';
+import { AGENT_TASK_MODEL_KEYS, type TaskModelPolicies } from './types.js';
 
 export interface AuxiliaryRuntimeContext {
   visualMediaAllowed: boolean;
@@ -29,7 +29,7 @@ export function cloneTaskModelPolicies(
   taskModels?: TaskModelPolicies,
 ): TaskModelPolicies | undefined {
   const cloned: TaskModelPolicies = {};
-  for (const key of TASK_MODEL_KEYS) {
+  for (const key of AGENT_TASK_MODEL_KEYS) {
     const taskModel = taskModels?.[key];
     if (!taskModel) continue;
     cloned[key] = {

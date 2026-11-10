@@ -17,7 +17,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { primaryTokenUsage } from '../../container/shared/token-usage.js';
+import { primaryTokenUsage } from '@hybridclaw/shared/token-usage';
 import {
   makeAuditRunId,
   recordAuditEventStrict,

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+import { validateToolHistory } from '@hybridclaw/shared/tool-history';
 import { finalizeParsedToolCalls } from '../container/src/model-response-completion.js';
 import { callRoutedModel } from '../container/src/providers/router.js';
 import {

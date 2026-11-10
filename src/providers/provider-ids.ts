@@ -1,1 +1,1 @@
-export * from '../../container/shared/provider-ids.js';
+export * from '@hybridclaw/shared/provider-ids';

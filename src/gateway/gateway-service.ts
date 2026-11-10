@@ -10,15 +10,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
-import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
-import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
+import { buildMcpServerNamespaces } from '@hybridclaw/shared/mcp-tool-namespaces';
+import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import { fetchA2AAgentCard } from '../a2a/a2a-agent-card.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
@@ -663,7 +663,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
-import { buildModelListResult } from './model-list-command.js';
+import { buildModelListResult, legacyModelNote } from './model-list-command.js';
 import { toGatewayModelProviderKey } from './model-provider-keys.js';
 import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
@@ -9400,6 +9400,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(updated)}`,
               `Session model: ${sessionOverride}`,
+              ...legacyModelNote(normalizedModelName),
               ...(hasSessionOverride
                 ? [
                     'Run `model clear` to use the updated agent model in this session.',
@@ -9956,7 +9957,10 @@ export async function handleGatewayCommand(
             draft.hybridai.defaultModel = normalizedModelName;
           });
           return plainCommand(
-            `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+            [
+              `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 
@@ -9984,7 +9988,10 @@ export async function handleGatewayCommand(
             },
           });
           return plainCommand(
-            `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+            [
+              `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
+              ...legacyModelNote(normalizedModelName),
+            ].join('\n'),
           );
         }
 
