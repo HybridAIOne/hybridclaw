@@ -68,6 +68,7 @@ import { approvalReason } from './approval-reason.js';
 import {
   messageToolEmailTarget,
   messageToolOutsideTarget,
+  messageToolTarget,
   ownMailboxRefusal,
 } from './approval-review.js';
 import {
@@ -3010,8 +3011,12 @@ export class TrustedAgentApprovalRuntime {
         action === 'read' ||
         action === 'member-info' ||
         action === 'channel-info';
-      const target = messageToolOutsideTarget(args, channelId);
       const emailTarget = messageToolEmailTarget(args);
+      // An email conversation's channel is the sender's address, and mail
+      // to it still asks first.
+      const target = emailTarget
+        ? messageToolTarget(args)
+        : messageToolOutsideTarget(args, channelId);
       // Mail to other people goes from the user's own account, never the
       // agent's mailbox (owner call, 2026-10-08).
       const ownMailboxDenied =

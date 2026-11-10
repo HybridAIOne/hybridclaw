@@ -53,8 +53,11 @@ function send(
 const CURRENT_CHANNEL = '123456789012345678';
 
 describe('message tool sends', () => {
-  test('an email send asks first in the default mode', () => {
-    expect(send(createRuntime(), invitation)).toMatchObject({
+  test.each([
+    ['', undefined],
+    [' in the email conversation with that address', 'pat@example.com'],
+  ])('an email send asks first in the default mode%s', (_, channelId) => {
+    expect(send(createRuntime(), invitation, channelId)).toMatchObject({
       tier: 'red',
       decision: 'required',
       actionKey: 'message:send:pat@example.com',
