@@ -186,6 +186,13 @@ the file; a successful checked write clears only that path's conflict. Read and
 review changed content before retrying. Arbitrary shell mutations and external
 writers remain outside the cooperative lock, as with exact-content replacement.
 
+After a write conflict, revision-only replacements undergo the same preservation
+review as exact-content replacements. The reviewer receives text only after a
+regular-file snapshot matches the supplied revision, using the tool's normal
+workspace or task-container filesystem. Stale, unreadable and non-text snapshots
+fail closed without sending their content to the reviewer. The final write still
+rechecks its precondition, and copying a backup does not bypass the review.
+
 ### 3) Container Isolation
 
 Tool execution runs inside Docker with sandbox constraints:
