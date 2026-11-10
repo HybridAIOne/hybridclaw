@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/HybridAIOne/hybridclaw/issues"
   },
-  "packageManager": "npm@11.10.0",
+  "packageManager": "npm@11.21.1",
   "workspaces": [
     "desktop",
     "console",

@@ -19,7 +19,7 @@ revision, base-image identity, archive checksum, output image tag, and model
 names. The original baseline is **v0.41.5**. Builds require a clean descendant
 checkout and label the image with its actual source commit; results record both
 that revision and the original baseline. Patched runs must be labeled as such.
-Images use the Node 22 minimum in `package.json` and npm 11.10.0. This adapter does
+Images use the Node 22 minimum in `package.json` and npm 11.21.1. This adapter does
 not use the operator's installed binary or running gateway.
 
 The benchmark is pinned to its original **2026-05-12 v2 snapshot**, where the

@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3f
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+    npm install --global npm@11.21.1 --ignore-scripts --no-audit --fund=false
 RUN printf '%s\n' \
     'engine-strict=true' \
     'save-exact=true' \
@@ -40,7 +40,7 @@ ENV NPM_CONFIG_LOGS_MAX=0
 ENV NODE_DISABLE_COMPILE_CACHE=1
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+    npm install --global npm@11.21.1 --ignore-scripts --no-audit --fund=false
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
