@@ -5,9 +5,6 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./*": {
-      "types": "./src/*.d.ts",
-      "default": "./src/*.js"
-    }
+    "./*": "./src/*.ts"
   }
 }

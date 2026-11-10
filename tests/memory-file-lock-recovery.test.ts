@@ -7,7 +7,7 @@ import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeDir = useTempDir('memory-lock-owner-');
 useCleanMocks({ restoreAllMocks: true });
-const moduleUrl = new URL('../packages/shared/src/memory-file.js', import.meta.url)
+const moduleUrl = new URL('../packages/shared/src/memory-file.ts', import.meta.url)
   .href;
 const children: ChildProcess[] = [];
 

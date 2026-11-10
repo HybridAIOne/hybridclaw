@@ -175,7 +175,7 @@ test('a lock abandoned by a dead writer is reclaimed', () => {
   const file = path.join(makeDir(), 'pending.json');
   saveSessionPendingApprovals(file, 'session-a', [request('session-a')]);
   const moduleUrl = new URL(
-    '../packages/shared/src/memory-file.js',
+    '../packages/shared/src/memory-file.ts',
     import.meta.url,
   ).href;
   const deadWriter = spawnSync(

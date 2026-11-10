@@ -39,7 +39,7 @@ beforeEach(() => {
     'container/src/node-version-guard.ts',
     path.join(root, 'container/dist/node-version-guard.ts'),
   );
-  for (const file of ['package.json', 'src/node-version.js']) {
+  for (const file of ['package.json', 'src/node-version.ts']) {
     copyFileSync(
       `packages/shared/${file}`,
       path.join(root, 'packages/shared', file),
@@ -63,7 +63,11 @@ beforeEach(() => {
   }
 });
 
-function runProbe(range: string, entry: string) {
+function runProbe(
+  range: string,
+  entry: string,
+  loader: string[] = ['--import', 'tsx/esm'],
+) {
   for (const dir of ['', 'container']) {
     writeFileSync(
       path.join(root, dir, 'package.json'),
@@ -72,7 +76,7 @@ function runProbe(range: string, entry: string) {
   }
   return spawnSync(
     process.execPath,
-    ['--import', 'tsx/esm', path.join(root, entry)],
+    [...loader, path.join(root, entry)],
     {
       encoding: 'utf8',
       env: { ...process.env, NODE_NO_WARNINGS: '1' },
@@ -121,10 +125,21 @@ test('desktop packaging rejects an unsupported binary before staging it', () => 
   expect(existsSync(path.join(root, 'desktop/build'))).toBe(false);
 });
 
+// CI runs it with plain node before `npm ci`: no workspace link and no tsx.
 test('scripts/check-node-version.mjs runs before dependencies are installed', () => {
   rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
   const range = `>=${major}.${minor}.${patch + 1} <${major + 1}`;
-  const result = runProbe(range, 'scripts/check-node-version.mjs');
+  const result = runProbe(range, 'scripts/check-node-version.mjs', []);
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(range);
+});
+
+// Node releases before 22.18 cannot import .ts, which is what the guard rejects.
+test('scripts/check-node-version.mjs rejects a runtime without type stripping', () => {
+  const range = `>=${major}.${minor}.${patch} <${major + 1}`;
+  const result = runProbe(range, 'scripts/check-node-version.mjs', [
+    '--no-experimental-strip-types',
+  ]);
   expect(result.status).toBe(1);
   expect(result.stderr).toContain(range);
 });

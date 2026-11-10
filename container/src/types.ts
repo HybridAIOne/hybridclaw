@@ -245,7 +245,7 @@ export interface ContainerInput
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see packages/shared/src/ipc-output-files.js. */
+  /** Names this request's reply file; see packages/shared/src/ipc-output-files.ts. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -255,7 +255,7 @@ export interface ContainerInput
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * packages/shared/src/ipc-input-auth.js).
+   * packages/shared/src/ipc-input-auth.ts).
    */
   ipcAuthSecret?: string;
   baseUrl: string;
