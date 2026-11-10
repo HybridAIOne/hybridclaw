@@ -1,5 +1,5 @@
 /**
- * Agent loop keeps request schemas stable while concrete actions pass policy.
+ * Agent loop keeps request schemas stable; truncated finals never mean success.
  * Local wrappers resolve before approval; rejected batches never execute.
  * Full tool exchanges and surviving model context are retained separately;
  * durable storage lives in the gateway or owning state workspace. Instructions and
@@ -1784,9 +1784,9 @@ async function processRequestInner(
       ralphEnabled,
     });
     if (
-      isLocal &&
       toolCalls.length === 0 &&
-      (choice.finish_reason === 'length' || !assistantSegment.text?.trim())
+      (choice.finish_reason === 'length' ||
+        (isLocal && !assistantSegment.text?.trim()))
     ) {
       const failed: ContainerOutput = {
         status: 'error',
@@ -1797,7 +1797,7 @@ async function processRequestInner(
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error:
           choice.finish_reason === 'length'
-            ? 'The local model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.'
+            ? 'The model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.'
             : 'The local model returned no final answer or tool call. Reasoning alone does not confirm task completion.',
         effectiveUserPrompt,
       };
