@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { TurnCheckpoint } from '../container/shared/turn-checkpoint.js';
+import { TurnCheckpoint } from '@hybridclaw/shared/turn-checkpoint';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const temp = useTempDir('gateway-checkpoint-');
@@ -124,7 +124,7 @@ test.each(['missing', 'run_mismatch', 'unreadable'] as const)('%s worker journal
   checkpoint.beginTurnCheckpoint(opts);
   if (reason !== 'missing') new TurnCheckpoint(root, opts.sessionId, reason === 'run_mismatch' ? 'other-run' : opts.runId);
   const { turnCheckpointPath } = await import(
-    '../container/shared/turn-checkpoint.js'
+    '@hybridclaw/shared/turn-checkpoint'
   );
   if (reason === 'unreadable') fs.writeFileSync(turnCheckpointPath(root, opts.sessionId), '{');
   checkpoint.recoverTurnCheckpoint(opts.sessionId);

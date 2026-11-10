@@ -24,12 +24,12 @@
  * scheduler API, which edits every task on an operator's behalf.
  */
 
-import { CronExpressionParser } from 'cron-parser';
 import {
   getSupportedReasoningEfforts,
   isReasoningEffort,
-} from '../../container/shared/reasoning-effort.js';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/reasoning-effort';
+import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
+import { CronExpressionParser } from 'cron-parser';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { parseIntegerArg, parseLowerArg } from '../command-parsing.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';

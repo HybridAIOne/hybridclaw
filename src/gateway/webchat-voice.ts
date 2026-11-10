@@ -471,12 +471,16 @@ export class WebchatVoiceConnection {
       onStateChange: (state: RealtimeBridgeState) => {
         sendFrame(this.ws, { type: 'state', state });
       },
-      onError: (message) => {
+      onError: (message, errorCode) => {
         logger.warn(
-          { sessionId, remoteIp: this.remoteIp, message },
+          { sessionId, remoteIp: this.remoteIp, message, errorCode },
           'Webchat voice bridge error',
         );
-        sendFrame(this.ws, { type: 'error', message });
+        sendFrame(this.ws, {
+          type: 'error',
+          message,
+          ...(errorCode ? { errorCode } : {}),
+        });
       },
       onClosed: () => {
         // Upstream loss is unrecoverable; end the browser session too.

@@ -4,11 +4,11 @@
  * diagnostics, runtime-config defaults, and the console all read it, so a
  * provider is named and defaulted the same way on every surface.
  *
- * NOT the id list (`container/shared/provider-ids.js`) and NOT the per-flow
+ * NOT the id list (`packages/shared/src/provider-ids.ts`) and NOT the per-flow
  * auth details (`src/auth/generic-provider-auth.ts`). Imports only from
- * `container/shared` so the console can import it.
+ * `@hybridclaw/shared` so the console can import it.
  */
-import { ANTHROPIC_DEFAULT_BASE_URL } from '../../container/shared/anthropic-utils.js';
+import { ANTHROPIC_DEFAULT_BASE_URL } from '@hybridclaw/shared/anthropic-utils';
 import type { RuntimeProviderId } from './provider-ids.js';
 
 export interface ProviderMeta {
@@ -132,6 +132,14 @@ export const PROVIDER_META = {
     envVars: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
     defaultBaseUrl: 'https://api.kilo.ai/api/gateway',
     defaultModels: ['kilo/anthropic/claude-sonnet-4.6'],
+  },
+  nebius: {
+    label: 'Nebius Token Factory',
+    secretKey: 'NEBIUS_API_KEY',
+    envVars: ['NEBIUS_API_KEY'],
+    defaultBaseUrl: 'https://api.tokenfactory.nebius.com/v1',
+    // Owner selection, 2026-11-09: current low-cost GLM model; other models use discovery.
+    defaultModels: ['nebius/zai-org/GLM-5.3-Flash'],
   },
   ollama: { label: 'Ollama' },
   lmstudio: { label: 'LM Studio' },

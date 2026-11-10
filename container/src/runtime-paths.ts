@@ -1,6 +1,7 @@
 /**
  * Execution paths stay within configured tool roots; state belongs to the worker's owner.
- * Display aliases translate tool paths without granting additional access.
+ * Absolute display aliases translate tool paths without granting additional access.
+ * Relative paths retain every component and start at the workspace, not shell cwd.
  * Unlike approval-policy this resolves paths, never authorizes a tool action.
  */
 import fs from 'node:fs';
@@ -211,18 +212,7 @@ function resolveRootBoundPath(
     return null;
   }
 
-  let clean = path.posix.normalize(normalizedInput);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== DEFAULT_WORKSPACE_ROOT_DISPLAY &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
+  const clean = path.posix.normalize(normalizedInput);
   if (clean === '..' || clean.startsWith('../')) return null;
   const resolved = path.resolve(actualRoot, clean);
   return isWithinRoot(resolved, actualRoot) ? resolved : null;
@@ -279,6 +269,23 @@ export function resolveWorkspacePath(rawPath: string): string | null {
   // alias would point at a non-existent file inside the actual workspace.
   if (isAbsoluteMediaCachePathOutsideWorkspace(rawPath)) return null;
   return resolveRootBoundPath(rawPath, WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY);
+}
+
+/** Resolve inside the task container without admitting host-only allowed roots. */
+export function resolveTaskSandboxPath(rawPath: string): string | null {
+  const input = String(rawPath || '').trim();
+  if (!input) return null;
+  const normalized = normalizeSlashes(input);
+  const root = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
+  if (path.posix.isAbsolute(normalized)) {
+    const absolute = path.posix.normalize(normalized);
+    return absolute === root || absolute.startsWith(`${root}/`)
+      ? absolute
+      : null;
+  }
+  const clean = path.posix.normalize(normalized);
+  if (clean === '..' || clean.startsWith('../')) return null;
+  return path.posix.join(root, clean);
 }
 
 export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
@@ -341,8 +348,17 @@ export function stripWorkspaceRootPrefix(rawPath: string): string {
   return stripRootPrefix(strippedDisplay, WORKSPACE_ROOT);
 }
 
+const WORKSPACE_ROOT_OUTPUT = WORKSPACE_ROOT.replace(/\\/g, '/');
+// The bare root, as `pwd` prints it there, must not reach the display-root
+// rewrite below: in host mode the display root is its prefix.
+const BARE_WORKSPACE_ROOT_RE = new RegExp(
+  `${WORKSPACE_ROOT_OUTPUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s'"\`:;,)\\]])`,
+  'gm',
+);
+
 export function replaceWorkspaceRootInOutput(text: string): string {
   return text
-    .replaceAll(`${WORKSPACE_ROOT.replace(/\\/g, '/')}/`, '')
+    .replaceAll(`${WORKSPACE_ROOT_OUTPUT}/`, '')
+    .replace(BARE_WORKSPACE_ROOT_RE, '.')
     .replaceAll(`${WORKSPACE_ROOT_DISPLAY}/`, '');
 }

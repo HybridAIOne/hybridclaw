@@ -9,26 +9,26 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describeBashStatePersistence } from '../shared/bash-state.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
+import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
+import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
+import { DAILY_MEMORY_MAX_CHARS } from '@hybridclaw/shared/daily-memory';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
-} from '../shared/memory-file.js';
+} from '@hybridclaw/shared/memory-file';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
-} from '../shared/message-tool-channels.js';
+} from '@hybridclaw/shared/message-tool-channels';
 import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
-} from '../shared/msteams-session-ids.js';
+} from '@hybridclaw/shared/msteams-session-ids';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   readUserTimezoneFile,
-} from '../shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import {
   BASH_DOCKER_CONTAINER,
   BASH_EXEC_MAX_BUFFER_BYTES,
@@ -95,6 +95,7 @@ import {
   isWithinRoot,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
+  resolveTaskSandboxPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
@@ -524,36 +525,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
 
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function resolveTaskSandboxPath(userPath: string): string | null {
-  const raw = String(userPath || '').trim();
-  if (!raw) return null;
-
-  const normalized = raw.replace(/\\/g, '/');
-  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
-  if (path.posix.isAbsolute(normalized)) {
-    const absolute = path.posix.normalize(normalized);
-    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
-      return absolute;
-    }
-    return null;
-  }
-
-  let clean = path.posix.normalize(normalized);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== '/workspace' &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
-  if (clean === '..' || clean.startsWith('../')) return null;
-  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
 }
 
 function runTaskSandboxDocker(params: {
@@ -1718,8 +1689,8 @@ async function typeSavedSecret(
 
 /**
  * Fill the sign-in the user saved for the page's site, or ask them for one.
- * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the Hy app
- * turns it into a Sign in card that saves to `/api/sign-ins`.
+ * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the web chat
+ * and the Hy app turn it into a Sign in card that saves to `/api/sign-ins`.
  */
 async function executeBrowserSignIn(
   args: Record<string, unknown>,
@@ -1739,7 +1710,7 @@ async function executeBrowserSignIn(
         success: true,
         host: page.host,
         sign_in_requested: true,
-        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The Hy app now shows the user a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
+        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The user's chat now shows a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
       },
       null,
       2,

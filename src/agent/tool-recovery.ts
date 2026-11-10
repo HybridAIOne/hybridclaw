@@ -4,7 +4,7 @@
  * They guide model decisions, not tool authorization or automatic retries;
  * runtime denials remain authoritative even when another method exists.
  */
-import { TOOL_ARGUMENT_CARDINALITY } from '../../container/shared/tool-argument-contract.js';
+import { TOOL_ARGUMENT_CARDINALITY } from '@hybridclaw/shared/tool-argument-contract';
 
 export const TOOL_RECOVERY_LINES = [
   '## Tool Recovery',

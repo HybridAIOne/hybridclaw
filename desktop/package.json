@@ -58,7 +58,6 @@
           "container/tools/package.json",
           "container/tools/package-lock.json",
           "container/tools/stubs/**/*",
-          "container/shared/**/*",
           "skills/**/*",
           "community-skills/**/*",
           "presets/**/*",

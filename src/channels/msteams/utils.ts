@@ -1,7 +1,7 @@
 import {
   isMSTeamsDmSessionId,
   isMSTeamsSessionId,
-} from '../../../container/shared/msteams-session-ids.js';
+} from '@hybridclaw/shared/msteams-session-ids';
 import { getSessionById } from '../../memory/db.js';
 import type { Session } from '../../types/session.js';
 import {
@@ -16,7 +16,7 @@ export {
   isMSTeamsDmSessionId,
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
-} from '../../../container/shared/msteams-session-ids.js';
+} from '@hybridclaw/shared/msteams-session-ids';
 export { isRecord } from '../../utils/type-guards.js';
 export { normalizeValue };
 

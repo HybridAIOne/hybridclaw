@@ -1,5 +1,6 @@
 /**
- * `/model list` — the models a user picks from, current ones first.
+ * `/model list` — the models a user picks from, current ones first — and the
+ * note commands add when a user picks a legacy model anyway.
  *
  * Legacy models stay usable but are left out unless the user asks for
  * `all` or no current model is left to show; the session's own model is always
@@ -88,4 +89,16 @@ export function buildModelListResult(params: {
   return infoCommand(title, list ? `${list}\n\n${footer}` : footer, undefined, {
     modelCatalog,
   });
+}
+
+/** One line for a command reply when `model` is legacy; none otherwise. */
+export function legacyModelNote(model: string): string[] {
+  const { status, replacement } = getModelLifecycle(model);
+  if (status !== 'legacy') return [];
+  const name = `\`${formatModelForDisplay(model)}\``;
+  return [
+    replacement
+      ? `${name} is a legacy model; \`${formatModelForDisplay(replacement)}\` replaces it.`
+      : `${name} is a legacy model; \`model list\` shows current ones.`,
+  ];
 }

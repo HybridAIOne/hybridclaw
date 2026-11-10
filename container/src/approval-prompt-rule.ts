@@ -5,7 +5,7 @@
  * A full-auto collision recovery denies one call before creating a prompt;
  * it never executes that call or grants consent for a later retry.
  */
-import type { ApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type {
   ToolApprovalEvaluation,
   ToolCallContext,

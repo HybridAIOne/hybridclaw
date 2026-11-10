@@ -6,18 +6,18 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import {
   readDailyMemoryFile,
   truncateDailyMemoryText,
-} from '../container/shared/daily-memory.js';
-import { readTextFileHeadTail } from '../container/shared/read-text-file.js';
-import { escapeRegExp } from '../container/shared/regex.js';
+} from '@hybridclaw/shared/daily-memory';
+import { readTextFileHeadTail } from '@hybridclaw/shared/read-text-file';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
   resolveEffectiveTimezone,
-} from '../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import { resolveAgentConfig } from './agents/agent-registry.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';

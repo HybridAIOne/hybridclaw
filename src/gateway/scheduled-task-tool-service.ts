@@ -14,7 +14,7 @@
  * edits jobs on behalf of operators rather than the running agent turn.
  */
 
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import { getSessionById } from '../memory/db.js';

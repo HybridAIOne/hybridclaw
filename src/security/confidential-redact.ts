@@ -1,4 +1,4 @@
-import { escapeRegExp } from '../../container/shared/regex.js';
+import { escapeRegExp } from '@hybridclaw/shared/regex';
 import type {
   ConfidentialRule,
   ConfidentialRuleSet,

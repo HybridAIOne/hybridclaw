@@ -16,6 +16,11 @@ hybridclaw config set browser.provider managed-cloud
 hybridclaw gateway browser-pool doctor
 ```
 
+Run the pool from its image, as above, from a source checkout or the installed
+package root. It imports the shared TypeScript modules directly, and Node does
+not strip types under `node_modules`, so `npm start` inside an installed package
+fails.
+
 Tenant host policy lives in `tenants.example.yaml` by default. Production
 deployments should mount a generated tenant policy file from the operator's R25
 deployment recipe. The Hetzner overlay is

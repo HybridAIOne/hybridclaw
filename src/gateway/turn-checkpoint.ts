@@ -5,7 +5,7 @@
  * return the same message IDs, including after recovery or gateway restart.
  * Unlike audit, these rows are future model context.
  */
-import { readTurnRecovery } from '../../container/shared/turn-checkpoint.js';
+import { readTurnRecovery } from '@hybridclaw/shared/turn-checkpoint';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import {
   CONTAINER_MAX_OUTPUT_SIZE,

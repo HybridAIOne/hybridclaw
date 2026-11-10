@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
+import { encodeFileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { ContainerInput } from '../src/types/container.js';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

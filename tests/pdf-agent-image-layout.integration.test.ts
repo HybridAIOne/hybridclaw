@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import {
   readPdfPages,
   searchPdfPages,
-} from '../container/shared/pdf-reader.js';
+} from '@hybridclaw/shared/pdf-reader';
 import { useTempDir } from './test-utils.ts';
 
 /**

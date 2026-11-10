@@ -7,7 +7,7 @@ import {
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
-} from '../../container/shared/local-tool-config.js';
+} from '@hybridclaw/shared/local-tool-config';
 import { listAgents } from '../agents/agent-registry.js';
 import {
   getRuntimeConfig,

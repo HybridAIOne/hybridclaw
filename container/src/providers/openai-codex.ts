@@ -1,8 +1,13 @@
-import { isRecord } from '../../shared/primitive-values.js';
+/**
+ * Native Responses transport shared by API-key and Codex authentication.
+ * Keeps opaque reasoning items with tool calls for replay; unlike Chat
+ * Completions adapters, it never folds provider state into visible text.
+ */
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../shared/server-sent-events.js';
+} from '@hybridclaw/shared/server-sent-events';
 import type {
   ChatCompletionResponse,
   ChatContentPart,
@@ -267,7 +272,7 @@ function adaptCodexResponse(
     const item = entry as Record<string, unknown>;
     const type = typeof item.type === 'string' ? item.type : '';
 
-    if (type === 'reasoning' && typeof item.encrypted_content === 'string') {
+    if (type === 'reasoning') {
       responseItems.push(item);
     }
 

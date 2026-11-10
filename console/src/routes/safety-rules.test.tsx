@@ -2,9 +2,10 @@
  * Operator edits remain local until saved and failed saves retain the draft.
  * These UI checks do not substitute for the authenticated gateway boundary tests.
  */
+
+import type { SafetyRulesResponse } from '@hybridclaw/shared/safety-rules';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { SafetyRulesResponse } from '../../../container/shared/safety-rules.js';
 import { fetchSafetyRules, saveSafetyRules } from '../api/safety-rules';
 import { mockRouterBlocker, renderWithProviders } from '../test-utils';
 import { SafetyRulesPage } from './safety-rules';

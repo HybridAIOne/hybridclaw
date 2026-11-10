@@ -51,7 +51,9 @@ const result = spawnSync(
     `HYBRIDCLAW_VERSION=${version}`,
     '-t',
     image,
-    './container',
+    '-f',
+    'container/Dockerfile',
+    '.',
   ],
   { stdio: 'inherit', env: { ...process.env, DOCKER_BUILDKIT: '1' } },
 );

@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { normalizeEmailDraft } from '../container/shared/email-draft.js';
+import { normalizeEmailDraft } from '@hybridclaw/shared/email-draft';
 import {
   DRAFT_EMAIL_TOOL_DEFINITION,
   runDraftEmailTool,

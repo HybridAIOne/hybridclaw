@@ -3,7 +3,7 @@
  * Unlike per-turn input, this signature covers process-cached settings;
  * it is private comparison state and must never be logged.
  */
-import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+import type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {

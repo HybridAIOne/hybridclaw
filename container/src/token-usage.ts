@@ -3,7 +3,8 @@
  * schema. Unlike snapshot validation, this module interprets provider payloads;
  * it does not price requests or infer charges for unfinished calls.
  */
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -26,17 +27,6 @@ function parseUsageNumber(value: unknown): number {
   return 0;
 }
 
-function parseOptionalUsageNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.floor(value));
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return Math.max(0, parsed);
-  }
-  return undefined;
-}
-
 function firstDefined(values: unknown[]): unknown {
   for (const value of values) {
     if (value !== undefined && value !== null) return value;
@@ -47,7 +37,7 @@ function firstDefined(values: unknown[]): unknown {
 export {
   createTokenUsageStats,
   finalizeTokenUsage,
-} from '../shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 
 export function createTokenEstimateCache(): TokenEstimateCache {
   return new WeakMap<ChatMessage, number>();
@@ -153,40 +143,7 @@ export function accumulateApiUsage(
     usageRecord.totalTokens != null ||
     usageRecord.inputTokens != null ||
     usageRecord.outputTokens != null;
-  const promptTokenDetails = isRecord(usage.prompt_tokens_details)
-    ? usage.prompt_tokens_details
-    : null;
-  // The Responses API (Codex) reports the same details as input tokens.
-  const inputTokenDetails = isRecord(usage.input_tokens_details)
-    ? usage.input_tokens_details
-    : null;
-  const cacheReadTokens = parseOptionalUsageNumber(
-    firstDefined([
-      usageRecord.cacheRead,
-      usageRecord.cache_read,
-      usageRecord.cacheReadTokens,
-      usage.cache_read_tokens,
-      usageRecord.cacheReadInputTokens,
-      usage.cache_read_input_tokens,
-      usageRecord.cached_tokens,
-      usage.cached_tokens,
-      promptTokenDetails?.cached_tokens,
-      inputTokenDetails?.cached_tokens,
-    ]),
-  );
-  const cacheWriteTokens = parseOptionalUsageNumber(
-    firstDefined([
-      usageRecord.cacheWrite,
-      usageRecord.cache_write,
-      usageRecord.cacheWriteTokens,
-      usage.cache_write_tokens,
-      usageRecord.cacheWriteInputTokens,
-      usage.cache_write_input_tokens,
-      usage.cache_creation_input_tokens,
-      promptTokenDetails?.cache_write_tokens,
-      inputTokenDetails?.cache_write_tokens,
-    ]),
-  );
+  const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(usage);
   const hasCacheUsageFields =
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   if (!hasTokenUsageFields && !hasCacheUsageFields) return;

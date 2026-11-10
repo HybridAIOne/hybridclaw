@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
-import { resolveProviderRequestMaxTokens } from '../../container/shared/request-max-tokens.js';
-import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
+import { generateIpcAuthSecret } from '@hybridclaw/shared/ipc-input-auth';
+import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
+import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
 import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,

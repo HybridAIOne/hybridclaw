@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
+import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
@@ -56,6 +56,7 @@ import {
   sendOpenAICompatibleStreamError,
   writeOpenAICompatibleStreamChunk,
 } from './openai-compatible-response.js';
+import { recordOpenAICompatibleUsage } from './openai-compatible-usage.js';
 import {
   handleDecisionCompletion,
   isDecisionModel,
@@ -583,18 +584,28 @@ async function handleOpenAICompatibleToolChat(
     agentId: prepared.requestAgentId,
   });
   const messages = await buildToolAwareMessages({ input, prepared });
+  let servedModel = prepared.model;
   const result = await callWithProviderFallback({
     primaryRuntime: runtime,
     primaryModel: prepared.model,
     chain: loadFallbackChainFromEnv(),
-    invoke: (activeRuntime, activeModel) =>
-      callOpenAICompatibleModel({
+    invoke: (activeRuntime, activeModel) => {
+      servedModel = activeModel;
+      return callOpenAICompatibleModel({
         runtime: activeRuntime,
         model: activeModel,
         messages,
         tools: input.tools,
         toolChoice: input.toolChoice,
-      }),
+      });
+    },
+  });
+  const tokenUsage = mapOpenAICompatibleUsageToTokenStats(result.usage);
+  await recordOpenAICompatibleUsage({
+    sessionId: prepared.sessionId,
+    agentId: prepared.requestAgentId,
+    model: servedModel,
+    tokenUsage,
   });
   const choice = result.choices[0];
   const payload = buildOpenAICompatibleCompletionResponse({
@@ -609,7 +620,7 @@ async function handleOpenAICompatibleToolChat(
       ? { toolCalls: choice.message.tool_calls }
       : {}),
     ...(choice?.finish_reason ? { finishReason: choice.finish_reason } : {}),
-    tokenUsage: mapOpenAICompatibleUsageToTokenStats(result.usage),
+    tokenUsage,
   });
   res.writeHead(200, {
     ...traceHeaders,
@@ -793,6 +804,7 @@ async function handleOpenAICompatibleStreamingToolChat(
     });
     const messages = await buildToolAwareMessages({ input, prepared });
     let streamStarted = false;
+    let servedModel = prepared.model;
     const result = await callWithProviderFallback({
       primaryRuntime: runtime,
       primaryModel: prepared.model,
@@ -802,8 +814,9 @@ async function handleOpenAICompatibleStreamingToolChat(
       // further retries so the original provider error propagates instead of a
       // generic "Stream already started" placeholder.
       shouldFallback: () => !streamStarted,
-      invoke: (activeRuntime, activeModel) =>
-        callOpenAICompatibleModelStream({
+      invoke: (activeRuntime, activeModel) => {
+        servedModel = activeModel;
+        return callOpenAICompatibleModelStream({
           runtime: activeRuntime,
           model: activeModel,
           messages,
@@ -823,7 +836,15 @@ async function handleOpenAICompatibleStreamingToolChat(
               }),
             );
           },
-        }),
+        });
+      },
+    });
+    const tokenUsage = mapOpenAICompatibleUsageToTokenStats(result.usage);
+    await recordOpenAICompatibleUsage({
+      sessionId: prepared.sessionId,
+      agentId: prepared.requestAgentId,
+      model: servedModel,
+      tokenUsage,
     });
     if (!isResponseWritable(res)) return;
     const choice = result.choices[0];
@@ -856,7 +877,7 @@ async function handleOpenAICompatibleStreamingToolChat(
           completionId,
           created,
           model: prepared.responseModel,
-          tokenUsage: mapOpenAICompatibleUsageToTokenStats(result.usage),
+          tokenUsage,
         }),
       );
     }
@@ -897,6 +918,7 @@ export async function handleOpenAICompatibleChatCompletions(
         await handleDecisionCompletion({
           res,
           model: prepared.model,
+          sessionId: prepared.sessionId,
           agentId: prepared.requestAgentId,
           messages: input.messages,
           wantsStream: input.wantsStream,

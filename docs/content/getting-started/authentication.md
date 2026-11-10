@@ -118,6 +118,8 @@ the Gemini API, use `gemini` or `google-gemini`.
 - `hybridclaw auth login openai` stores `OPENAI_API_KEY`, enables the direct
   OpenAI Responses API transport, and can set an `openai/...` model as the
   global default. This is separate from Codex OAuth and `openai-codex/...`.
+  `--base-url` points it at another Responses API server; for a server that
+  only implements Chat Completions, use the `vllm` local backend instead.
 - `hybridclaw auth login anthropic --method api-key` stores
   `ANTHROPIC_API_KEY`, enables the direct Anthropic Messages API transport,
   and can set an `anthropic/...` model as the global default.
@@ -137,7 +139,10 @@ the Gemini API, use `gemini` or `google-gemini`.
   `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`),
   or prompt interactively.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
-  vLLM in `~/.hybridclaw/config.json`.
+  vLLM in `~/.hybridclaw/config.json`. The `vllm` backend also connects to
+  any OpenAI-compatible Chat Completions server, local or remote, with a
+  custom `--base-url` and `--api-key`; see
+  [OpenAI-Compatible Servers](../guides/local-providers.md#openai-compatible-servers).
 - `hybridclaw auth login google` stores a Google OAuth desktop client id,
   client secret, account, and refresh token for API access through the bundled
   `gog` and `gws` skills. Create the desktop OAuth client in Google Cloud
@@ -237,8 +242,10 @@ gateway types the username and password into the fields the agent names, the
 same way `browser_secret_type` injects a stored secret: the model sees neither
 value, the resolve is audited, and live browser frames pause until the page
 changes. If none is saved, the tool asks the user's client for one and the
-agent stops and says so. The Hy app shows a **Sign in** card for the host; its
-sheet saves the sign-in with `POST /api/sign-ins` and Hy carries on.
+agent stops and says so. The web chat and the Hy app show a **Sign in** card
+for the host. It saves the username and password with `POST /api/sign-ins`,
+so they go straight to the store and never reach the chat or the model. The
+web chat then tells the agent the sign-in is saved, and the agent continues.
 
 - a sign-in lives in the encrypted runtime store as
   `SIGNIN_<HOST>_USERNAME` and `SIGNIN_<HOST>_PASSWORD`, each with a

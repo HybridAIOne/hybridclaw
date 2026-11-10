@@ -7,12 +7,12 @@
 
 import os from 'node:os';
 import path from 'node:path';
-import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
+import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '@hybridclaw/shared/dynamic-context';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   resolveEffectiveTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '@hybridclaw/shared/workspace-time';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {

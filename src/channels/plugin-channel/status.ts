@@ -126,7 +126,12 @@ export async function checkPluginChannels(
       }
       continue;
     }
-    findings.push(...((await registration.doctorChecks?.({ enabled })) ?? []));
+    findings.push(
+      ...((await registration.doctorChecks?.({
+        enabled,
+        deliveryTarget: storedTarget,
+      })) ?? []),
+    );
   }
   return findings;
 }

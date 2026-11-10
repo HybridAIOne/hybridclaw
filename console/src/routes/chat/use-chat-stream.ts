@@ -1,6 +1,6 @@
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
-import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { structuredReply } from '../../../../src/gateway/structured-reply';
 import { executeCommand } from '../../api/chat';
 import type {
@@ -384,6 +384,7 @@ export function useChatStream(
             started.durationMs = event.durationMs;
             started.resultPreview = event.preview || undefined;
             started.browser = event.browser;
+            started.signIn = event.browser?.signIn;
             started.slideSamples = event.slideSamples;
           } else {
             req.trace.push({
@@ -393,6 +394,7 @@ export function useChatStream(
               durationMs: event.durationMs,
               resultPreview: event.preview || undefined,
               browser: event.browser,
+              signIn: event.browser?.signIn,
               slideSamples: event.slideSamples,
             });
           }
