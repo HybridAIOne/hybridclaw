@@ -390,20 +390,25 @@ The values below describe the built-in defaults in the current codebase.
 Prompt history and compaction share one budget:
 
 ```text
-session budget  = min(model context window, sessionCompaction.tokenBudget)
-                  × sessionCompaction.budgetRatio
+session budget  = model context window × sessionCompaction.budgetRatio
 history budget  = max(2,000, session budget − prompt overhead)
 ```
 
 Prompt overhead is the estimated size of the system blocks plus the dynamic
 context message (bootstrap files, daily notes, session summary, recall). The
-model context window comes from the model catalog; unknown models fall back to
-`tokenBudget`.
+model context window comes from the model catalog. A non-zero
+`sessionCompaction.tokenBudget` clips the window before the ratio applies. For
+a model the catalog does not know, the window is `tokenBudget`, or `100,000`
+tokens without one.
+
+A larger budget keeps more turns verbatim and compacts less often, and it also
+lets each prompt grow: a turn sent after the provider's prompt cache expired
+pays for the whole history again. Set `tokenBudget` to bound that cost.
 
 | Limit | Default | Meaning |
 | --- | ---: | --- |
-| token budget | `100,000` estimated tokens | upper cap on the session budget, also the fallback when the model's context window is unknown |
-| budget ratio | `0.7` | share of the clipped context window given to the session prompt |
+| token budget | `0` (no cap) | optional upper cap on the context window used for the session budget |
+| budget ratio | `0.7` | share of the context window given to the session prompt |
 | history floor | `2,000` estimated tokens | history budget never drops below this, even when prompt overhead is large |
 | history fetch cap | `500` rows | safety cap on stored rows loaded per turn; only reached when compaction is not running |
 
