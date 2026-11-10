@@ -1,14 +1,14 @@
 /**
  * File-based IPC between the gateway and the agent process: per request, one
  * input and one reply file (`output-<requestId>.json`, named in
- * `container/shared/ipc-output-files.js`) in the session's `ipc/` dir; auth
+ * `packages/shared/src/ipc-output-files.ts`) in the session's `ipc/` dir; auth
  * material from the first stdin request is never written to disk. Directory
  * notifications only wake readers; periodic disk checks cover missed events.
  *
  * Follow-up inputs live in a directory the agent's own tools can reach, so
  * `writeInput` wraps each one in an authenticity envelope keyed by the
- * per-worker secret the agent holds from stdin (container/shared/
- * ipc-input-auth.js). Health input carries only a liveness nonce and never
+ * per-worker secret the agent holds from stdin (packages/shared/src/
+ * ipc-input-auth.ts). Health input carries only a liveness nonce and never
  * drives a turn, so it is written plain.
  *
  * `readOutput` always settles, with the reply to its own request id, a
@@ -21,17 +21,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeAuthenticatedInput } from '../../container/shared/ipc-input-auth.js';
+import { encodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
 import {
   ipcOutputFileName,
   isIpcOutputFileName,
-} from '../../container/shared/ipc-output-files.js';
+} from '@hybridclaw/shared/ipc-output-files';
 import {
   createIpcWakeup,
   IPC_RECONCILE_INTERVAL_MS,
   type IpcWakeup,
-} from '../../container/shared/ipc-wakeup.js';
-import { isSteerInboxEntryName } from '../../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/ipc-wakeup';
+import { isSteerInboxEntryName } from '@hybridclaw/shared/steer-inbox';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -145,7 +145,7 @@ export function ensureAgentDirs(agentId: string): void {
  *
  * The file lives in a directory the agent's own tools can reach, so every input
  * is wrapped in an authenticity envelope keyed by the per-worker `authSecret`
- * the agent received on stdin (see container/shared/ipc-input-auth.js). The
+ * the agent received on stdin (see packages/shared/src/ipc-input-auth.ts). The
  * agent rejects any input.json it cannot verify, so a follow-up forged by the
  * agent never becomes a turn.
  *

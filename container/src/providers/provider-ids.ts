@@ -1,9 +1,9 @@
 import {
   inferProviderFromModelPrefix,
   type RuntimeProviderId,
-} from '../../shared/provider-ids.js';
+} from '@hybridclaw/shared/provider-ids';
 
-export * from '../../shared/provider-ids.js';
+export * from '@hybridclaw/shared/provider-ids';
 
 export function resolveRuntimeProviderContext(
   provider: RuntimeProviderId | undefined,

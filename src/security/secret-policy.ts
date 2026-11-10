@@ -7,9 +7,8 @@
  * `assertSecretResolveAllowed` in the gateway enforces the decision.
  */
 import fs from 'node:fs';
-
+import { globToRegExp } from '@hybridclaw/shared/policy-glob';
 import YAML from 'yaml';
-import { globToRegExp } from '../../container/shared/policy-glob.js';
 import { matchesNetworkHostPattern } from '../policy/network-policy.js';
 import {
   describePolicyRuleProblem,

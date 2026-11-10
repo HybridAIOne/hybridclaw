@@ -71,7 +71,7 @@ const requiredPrefixes = [
   'templates/',
   'docs/',
   'console/dist/',
-  'container/shared/',
+  'packages/shared/',
 ];
 
 const forbiddenPathPatterns = [
@@ -82,8 +82,9 @@ const forbiddenPathPatterns = [
   /^vitest\..*\.ts$/,
   /^biome\.json$/,
   /^tsconfig\.json$/,
-  // The bundle writes JS only to the top of dist/; tsc emits declarations only.
-  /^dist\/.+\/.*\.js$/,
+  // The bundles write only to the top of dist/, as does the one plugin SDK
+  // declaration file; nothing is nested.
+  /^dist\/.+\//,
   // Packaged installs pull the agent image; the host sandbox runs container/dist.
   /^container\/src\//,
   /\.test\.(ts|tsx|js|mjs|cjs|d\.ts)(\.map)?$/,

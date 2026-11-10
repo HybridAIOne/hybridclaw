@@ -1,7 +1,7 @@
 import type {
   ClassifierMiddlewareSkill,
   MiddlewareDecision,
-} from '../shared/middleware-contract.js';
+} from '@hybridclaw/shared/middleware-contract';
 import {
   classifyStakes,
   type StakesClassificationInput,

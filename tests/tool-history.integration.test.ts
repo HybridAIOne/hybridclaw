@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { toolResultFilePath } from '@hybridclaw/shared/tool-history';
 import type { ChatMessage } from '../src/types/api.js';
 import type {
   ContainerInput,

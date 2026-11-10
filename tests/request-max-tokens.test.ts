@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS,
   resolveProviderRequestMaxTokens,
-} from '../container/shared/request-max-tokens.js';
+} from '@hybridclaw/shared/request-max-tokens';
 
 function runSharedContract(
   label: string,

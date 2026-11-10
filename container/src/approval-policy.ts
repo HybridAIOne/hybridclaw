@@ -15,12 +15,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-import YAML from 'yaml';
 import type {
   ApprovalObservation,
   ApprovalMode as SessionApprovalMode,
-} from '../shared/approval-mode.js';
-import type { ApprovalReplyInterpretation } from '../shared/approval-reply.js';
+} from '@hybridclaw/shared/approval-mode';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -29,23 +28,23 @@ import {
   LEGACY_AGENT_TRUST_STORE_FILE,
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
-} from '../shared/approval-rules.js';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
+} from '@hybridclaw/shared/approval-rules';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
+import { isAllowedHostlessBrowserNavigationUrl } from '@hybridclaw/shared/browser-navigation';
 import {
   type BrowserStealthPolicyAccessEvaluation,
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../shared/browser-stealth-policy.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
-import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
+} from '@hybridclaw/shared/browser-stealth-policy';
+import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
+import type { ClassifierMiddlewareSkill } from '@hybridclaw/shared/middleware-contract';
+import { applyClassifierMiddlewareSync } from '@hybridclaw/shared/middleware-runner';
 import type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 import {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
@@ -53,8 +52,9 @@ import {
   normalizeNetworkHostScope,
   normalizeNetworkPort,
   readNetworkPolicyState,
-} from '../shared/network-policy.js';
-import { asRecord } from '../shared/primitive-values.js';
+} from '@hybridclaw/shared/network-policy';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
+import YAML from 'yaml';
 import {
   type ApprovalDirective,
   parseApprovalUserResponse,
@@ -153,12 +153,12 @@ import {
 export type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export { parseApprovalUserResponse } from './approval-directive.js';
 export type {
   StakesClassificationInput,

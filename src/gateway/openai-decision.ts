@@ -9,9 +9,13 @@ import { HYBRIDAI_MODEL } from '../config/config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type { ChatMessage } from '../types/api.js';
-import { callOpenAICompatibleModel } from './openai-compatible-model.js';
+import {
+  callOpenAICompatibleModel,
+  mapOpenAICompatibleUsageToTokenStats,
+} from './openai-compatible-model.js';
 import { OpenAICompatibleRequestError } from './openai-compatible-request.js';
 import { buildOpenAICompatibleCompletionResponse } from './openai-compatible-response.js';
+import { recordOpenAICompatibleUsage } from './openai-compatible-usage.js';
 
 // App builds before quick_decision existed send `auxiliary/eval_judge`.
 const AUXILIARY_DECISION_MODELS = new Set([
@@ -26,6 +30,7 @@ export function isDecisionModel(model: string): boolean {
 export async function handleDecisionCompletion(params: {
   res: ServerResponse;
   model: string;
+  sessionId: string;
   agentId: string;
   messages: ChatMessage[];
   wantsStream: boolean;
@@ -75,6 +80,12 @@ export async function handleDecisionCompletion(params: {
       messages: params.messages,
       tools: [],
       toolChoice: 'none',
+    });
+    await recordOpenAICompatibleUsage({
+      sessionId: params.sessionId,
+      agentId: resolved.agentId,
+      model,
+      tokenUsage: mapOpenAICompatibleUsageToTokenStats(answer.usage),
     });
     const responseContent = answer.choices[0]?.message.content;
     content = typeof responseContent === 'string' ? responseContent : null;

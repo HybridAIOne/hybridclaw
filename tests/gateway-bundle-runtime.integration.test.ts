@@ -18,7 +18,7 @@ const run = promisify(execFile);
 const makeTempDir = useTempDir('hc-gateway-bundle-');
 
 // Exercise the real bundlers and the Dockerfile's gateway COPY instructions.
-// The runtime fixture deliberately has no source tree or container/shared.
+// The runtime fixture deliberately has no source tree or shared package.
 async function buildRuntime(root: string): Promise<string> {
   const builder = path.join(root, 'builder');
   const runtime = path.join(root, 'runtime');
@@ -37,6 +37,7 @@ async function buildRuntime(root: string): Promise<string> {
   const modules = path.join(runtime, 'node_modules');
   fs.mkdirSync(modules);
   for (const name of fs.readdirSync(path.join(REPO, 'node_modules'))) {
+    if (name === '@hybridclaw') continue;
     const source = path.join(REPO, 'node_modules', name);
     const destination = path.join(modules, name);
     // The gateway repairs node-pty's executable helper. Keep that dependency
@@ -51,11 +52,6 @@ async function buildRuntime(root: string): Promise<string> {
   fs.copyFileSync(
     path.join(REPO, 'tsconfig.json'),
     path.join(builder, 'tsconfig.json'),
-  );
-  fs.cpSync(
-    path.join(REPO, 'container/shared'),
-    path.join(builder, 'container/shared'),
-    { recursive: true },
   );
   await run(process.execPath, [path.join(REPO, 'scripts/bundle-gateway.mjs')], {
     cwd: builder,
@@ -170,7 +166,7 @@ async function stopGateway(child: ChildProcess): Promise<void> {
     .toBe(false);
 }
 
-test('the image gateway, package CLI, and plugin SDK run without container/shared', async () => {
+test('the image gateway, package CLI, and plugin SDK run without the shared package', async () => {
   const root = makeTempDir();
   const runtime = await buildRuntime(root);
   const home = path.join(root, 'home');
@@ -224,7 +220,7 @@ export default {
     HYBRIDAI_API_KEY: 'hai-test-placeholder',
     WEB_API_TOKEN: 'test-token',
   };
-  expect(fs.existsSync(path.join(runtime, 'container/shared'))).toBe(false);
+  expect(fs.existsSync(path.join(runtime, 'node_modules/@hybridclaw'))).toBe(false);
   expect(fs.existsSync(path.join(runtime, 'src'))).toBe(false);
 
   const packageJsonPath = path.join(runtime, 'package.json');

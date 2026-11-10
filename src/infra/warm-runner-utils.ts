@@ -5,7 +5,7 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { encodeWarmWorkerFrame } from '../../container/shared/warm-worker-frame.js';
+import { encodeWarmWorkerFrame } from '@hybridclaw/shared/warm-worker-frame';
 import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';

@@ -5,11 +5,12 @@
  * calls are validated and unwrap before approval/audit; unlike tools.ts this
  * module never executes actions or grants permissions.
  */
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalStarterTools,
-} from '../shared/local-tool-config.js';
+} from '@hybridclaw/shared/local-tool-config';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import { searchCatalog } from './catalog-search.js';
 import type { ToolCall, ToolDefinition, ToolRunResult } from './types.js';
 

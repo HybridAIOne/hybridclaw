@@ -98,7 +98,7 @@
 
         # buildNpmPackage defaults to `npm run build`, which runs:
         #   prebuild:   npm run build:console  (vite build)
-        #   build:      npm --prefix container run build && node scripts/bundle-gateway.mjs && tsc
+        #   build:      npm --prefix container run build && node scripts/bundle-gateway.mjs && node scripts/bundle-plugin-sdk-types.mjs
         # That is what we want.
 
         # Prune devDeps and testing-only stuff before the install phase copies
@@ -129,10 +129,12 @@
           # Container runtime — the gateway spawns this either as a Docker
           # image or directly on the host when sandbox mode is disabled.
           mkdir -p "$INSTALL_DIR/container"
-          cp container/package.json container/package-lock.json container/Dockerfile container/.dockerignore "$INSTALL_DIR/container/" 2>/dev/null || true
+          cp container/package.json container/package-lock.json container/Dockerfile container/Dockerfile.dockerignore "$INSTALL_DIR/container/" 2>/dev/null || true
           cp -r container/dist "$INSTALL_DIR/container/dist"
-          cp -r container/shared "$INSTALL_DIR/container/shared"
           cp -r container/src "$INSTALL_DIR/container/src"
+          mkdir -p "$INSTALL_DIR/packages"
+          cp -r packages/contracts "$INSTALL_DIR/packages/contracts"
+          cp -r packages/shared "$INSTALL_DIR/packages/shared"
           # Locked manifest for `hybridclaw skill setup xlsx` (host-sandbox libraries).
           mkdir -p "$INSTALL_DIR/container/tools"
           cp container/tools/package.json container/tools/package-lock.json "$INSTALL_DIR/container/tools/"

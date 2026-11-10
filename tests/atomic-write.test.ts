@@ -5,7 +5,7 @@ import {
   writeFileAtomic,
   writeFileAtomicAsync,
   writeFileAtomicExclusive,
-} from '../container/shared/atomic-write.js';
+} from '@hybridclaw/shared/atomic-write';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('atomic-write-');

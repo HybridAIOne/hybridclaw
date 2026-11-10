@@ -133,6 +133,7 @@ Examples:
   hybridclaw auth login local vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
 
 Notes:
+  - \`vllm\` works with any OpenAI-compatible Chat Completions server, local or remote; pass \`--name\`, \`--base-url\`, and \`--api-key\`.
   - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
   - When a model id is provided, \`auth login local\` also sets \`hybridai.defaultModel\` to that local model by default.

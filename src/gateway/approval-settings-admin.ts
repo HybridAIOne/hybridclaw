@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   type ApprovalSettingsResponse,
   isApprovalMode,
-} from '../../container/shared/approval-mode.js';
+} from '@hybridclaw/shared/approval-mode';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeConfig,

@@ -1,9 +1,9 @@
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import type { ApprovalReplyContext } from '../../container/shared/approval-reply.js';
-import type { FileWriteGuardContext } from '../../container/shared/file-write-guard.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
-import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
+import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { SessionAttachmentAccess } from '@hybridclaw/shared/session-attachment-access';
+import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 import type { ChatMessage } from '../types/api.js';

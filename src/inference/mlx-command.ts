@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import {
   detectMacHardware,
   estimateMacModels,
