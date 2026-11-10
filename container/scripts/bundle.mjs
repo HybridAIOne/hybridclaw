@@ -6,6 +6,7 @@
 // npm package, declared or only transitive, stays external and loads from
 // node_modules next to dist/.
 
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const externalExceptWorkspace = {
@@ -32,5 +33,9 @@ await build({
   platform: 'node',
   target: 'node22',
   plugins: [externalExceptWorkspace],
+  // The workspace packages are linked from outside this package (../packages,
+  // or /packages in the image build), so their own @hybridclaw imports resolve
+  // through this package's node_modules.
+  nodePaths: [fileURLToPath(new URL('../node_modules', import.meta.url))],
   logLevel: 'warning',
 });
