@@ -481,7 +481,9 @@ import {
 } from './agent-addressing.js';
 import {
   handleApprovalsCommand,
+  mayStopAsking,
   resolveSessionApprovalMode,
+  STOP_ASKING_REFUSAL,
 } from './approval-mode.js';
 import {
   normalizePlaceholderToolReply,
@@ -4118,6 +4120,9 @@ function enableFullAutoCommand(params: {
   req: GatewayCommandRequest;
   prompt: string | null;
 }): GatewayCommandResult {
+  if (!mayStopAsking(params.req)) {
+    return badCommand('Full-Auto', STOP_ASKING_REFUSAL);
+  }
   const { session: refreshed, seeded } = enableFullAutoSession(params);
   return infoCommand(
     'Full-Auto Enabled',

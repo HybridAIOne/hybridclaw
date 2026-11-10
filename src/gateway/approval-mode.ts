@@ -20,6 +20,7 @@ import {
 } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { updateSessionApprovalMode } from '../memory/db.js';
+import { isAdminActionClaimed } from '../security/admin-rbac.js';
 import type { Session } from '../types/session.js';
 import { handleApprovalRulesCommand } from './approval-rules-command.js';
 import { isFullAutoEnabled } from './fullauto-runtime.js';
@@ -27,6 +28,23 @@ import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
+
+export const STOP_ASKING_REFUSAL =
+  'This can only be turned on from the computer the assistant runs on.';
+
+/**
+ * Whether this caller may put a session in a mode that stops asking (`full`,
+ * `learning`, `/fullauto`). A phone may not, and a scoped credential needs the
+ * action the admin route for the same change asks for. `client` comes from
+ * the request body, so the claim check is what holds against a caller that
+ * leaves it out.
+ */
+export function mayStopAsking(req: GatewayCommandRequest): boolean {
+  return (
+    req.client !== 'mobile' &&
+    isAdminActionClaimed(req.adminActions, 'admin.policy.write')
+  );
+}
 
 export function resolveSessionApprovalMode(
   session: Session,
@@ -89,6 +107,13 @@ export function handleApprovalsCommand(params: {
   }
   if (!isApprovalMode(next)) {
     return { kind: 'error', title: 'Usage', text: usage };
+  }
+  if ((next === 'full' || next === 'learning') && !mayStopAsking(req)) {
+    return {
+      kind: 'error',
+      title: 'Approval Mode',
+      text: STOP_ASKING_REFUSAL,
+    };
   }
   const updated = setSessionApprovalMode(session, next, {
     userId: req.userId ?? null,
