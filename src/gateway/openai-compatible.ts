@@ -918,6 +918,7 @@ export async function handleOpenAICompatibleChatCompletions(
         await handleDecisionCompletion({
           res,
           model: prepared.model,
+          sessionId: prepared.sessionId,
           agentId: prepared.requestAgentId,
           messages: input.messages,
           wantsStream: input.wantsStream,
