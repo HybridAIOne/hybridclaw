@@ -907,7 +907,9 @@ prompt depend on the agent, user, and client, never on the current message.
 Daily notes close the context message. A turn's context carries a note only
 when the history in the prompt does not already show the same text: on the
 first turn, after the note changed, and after the turn that carried it left the
-history window. A note cleared since its last copy is sent once as `(empty)`.
+history window. A note the history still shows but that is no longer loaded
+(cleared, deleted, past the lookback, or over the notes budget) is sent once
+as `(empty)`.
 The other sections are sent with every turn. The history budget still reserves
 room for all notes.
 

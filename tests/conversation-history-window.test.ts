@@ -118,6 +118,51 @@ test('a daily note returns once the turn that showed it leaves the history windo
   expect(dropped.latest).toContain('- Prefers tea.');
 });
 
+test('an earlier day note the history still shows is marked empty once it is no longer loaded', async () => {
+  const agentId = 'history-window-earlier-note-agent';
+  await createWorkspace(agentId);
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.js'
+  );
+  const latestContextWith = (history: ReturnType<typeof makeTurn>) =>
+    String(
+      buildConversationContext({
+        agentId,
+        history,
+        runtimeInfo: { model: 'gpt-5-nano', workspacePath: '/workspace/x' },
+      }).messages.at(-1)?.content,
+    );
+  const today = /Daily note: memory\/(\S+)\.md/.exec(latestContextWith([]))?.[1];
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const notePath = path.join(
+    agentWorkspaceDir(agentId),
+    'memory',
+    `${yesterday}.md`,
+  );
+  fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  fs.writeFileSync(notePath, '- Prefers tea.\n');
+  const shownWithTurn = latestContextWith([]);
+  expect(shownWithTurn).toContain('- Prefers tea.');
+  const [answer, question] = makeTurn(1, 20);
+  const history = [answer, { ...question, dynamic_context: shownWithTurn }];
+
+  fs.rmSync(notePath);
+  const cleared = latestContextWith(history);
+  expect(cleared).toContain(`## Daily Memory (memory/${yesterday}.md)\n\n(empty)`);
+
+  const [nextAnswer, nextQuestion] = makeTurn(2, 20);
+  expect(
+    latestContextWith([
+      nextAnswer,
+      { ...nextQuestion, dynamic_context: cleared },
+      ...history,
+    ]),
+  ).not.toContain('## Daily Memory');
+});
+
 test('buildConversationContext omits the history window note when everything fits', async () => {
   const agentId = 'history-window-fit-agent';
   await createWorkspace(agentId);

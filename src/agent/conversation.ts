@@ -134,6 +134,18 @@ function newestShownDailyNote(
   return null;
 }
 
+function shownDailyNoteNames(earlierContexts: string[]): Set<string> {
+  const names = new Set<string>();
+  for (const context of earlierContexts) {
+    for (const match of context.matchAll(
+      /\n\n## Daily Memory \(([^\n]+)\)\n/g,
+    )) {
+      names.add(match[1]);
+    }
+  }
+  return names;
+}
+
 interface DynamicContextMessageOptions {
   agentId?: string;
   /** A scope's workspace: its own files and daily notes, no preferences file. */
@@ -227,17 +239,17 @@ export function buildDynamicContextMessage(
     }
     lines.push('</context>');
 
-    // A note the prompt already shows is not repeated; one cleared since then
-    // is marked, so its old copy does not pass for current.
-    const dailyNotes = dailyMemoryFiles.some((file) => file.name === todayNote)
-      ? dailyMemoryFiles
-      : [{ name: todayNote, content: CLEARED_DAILY_NOTE }, ...dailyMemoryFiles];
-    for (const dailyNote of dailyNotes) {
+    // A note the prompt already shows is not repeated; one it shows that is no
+    // longer loaded (cleared, deleted, past the lookback or the budget) is
+    // marked, so its old copy does not pass for current.
+    const loaded = new Set(dailyMemoryFiles.map((file) => file.name));
+    const unloaded = [...shownDailyNoteNames(earlierContexts)]
+      .filter((name) => !loaded.has(name))
+      .map((name) => ({ name, content: CLEARED_DAILY_NOTE }));
+    for (const dailyNote of [...unloaded, ...dailyMemoryFiles]) {
       const heading = `${DAILY_NOTE_HEADING_PREFIX}${dailyNote.name})`;
       const section = [heading, '', dailyNote.content].join('\n');
-      const shown = newestShownDailyNote(heading, earlierContexts);
-      if (shown === section) continue;
-      if (dailyNote.content === CLEARED_DAILY_NOTE && shown === null) continue;
+      if (newestShownDailyNote(heading, earlierContexts) === section) continue;
       dynamicSections.push(section);
     }
   } else {
