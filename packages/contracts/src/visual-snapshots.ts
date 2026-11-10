@@ -2,7 +2,7 @@
  * Visual attachment references on model messages and the PDF part a message
  * may carry. A reference names stored snapshot bytes; it never grants file
  * access. NOT the snapshot store or its validators
- * (`@hybridclaw/shared/visual-snapshots`).
+ * (`packages/shared/src/visual-snapshots.ts`).
  */
 
 /** Content-addressed visual snapshots; references never grant arbitrary file access. */

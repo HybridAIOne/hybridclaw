@@ -2,8 +2,9 @@
  * Approval rule wire data: the rule a pending approval shows, naming why the
  * pipeline paused a call and the kind of action an "always allow" would cover.
  *
- * NOT the describer, parser, or trust stores (`@hybridclaw/shared/approval-rules`),
- * and NOT the approval pipeline (`container/src/approval-policy.ts`).
+ * NOT the describer, parser, or trust stores
+ * (`packages/shared/src/approval-rules.ts`), and NOT the approval pipeline
+ * (`container/src/approval-policy.ts`).
  */
 
 /** Why the pipeline paused a call, from the rule that raised it. */

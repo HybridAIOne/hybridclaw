@@ -2,7 +2,7 @@
  * Boost prompt wire data: what a pending approval carries when the question
  * is whether to spend one of the user's boosts.
  *
- * NOT the offer parsers (`@hybridclaw/shared/boost-offer`), which decide
+ * NOT the offer parsers (`packages/shared/src/boost-offer.ts`), which decide
  * whether a platform offer is well formed enough to become this prompt.
  */
 

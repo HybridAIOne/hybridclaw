@@ -1,6 +1,6 @@
 /**
  * Token usage snapshot a worker reports with each reply. NOT the counter
- * validator or accumulators (`@hybridclaw/shared/token-usage`), which the
+ * validator or accumulators (`packages/shared/src/token-usage.ts`), which the
  * gateway applies to every reply on top of `ContainerOutputSchema`.
  */
 

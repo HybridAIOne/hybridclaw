@@ -7,7 +7,7 @@
  * validators) before anything reads it. The input is written by the gateway
  * itself and stays a plain type until something needs to check it. The
  * types it composes come from sibling contract modules, never from
- * `@hybridclaw/shared`. NOT the file transport (`ipc.ts`) or the console API.
+ * `packages/shared`. NOT the file transport (`ipc.ts`) or the console API.
  */
 import type { ApprovalMode, ApprovalObservation } from './approval-mode.ts';
 import type { ApprovalRule } from './approval-rules.ts';
@@ -510,7 +510,7 @@ export type AgentErrorCode = Infer<typeof AgentErrorCodeSchema>;
 
 /**
  * Tool history and token usage carry their own validators in
- * @hybridclaw/shared (they need Node); the gateway applies them on top.
+ * packages/shared (they need Node); the gateway applies them on top.
  */
 export const ContainerOutputSchema = object({
   ...FileWriteGuardContextShape,

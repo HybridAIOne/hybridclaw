@@ -2,7 +2,7 @@
  * MCP server config as the gateway hands it to a worker: transport, launch
  * command or URL, and the operator's tool-behavior declarations.
  *
- * NOT the validator (`@hybridclaw/shared/mcp-server-config`); a declaration
+ * NOT the validator (`packages/shared/src/mcp-server-config.ts`); a declaration
  * here never mints a platform approval grant.
  */
 /** Operator-owned MCP configuration, shared across the gateway/worker boundary. */

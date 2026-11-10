@@ -5,7 +5,7 @@
  * decide, `full` auto-approves yellow and eligible red. `learning` records prompts
  * and notices while allowing them, including pinned approvals; unconditional
  * denials remain enforced. NOT `/approve`, which answers one prompt, and NOT
- * the normalizer and labels (`@hybridclaw/shared/approval-mode`).
+ * the normalizer and labels (`packages/shared/src/approval-mode.ts`).
  */
 export const APPROVAL_MODES = ['ask', 'auto', 'full', 'learning'] as const;
 

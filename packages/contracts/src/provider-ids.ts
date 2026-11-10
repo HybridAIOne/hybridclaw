@@ -5,8 +5,8 @@
  *
  * A model id names its provider with a `${id}/` prefix; a bare id is a HybridAI
  * passthrough. Guards and derived lists live in
- * `@hybridclaw/shared/provider-ids`; labels, secret keys, and default URLs in
- * `src/providers/provider-meta.ts`.
+ * `packages/shared/src/provider-ids.ts`; labels, secret keys, and default URLs
+ * in `src/providers/provider-meta.ts`.
  */
 
 export const LOCAL_BACKEND_IDS = [

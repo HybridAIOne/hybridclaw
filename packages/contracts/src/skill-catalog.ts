@@ -2,7 +2,7 @@
  * Shared host/worker skill catalog: admitted identities and complete mini-cards.
  * Ordinary instructions and credentials retain their existing access paths;
  * this wire contract carries guidance, never capabilities or permissions.
- * NOT the admission check (`@hybridclaw/shared/skill-catalog`).
+ * NOT the admission check (`packages/shared/src/skill-catalog.ts`).
  */
 
 export interface SessionSkillCatalogEntry {
