@@ -1,163 +1,27 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.js';
 
-import {
-  acquireWhatsAppAuthLock,
-  getWhatsAppAuthStatus,
-  resetWhatsAppAuthState,
-  WhatsAppAuthLockError,
-  whatsappAuthLockPath,
-} from '../src/channels/whatsapp/auth.ts';
+const makeTempDir = useTempDir('hybridclaw-whatsapp-auth-');
+useCleanMocks({ unstubAllEnvs: true, resetModules: true });
 
-function makeTempAuthDir(): string {
-  const rootDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-whatsapp-auth-'),
-  );
-  const authDir = path.join(rootDir, 'auth');
-  fs.mkdirSync(authDir, { recursive: true });
-  fs.rmSync(whatsappAuthLockPath(authDir), { force: true });
-  return authDir;
-}
-
-beforeEach(() => {
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-});
-
-test('treats me.id as linked even when registered is false', async () => {
-  const authDir = makeTempAuthDir();
-  const credsPath = path.join(authDir, 'creds.json');
-  fs.writeFileSync(
-    credsPath,
-    JSON.stringify({
-      registered: false,
-      me: { id: '491701234567:18@s.whatsapp.net' },
-    }),
-    'utf-8',
-  );
-
-  await expect(getWhatsAppAuthStatus(authDir)).resolves.toEqual({
-    linked: true,
-    jid: '491701234567:18@s.whatsapp.net',
-  });
-});
-
-test('returns unlinked when auth state is missing', async () => {
-  const authDir = makeTempAuthDir();
-
-  await expect(getWhatsAppAuthStatus(authDir)).resolves.toEqual({
-    linked: false,
-    jid: null,
-  });
-});
-
-test('acquires and releases the WhatsApp auth lock', async () => {
-  const authDir = makeTempAuthDir();
-
-  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
-    purpose: 'test',
-    timeoutMs: 0,
-  });
-
-  expect(fs.existsSync(whatsappAuthLockPath(authDir))).toBe(true);
-  releaseLock();
-  expect(fs.existsSync(whatsappAuthLockPath(authDir))).toBe(false);
-});
-
-test('fails to acquire the WhatsApp auth lock while the current process holds it', async () => {
-  const authDir = makeTempAuthDir();
-  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
-    purpose: 'test',
-    timeoutMs: 0,
-  });
-
-  await expect(
-    acquireWhatsAppAuthLock(authDir, {
-      purpose: 'test-2',
-      timeoutMs: 0,
-    }),
-  ).rejects.toBeInstanceOf(WhatsAppAuthLockError);
-
-  releaseLock();
-});
-
-test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
-  const authDir = makeTempAuthDir();
-  const lockPath = whatsappAuthLockPath(authDir);
-  const stalePid = 999_999;
-  fs.writeFileSync(
-    lockPath,
-    JSON.stringify({
-      pid: stalePid,
-      startedAt: '2026-03-13T00:00:00.000Z',
-      purpose: 'stale',
-    }),
-    'utf-8',
-  );
-
-  const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
-    pid: number | NodeJS.Signals,
-    signal?: number | NodeJS.Signals,
-  ) => {
-    if (pid === stalePid && signal === 0) {
-      const error = new Error('process not found') as NodeJS.ErrnoException;
-      error.code = 'ESRCH';
-      throw error;
-    }
-    return true;
-  }) as typeof process.kill);
-
-  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
-    purpose: 'fresh',
-    timeoutMs: 0,
-  });
-  expect(fs.existsSync(lockPath)).toBe(true);
-  releaseLock();
-  killSpy.mockRestore();
-});
-
-test('clears a stale WhatsApp auth lock from a previous same-pid process lifetime', async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-06-14T14:25:00.000Z'));
-  vi.spyOn(process, 'uptime').mockReturnValue(60);
-
-  const authDir = makeTempAuthDir();
-  const lockPath = whatsappAuthLockPath(authDir);
-  fs.writeFileSync(
-    lockPath,
-    JSON.stringify({
-      pid: process.pid,
-      startedAt: '2026-04-14T15:18:38.265Z',
-      purpose: 'runtime',
-    }),
-    'utf-8',
-  );
-
-  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
-    purpose: 'fresh',
-    timeoutMs: 0,
-  });
-  const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as {
-    purpose?: unknown;
-  };
-  expect(parsed.purpose).toBe('fresh');
-  releaseLock();
-});
-
-test('reset clears auth files and leaves the auth directory ready for re-pairing', async () => {
-  const authDir = makeTempAuthDir();
-  fs.writeFileSync(path.join(authDir, 'creds.json'), '{"stale":true}', 'utf-8');
-
-  await resetWhatsAppAuthState(authDir);
-
-  expect(fs.existsSync(path.join(authDir, 'creds.json'))).toBe(false);
-  expect(fs.existsSync(authDir)).toBe(true);
-  expect(fs.existsSync(whatsappAuthLockPath(authDir))).toBe(false);
+it.each([
+  ['a linked device id', '{"me":{"id":"15550100100:7@s.whatsapp.net"}}', true],
+  ['registered without a device id', '{"registered":true}', true],
+  ['a blank device id', '{"me":{"id":"  "}}', false],
+  ['an unregistered store', '{"registered":false,"me":null}', false],
+  ['malformed JSON', '{not json', false],
+  ['no creds file', null, false],
+] as const)('isWhatsAppLinked reads %s as linked=%s', async (_name, creds, linked) => {
+  const dataDir = makeTempDir();
+  if (creds !== null) {
+    const authDir = path.join(dataDir, 'credentials', 'whatsapp');
+    fs.mkdirSync(authDir, { recursive: true });
+    fs.writeFileSync(path.join(authDir, 'creds.json'), creds);
+  }
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', dataDir);
+  vi.resetModules();
+  const { isWhatsAppLinked } = await import('../src/channels/whatsapp/auth.js');
+  expect(isWhatsAppLinked()).toBe(linked);
 });

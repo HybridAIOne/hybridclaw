@@ -3,6 +3,10 @@ import { Readable } from 'node:stream';
 
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+import {
+  createFakeTransportInstance,
+  fakeWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
 
 const {
   runAgentMock,
@@ -1374,15 +1378,9 @@ test('handleGatewayCommand plugin install notifies channel availability listener
   const listener = vi.fn(async () => {});
   setChannelPluginAvailabilityListener(listener);
   reloadPluginManagerMock.mockImplementationOnce(async () => {
-    registerChannelTransport({
-      kind: 'whatsapp',
-      create: () => ({
-        init: async () => {},
-        shutdown: async () => {},
-        sendText: async () => {},
-        sendMedia: async () => {},
-      }),
-    });
+    registerChannelTransport(
+      fakeWhatsAppRegistration(createFakeTransportInstance()),
+    );
     return pluginManagerMock;
   });
 

@@ -24,7 +24,6 @@ import {
   PLUGIN_CHANNEL_KINDS,
   type PluginChannelKind,
 } from './channel-plugin-catalog.js';
-import { adaptLegacyWhatsAppRegistration } from './whatsapp/legacy-registration.js';
 
 export type ChannelTransportReplyFn = (content: string) => Promise<void>;
 
@@ -260,11 +259,6 @@ function normalizeRegistration(
       );
     }
     return registration;
-  }
-  // compat: remove after v0.43 — hybridclaw-whatsapp 0.1.x registers only
-  // `{ kind, create }` against the retired WhatsApp host.
-  if (registration.kind === 'whatsapp') {
-    return adaptLegacyWhatsAppRegistration(registration);
   }
   const kind = requirePluginChannelKind(registration.kind);
   throw new Error(

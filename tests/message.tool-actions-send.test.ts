@@ -1,4 +1,9 @@
 import { expect, test, vi } from 'vitest';
+import type { ChannelTransportAuthStatus } from '../src/channels/channel-transport.js';
+import {
+  createFakeTransportInstance,
+  fakeWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
 
 async function importFreshMessageToolActions(
   a2aLocalMode = false,
@@ -170,7 +175,9 @@ async function importFreshMessageToolActions(
         }
       : null,
   );
-  const getWhatsAppAuthStatus = vi.fn(async () => ({ linked: true }));
+  const getWhatsAppAuthStatus = vi.fn(
+    async (): Promise<ChannelTransportAuthStatus> => ({ linked: true }),
+  );
   const sendToWhatsAppChat = vi.fn(async () => {});
   const sendWhatsAppMediaToChat = vi.fn(async () => {});
   const sendToActiveMSTeamsSession = vi.fn(async () => ({
@@ -253,10 +260,6 @@ async function importFreshMessageToolActions(
   );
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
 
-  vi.doMock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
-    ...(await importOriginal<object>()),
-    getWhatsAppAuthStatus,
-  }));
   vi.doMock('../src/channels/plugin-channel/host.js', () => ({
     createChannelTransportHost: () => ({}),
   }));
@@ -311,20 +314,18 @@ async function importFreshMessageToolActions(
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
-  // The released WhatsApp plugin registers the create-only shape; core's
-  // compat adapter supplies the target, auth, and send-description hooks.
   if (whatsappPluginLoaded) {
     (
       await import('../src/channels/channel-transport.js')
-    ).registerChannelTransport({
-      kind: 'whatsapp',
-      create: () => ({
-        init: async () => {},
-        shutdown: async () => {},
-        sendText: sendToWhatsAppChat,
-        sendMedia: sendWhatsAppMediaToChat,
-      }),
-    } as never);
+    ).registerChannelTransport(
+      fakeWhatsAppRegistration(
+        createFakeTransportInstance({
+          sendText: sendToWhatsAppChat,
+          sendMedia: sendWhatsAppMediaToChat,
+        }),
+        { getAuthStatus: getWhatsAppAuthStatus },
+      ),
+    );
   }
   const loaders = await import('../src/channels/channel-runtime-loaders.js');
   if (channelsRunning) {
@@ -1675,35 +1676,13 @@ test('WhatsApp send results describe sender, recipient and unconfirmed delivery'
   expect(result).toMatchObject({
     ok: true,
     transport: 'whatsapp',
-    recipient: '+491234567890',
+    recipient: '491234567890@s.whatsapp.net',
     deliveryStatus: 'unknown-recipient',
     messageIds: [],
     deliveryConfirmed: false,
   });
   expect(result).not.toHaveProperty('note');
 });
-
-test('WhatsApp send results warn when the recipient is the linked account itself', async () => {
-  const state = await importFreshMessageToolActions();
-  state.getWhatsAppAuthStatus.mockResolvedValueOnce({
-    linked: true,
-    jid: '491234567890:7@s.whatsapp.net',
-  } as never);
-
-  const result = await state.runMessageToolAction({
-    action: 'send',
-    channelId: '491234567890@s.whatsapp.net',
-    content: 'note to self',
-  });
-
-  expect(result).toMatchObject({
-    ok: true,
-    sentFrom: '+491234567890',
-    recipient: '+491234567890',
-  });
-  expect(String(result.note)).toContain('does not send a push notification');
-});
-
 
 test.each(['+15550100200', '', null])(
   'WhatsApp rejects from=%s before text or media sends',
@@ -1712,7 +1691,7 @@ test.each(['+15550100200', '', null])(
     state.getWhatsAppAuthStatus.mockResolvedValue({
       linked: true,
       jid: '15550100100:7@s.whatsapp.net',
-    } as never);
+    });
     for (const filePath of [undefined, 'notes/image.png']) {
       await expect(
         state.runMessageToolAction({
@@ -1723,7 +1702,7 @@ test.each(['+15550100200', '', null])(
           from,
           filePath,
         }),
-      ).rejects.toThrow('Messages are sent from +15550100100');
+      ).rejects.toThrow('Messages are sent from 15550100100:7@s.whatsapp.net');
     }
     expect(state.sendToWhatsAppChat).not.toHaveBeenCalled();
     expect(state.sendWhatsAppMediaToChat).not.toHaveBeenCalled();
