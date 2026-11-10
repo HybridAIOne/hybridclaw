@@ -1480,6 +1480,9 @@ Container-side adaptations for local models:
 - **Tool-call normalization**: XML-style `<tool_call>` tags and malformed
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
+  A completed final answer takes precedence over tool markup found only in
+  reasoning. Qwen-compatible thinking-only recovery and explicit calls in the
+  actual response retain their existing behavior.
 
 ## Model Request Retries
 
