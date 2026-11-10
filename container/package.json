@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
-  "packageManager": "npm@11.10.0",
+  "packageManager": "npm@11.21.1",
   "engines": {
     "node": ">=22.23.4 <23"
   },
