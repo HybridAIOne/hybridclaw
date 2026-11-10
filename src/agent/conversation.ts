@@ -3,11 +3,16 @@
  * assistant message. Current preferences belong to the verified user (or task
  * owner). Skill locations name their admitted assets even when execution moves;
  * audit events and preference text never grant execution authority.
+ * A turn's context carries a daily note only when the history in the prompt
+ * does not already show the same text.
  */
 
 import os from 'node:os';
 import path from 'node:path';
-import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '@hybridclaw/shared/dynamic-context';
+import {
+  DYNAMIC_CONTEXT_MESSAGE_PREFIX,
+  isDynamicContextMessageText,
+} from '@hybridclaw/shared/dynamic-context';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -107,6 +112,28 @@ export function buildHistoryWindowPrompt(
   return ['## History Window', ...lines].join('\n');
 }
 
+const DAILY_NOTE_HEADING_PREFIX = '## Daily Memory (';
+const CLEARED_DAILY_NOTE = '(empty)';
+
+/**
+ * The newest copy of a daily note that the history turns in the prompt show.
+ * Daily notes close the context message, so a copy ends at the next one or at
+ * the end of the message.
+ */
+function newestShownDailyNote(
+  heading: string,
+  earlierContexts: string[],
+): string | null {
+  for (let index = earlierContexts.length - 1; index >= 0; index -= 1) {
+    const start = earlierContexts[index].indexOf(`\n\n${heading}\n`);
+    if (start < 0) continue;
+    const shown = earlierContexts[index].slice(start + 2);
+    const end = shown.indexOf(`\n\n${DAILY_NOTE_HEADING_PREFIX}`);
+    return end < 0 ? shown : shown.slice(0, end);
+  }
+  return null;
+}
+
 interface DynamicContextMessageOptions {
   agentId?: string;
   /** A scope's workspace: its own files and daily notes, no preferences file. */
@@ -135,6 +162,12 @@ interface DynamicContextMessageOptions {
    * invalidate the provider's prompt cache for the static prefix.
    */
   sessionContext?: SessionContext | null;
+  /**
+   * Context messages of the history turns in this prompt, oldest first. A
+   * daily note they already show unchanged is left out; replaying a copy with
+   * every stored turn multiplied the notes by the turn count.
+   */
+  earlierContexts?: string[];
 }
 
 export function buildDynamicContextMessage(
@@ -148,6 +181,8 @@ export function buildDynamicContextMessage(
     `${DYNAMIC_CONTEXT_MESSAGE_PREFIX}${now.toISOString().slice(0, 10)}`,
   ];
   const dynamicSections: string[] = [];
+  const earlierContexts =
+    options instanceof Date ? [] : (options.earlierContexts ?? []);
   if (!(options instanceof Date)) {
     if (options.sessionContext) {
       dynamicSections.push(buildSessionContextPrompt(options.sessionContext));
@@ -171,9 +206,8 @@ export function buildDynamicContextMessage(
     }
     const contextFiles = loadStaticBootstrapFiles(agentId, { workspaceDir });
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
-    lines.push(
-      `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
-    );
+    const todayNote = `memory/${currentDateStampInTimezone(userTimezone, now)}.md`;
+    lines.push(`Daily note: ${todayNote}`);
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
     // Without this the agent never learns that a zone it wrote, such as
     // "Europe/Munich", is not one, and the user's check-ins run off by hours.
@@ -193,14 +227,18 @@ export function buildDynamicContextMessage(
     }
     lines.push('</context>');
 
-    for (const dailyMemoryFile of dailyMemoryFiles) {
-      dynamicSections.push(
-        [
-          `## Daily Memory (${dailyMemoryFile.name})`,
-          '',
-          dailyMemoryFile.content,
-        ].join('\n'),
-      );
+    // A note the prompt already shows is not repeated; one cleared since then
+    // is marked, so its old copy does not pass for current.
+    const dailyNotes = dailyMemoryFiles.some((file) => file.name === todayNote)
+      ? dailyMemoryFiles
+      : [{ name: todayNote, content: CLEARED_DAILY_NOTE }, ...dailyMemoryFiles];
+    for (const dailyNote of dailyNotes) {
+      const heading = `${DAILY_NOTE_HEADING_PREFIX}${dailyNote.name})`;
+      const section = [heading, '', dailyNote.content].join('\n');
+      const shown = newestShownDailyNote(heading, earlierContexts);
+      if (shown === section) continue;
+      if (dailyNote.content === CLEARED_DAILY_NOTE && shown === null) continue;
+      dynamicSections.push(section);
     }
   } else {
     if (HOSTNAME) {
@@ -394,8 +432,10 @@ export function buildConversationContext(params: {
 
   const buildDynamicContext = (
     historyWindow: HistoryWindowNote | null,
+    earlierContexts: string[],
   ): ChatMessage =>
     buildDynamicContextMessage({
+      earlierContexts,
       agentId,
       workspaceDir: params.workspaceDir,
       retrievedContext,
@@ -415,9 +455,14 @@ export function buildConversationContext(params: {
         ? runtimeInfo?.sessionContext
         : null,
     });
+  // Budgeted with every daily note included: each returns in full whenever its
+  // last copy leaves the history window.
   const promptOverheadTokens =
     systemPromptBlocks.length > 0
-      ? estimateTokenCountFromMessages([...messages, buildDynamicContext(null)])
+      ? estimateTokenCountFromMessages([
+          ...messages,
+          buildDynamicContext(null, []),
+        ])
       : 0;
 
   const historyMessages = [...history].reverse().flatMap(expandStoredMessage);
@@ -440,6 +485,10 @@ export function buildConversationContext(params: {
             historyTruncated,
           }
         : null,
+      optimizedHistory.messages
+        .filter((message) => message.role === 'user')
+        .map((message) => message.content)
+        .filter(isDynamicContextMessageText),
     );
     dynamicContext = String(contextMessage.content);
     messages.push(contextMessage);

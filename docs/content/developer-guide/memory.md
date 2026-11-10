@@ -96,6 +96,8 @@ places:
    within a shared history budget, the current session summary, and relevant
    retrieval snippets. It is appended after the static system prompt so
    provider prefix caches can reuse the same system prompt bytes across turns.
+   A daily note is sent when it is new to the prompt or changed, not repeated
+   with every turn.
 3. Memory recall
    This includes canonical cross-channel context and relevant semantic recall.
 4. Recent raw history

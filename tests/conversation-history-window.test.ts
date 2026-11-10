@@ -73,6 +73,51 @@ test('buildConversationContext drops the oldest turns and says so in the dynamic
   );
 });
 
+test('a daily note returns once the turn that showed it leaves the history window', async () => {
+  const agentId = 'history-window-note-agent';
+  await createWorkspace(agentId);
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.js'
+  );
+  const latestContextWith = (history: ReturnType<typeof makeTurn>) => {
+    const context = buildConversationContext({
+      agentId,
+      history,
+      runtimeInfo: { model: 'gpt-5-nano', workspacePath: '/workspace/x' },
+    });
+    return {
+      droppedTurns: context.historyStats.droppedTurns,
+      latest: String(context.messages.at(-1)?.content),
+    };
+  };
+  const notePath = path.join(
+    agentWorkspaceDir(agentId),
+    /Daily note: (memory\/\S+\.md)/.exec(latestContextWith([]).latest)?.[1] ??
+      '',
+  );
+  fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  fs.writeFileSync(notePath, '- Prefers tea.\n');
+  const shownWithTurn = latestContextWith([]).latest;
+  expect(shownWithTurn).toContain('- Prefers tea.');
+  const historyWith = (firstTurnChars: number) => {
+    const [answer, question] = makeTurn(1, firstTurnChars);
+    return [
+      ...makeTurn(2, 20),
+      answer,
+      { ...question, dynamic_context: shownWithTurn },
+    ];
+  };
+
+  const kept = latestContextWith(historyWith(20));
+  expect(kept.droppedTurns).toBe(0);
+  expect(kept.latest).not.toContain('- Prefers tea.');
+
+  const dropped = latestContextWith(historyWith(12_000));
+  expect(dropped.droppedTurns).toBe(1);
+  expect(dropped.latest).toContain('- Prefers tea.');
+});
+
 test('buildConversationContext omits the history window note when everything fits', async () => {
   const agentId = 'history-window-fit-agent';
   await createWorkspace(agentId);
