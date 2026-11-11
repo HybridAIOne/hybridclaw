@@ -306,6 +306,25 @@ side effects are excluded from recovered evidence. An interruption wins over a
 late success reply. The output carries a recovery marker even when no tool-start
 progress or execution record survived.
 
+Background delegation in web chat keeps one updating progress message per batch
+in the parent conversation. Its status names each task and current tool, and its
+expandable activity trace retains tool argument/result previews and durations after
+completion or a page reload. Credential previews use the existing redactor.
+Progress sends a metadata-only `chat-updated` event on the owning operator's
+notification stream; it creates neither unread alerts nor phone pushes. The
+console defers history refresh while the parent's response is streaming, and
+refreshes after reconnecting. Failed jobs and gateway restart recovery mark the
+progress message interrupted without discarding the recorded calls. Waiting
+delegates forward child tool events into the parent's current stream, including
+nested calls, with call IDs scoped to each child. Both paths honor the session's
+tool visibility setting; released or aborted requests receive no further events.
+
+Risk boundary: progress is display history, never execution or approval state.
+It cannot recreate a deleted or reset parent session. A display failure must not
+fail or retry delegated work. Delegation guidance prefers direct execution for
+ordinary requests, including multi-step research; background mode is reserved
+for user-requested background work or later results.
+
 Retry audit:
 - Whole-run model routing and delegation retries use the shared retry guard.
   Recovery markers, tool history, executions, approvals, or queued effects stop

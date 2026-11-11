@@ -7,6 +7,7 @@
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
+import type { ToolProgressEvent } from '../types/execution.js';
 
 export interface DelegationChildContext extends FileWriteGuardContext {
   channelId: string;
@@ -16,6 +17,7 @@ export interface DelegationChildContext extends FileWriteGuardContext {
   model: string;
   runtimeScope?: RuntimeScope;
   workspaceOverrides?: WorkspaceOverrides;
+  onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
 const activeChildren = new Map<string, Readonly<DelegationChildContext>>();

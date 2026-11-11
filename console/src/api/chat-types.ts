@@ -77,9 +77,12 @@ export type ChatActivityTraceStep =
   | ChatActivityTraceToolStep;
 
 /** Persisted per-message activity trace replayed from chat history. */
-export interface ChatActivityTrace {
+export interface ChatActivityTrace
+  extends Pick<
+    import('../../../src/types/activity-trace').ActivityTrace,
+    'running' | 'elapsedMs'
+  > {
   steps: ChatActivityTraceStep[];
-  elapsedMs?: number;
 }
 
 export interface ChatHistoryMessage extends StructuredReply {

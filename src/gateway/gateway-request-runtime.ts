@@ -1,5 +1,5 @@
 /**
- * Active gateway requests own cancellation, steering and worker identity/roots.
+ * Active gateway requests own cancellation, steering, progress and worker identity/roots.
  * A worker alias resolves only to its unique live conversation; this registry
  * does not create durable sessions or guess an owner after a request ends.
  */
@@ -7,12 +7,14 @@
 import { stopSessionExecution } from '../agent/executor.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
+import type { ToolProgressEvent } from '../types/execution.js';
 
 interface ActiveGatewayRequest {
   controller: AbortController;
   executionSessionId: string;
   steerInbox?: SteerInbox;
   workspaceOverrides?: WorkspaceOverrides;
+  onToolProgress?: (event: ToolProgressEvent) => void;
   detachExternalAbort?: () => void;
 }
 
@@ -40,6 +42,7 @@ export function registerActiveGatewayRequest(params: {
   executionSessionId?: string;
   workspaceOverrides?: WorkspaceOverrides;
   steerInbox?: SteerInbox;
+  onToolProgress?: (event: ToolProgressEvent) => void;
 }): {
   signal: AbortSignal;
   release: () => void;
@@ -49,6 +52,15 @@ export function registerActiveGatewayRequest(params: {
     controller,
     executionSessionId: params.executionSessionId || params.sessionId,
     steerInbox: params.steerInbox,
+    onToolProgress: params.onToolProgress
+      ? (event) => {
+          if (
+            !controller.signal.aborted &&
+            activeGatewayRequestsBySession.get(params.sessionId)?.has(entry)
+          )
+            params.onToolProgress?.(event);
+        }
+      : undefined,
     workspaceOverrides: {
       workspacePathOverride: params.workspaceOverrides?.workspacePathOverride,
       workspaceDisplayRootOverride:
@@ -97,10 +109,12 @@ export function abortActiveGatewayRequests(sessionId: string): number {
 export function resolveGatewayRequestContext(executionSessionId: string): {
   sessionId: string;
   workspaceOverrides?: WorkspaceOverrides;
+  onToolProgress?: (event: ToolProgressEvent) => void;
 } | null {
   let owner: {
     sessionId: string;
     workspaceOverrides?: WorkspaceOverrides;
+    onToolProgress?: (event: ToolProgressEvent) => void;
   } | null = null;
   for (const [sessionId, entries] of activeGatewayRequestsBySession) {
     for (const entry of entries) {
@@ -112,13 +126,18 @@ export function resolveGatewayRequestContext(executionSessionId: string): {
       if (
         owner &&
         (owner.sessionId !== sessionId ||
+          owner.onToolProgress !== entry.onToolProgress ||
           owner.workspaceOverrides?.workspacePathOverride !==
             entry.workspaceOverrides?.workspacePathOverride ||
           owner.workspaceOverrides?.workspaceDisplayRootOverride !==
             entry.workspaceOverrides?.workspaceDisplayRootOverride)
       )
         return null;
-      owner = { sessionId, workspaceOverrides: entry.workspaceOverrides };
+      owner = {
+        sessionId,
+        workspaceOverrides: entry.workspaceOverrides,
+        onToolProgress: entry.onToolProgress,
+      };
     }
   }
   return owner ?? { sessionId: executionSessionId };

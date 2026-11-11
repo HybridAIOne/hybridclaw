@@ -349,6 +349,7 @@ export async function runDelegationTaskWithRetry(
           model: task.model,
           runtimeScope: scopeParams.runtimeScope,
           workspaceOverrides,
+          onToolProgress,
         },
         () =>
           runAgent({

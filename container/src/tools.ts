@@ -5253,7 +5253,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to subagents that have your tools. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns the subagent reports; check them and finish the answer yourself. Set `background` only for long work the user should not wait for: the reports then arrive later as a new message, so acknowledge the start briefly and do not poll or sleep.',
+        'Complete requests directly by default, including multi-step research. Delegate only when the user asks for subagents or a distinct, self-contained subtask benefits from separate context while you continue other useful work. Complexity alone is not a reason to hand off the whole request. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns reports; check them and finish the answer yourself. Set `background` only when the user requests background work or a later result: reports then arrive as a new message, so acknowledge the start briefly and do not poll or sleep.',
       parameters: {
         type: 'object',
         properties: {

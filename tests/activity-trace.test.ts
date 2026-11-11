@@ -6,6 +6,20 @@ import {
 } from '../src/types/activity-trace.js';
 
 describe('ActivityTraceBuilder', () => {
+  it('round-trips live background tools and closes them in terminal snapshots', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.startTool('web_search', 'example data', 'call_a');
+    const live = builder.build(20, true);
+    expect(live).not.toBeNull();
+    expect(parseActivityTrace(serializeActivityTrace(live!))).toMatchObject({
+      running: true, steps: [{ kind: 'tool', status: 'running' }],
+    });
+    const terminal = builder.build(30);
+    expect(parseActivityTrace(serializeActivityTrace(terminal!))).toMatchObject({
+      steps: [{ kind: 'tool', status: 'done' }],
+    });
+    expect(terminal?.running).toBeUndefined();
+  });
   it('merges consecutive thinking deltas and collapses tool start/finish', () => {
     const builder = new ActivityTraceBuilder();
     builder.pushThinking('Weighing ');

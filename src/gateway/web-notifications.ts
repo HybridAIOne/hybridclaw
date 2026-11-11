@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type {
   MobilePushDevice,
+  WebChatUpdate,
   WebNotification,
   WebNotificationKind,
   WebNotificationState,
@@ -34,6 +35,7 @@ import {
   deleteWebPushSubscription,
   readWebNotificationState,
   recordWebNotification,
+  webNotificationSessionOperator,
 } from './web-notification-store.js';
 
 const listeners = new Map<string, Set<ServerResponse>>();
@@ -86,6 +88,22 @@ export function broadcastWebNotifications(
   const payload = `event: notifications\ndata: ${JSON.stringify(state)}\n\n`;
   for (const response of listeners.get(operatorId) ?? []) {
     if (!response.destroyed && !response.writableEnded) response.write(payload);
+  }
+}
+
+/** Refresh only the owning operator's history, without a completion alert. */
+export function broadcastWebChatUpdate(sessionId: string): void {
+  try {
+    const operatorId = webNotificationSessionOperator(sessionId);
+    if (!operatorId) return;
+    const update: WebChatUpdate = { sessionId };
+    const payload = `event: chat-updated\ndata: ${JSON.stringify(update)}\n\n`;
+    for (const response of listeners.get(operatorId) ?? []) {
+      if (!response.destroyed && !response.writableEnded)
+        response.write(payload);
+    }
+  } catch {
+    logger.warn('Could not broadcast chat progress');
   }
 }
 
