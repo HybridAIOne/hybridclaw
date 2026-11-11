@@ -30,23 +30,6 @@ function approvalMessage(
   } as ChatUiMessage;
 }
 
-function textAnnouncementMessage(
-  id: string,
-  approvalId: string,
-  role: 'assistant' | 'command' = 'assistant',
-): ChatUiMessage {
-  return {
-    id,
-    role,
-    content: [
-      'Approval needed for: trigger a thumbnail snapshot',
-      `Approval ID: ${approvalId}`,
-      'Reply `yes` to approve once.',
-    ].join('\n'),
-    sessionId: 'session-a',
-  } as ChatUiMessage;
-}
-
 const NO_RESOLUTIONS: ReadonlyMap<string, ApprovalAction> = new Map();
 
 describe('deriveApprovalStates', () => {
@@ -153,70 +136,37 @@ describe('deriveApprovalStates', () => {
     expect(states.get('m1')).toMatchObject({ status: 'superseded' });
   });
 
-  it('treats a payloadless approval-role message as a text item using its content', () => {
-    const messages = [
-      {
-        id: 'm1',
-        role: 'approval',
-        content: 'Approval needed for: run a scan\nApproval ID: a1',
-        sessionId: 'session-a',
-        pendingApproval: null,
-      } as ChatUiMessage,
-    ];
-    const states = deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now());
-    expect(states.get('m1')).toMatchObject({
-      approvalId: 'a1',
-      status: 'active',
-    });
-  });
+  it.each(['assistant', 'command', 'approval'] as const)(
+    'does not infer approval state from %s prose without metadata',
+    (role) => {
+      const messages = [
+        {
+          id: 'm1',
+          role,
+          content:
+            'Approval needed for: an action\nApproval ID: a1\nReply `yes` to approve once.',
+          sessionId: 'session-a',
+        },
+      ];
+      expect(
+        deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now()).size,
+      ).toBe(0);
+    },
+  );
 
-  it('treats an assistant text announcement as an approval item', () => {
-    const messages = [textAnnouncementMessage('m1', 'a1', 'assistant')];
-    const states = deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now());
-    expect(states.get('m1')).toMatchObject({
-      approvalId: 'a1',
-      status: 'active',
-    });
-  });
-
-  it('treats a command text announcement (e.g. **Pending Approval**) as an approval item', () => {
-    const messages: ChatUiMessage[] = [
-      {
-        id: 'm1',
-        role: 'command',
-        content: '**Pending Approval**\nRun a scan.\nApproval ID: a1',
-        sessionId: 'session-a',
-      } as ChatUiMessage,
-    ];
-    const states = deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now());
-    expect(states.get('m1')).toMatchObject({
-      approvalId: 'a1',
-      status: 'active',
-    });
-  });
-
-  it('ignores plain assistant text that is not an approval announcement', () => {
-    const messages: ChatUiMessage[] = [
-      {
-        id: 'm1',
-        role: 'assistant',
-        content: 'Just a normal reply.',
-        sessionId: 'session-a',
-      } as ChatUiMessage,
-    ];
-    const states = deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now());
-    expect(states.size).toBe(0);
-  });
-
-  it('a text announcement can be superseded by a later structured approval', () => {
-    const messages = [
-      textAnnouncementMessage('m1', 'a1'),
-      approvalMessage('m2', {
-        pendingApproval: structuredApproval({ approvalId: 'a2' }),
-      }),
-    ];
-    const states = deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now());
-    expect(states.get('m1')).toMatchObject({ status: 'superseded' });
-    expect(states.get('m2')).toMatchObject({ status: 'active' });
-  });
+  it.each([
+    ['allowed', 'once'],
+    ['denied', 'deny'],
+  ] as const)(
+    'keeps a stored %s decision resolved after reload',
+    (decision, action) => {
+      const messages = [approvalMessage('a1', { approvalDecision: decision })];
+      expect(
+        deriveApprovalStates(messages, NO_RESOLUTIONS, Date.now()).get('a1'),
+      ).toMatchObject({
+        status: 'responded',
+        respondedAction: action,
+      });
+    },
+  );
 });

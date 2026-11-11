@@ -215,8 +215,8 @@ export function ApprovalCard(props: {
       <ApprovalReview approval={approval} />
       {rule ? (
         <p className={css.approvalIntro}>
-          Paused by: {rule.pausedBy.replaceAll('_', ' ')}. An always-allow rule
-          covers {rule.label}.
+          Paused by: {rule.pausedBy.replaceAll('_', ' ')}. Rule scope:{' '}
+          {rule.label}.
         </p>
       ) : null}
       {boost ? (

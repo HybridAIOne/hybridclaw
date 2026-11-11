@@ -189,7 +189,7 @@ export function buildChatHistoryUiData(
     const chatMessage: ChatMessage = {
       ...structuredReply(msg),
       id: nextMsgId(),
-      role: msg.role,
+      role: msg.approval ? 'approval' : msg.role,
       content: msg.content,
       rawContent: msg.content,
       sessionId: resolvedSessionId,
@@ -209,6 +209,10 @@ export function buildChatHistoryUiData(
       a2aDelivery:
         msg.role === 'assistant' ? hydrateA2ADelivery(msg.content) : null,
       source: msg.source ?? null,
+      pendingApproval: msg.approval
+        ? { ...msg.approval, type: 'approval' }
+        : null,
+      approvalDecision: msg.approval?.decision,
     };
     if (msg.role === 'assistant') {
       const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);
@@ -217,7 +221,14 @@ export function buildChatHistoryUiData(
     messages.push(chatMessage);
   });
 
-  if (raw.pendingApproval) {
+  if (
+    raw.pendingApproval &&
+    !messages.some(
+      (message) =>
+        message.role === 'approval' &&
+        message.pendingApproval?.approvalId === raw.pendingApproval?.approvalId,
+    )
+  ) {
     messages.push({
       id: `approval:${raw.pendingApproval.approvalId}`,
       role: 'approval',
