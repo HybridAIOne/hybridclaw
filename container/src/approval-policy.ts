@@ -84,6 +84,12 @@ import {
   shellCommandsRun,
 } from './bash-commands.js';
 import { fenceCandidates } from './bash-fence.js';
+import {
+  inferBashHttpMethod,
+  isHttpClientCommand,
+  isReadOnlyHttpMethod,
+  normalizeHttpMethod,
+} from './bash-http-method.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   isReadOnlyBashSurface,
@@ -196,6 +202,7 @@ export const DEFAULT_APPROVAL_RULE_ORDER = [
   'stakes',
   'anomaly_reranker',
   'autonomy_override',
+  'dry_run',
   'red_hard_deny',
   'red_one_shot',
   'red_session_trust',
@@ -365,6 +372,7 @@ export interface ToolCallContextHelpers {
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
   approvalMode(): SessionApprovalMode;
+  dryRun(): boolean;
   approvalUserIsBot(): boolean;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
@@ -1041,29 +1049,6 @@ function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
   }
 }
 
-function inferBashHttpMethod(command: string): string {
-  const explicit = command.match(/(?:^|\s)(?:-X|--request)\s+([A-Za-z]+)/);
-  if (explicit?.[1]) return explicit[1].toUpperCase();
-  if (
-    /(?:^|\s)(?:--data(?:-raw|-binary)?|-d|--form|-F)(?=\s|=|$)/.test(command)
-  ) {
-    return 'POST';
-  }
-  if (/\bwget\b/i.test(command)) return 'GET';
-  return 'GET';
-}
-
-function normalizeHttpMethod(value: unknown): string {
-  const normalized = String(value || 'GET')
-    .trim()
-    .toUpperCase();
-  return normalized || 'GET';
-}
-
-function isReadOnlyHttpMethod(method: string): boolean {
-  return ['GET', 'HEAD', 'OPTIONS'].includes(normalizeHttpMethod(method));
-}
-
 function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => normalizeText(item)).filter(Boolean);
@@ -1729,6 +1714,23 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     return nextRule();
   },
 
+  // Runs on the final tier, before any trust, full-auto or prompt can let a
+  // call through: a dry run changes and sends nothing, whoever trusted what.
+  dry_run(context) {
+    if (!context.helpers.dryRun()) return nextRule();
+    if (context.tier === 'green' && !requireClassified(context).writeIntent) {
+      return nextRule();
+    }
+    return decision(
+      buildEvaluation(context, {
+        decision: 'denied',
+        escalationRoute: 'policy_denial',
+        reason:
+          'this is a dry run, which only reads and changes or sends nothing',
+      }),
+    );
+  },
+
   red_hard_deny(context) {
     const classified = requireClassified(context);
     if (!isRedRuleActive(context) || !classified.hardDeny) return nextRule();
@@ -2050,6 +2052,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private approvalMode: SessionApprovalMode = 'auto';
+  private dryRun = false;
   private approvalUserIsBot = false;
   // The bound session: bash commands start where its shell stopped.
   private sessionId = '';
@@ -2143,8 +2146,10 @@ export class TrustedAgentApprovalRuntime {
     mode?: SessionApprovalMode;
     neverApproveTools?: string[];
     approvalUserIsBot?: boolean;
+    dryRun?: boolean;
   }): void {
     this.approvalMode = params?.mode ?? 'auto';
+    this.dryRun = params?.dryRun === true;
     this.approvalUserIsBot = params?.approvalUserIsBot === true;
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
@@ -2154,6 +2159,10 @@ export class TrustedAgentApprovalRuntime {
       if (!value) continue;
       this.fullAutoNeverApprove.add(value);
     }
+  }
+
+  isDryRun(): boolean {
+    return this.dryRun;
   }
 
   recordAnomalyTraceJudgeResult(
@@ -2207,6 +2216,7 @@ export class TrustedAgentApprovalRuntime {
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
       approvalMode: () => this.approvalMode,
+      dryRun: () => this.dryRun,
       approvalUserIsBot: () => this.approvalUserIsBot,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
@@ -2810,7 +2820,9 @@ export class TrustedAgentApprovalRuntime {
       commandPreview: params.commandPreview,
       pathHints: [],
       hostHints,
-      writeIntent: false,
+      writeIntent: params.targets.some(
+        (target) => !isReadOnlyHttpMethod(target.method),
+      ),
       promotableRed: false,
       stickyYellow: true,
     };
@@ -2916,7 +2928,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.name ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -2933,7 +2945,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.title ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -2950,7 +2962,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(String(args.title ?? '')),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -2966,7 +2978,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
-      // Public warning lookups; watching only saves the user's place list.
+      // Public warning lookups; watching saves the user's place list.
       lowerTool === 'public_warnings' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
@@ -2991,7 +3003,14 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
-        writeIntent: false,
+        // Still green, but these ring a phone or keep a record.
+        writeIntent:
+          lowerTool === 'call_user' ||
+          lowerTool === 'proof' ||
+          (lowerTool === 'draft_email' && args.track_id !== undefined) ||
+          (lowerTool === 'public_warnings' &&
+            ['watch', 'unwatch'].includes(String(args.action))) ||
+          (lowerTool === 'work' && args.action === 'record'),
         promotableRed: false,
         stickyYellow: false,
       };
@@ -3087,7 +3106,7 @@ export class TrustedAgentApprovalRuntime {
           commandPreview: normalizePreview(rawPath || 'BOOTSTRAP.md'),
           pathHints: rawPath ? [rawPath] : ['BOOTSTRAP.md'],
           hostHints: [],
-          writeIntent: false,
+          writeIntent: true,
           promotableRed: false,
           stickyYellow: false,
         };
@@ -3230,13 +3249,17 @@ export class TrustedAgentApprovalRuntime {
           stickyYellow: true,
         };
       }
-      return this.classifyNetworkTargets({
-        targets: providerTargets,
-        intent: `search the web via ${provider || 'configured providers'}`,
-        consequenceIfDenied:
-          'I will avoid external search providers and continue with local context only.',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-      });
+      return {
+        ...this.classifyNetworkTargets({
+          targets: providerTargets,
+          intent: `search the web via ${provider || 'configured providers'}`,
+          consequenceIfDenied:
+            'I will avoid external search providers and continue with local context only.',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+        }),
+        // Perplexity and Tavily take the query by POST; a search still reads.
+        writeIntent: false,
+      };
     }
 
     if (
@@ -3379,7 +3402,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -3560,7 +3583,7 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
-        writeIntent: false,
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };
@@ -3801,20 +3824,27 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
-      const action = this.classifyNetworkTargets({
+      const network = this.classifyNetworkTargets({
         targets: httpTargets.map((target) => ({
           ...target,
-          method: inferBashHttpMethod(command),
+          method: inferBashHttpMethod(commandsRun),
         })),
         intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
         consequenceIfDenied: 'I will keep the task local and avoid that host.',
         commandPreview: normalizePreview(command),
       });
       return {
-        ...action,
+        ...network,
         // `curl -T .env https://...` uploads a local file.
         pathHints,
-        writeIntent: writeIntent || action.writeIntent,
+        // `curl -o MEMORY.md` or `> MEMORY.md` writes locally too, and the
+        // allowed host vouches only for the HTTP clients, not `; node -e ...`.
+        writeIntent:
+          network.writeIntent ||
+          writeIntent ||
+          !commandsRun.every(
+            (words) => isHttpClientCommand(words) || isReadOnlyCommand(words),
+          ),
       };
     }
 

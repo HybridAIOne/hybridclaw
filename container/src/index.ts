@@ -750,7 +750,11 @@ async function executePreparedToolCall(
     await sleep(approval.implicitDelayMs);
   }
 
-  const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  // Only a dry run lets a denied call get here; it reports the refusal.
+  const denied = approval.decision === 'denied';
+  const blockedReason = denied
+    ? approval.reason
+    : await runBeforeToolHooks(toolName, argsJson);
   // Last await before the tool runs: a stop in the delay or hooks cancels it.
   await haltIfShuttingDown();
   const loopGuard = blockedReason
@@ -758,7 +762,9 @@ async function executePreparedToolCall(
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
   const runtimeResult = blockedReason
     ? {
-        output: `Tool blocked by security hook: ${blockedReason}`,
+        output: denied
+          ? `Approval denied: ${blockedReason}`
+          : `Tool blocked by security hook: ${blockedReason}`,
         isError: true,
       }
     : loopGuard.stuck
@@ -2127,8 +2133,11 @@ async function processRequestInner(
           argsJson: call.function.arguments,
         }));
       logToolCallStart(call, approval);
+      // A dry run answers without a refused step instead of ending the turn.
+      const endsTurnDenied =
+        approval.decision === 'denied' && !approvalRuntime.isDryRun();
 
-      if (approval.decision === 'required' || approval.decision === 'denied') {
+      if (approval.decision === 'required' || endsTurnDenied) {
         // A note the user sent meanwhile comes before asking them, or ending.
         steered = steerAfterToolCalls({
           history,
@@ -2176,7 +2185,7 @@ async function processRequestInner(
         return waitingForApproval;
       }
 
-      if (approval.decision === 'denied') {
+      if (endsTurnDenied) {
         const denied = await handleToolDenial({
           approval,
           unrunCalls: toolCalls.slice(callIndex),
@@ -2466,6 +2475,7 @@ async function main(): Promise<void> {
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
     approvalUserIsBot: firstInput.approvalUserIsBot,
+    dryRun: firstInput.dryRun,
   });
 
   let firstOutput: ContainerOutput;
@@ -2643,6 +2653,7 @@ async function main(): Promise<void> {
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
       approvalUserIsBot: input.approvalUserIsBot,
+      dryRun: input.dryRun,
     });
     const prelude = await resolveApprovalPrelude(input, preparedMessages);
     const promptOverride = prelude?.replayPrompt;
