@@ -152,6 +152,22 @@ and "the workspace has a cleaned-up long-term memory file."
 
 Raw session history lives in the SQLite messages table.
 
+The web chat loads the latest 80 stored messages initially. Scrolling upward
+near the top or selecting **Load older messages** fetches an older page while
+preserving the visible message's position. New replies do not pull readers
+away from older history; **Latest** returns to the bottom.
+
+`GET /api/history?sessionId=<id>&limit=80` returns chronological `history` and
+`nextCursor` (a stored-message ID string, or `null` at the beginning). Pass it
+as `before=<nextCursor>` for the next older page. The cursor is exclusive and
+the gateway caps each page at 200 stored rows. Display filtering can produce
+an empty page with a non-null cursor; clients must use the cursor to determine
+whether more history exists. Each query remains scoped to the requested
+session under the history endpoint's existing authentication and access checks.
+Cursors grant no access themselves; malformed, non-positive, or unsafe-integer
+cursor values are rejected with HTTP 400 before history is read.
+Paging does not change retention, compaction, or the model's context window.
+
 Gateway-managed agent turns retain ordered tool calls and results alongside
 their final assistant message in `messages.tool_history_json`. The next turn
 replays those exchanges, including call IDs and provider metadata, so a fresh
