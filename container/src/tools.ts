@@ -3847,6 +3847,7 @@ async function executeToolInternal(
         extractMode: args.extractMode,
         maxChars: args.maxChars,
       });
+      const isHttpError = result.status < 200 || result.status >= 300;
       const useLlmProcessing =
         args.llmProcess === true ||
         args.useLlmProcessing === true ||
@@ -3876,7 +3877,7 @@ async function executeToolInternal(
         );
       }
       let outputText = result.text;
-      if (useLlmProcessing && result.text.trim()) {
+      if (useLlmProcessing && !isHttpError && result.text.trim()) {
         try {
           outputText = await processWebExtractWithAuxiliary({
             runtimeContext: auxiliaryRuntimeContext,
@@ -3902,7 +3903,9 @@ async function executeToolInternal(
           );
         }
       }
-      return `${lines.join('\n')}\n\n${header}${outputText}`;
+      const output = `${lines.join('\n')}\n\n${header}${outputText}`;
+      if (isHttpError) return failTool(output);
+      return output;
     }
 
     case 'http_request': {
