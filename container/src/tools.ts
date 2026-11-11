@@ -12,6 +12,7 @@ import path from 'node:path';
 import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
 import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
 import { DAILY_MEMORY_MAX_CHARS } from '@hybridclaw/shared/daily-memory';
+import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
@@ -79,6 +80,7 @@ import type { McpClientManager } from './mcp/client-manager.js';
 import {
   type AuxiliaryRuntimeContext,
   captureAuxiliaryRuntimeContext,
+  getCurrentExecutionDeadline,
 } from './model-context.js';
 import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
@@ -4269,6 +4271,7 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
+    throwIfExecutionDeadlineExceeded(getCurrentExecutionDeadline());
     reserveToolCall(name);
     const result = await executeToolInternal(name, argsJson, sentFiles, boost);
     const metadata =

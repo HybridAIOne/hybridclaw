@@ -1,5 +1,5 @@
 /**
- * Docker workers keep one session owner and one request lease per process.
+ * Docker workers keep one session owner and one bounded request lease per process.
  * Lifecycle transitions reject reuse after stop; host spawning stays in
  * host-runner. This module does not own durable conversation state.
  */
@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
 import { generateIpcAuthSecret } from '@hybridclaw/shared/ipc-input-auth';
 import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
@@ -1157,6 +1158,10 @@ async function runContainerInner(
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
+  const executionDeadlineAtMs = resolveExecutionDeadline(
+    maxWallClockMs,
+    params.executionDeadlineAtMs,
+  );
   const effectiveAllowedTools = mergeAllowedToolNames({
     agentId,
     explicit: allowedTools,
@@ -1232,6 +1237,7 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    executionDeadlineAtMs,
     fileWriteGuardSessionId: params.fileWriteGuardSessionId,
     fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
     runId: params.runId,
@@ -1452,6 +1458,7 @@ async function runContainerInner(
         signal: abortSignal,
         activity,
         maxWallClockMs,
+        executionDeadlineAtMs,
         terminalError: () => entry.lifecycle.terminalError,
       },
     );

@@ -5,6 +5,7 @@
  */
 
 import type { JsonWebKey } from 'node:crypto';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
@@ -312,6 +313,7 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayChatRequest
   extends ApprovalReplyContext,
+    ExecutionDeadline,
     ToolCallLimits {
   /** Internal gateway claim; never accepted from HTTP request bodies. */
   approvalClaim?: PendingApprovalClaim;

@@ -211,6 +211,7 @@ test('routing snapshots keep headers and policies across request replacement', a
     isLocal: false,
     contextWindow: 32768,
     debugModelResponses: true,
+    executionDeadlineAtMs: Date.now() + 60_000,
     modelBehavior: { thinkingFormat: 'qwen' },
     thinkingFormat: 'qwen',
   };
@@ -260,6 +261,7 @@ test('routing snapshots keep headers and policies across request replacement', a
   });
   expect(next.fallbackContext.providerMethod).toBeUndefined();
   expect(next.fallbackContext.thinkingFormat).toBeUndefined();
+  expect(next.fallbackContext.executionDeadlineAtMs).toBeUndefined();
   expect(next.taskModels).toBeUndefined();
   expect(snapshot.fallbackContext.providerMethod).toBe('claude-cli');
   expect(snapshot.taskModels?.vision?.model).toBe('vllm/vision-model');
@@ -306,4 +308,34 @@ test('each turn captures independent gateway pixel permissions', async () => {
   tools.setMediaContext([], [], false, true);
   expect(earlier.visualMediaAllowed).toBe(true);
   expect(captureAuxiliaryRuntimeContext().visualMediaAllowed).toBe(false);
+});
+
+test('an expired tool context refuses mutation and a fresh context can still write', async () => {
+  const context = {
+    provider: 'openrouter' as const,
+    model: 'openrouter/example/model',
+    apiKey: 'test-key',
+    chatbotId: '',
+    baseUrl: 'https://example.com/v1',
+  };
+  const { tools } = await loadTools({
+    ...context,
+    executionDeadlineAtMs: Date.now() - 1,
+  });
+  const root = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT!;
+  const args = JSON.stringify({
+    path: 'result.txt',
+    contents: 'Synthetic output.',
+  });
+  const blocked = await tools.executeToolWithMetadata('write', args);
+  expect(blocked.isError).toBe(true);
+  expect(blocked.output).toContain('deadline exceeded');
+  expect(fs.existsSync(path.join(root, 'result.txt'))).toBe(false);
+  const { setModelContext } = await import('../container/src/model-context.js');
+  setModelContext(context);
+  const written = await tools.executeToolWithMetadata('write', args);
+  expect(written.isError).toBe(false);
+  expect(fs.readFileSync(path.join(root, 'result.txt'), 'utf8')).toBe(
+    'Synthetic output.',
+  );
 });

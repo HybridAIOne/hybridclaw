@@ -170,6 +170,15 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Explicit execution bounds belong to the gateway request, not a worker's uptime.
+The absolute `executionDeadlineAtMs` travels in every `ContainerInput`, including
+replacements, nested delegates, queued children and the parent's continuation.
+Retries keep that bound. Each new request replaces the worker's model context,
+so a prior request's deadline cannot leak into a later turn. Workers append
+remaining-time notes to model history without rewriting prior context; checkpoints
+refuse new model/tool calls after expiry and retain completed artifacts and usage.
+The gateway owns cancellation; worker checkpoints do not interrupt running tools.
+
 Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
@@ -1524,6 +1533,14 @@ activity-based deadline extension:
 This is particularly important for local models that may take 30+ seconds
 per iteration and easily exceed a fixed 5-minute wall clock over multiple
 tool-call rounds.
+
+Server-managed `/v1/chat/completions` requests accept
+`X-HybridClaw-Timeout-Ms`, a positive integer duration in milliseconds. The
+budget starts before body/media preparation and can shorten existing wall-clock
+limits, never extend them. Activity does not renew it. Malformed values return
+400; expiry while preparing the request returns 408. Client-managed tools and
+decision completions reject this header with 400 because they do not use the
+agent worker's deadline enforcement. Omitting it preserves existing limits.
 
 ## Request-Scoped Agent Replies
 
