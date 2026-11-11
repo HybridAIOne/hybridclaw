@@ -1313,6 +1313,12 @@ The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
 
+Exhausting the agent's consecutive stalled-turn limit returns an error, including
+the reason, completed tool receipts, retained artifacts and accumulated usage.
+Successful tools reset that counter. A final answer before exhaustion remains
+successful, and the configured Ralph iteration policy is separate from this limit.
+The worker can accept a follow-up after returning a stalled-turn error.
+
 Response-body failures from `web_fetch` and `web_extract` report the HTTP status
 and underlying error messages and codes, such as `Z_DATA_ERROR` for invalid
 compressed data. Failed reads are not cached or returned as complete content;
