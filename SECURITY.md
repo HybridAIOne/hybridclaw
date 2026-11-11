@@ -377,7 +377,7 @@ declared dependency.
 Recommended dependency update workflow:
 
 ```bash
-npm install --global npm@11.10.0 --no-audit --fund=false
+npm install --global npm@11.21.1 --no-audit --fund=false
 npm run deps:update-lockfile
 git diff -- package.json package-lock.json container/package.json container/package-lock.json
 npm run deps:verify

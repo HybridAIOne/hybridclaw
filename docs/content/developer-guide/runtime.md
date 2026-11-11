@@ -1482,6 +1482,9 @@ Container-side adaptations for local models:
 - **Tool-call normalization**: XML-style `<tool_call>` tags and malformed
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
+  A completed final answer takes precedence over tool markup found only in
+  reasoning. Qwen-compatible thinking-only recovery and explicit calls in the
+  actual response retain their existing behavior.
 
 ## Model Request Retries
 
@@ -1616,6 +1619,11 @@ between the turn's message and its reply. A note accepted just before the turn
 fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
+
+The web console keeps its composer open while a reply runs. A text message
+goes to `/api/chat/steer`; one the route refuses, or one with attachments,
+waits above the composer and is sent as a turn once the reply ends. `/stop`
+stops the reply, and an empty send stops it too.
 
 Tool approvals and intent reviews receive the complete current user request,
 including trailing constraints and text parts. The bounded status excerpt is

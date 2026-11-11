@@ -1,5 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
+import type {
+  ApprovalReplyContext,
+  PluginRuntimeToolDefinition,
+} from '@hybridclaw/contracts/agent-io';
 import type { ToolCallLimits } from '@hybridclaw/contracts/tool-call-limits';
 import type { Logger } from 'pino';
 import type {
@@ -151,28 +154,11 @@ export interface PluginRuntime {
 
 export type PluginLogger = Logger;
 
-export interface PluginToolSchemaProperty {
-  type: string | string[];
-  description?: string;
-  items?: PluginToolSchemaProperty;
-  properties?: Record<string, PluginToolSchemaProperty>;
-  required?: string[];
-  enum?: string[];
-  minItems?: number;
-  maxItems?: number;
-}
-
-export interface PluginToolSchema {
-  type: 'object';
-  properties: Record<string, PluginToolSchemaProperty>;
-  required: string[];
-}
-
-export interface PluginRuntimeToolDefinition {
-  name: string;
-  description: string;
-  parameters: PluginToolSchema;
-}
+export type {
+  PluginRuntimeToolDefinition,
+  ToolSchema as PluginToolSchema,
+  ToolSchemaProperty as PluginToolSchemaProperty,
+} from '@hybridclaw/contracts/agent-io';
 
 export interface PluginToolHandlerContext {
   sessionId: string;

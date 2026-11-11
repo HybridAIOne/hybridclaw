@@ -2,7 +2,7 @@ import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { structuredReply } from '../../../../src/gateway/structured-reply';
-import { executeCommand } from '../../api/chat';
+import { executeCommand, steerChat } from '../../api/chat';
 import type {
   AssistantPresentation,
   ChatMessage,
@@ -33,6 +33,9 @@ const A2A_REPLY_HISTORY_REFRESH_DELAYS_MS = [
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
+  // Steering notes are shown above these: the dots or the reply so far.
+  thinkingId: string;
+  streamId: string;
   messageRole: ChatMessage['role'];
   assistantText: string;
   lastRenderedText: string;
@@ -103,6 +106,11 @@ export interface UseChatStreamReturn {
       appKind?: 'web' | 'live';
     },
   ) => Promise<boolean>;
+  /**
+   * Hands `content` to the running turn of `sessionId`. False means nothing
+   * happened and the caller sends it as a turn once this one ends.
+   */
+  steerMessage: (sessionId: string, content: string) => Promise<boolean>;
   stopRequest: () => Promise<void>;
   isStreaming: boolean;
   /** The message ID currently being streamed, or null. */
@@ -190,6 +198,8 @@ export function useChatStream(
       const req: ActiveRequest = {
         controller: new AbortController(),
         sessionId: targetSessionId,
+        thinkingId,
+        streamId,
         messageRole: 'assistant',
         assistantText: '',
         lastRenderedText: '',
@@ -680,6 +690,46 @@ export function useChatStream(
     ],
   );
 
+  const steerMessage = useCallback(
+    async (sessionId: string, content: string) => {
+      const req = activeRequestRef.current;
+      if (!req || req.stopping || req.sessionId !== sessionId) return false;
+      let accepted = false;
+      try {
+        ({ accepted } = await steerChat(token, sessionId, content));
+      } catch {
+        return false;
+      }
+      if (!accepted) return false;
+      if (activeRequestRef.current !== req) {
+        // The turn ended first and stored the note: reload to show it.
+        void queryClient.invalidateQueries({
+          queryKey: chatHistoryQueryKey(token, sessionId),
+        });
+        return true;
+      }
+      const note: ChatMessage = {
+        id: nextMsgId(),
+        role: 'user',
+        content,
+        rawContent: content,
+        sessionId,
+        media: [],
+        artifacts: [],
+      };
+      writeMessages(sessionId, (prev) => {
+        const at = prev.findIndex(
+          (m) => m.id === req.thinkingId || m.id === req.streamId,
+        );
+        return at < 0
+          ? [...prev, note]
+          : [...prev.slice(0, at), note, ...prev.slice(at)];
+      });
+      return true;
+    },
+    [token, queryClient, writeMessages],
+  );
+
   const stopRequest = useCallback(async () => {
     const req = activeRequestRef.current;
     if (!req || req.stopping) return;
@@ -697,6 +747,7 @@ export function useChatStream(
 
   return {
     sendMessage,
+    steerMessage,
     stopRequest,
     isStreaming,
     streamingMsgId,

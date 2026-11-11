@@ -237,7 +237,7 @@ should verify no broken references.
 
 - Node.js `>=22.23.4 <23` (matches CI and the `engines` field)
 - npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
-  pin (`npm@11.10.0`). Contributors need this version because npm's
+  pin (`npm@11.21.1`). Contributors need this version because npm's
   `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
   npm 11.10+; it is deliberately not enforced on end users via `engines.npm`.
 - Docker when working on container-mode behavior or image builds

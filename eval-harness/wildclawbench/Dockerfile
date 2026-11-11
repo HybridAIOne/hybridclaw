@@ -17,7 +17,7 @@ RUN set -eu; arch="$(dpkg --print-architecture)"; \
     grep "  ${name}$" SHASUMS256.txt | sha256sum -c -; \
     tar -xJf "$name" -C /usr/local --strip-components=1; \
     rm "$name" SHASUMS256.txt; \
-    npm install --global npm@11.10.0 --no-audit --fund=false
+    npm install --global npm@11.21.1 --no-audit --fund=false
 WORKDIR /opt/hybridclaw
 COPY .npmrc package.json package-lock.json npm-shrinkwrap.json ./
 COPY console/package.json console/package.json
