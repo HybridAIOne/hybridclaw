@@ -65,7 +65,6 @@ export async function resolveConnectorApprovalReply(
                   pending.approval.reviewArguments ||
                   pending.approval.commandPreview,
                 reason: pending.approval.reason,
-                allowedScopes: ['once'],
               },
             ],
             lastAssistantMessage: extractResponseTextContent(
@@ -89,7 +88,7 @@ export async function resolveConnectorApprovalReply(
     });
     if (signal?.aborted) throw new Error('Approval interpretation interrupted');
     const decision = parseApprovalReplyDecision(result.content, [
-      { id: pending.approvalId, pinned: true },
+      { id: pending.approvalId },
     ]);
     if (['approve', 'deny', 'revise'].includes(decision.decision)) {
       const claim = await forwardConnectorDecision(

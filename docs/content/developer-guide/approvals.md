@@ -28,8 +28,9 @@ user explicitly approves or denies it.
 
 A pending runtime tool approval accepts natural replies in any language the
 configured `eval_judge` auxiliary model understands. The same resolver serves
-text and voice. A plain affirmative grants one execution; broader session,
-agent or workspace trust requires explicit consent. An answer requesting changes
+text and voice. A reply grants one execution, never more: session, agent or
+workspace trust is given with the approval buttons or a command that names the
+approval ID. An answer requesting changes
 withdraws the old proposal and lets Hy prepare the revised action. Questions
 leave approval pending, and unrelated conversation continues normally.
 
@@ -37,7 +38,7 @@ The resolver receives the pending action, the last question and the original use
 text separately from the main task prompt. It has no tools. Only a validated
 approval ID and scope can reach the existing policy handler, which rechecks
 expiry and ownership and replays the stored arguments. Multiple pending requests
-require an unambiguous target. Pinned actions remain one-time only. Existing
+require an unambiguous target. Existing
 button and CLI commands with an explicit ID use the same handler without a model
 call. Ambiguous, malformed or failed interpretations execute nothing and leave
 the approval open. Model usage is included in the turn totals. The audit records
