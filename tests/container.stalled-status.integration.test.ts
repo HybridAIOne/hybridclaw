@@ -170,7 +170,7 @@ test('a final answer after the last permitted failed turn remains successful', a
   expect(worker.output.result).toBe('The source is unavailable.');
 });
 
-test('the configured Ralph iteration cap still stops before the stalled-turn limit', async () => {
+test('the Ralph iteration cap retains the last draft and reports its actual stop reason', async () => {
   const worker = await runAgent(
     async () => ({
       role: 'assistant',
@@ -179,6 +179,26 @@ test('the configured Ralph iteration cap still stops before the stalled-turn lim
     { ralphMaxIterations: 1 },
   );
   expect(worker.requests).toHaveLength(2);
+  expect(worker.output.status).toBe('error');
+  expect(worker.output.result).toBe('Continue the draft.');
+  expect(worker.output.outputPresentation?.segmentKind).toBe('status');
+  expect(worker.output.error).toMatch(/Ralph.*limit/);
+  expect(worker.output.error).not.toContain('No successful tool progress');
+});
+
+test('a Ralph STOP on its last permitted iteration still returns a successful final answer', async () => {
+  const worker = await runAgent(
+    [
+      {
+        role: 'assistant',
+        content: 'Continue the draft. <choice>CONTINUE</choice>',
+      },
+      { role: 'assistant', content: 'Completed. <choice>STOP</choice>' },
+    ],
+    { ralphMaxIterations: 1 },
+  );
+  expect(worker.requests).toHaveLength(2);
   expect(worker.output.status).toBe('success');
+  expect(worker.output.result).toBe('Completed.');
   expect(worker.output.error).toBeUndefined();
 });
