@@ -169,6 +169,18 @@ test.each(['host', 'container'] as const)(
       secret,
     );
     active.close();
+    const { ExecutionDeadlineError } = await import(
+      '@hybridclaw/shared/execution-deadline'
+    );
+    const calls = readOutput.mock.calls.length;
+    const aborted = new AbortController();
+    aborted.abort(new ExecutionDeadlineError());
+    const cancelled = await executor.exec({
+      ...params,
+      abortSignal: aborted.signal,
+    });
+    expect(cancelled.error).toContain('deadline exceeded');
+    expect(readOutput).toHaveBeenCalledTimes(calls);
   },
   20000,
 );

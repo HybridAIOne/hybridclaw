@@ -52,10 +52,12 @@ export function earliestExecutionDeadline(
 
 export function remainingExecutionMs(
   deadlineAtMs: number | undefined,
-  now = Date.now(),
+  now?: number,
 ): number | undefined {
   const deadline = readExecutionDeadline(deadlineAtMs);
-  return deadline === undefined ? undefined : Math.max(0, deadline - now);
+  return deadline === undefined
+    ? undefined
+    : Math.max(0, deadline - (now ?? Date.now()));
 }
 
 export function throwIfExecutionDeadlineExceeded(

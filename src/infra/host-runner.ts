@@ -94,6 +94,7 @@ import {
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
+  interruptedAgentOutput,
   readOutput,
   removeUnclaimedWarmSessionDir,
   writeInput,
@@ -243,15 +244,6 @@ const warmPool = new WarmProcessPool<PoolEntry>(
 );
 let hostMemorySample: MemorySample | null = null;
 let hostMemoryRefreshInFlight = false;
-
-function interruptedHostOutput(): ContainerOutput {
-  return {
-    status: 'error',
-    result: null,
-    toolsUsed: [],
-    error: 'Interrupted by user.',
-  };
-}
 
 async function waitForHostCapacity(
   sessionId: string,
@@ -999,7 +991,7 @@ async function runHostProcessInner(
       abortSignal,
     );
     if (capacityState === 'aborted') {
-      return interruptedHostOutput();
+      return interruptedAgentOutput(abortSignal?.reason);
     }
     if (capacityState === 'timed_out') {
       return {
@@ -1199,7 +1191,7 @@ async function runHostProcessInner(
   const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
     if (abortSignal?.aborted) {
-      return interruptedHostOutput();
+      return interruptedAgentOutput(abortSignal?.reason);
     }
     if (isNewProcess) {
       entry.pendingColdStartProbeStartedAt = Date.now();
@@ -1214,7 +1206,7 @@ async function runHostProcessInner(
             { sessionId, error: err },
             'Host agent input write interrupted by process shutdown',
           );
-          return interruptedHostOutput();
+          return interruptedAgentOutput(abortSignal?.reason);
         }
         throw err;
       }

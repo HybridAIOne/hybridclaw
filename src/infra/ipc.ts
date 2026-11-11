@@ -190,7 +190,7 @@ export function writeHealthInput(
  * Read output on directory wakeups, reconciling from disk periodically until
  * the file appears, the idle timeout expires, or the hard deadline is reached.
  */
-function interruptedOutput(reason?: unknown): ContainerOutput {
+export function interruptedAgentOutput(reason?: unknown): ContainerOutput {
   return {
     status: 'error',
     result: null,
@@ -283,7 +283,7 @@ async function readOutputFile(
       start,
     ) ?? Number.POSITIVE_INFINITY;
 
-  if (signal?.aborted) return interruptedOutput(signal.reason);
+  if (signal?.aborted) return interruptedAgentOutput(signal.reason);
 
   const wakeup = createIpcWakeup(ipcDir(sessionId));
   try {
@@ -457,7 +457,7 @@ async function collectInterruptedOutput(
     const late = readOutputFiles(sessionId, outputPaths);
     if (late) {
       return {
-        ...interruptedOutput(reason),
+        ...interruptedAgentOutput(reason),
         ...(late.tokenUsage ? { tokenUsage: late.tokenUsage } : {}),
         ...(late.toolHistory?.length ? { toolHistory: late.toolHistory } : {}),
         ...(late.toolHistoryForReplay?.length
@@ -470,7 +470,8 @@ async function collectInterruptedOutput(
     }
     const remainingMs = deadline - Date.now();
     // An agent that already exited will not write anything more.
-    if (remainingMs <= 0 || terminalError?.()) return interruptedOutput(reason);
+    if (remainingMs <= 0 || terminalError?.())
+      return interruptedAgentOutput(reason);
     await wakeup.wait(Math.min(IPC_RECONCILE_INTERVAL_MS, remainingMs));
   }
 }

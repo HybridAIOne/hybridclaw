@@ -1,4 +1,6 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks } from './test-utils.js';
+useCleanMocks({ restoreAllMocks: true });
 import {
   earliestExecutionDeadline,
   normalizePositiveTimeoutMs,
@@ -41,4 +43,13 @@ test('unset limits stay unset; elapsed bounds never become negative leases', () 
   expect(remainingExecutionMs(100, 150)).toBe(0);
   expect(normalizePositiveTimeoutMs(12.5)).toBe(12);
   expect(normalizePositiveTimeoutMs(0)).toBeNull();
+});
+
+test('unset budgets leave the clock untouched; explicit budgets read it once', () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(10);
+  expect(remainingExecutionMs(undefined)).toBeUndefined();
+  expect(remainingExecutionMs(100, 90)).toBe(10);
+  expect(clock).not.toHaveBeenCalled();
+  expect(remainingExecutionMs(100)).toBe(90);
+  expect(clock).toHaveBeenCalledOnce();
 });

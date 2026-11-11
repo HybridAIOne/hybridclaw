@@ -111,6 +111,7 @@ import {
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
+  interruptedAgentOutput,
   readOutput,
   removeUnclaimedWarmSessionDir,
   writeInput,
@@ -1431,6 +1432,7 @@ async function runContainerInner(
 
   const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
   try {
+    if (abortSignal?.aborted) return interruptedAgentOutput(abortSignal.reason);
     if (isNewContainer) {
       entry.pendingColdStartProbeStartedAt = Date.now();
       // First request: send full input (including apiKey and the per-worker IPC
