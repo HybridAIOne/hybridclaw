@@ -167,6 +167,13 @@ of the sandbox.
 
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 
+Shell inspection retains literal argument and redirection roles through command
+prefixes and nested-command extraction. Quoted filter patterns do not become
+redirects or filename globs. Literal `sed` substitutions receive data roles only
+when their recognized options and scripts cannot write files or execute commands;
+other scripts remain opaque. Actual file operands, redirects, fetched-code
+provenance and configured pins still pass their existing checks.
+
 Teams can show a model-authored explanation before the technical command.
 That explanation is untrusted: it may omit or misdescribe effects, even though
 it cannot change the policy decision, approval scope, or saved executable call.

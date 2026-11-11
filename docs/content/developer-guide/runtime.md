@@ -185,6 +185,11 @@ and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
 
+Shell argv redirection roles are parser-local metadata keyed by the parsed
+arrays. Explicit slices and command-prefix extraction retain them within an
+inspection; each tool call rebuilds them from its original command. Workers
+neither persist these facts nor transfer them in serialized argv.
+
 Workers remember hashes of consumed authenticated follow-up inputs and reject
 replays for the lifetime of their stdin secret. These hashes stay in memory:
 a replacement worker receives a fresh secret, so old envelopes cannot verify.
