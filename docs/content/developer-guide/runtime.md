@@ -1318,6 +1318,11 @@ and underlying error messages and codes, such as `Z_DATA_ERROR` for invalid
 compressed data. Failed reads are not cached or returned as complete content;
 the overall timeout still reports `TimeoutError`.
 
+Non-2xx HTTP responses are failed tool calls even when extraction returns a
+diagnostic page and a browser-retrieval hint. Their status, retained text and
+hints remain available to the model, including on cache hits. Error pages skip
+auxiliary summarization and do not count as successful tool progress.
+
 `web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
 binary responses fail with a download continuation instead of entering model
 context as text. If available, `http_request` with `responseArtifact` saves the
