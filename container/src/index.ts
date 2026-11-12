@@ -5,6 +5,7 @@
  * durable storage lives in the gateway or owning state workspace. Instructions and
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  * Tool reviews retain full user text; bounded output excerpts are not review intent.
+ * Incomplete loop exits report failure while retaining completed effects and usage.
  */
 
 import './node-version-guard.js';
@@ -1936,6 +1937,7 @@ async function processRequestInner(
           successfulToolCalls: 0,
         });
         if (continueForSteer(null)) continue;
+        latestFinalAssistantText = assistantSegment.text;
         break;
       }
 
@@ -2233,15 +2235,16 @@ async function processRequestInner(
     finalText: latestFinalAssistantText,
     toolExecutions,
   });
-  const completed: ContainerOutput = {
-    status: 'success',
-    result:
-      latestFinalAssistantText ||
-      `No successful tool progress for ${maxStalledTurns} consecutive model turns.`,
+  const error =
+    stalledTurns >= maxStalledTurns
+      ? `No successful tool progress for ${maxStalledTurns} consecutive model turns.`
+      : `Ralph continuation limit reached (${ralphMaxExtraIterations} extra iterations) before a final STOP.`;
+  const stopped: ContainerOutput = {
+    status: 'error',
+    result: latestFinalAssistantText || error,
+    error,
     toolsUsed: [...new Set(toolsUsed)],
-    outputPresentation: latestFinalAssistantText
-      ? finalOutputPresentation(latestFinalAssistantText)
-      : statusOutputPresentation(true),
+    outputPresentation: statusOutputPresentation(true),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
     tokenUsage: finalizeTokenUsage(tokenUsage),
@@ -2249,10 +2252,10 @@ async function processRequestInner(
   };
   await emitRuntimeEvent({
     event: 'turn_end',
-    status: completed.status,
-    toolsUsed: completed.toolsUsed,
+    status: stopped.status,
+    toolsUsed: stopped.toolsUsed,
   });
-  return completed;
+  return stopped;
 }
 
 /**
