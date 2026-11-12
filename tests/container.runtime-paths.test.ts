@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('hybridclaw-runtime-paths-');
 
 describe.sequential('container runtime path aliases', () => {
   afterEach(() => {
@@ -209,6 +212,65 @@ describe.sequential('container runtime path aliases', () => {
     expect(resolveWorkspacePath('/workspace/notes/todo.md')).toBe(
       `${workspaceRoot}/notes/todo.md`,
     );
+  });
+
+  describe('a cache path re-rooted under the workspace', () => {
+    // Cloud sandboxes: the model is told /workspace is its workspace, so it
+    // can prepend the actual workspace to a cache path under /workspace.
+    const workspaceRoot = '/workspace/.data/data/agents/main/workspace';
+    const uploadedRoot = '/workspace/.data/data/uploaded-media-cache';
+    const discordRoot = '/workspace/.data/data/discord-media-cache';
+
+    async function hostModePaths(root = workspaceRoot) {
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', root);
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+      vi.stubEnv('HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT', uploadedRoot);
+      vi.stubEnv('HYBRIDCLAW_AGENT_MEDIA_ROOT', discordRoot);
+      vi.stubEnv('HYBRIDCLAW_AGENT_ALLOWED_ROOTS', JSON.stringify([root]));
+      vi.resetModules();
+      return await import('../container/src/runtime-paths.ts');
+    }
+
+    test.each([
+      [
+        `${workspaceRoot}/.data/data/uploaded-media-cache/2026-11-10/photo.jpg`,
+        `${uploadedRoot}/2026-11-10/photo.jpg`,
+      ],
+      [
+        '.data/data/uploaded-media-cache/2026-11-10/photo.jpg',
+        `${uploadedRoot}/2026-11-10/photo.jpg`,
+      ],
+      [
+        `${workspaceRoot}/.data/data/discord-media-cache/2026-11-10/photo.jpg`,
+        `${discordRoot}/2026-11-10/photo.jpg`,
+      ],
+    ])('resolves %s to the cache file', async (rerooted, cacheFile) => {
+      const { resolveWorkspacePath, resolveMediaPath } = await hostModePaths();
+
+      expect(resolveWorkspacePath(rerooted)).toBeNull();
+      expect(resolveMediaPath(rerooted)).toBe(cacheFile);
+    });
+
+    test('leaves other workspace paths to the workspace', async () => {
+      const { resolveWorkspacePath, resolveMediaPath } = await hostModePaths();
+
+      const file = `${workspaceRoot}/.data/notes/photo.jpg`;
+      expect(resolveWorkspacePath(file)).toBe(file);
+      expect(resolveMediaPath(file)).toBe(file);
+    });
+
+    test('keeps a file that is in the workspace at that path', async () => {
+      const root = makeTempDir();
+      const file = path.join(
+        root,
+        '.data/data/uploaded-media-cache/2026-11-10/photo.jpg',
+      );
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, 'image');
+      const { resolveWorkspacePath } = await hostModePaths(root);
+
+      expect(resolveWorkspacePath(file)).toBe(file);
+    });
   });
 
   test('resolves uploaded-media cache display paths', async () => {
