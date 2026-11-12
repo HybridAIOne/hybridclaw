@@ -591,6 +591,25 @@ Reads without a target use `MEMORY.md`. Prefer `append` to save additional notes
 `write` replaces the entire daily note and requires `confirm_overwrite: true`.
 Explicit targets remain subject to the today-only write restriction.
 
+Daily reads and successful mutations report `current_chars`, `limit_chars`,
+`remaining_chars`, and `append_capacity_chars`. The last field accounts for the
+blank-line separator and final newline, after trimming existing trailing
+whitespace. Counts use JavaScript string length (UTF-16 code units).
+
+An oversized mutation leaves the note unchanged and returns
+`MEMORY_CAPACITY_EXCEEDED`, the attempted size and overflow, and recovery steps.
+Read today's note, condense duplicate or verbose entries with exact `replace`
+operations while preserving unique facts, and append only new durable facts that
+fit. Do not blindly overwrite or truncate a note, write another date, or bypass
+the cap with another tool. If safe condensation is impossible, report the unsaved
+memory and continue the user task. Dream consolidation does not free daily-note
+space because it never rewrites source daily files.
+
+Repeating a rejected effective payload against the same note revision returns
+`MEMORY_RETRY_BLOCKED`. Changing the payload or note permits a fresh attempt.
+Rejection hashes persist per session and daily file across worker replacement;
+raw note and payload text are not stored in retry records.
+
 Daily filenames use the timezone in `USER.md`. An empty or invalid timezone uses
 the host's resolved timezone, which the gateway passes to Docker as `TZ`.
 Dynamic context states the exact daily-note filename even when the UTC date
