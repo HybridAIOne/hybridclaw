@@ -39,6 +39,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
@@ -446,6 +447,22 @@ function receiptOf(
   toolExecutions: ToolExecution[],
 ): Pick<GatewayChatResult, 'receipt'> {
   return { receipt: turnReceiptFromExecutions(toolExecutions) };
+}
+
+// Streamed tool progress stands in for executions a failed turn never returned.
+function errorTurnToolSummary(
+  toolExecutions: readonly ToolExecution[],
+  observed: readonly ErrorTurnToolRecord[],
+): ReturnType<typeof turnToolSummary> {
+  return turnToolSummary(
+    toolExecutions.length > 0
+      ? toolExecutions
+      : observed.map(({ name, outcome }) => ({
+          name,
+          isError: outcome === 'failed',
+          blocked: outcome === 'blocked',
+        })),
+  );
 }
 
 /**
@@ -1469,7 +1486,7 @@ async function handleGatewayMessageInner(
         userMedia: blockedMedia,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
@@ -2088,7 +2105,7 @@ async function handleGatewayMessageInner(
         userMedia: media,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
@@ -2863,6 +2880,7 @@ async function handleGatewayMessageInner(
           turnIndex,
           finishReason: 'error',
           assistantMessageId: storedErrorTurn.assistantMessageId,
+          ...errorTurnToolSummary(toolExecutions, observedToolCalls),
         },
       });
       recordAuditEvent({
@@ -3056,7 +3074,7 @@ async function handleGatewayMessageInner(
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
-      toolCallCount: toolExecutions.length,
+      toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       promptOverheadTokens,
@@ -3272,6 +3290,7 @@ async function handleGatewayMessageInner(
         ...(storedErrorTurn
           ? { assistantMessageId: storedErrorTurn.assistantMessageId }
           : {}),
+        ...errorTurnToolSummary([], observedToolCalls),
       },
     });
     recordAuditEvent({

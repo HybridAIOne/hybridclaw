@@ -15,6 +15,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { getChannel, registerChannel } from '../channels/channel-registry.js';
@@ -33,6 +34,7 @@ import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
+import type { ToolExecution } from '../types/execution.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import {
@@ -164,6 +166,7 @@ export function startHeartbeat(
     const runId = makeAuditRunId('heartbeat');
     const startedAt = Date.now();
     let turnIndex = 1;
+    let toolExecutions: ToolExecution[] = [];
 
     try {
       if (!isWithinActiveHours()) {
@@ -277,10 +280,11 @@ export function startHeartbeat(
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,
         background: true,
       });
+      toolExecutions = output.toolExecutions || [];
       emitToolExecutionAuditEvents({
         sessionId,
         runId,
-        toolExecutions: output.toolExecutions || [],
+        toolExecutions,
       });
       const usage = buildModelUsageAuditStats({
         messages,
@@ -334,6 +338,7 @@ export function startHeartbeat(
             type: 'turn.end',
             turnIndex,
             finishReason: 'error',
+            ...turnToolSummary(toolExecutions),
           },
         });
         recordAuditEvent({
@@ -364,6 +369,7 @@ export function startHeartbeat(
             type: 'turn.end',
             turnIndex,
             finishReason: 'heartbeat_ok',
+            ...turnToolSummary(toolExecutions),
           },
         });
         recordAuditEvent({
@@ -433,6 +439,7 @@ export function startHeartbeat(
           type: 'turn.end',
           turnIndex,
           finishReason: 'completed',
+          ...turnToolSummary(toolExecutions),
         },
       });
       recordAuditEvent({
@@ -469,6 +476,7 @@ export function startHeartbeat(
           type: 'turn.end',
           turnIndex,
           finishReason: 'error',
+          ...turnToolSummary(toolExecutions),
         },
       });
       recordAuditEvent({
