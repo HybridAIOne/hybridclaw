@@ -80,7 +80,7 @@ function redirectedInput(args: string[]): string | undefined {
   let input: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width === 0) continue;
     // Redirections can follow inline program text and use attached targets.
     if (/^0?</.test(arg)) {
@@ -106,7 +106,7 @@ function pythonCodeSource(
         : { file: input, pythonStartup: startup };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
       continue;
@@ -181,7 +181,7 @@ export function codeSource({
   const operands: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
     } else if (operands.length === 0 && /^[-+]./.test(arg)) {
