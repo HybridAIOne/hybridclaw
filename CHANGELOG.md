@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## [0.43.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.1) - 2026-11-12
+
+### Added
+
+- Set an end-to-end time limit on a server-managed `/v1/chat/completions`
+  request with `X-HybridClaw-Timeout-Ms`. Retries and delegated workers share
+  the remaining time. Completed artifacts and recorded usage survive expiry (#2281).
+- Audit `turn.end` events include the number of tool calls, how many failed or
+  were blocked, and the distinct tool names in first-use order (#2287).
+
+### Changed
+
+- Agents can post and open threads in their current channel without a separate
+  approval prompt. Other destinations and email replies still require approval (#2062).
+- Mobile clients cannot enable `full`, `learning`, or `/fullauto` from chat.
+  To enable one of these modes, use a local operator session or a non-mobile
+  credential with `admin.policy.write` (#2273).
+- Daily notes appear once per conversation history window and again when they
+  change, leaving more room for conversation history (#2265).
+
+### Fixed
+
+- An incomplete run reports the limit it hit, including stalled turns,
+  exhaustion of the Ralph continuation limit, or a remote model's output-token
+  limit. Completed tool results and recorded usage remain available (#2280, #2277).
+- After a write conflict, replacing a file by revision hash gets the same
+  review for lost content as replacing it by matching its contents (#2274).
+- Read-only shell searches, literal text substitutions, and bounded XML reads
+  avoid unnecessary approval prompts. Sensitive paths and the origin of
+  extracted data still receive their usual checks (#2278, #2275).
+- Cloud sandboxes can read an attachment when the model looks for its media
+  cache path under the workspace. Web fetches describe a next link without
+  assuming it leads to another page of the same results (#2270, #2276).
+
 ## [0.43.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.0) - 2026-11-12
 
 ### Added
