@@ -8535,11 +8535,13 @@ export function getGatewayHistory(
   limit = MAX_HISTORY_MESSAGES,
   options?: {
     operatorUserId?: string | null;
+    beforeMessageId?: number;
   },
 ): ConversationHistoryPage {
   const page = memoryService.getConversationHistoryPage(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
+    options?.beforeMessageId,
   );
   const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
   const responseRatings = ratingOperatorUserId
@@ -8602,6 +8604,7 @@ export function getGatewayHistory(
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+    nextCursor: page.nextCursor ?? null,
   };
 }
 
