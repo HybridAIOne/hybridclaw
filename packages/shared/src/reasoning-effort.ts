@@ -1,11 +1,12 @@
-export const REASONING_EFFORTS: readonly ['none', 'low', 'medium', 'xhigh'] = [
-  'none',
-  'low',
-  'medium',
-  'xhigh',
-];
-
-export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+/**
+ * Reasoning-effort runtime: the membership guard and which provider/model
+ * pairs support the control. The effort list is wire data
+ * (`@hybridclaw/contracts/reasoning-effort`).
+ */
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from '@hybridclaw/contracts/reasoning-effort';
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return REASONING_EFFORTS.includes(value as ReasoningEffort);

@@ -1,5 +1,5 @@
 import type { OutputPresentationMetadata } from '@hybridclaw/contracts/agent-io';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
 import type { StructuredReply } from '../../../src/gateway/structured-reply';
 import type { PendingApproval } from '../../../src/types/execution';

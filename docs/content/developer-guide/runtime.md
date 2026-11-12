@@ -91,8 +91,10 @@ of source checkouts only.
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
-private `@hybridclaw/shared` workspace package (`packages/shared`); the image
-does not ship that package or plain gateway `tsc` output. Source builds, npm
+private `@hybridclaw/contracts` and `@hybridclaw/shared` workspace packages
+(`packages/contracts`, the wire types, below `packages/shared`, the logic that
+uses them); the image does not ship those packages or plain gateway `tsc`
+output. Source builds, npm
 packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
 the build rolls the plugin SDK's declarations, shared types included, into
 the one file `dist/plugin-sdk.d.ts` beside it. A rebuild

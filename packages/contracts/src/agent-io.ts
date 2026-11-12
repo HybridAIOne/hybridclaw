@@ -5,33 +5,16 @@
  * The reply is untrusted, so it is a schema: the gateway checks every reply
  * against `ContainerOutputSchema` (plus the shared tool-history and token-usage
  * validators) before anything reads it. The input is written by the gateway
- * itself and stays a plain type until something needs to check it. NOT the
- * file transport (`ipc.ts`) or the console API.
+ * itself and stays a plain type until something needs to check it. The
+ * types it composes come from sibling contract modules, never from
+ * `packages/shared`. NOT the file transport (`ipc.ts`) or the console API.
  */
-import type {
-  ApprovalMode,
-  ApprovalObservation,
-} from '@hybridclaw/shared/approval-mode';
-import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
-import type { ApprovalRule } from '@hybridclaw/shared/approval-rules';
-import type { BoostPrompt } from '@hybridclaw/shared/boost-offer';
-import type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
-import type { RuntimeProviderId } from '@hybridclaw/shared/provider-ids';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
-import type { SessionAttachmentAccess } from '@hybridclaw/shared/session-attachment-access';
-import type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
-import type {
-  StakesScore,
-  StakesSignal,
-} from '@hybridclaw/shared/stakes-classifier';
-import type { TokenUsageStats } from '@hybridclaw/shared/token-usage';
-import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
-import type { FileBackedToolResult } from '@hybridclaw/shared/tool-history';
-import type {
-  PdfFilePart,
-  VisualAttachmentMessage,
-} from '@hybridclaw/shared/visual-snapshots';
-import type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
+import type { ApprovalMode, ApprovalObservation } from './approval-mode.ts';
+import type { ApprovalRule } from './approval-rules.ts';
+import type { BoostPrompt } from './boost-offer.ts';
+import type { McpServerConfig } from './mcp-server-config.ts';
+import type { RuntimeProviderId } from './provider-ids.ts';
+import type { ReasoningEffort } from './reasoning-effort.ts';
 import {
   array,
   boolean,
@@ -46,6 +29,17 @@ import {
   unchecked,
   union,
 } from './schema.ts';
+import type { SessionAttachmentAccess } from './session-attachment-access.ts';
+import type { SessionSkillCatalogEntry } from './skill-catalog.ts';
+import type { StakesScore, StakesSignal } from './stakes-classifier.ts';
+import type { TokenUsageStats } from './token-usage.ts';
+import type { ToolCallLimits } from './tool-call-limits.ts';
+import type { FileBackedToolResult } from './tool-history.ts';
+import type {
+  PdfFilePart,
+  VisualAttachmentMessage,
+} from './visual-snapshots.ts';
+import type { WebSearchConfig } from './web-search-config.ts';
 
 // ── Model messages ──────────────────────────────────────────────────────────
 
@@ -480,6 +474,20 @@ export type ApprovalReplyInterpretation = Infer<
   typeof ApprovalReplyInterpretationSchema
 >;
 
+export interface ApprovalReplyDecision extends ApprovalReplyInterpretation {
+  reply: string;
+}
+
+/** Only transport-captured user text may answer an approval; null disables it. */
+export interface ApprovalReplyContext {
+  approvalUserText?: string | null;
+  approvalUserId?: string;
+  /** The turn came from another bot or a webhook, so nobody can answer. */
+  approvalUserIsBot?: boolean;
+  /** Host-validated connector decision; never accepted from a client payload. */
+  approvalReplyDecision?: ApprovalReplyDecision;
+}
+
 export const RecoveryDispositionSchema = union(
   object({ kind: literal('refused'), turnId: optional(string()) }),
   object({
@@ -502,7 +510,7 @@ export type AgentErrorCode = Infer<typeof AgentErrorCodeSchema>;
 
 /**
  * Tool history and token usage carry their own validators in
- * @hybridclaw/shared (they need Node); the gateway applies them on top.
+ * packages/shared (they need Node); the gateway applies them on top.
  */
 export const ContainerOutputSchema = object({
   ...FileWriteGuardContextShape,

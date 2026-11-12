@@ -7,7 +7,7 @@ export type {
   ModelCallPerformanceSample,
   ModelCallTiming,
   TokenUsageStats,
-} from '@hybridclaw/shared/token-usage';
+} from '@hybridclaw/contracts/token-usage';
 
 export type UsageWindow = 'daily' | 'monthly' | 'all';
 

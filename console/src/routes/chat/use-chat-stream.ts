@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { structuredReply } from '../../../../src/gateway/structured-reply';

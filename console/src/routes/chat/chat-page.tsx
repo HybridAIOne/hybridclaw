@@ -1,8 +1,6 @@
-import {
-  type ApprovalMode,
-  DEFAULT_APPROVAL_MODE,
-} from '@hybridclaw/shared/approval-mode';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
+import { DEFAULT_APPROVAL_MODE } from '@hybridclaw/shared/approval-mode';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import {

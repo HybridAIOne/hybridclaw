@@ -11,14 +11,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import type { TokenUsageStats } from '@hybridclaw/contracts/token-usage';
+import type { FileBackedToolResult } from '@hybridclaw/contracts/tool-history';
 import { writeFileAtomic } from './atomic-write.ts';
-import type { TokenUsageStats } from './token-usage.ts';
 import { validateTokenUsage } from './token-usage.ts';
-import type {
-  FileBackedToolResult,
-  FileBackedToolResults,
-  HistoryMessage,
-} from './tool-history.ts';
+import type { FileBackedToolResults, HistoryMessage } from './tool-history.ts';
 import { validateToolHistory } from './tool-history.ts';
 
 type CheckpointMessage = Omit<HistoryMessage, 'content'> & { content: unknown };

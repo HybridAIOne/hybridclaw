@@ -1,9 +1,9 @@
-import { isRecord } from '@hybridclaw/shared/primitive-values';
 import type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '@hybridclaw/shared/web-search-config';
+} from '@hybridclaw/contracts/web-search-config';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   decodeEntities,
   dedupeResults,
@@ -82,7 +82,7 @@ export type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '@hybridclaw/shared/web-search-config';
+} from '@hybridclaw/contracts/web-search-config';
 
 export type SearchFreshness = 'day' | 'week' | 'month' | 'year';
 

@@ -4,8 +4,9 @@
  * fragment must never be presented as a successful full analysis.
  * Context overhead includes schemas even when the API accepts them outside messages.
  */
+
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import type { ModelBehavior } from '../model-behavior.js';
 import { estimateTextTokens } from '../token-usage.js';

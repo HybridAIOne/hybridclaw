@@ -13,10 +13,10 @@ import type {
   ToolCall,
   ToolSchema,
 } from '@hybridclaw/contracts/agent-io';
+import type { ModelCallTiming } from '@hybridclaw/contracts/token-usage';
+import type { VisualAttachmentMessage } from '@hybridclaw/contracts/visual-snapshots';
 import type { BoostOffer } from '@hybridclaw/shared/boost-offer';
 import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
-import type { ModelCallTiming } from '@hybridclaw/shared/token-usage';
-import type { VisualAttachmentMessage } from '@hybridclaw/shared/visual-snapshots';
 
 export type {
   AddressEnvelope,
@@ -55,7 +55,7 @@ export type {
   ModelCallPerformanceSample,
   ModelCallTiming,
   TokenUsageStats,
-} from '@hybridclaw/shared/token-usage';
+} from '@hybridclaw/contracts/token-usage';
 
 /** Task models the agent runs itself; the gateway runs the other task keys. */
 export const AGENT_TASK_MODEL_KEYS = [
@@ -128,8 +128,8 @@ export interface ToolRunResult extends VisualAttachmentMessage {
   connectorApproval?: ConnectorApproval;
 }
 
-export type { SessionSkillCatalogEntry } from '@hybridclaw/shared/skill-catalog';
-export type { WebSearchConfig } from '@hybridclaw/shared/web-search-config';
+export type { SessionSkillCatalogEntry } from '@hybridclaw/contracts/skill-catalog';
+export type { WebSearchConfig } from '@hybridclaw/contracts/web-search-config';
 
 export function normalizeEscalationTarget(
   value: unknown,

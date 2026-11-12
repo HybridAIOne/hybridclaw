@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { buildMcpServerNamespaces } from '@hybridclaw/shared/mcp-tool-namespaces';

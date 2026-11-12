@@ -3,7 +3,7 @@
  * approval authority. Only the pending request's owner sees its live facts;
  * answering and validating the action stays in the existing approval flow.
  */
-import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/contracts/agent-io';
 import {
   decideMessageApproval,
   setMessageApproval,

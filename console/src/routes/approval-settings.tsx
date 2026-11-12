@@ -5,9 +5,11 @@
  */
 
 import {
-  APPROVAL_MODE_PRESENTATION,
   APPROVAL_MODES,
   type ApprovalMode,
+} from '@hybridclaw/contracts/approval-mode';
+import {
+  APPROVAL_MODE_PRESENTATION,
   type ApprovalSettingsUpdate,
   isApprovalMode,
 } from '@hybridclaw/shared/approval-mode';

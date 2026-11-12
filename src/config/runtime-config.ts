@@ -10,8 +10,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import {
-  type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   normalizeApprovalMode,
 } from '@hybridclaw/shared/approval-mode';

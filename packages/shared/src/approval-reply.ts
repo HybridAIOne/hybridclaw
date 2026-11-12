@@ -1,20 +1,11 @@
-/** Only transport-captured user text may answer an approval; null disables it. */
-export interface ApprovalReplyContext {
-  approvalUserText?: string | null;
-  approvalUserId?: string;
-  /** The turn came from another bot or a webhook, so nobody can answer. */
-  approvalUserIsBot?: boolean;
-  /** Host-validated connector decision; never accepted from a client payload. */
-  approvalReplyDecision?: ApprovalReplyDecision;
-}
-
-import type { ApprovalReplyInterpretation } from '@hybridclaw/contracts/agent-io';
-
-export type { ApprovalReplyInterpretation };
-
-export interface ApprovalReplyDecision extends ApprovalReplyInterpretation {
-  reply: string;
-}
+/**
+ * Approval reply interpretation: the instructions an auxiliary model gets and
+ * the parser that rejects any decision naming an unknown approval or an
+ * unsupported scope. The context and decision shapes are wire data
+ * (`@hybridclaw/contracts/agent-io`). NOT the policy runtime, which owns
+ * grants and exact-call replay.
+ */
+import type { ApprovalReplyDecision } from '@hybridclaw/contracts/agent-io';
 
 /** One language-neutral interpretation contract; callers own identity, liveness and grants. */
 export const APPROVAL_REPLY_INSTRUCTIONS: string = `Interpret the user's reply to pending approval requests in any language.

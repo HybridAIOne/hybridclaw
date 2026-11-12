@@ -8,10 +8,10 @@ import type { JsonWebKey } from 'node:crypto';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
-} from '@hybridclaw/shared/approval-reply';
+} from '@hybridclaw/contracts/agent-io';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
+import type { ToolCallLimits } from '@hybridclaw/contracts/tool-call-limits';
 import type { MessageEmailDraft } from '@hybridclaw/shared/email-draft';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
-import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
 import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';

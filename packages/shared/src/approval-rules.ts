@@ -6,20 +6,18 @@
  * `message:send:pat@example.com`) for the agent (`yes for agent`) or for every
  * agent of the workspace (`yes for all`). `describeApprovalAction` names the
  * kind of action a key covers; clients localize `category` and show `target`.
- * NOT the approval pipeline (`container/src/approval-policy.ts`) and NOT the
+ * NOT the rule's wire shape (`@hybridclaw/contracts/approval-rules`), NOT
+ * the approval pipeline (`container/src/approval-policy.ts`), and NOT the
  * network rules of `policy.yaml` (`/policy`).
  */
 
-/** Why the pipeline paused a call, from the rule that raised it. */
-export const APPROVAL_PAUSE_CAUSES = [
-  'risky',
-  'ask_mode',
-  'protected',
-  'unusual',
-  'workspace_policy',
-] as const;
-
-export type ApprovalPauseCause = (typeof APPROVAL_PAUSE_CAUSES)[number];
+import {
+  APPROVAL_PAUSE_CAUSES,
+  type ApprovalActionCategory,
+  type ApprovalActionDescription,
+  type ApprovalPauseCause,
+  type ApprovalRule,
+} from '@hybridclaw/contracts/approval-rules';
 
 export type ApprovalTrustScope = 'agent' | 'all';
 
@@ -34,32 +32,6 @@ export const APPROVAL_TRUST_STORE_FILES: Readonly<
 export const LEGACY_AGENT_TRUST_STORE_FILE: string =
   '.hybridclaw/approval-trust.json';
 
-export type ApprovalActionCategory =
-  | 'delete_files'
-  | 'change_files'
-  | 'memory'
-  | 'run_commands'
-  | 'install_packages'
-  | 'run_downloaded_code'
-  | 'control_computer'
-  | 'outside_workspace'
-  | 'web_requests'
-  | 'send_to_websites'
-  | 'web_search'
-  | 'send_messages'
-  | 'browser'
-  | 'purchase'
-  | 'cancel_subscription'
-  | 'connector'
-  | 'tool';
-
-export interface ApprovalActionDescription {
-  category: ApprovalActionCategory;
-  target?: string;
-  /** English, for text channels; apps localize `category`. */
-  label: string;
-}
-
 export interface ApprovalTrustGrant {
   actionKey: string;
   fingerprints: string[];
@@ -72,11 +44,6 @@ export interface ApprovalTrustStore {
   actions: string[];
   fingerprints: string[];
   grants: ApprovalTrustGrant[];
-}
-
-export interface ApprovalRule extends ApprovalActionDescription {
-  actionKey: string;
-  pausedBy: ApprovalPauseCause;
 }
 
 function cleanList(value: unknown): string[] | null {
