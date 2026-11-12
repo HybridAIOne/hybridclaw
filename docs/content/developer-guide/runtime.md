@@ -914,6 +914,15 @@ the HybridAI relay and OpenAI, then read the conversation history from cache,
 not just the system prompt. For the same reason, the tool list and system
 prompt depend on the agent, user, and client, never on the current message.
 
+Daily notes close the context message. A turn's context carries a note only
+when the history in the prompt does not already show the same text: on the
+first turn, after the note changed, and after the turn that carried it left the
+history window. A note the history still shows but that is no longer loaded
+(cleared, deleted, past the lookback, or over the notes budget) is sent once
+as `(empty)`.
+The other sections are sent with every turn. The history budget still reserves
+room for all notes.
+
 Anthropic requests keep the system prompt in volatility-ordered cache blocks:
 static core instructions, workspace and durable memory, then skills. The
 provider adds cache breakpoints at those boundaries and at the last stable
