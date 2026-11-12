@@ -8,6 +8,7 @@
  * `gateway-delegation.ts` schedules plans and returns their results.
  */
 import { randomUUID } from 'node:crypto';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -83,7 +84,9 @@ export interface DelegationStatusSnapshot {
   entries: DelegationStatusEntry[];
 }
 
-export interface DelegationTaskRunInput extends FileWriteGuardContext {
+export interface DelegationTaskRunInput
+  extends FileWriteGuardContext,
+    ExecutionDeadline {
   workspaceOverrides?: WorkspaceOverrides;
   parentSessionId: string;
   childDepth: number;

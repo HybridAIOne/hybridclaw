@@ -1,3 +1,4 @@
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
@@ -25,6 +26,7 @@ export interface ExecutorRequest
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
     FileWriteGuardContext,
+    ExecutionDeadline,
     ToolCallLimits {
   sessionId: string;
   runId?: string;

@@ -204,6 +204,7 @@ export async function callAuxiliaryModel(
     const response = await retryAuxiliaryCall(params.task, () =>
       callRoutedModel({
         provider: context.provider,
+        executionDeadlineAtMs: params.fallbackContext.executionDeadlineAtMs,
         providerMethod: context.providerMethod,
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,
@@ -241,6 +242,7 @@ export async function callAuxiliaryModel(
     return await retryAuxiliaryCall(params.task, () =>
       callVisionProviderModel({
         provider: context.provider,
+        executionDeadlineAtMs: params.fallbackContext.executionDeadlineAtMs,
         providerMethod: context.providerMethod,
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,

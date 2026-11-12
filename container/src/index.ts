@@ -14,6 +14,7 @@ import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '@hybridclaw/shared/boost-offer';
 import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
 import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config';
+import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
 import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
@@ -43,6 +44,11 @@ import {
 } from './chat-segments.js';
 import { connectorApprovalOutput } from './connector-approval-output.js';
 import { applyContextGuard } from './context-guard.js';
+import {
+  appendExecutionBudget,
+  checkpointExecutionBudget,
+  expiredExecutionBudget,
+} from './execution-budget.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
@@ -84,6 +90,7 @@ import {
   callRoutedModel,
   callRoutedModelStream,
   estimateRoutedPromptOverheadTokens,
+  type RoutedModelCallParams,
 } from './providers/router.js';
 import {
   isHybridAIEmptyVisibleCompletion,
@@ -93,6 +100,7 @@ import {
 } from './providers/shared.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
+import type { ProcessRequestParams } from './request-context.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveWorkspacePath,
@@ -135,7 +143,6 @@ import {
   withToolActivityHeartbeat,
 } from './tool-activity-heartbeat.js';
 import {
-  type ApprovalPrelude,
   approvalRuntime,
   buildApprovalRequiredToolExecution,
   buildPendingApproval,
@@ -203,7 +210,6 @@ import {
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
-  type EscalationTarget,
   type ToolCall,
   type ToolDefinition,
   type ToolExecution,
@@ -864,30 +870,17 @@ function callHybridAIWithRetry(
   );
 }
 
-async function callModelWithRetry(params: {
-  sessionId?: string;
-  provider?: ContainerInput['provider'];
-  providerMethod?: string;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  chatbotId: string;
-  enableRag: boolean;
-  requestHeaders?: Record<string, string>;
-  history: ChatMessage[];
-  tools: ToolDefinition[];
-  onTextDelta?: (delta: string) => void;
-  textDeltasVisible?: boolean;
-  onThinkingDelta?: (delta: string) => void;
-  onActivity?: () => void;
-  maxTokens?: number;
-  debugModelResponses?: boolean;
-  isLocal?: boolean;
-  contextWindow?: number;
-  modelBehavior?: ContainerInput['modelBehavior'];
-  thinkingFormat?: 'qwen';
-  reasoningEffort?: ContainerInput['reasoningEffort'];
-}): Promise<ChatCompletionResponse> {
+async function callModelWithRetry(
+  params: Omit<RoutedModelCallParams, 'messages' | 'tools'> & {
+    enableRag: boolean;
+    history: ChatMessage[];
+    tools: ToolDefinition[];
+    onTextDelta?: (delta: string) => void;
+    textDeltasVisible?: boolean;
+    onThinkingDelta?: (delta: string) => void;
+    onActivity?: () => void;
+  },
+): Promise<ChatCompletionResponse> {
   const {
     sessionId,
     provider,
@@ -916,6 +909,7 @@ async function callModelWithRetry(params: {
 
   while (true) {
     await haltIfShuttingDown();
+    throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
     attempt += 1;
     const attemptStartedAt = Date.now();
     let firstTextDeltaMs: number | null = null;
@@ -939,6 +933,7 @@ async function callModelWithRetry(params: {
         try {
           response = await callRoutedModelStream({
             provider,
+            executionDeadlineAtMs: params.executionDeadlineAtMs,
             providerMethod,
             sessionId,
             baseUrl,
@@ -976,6 +971,7 @@ async function callModelWithRetry(params: {
           }
           response = await callRoutedModel({
             provider,
+            executionDeadlineAtMs: params.executionDeadlineAtMs,
             providerMethod,
             sessionId,
             baseUrl,
@@ -998,6 +994,7 @@ async function callModelWithRetry(params: {
       } else {
         response = await callRoutedModel({
           provider,
+          executionDeadlineAtMs: params.executionDeadlineAtMs,
           providerMethod,
           sessionId,
           baseUrl,
@@ -1057,43 +1054,12 @@ async function callModelWithRetry(params: {
 /**
  * Process a single request: call API, run tool loop, write output.
  */
-interface ProcessRequestParams {
-  sessionId: string;
-  messages: ChatMessage[];
-  apiKey: string;
-  baseUrl: string;
-  provider: ContainerInput['provider'];
-  providerMethod?: string;
-  isLocal?: boolean;
-  contextWindow?: number;
-  modelBehavior?: ContainerInput['modelBehavior'];
-  thinkingFormat?: 'qwen';
-  reasoningEffort?: ContainerInput['reasoningEffort'];
-  model: string;
-  chatbotId: string;
-  enableRag: boolean;
-  requestHeaders?: Record<string, string>;
-  tools: ToolDefinition[];
-  localToolMode?: ContainerInput['localToolMode'];
-  localStarterTools?: string[];
-  localDiscoveryDisabled?: boolean;
-  deferredTools?: Set<string>;
-  taskModels?: ContainerInput['taskModels'];
-  contextGuard?: ContainerInput['contextGuard'];
-  channelId: string;
-  skipContainerSystemPrompt?: boolean;
-  streamTextDeltas?: boolean;
-  debugModelResponses?: boolean;
-  maxTokens?: number;
-  effectiveUserPromptOverride?: string;
-  ralphMaxIterationsOverride?: number | null;
-  escalationTarget?: EscalationTarget;
-  approvedToolCall?: ApprovalPrelude['approvedToolCall'];
-}
 
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
+  const expired = expiredExecutionBudget(params.executionDeadlineAtMs);
+  if (expired) return expired;
   const turnToolHistory = new TurnToolHistory(
     params.sessionId,
     WORKSPACE_STATE_ROOT,
@@ -1263,6 +1229,28 @@ async function processRequestInner(
   let emptyVisibleCompletionRetries = 0;
   let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
+  const collectArtifacts = (
+    finalText: string | null = latestFinalAssistantText,
+  ) =>
+    collectRequestedArtifacts({
+      artifacts,
+      artifactPaths,
+      startedAtMs: processStartedAt,
+      finalText,
+      toolExecutions,
+    });
+  const budgetCheckpoint = () =>
+    checkpointExecutionBudget({
+      executionDeadlineAtMs: params.executionDeadlineAtMs,
+      state: {
+        toolsUsed,
+        toolExecutions,
+        artifacts,
+        tokenUsage,
+        effectiveUserPrompt,
+      },
+      collectArtifacts,
+    });
   // The reply written before a steering note, kept as the reply's start.
   let steeredReplyPrefix = '';
   let consecutiveContextErrors = 0;
@@ -1316,6 +1304,7 @@ async function processRequestInner(
     taskModels,
     fallbackContext: {
       provider,
+      executionDeadlineAtMs: params.executionDeadlineAtMs,
       providerMethod,
       baseUrl,
       apiKey,
@@ -1471,6 +1460,9 @@ async function processRequestInner(
   }
 
   while (stalledTurns < maxStalledTurns || continueForSteer(null)) {
+    const budgetOutput = await budgetCheckpoint();
+    if (budgetOutput) return budgetOutput;
+    appendExecutionBudget(history, params.executionDeadlineAtMs);
     appendActionPrerequisiteCheckpoint(history);
     const guardResult = applyContextGuard({
       history,
@@ -1493,6 +1485,7 @@ async function processRequestInner(
         checkpointUsage: () => turnToolHistory.checkpointUsage(),
         fallbackContext: {
           provider,
+          executionDeadlineAtMs: params.executionDeadlineAtMs,
           providerMethod,
           baseUrl,
           apiKey,
@@ -1551,6 +1544,7 @@ async function processRequestInner(
     try {
       response = await callHybridAIWithRetry({
         sessionId,
+        executionDeadlineAtMs: params.executionDeadlineAtMs,
         provider,
         providerMethod,
         baseUrl,
@@ -1617,6 +1611,8 @@ async function processRequestInner(
     consecutiveContextErrors = 0;
     accumulateApiUsage(tokenUsage, response);
     turnToolHistory.checkpointUsage();
+    const expiredAfterModel = await budgetCheckpoint();
+    if (expiredAfterModel) return expiredAfterModel;
 
     const choice = response.choices[0];
     if (!choice) {
@@ -1886,13 +1882,7 @@ async function processRequestInner(
       if (ralphEnabled) {
         if (assistantSegment.kind === 'final') {
           if (continueForSteer(assistantSegment.text)) continue;
-          collectRequestedArtifacts({
-            artifacts,
-            artifactPaths,
-            startedAtMs: processStartedAt,
-            finalText: assistantSegment.text,
-            toolExecutions,
-          });
+          collectArtifacts(assistantSegment.text);
           latestFinalAssistantText = joinSteeredReply(
             steeredReplyPrefix,
             assistantSegment.text,
@@ -1949,13 +1939,7 @@ async function processRequestInner(
         break;
       }
 
-      collectRequestedArtifacts({
-        artifacts,
-        artifactPaths,
-        startedAtMs: processStartedAt,
-        finalText: assistantSegment.text,
-        toolExecutions,
-      });
+      collectArtifacts(assistantSegment.text);
       if (
         shouldRetryEmptyFinalResponse({
           visibleAssistantText: assistantSegment.text,
@@ -2007,6 +1991,8 @@ async function processRequestInner(
     let steered = false;
     const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
+      const expiredBeforeTool = await budgetCheckpoint();
+      if (expiredBeforeTool) return expiredBeforeTool;
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
       const cachedApproval = takeCachedValue(cachedApprovals, call.id);
@@ -2430,6 +2416,7 @@ async function main(): Promise<void> {
     chatbotId: firstInput.chatbotId,
     requestHeaders: firstRequestHeaders,
     maxTokens: firstInput.maxTokens,
+    executionDeadlineAtMs: firstInput.executionDeadlineAtMs,
     modelBehavior: firstInput.modelBehavior,
     debugModelResponses: firstInput.debugModelResponses === true,
     isLocal: firstInput.isLocal,
@@ -2509,6 +2496,7 @@ async function main(): Promise<void> {
       streamTextDeltas: firstInput.streamTextDeltas === true,
       debugModelResponses: firstInput.debugModelResponses === true,
       maxTokens: firstInput.maxTokens,
+      executionDeadlineAtMs: firstInput.executionDeadlineAtMs,
       effectiveUserPromptOverride: firstPromptOverride,
       ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
       escalationTarget: firstInput.escalationTarget,
@@ -2614,6 +2602,7 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       requestHeaders,
       maxTokens: input.maxTokens,
+      executionDeadlineAtMs: input.executionDeadlineAtMs,
       modelBehavior: input.modelBehavior,
       debugModelResponses: input.debugModelResponses === true,
       isLocal: input.isLocal,
@@ -2697,6 +2686,7 @@ async function main(): Promise<void> {
       streamTextDeltas: input.streamTextDeltas === true,
       debugModelResponses: input.debugModelResponses === true,
       maxTokens: input.maxTokens,
+      executionDeadlineAtMs: input.executionDeadlineAtMs,
       effectiveUserPromptOverride: promptOverride,
       ralphMaxIterationsOverride: input.ralphMaxIterations,
       escalationTarget: input.escalationTarget,
