@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 
+import { getAuditWirePath } from '../src/audit/audit-paths.js';
 import {
   applyLeakReportFilter,
   directionForEventType,
@@ -18,6 +18,9 @@ import {
   testThreads,
 } from './fixtures/trusted-agents.ts';
 
+import { useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('hc-leak-scan-');
 let tempDir: string;
 
 const RULES = parseConfidentialYaml(`
@@ -30,9 +33,8 @@ projects:
 `);
 
 function writeWireLines(sessionId: string, records: object[]): string {
-  const sessionDir = path.join(tempDir, 'audit', sessionId);
-  fs.mkdirSync(sessionDir, { recursive: true });
-  const filePath = path.join(sessionDir, 'wire.jsonl');
+  const filePath = getAuditWirePath(sessionId, tempDir);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(
     filePath,
     `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
@@ -42,11 +44,7 @@ function writeWireLines(sessionId: string, records: object[]): string {
 }
 
 beforeEach(() => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-leak-scan-'));
-});
-
-afterEach(() => {
-  fs.rmSync(tempDir, { recursive: true, force: true });
+  tempDir = makeTempDir();
 });
 
 describe('audit log leak scanner', () => {
@@ -197,12 +195,13 @@ describe('audit log leak scanner', () => {
   });
 
   test('listAuditedSessions discovers all sessions', () => {
-    writeWireLines('alpha', []);
-    writeWireLines('beta', []);
+    for (const sessionId of ['alpha', 'beta']) {
+      writeWireLines(sessionId, [{ type: 'metadata', sessionId }]);
+    }
     const sessions = listAuditedSessions(tempDir).map(
       (entry) => entry.sessionId,
     );
-    expect(sessions).toEqual(['alpha', 'beta']);
+    expect(sessions.sort()).toEqual(['alpha', 'beta']);
   });
 
   test('skips telemetry/lifecycle event types and counts them as skipped', () => {
@@ -636,7 +635,7 @@ patterns:
       },
     ]);
     const reports = scanAllAuditSessionsForLeaks(RULES, tempDir);
-    expect(reports.map((report) => report.sessionId)).toEqual([
+    expect(reports.map((report) => report.sessionId).sort()).toEqual([
       'alpha',
       'beta',
     ]);
