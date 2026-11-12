@@ -5,7 +5,6 @@
  * gateway's visual-data permission. This never grants action approval.
  */
 
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,7 +31,6 @@ import {
 } from '@hybridclaw/shared/workspace-time';
 import {
   BASH_DOCKER_CONTAINER,
-  BASH_EXEC_MAX_BUFFER_BYTES,
   type BashProcessResult,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
@@ -106,8 +104,13 @@ import {
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import {
+  copyTaskSandboxFileToTemp,
+  runTaskSandboxDocker,
+} from './task-sandbox-files.js';
 import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
+import { failTool, ToolExecutionFailure } from './tool-errors.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -386,20 +389,6 @@ type DiscordMessageToolAction =
   | 'thread-create'
   | 'thread-reply';
 
-class ToolExecutionFailure extends Error {
-  readonly output: string;
-
-  constructor(output: string) {
-    super(output);
-    this.name = 'ToolExecutionFailure';
-    this.output = output;
-  }
-}
-
-function failTool(output: string): never {
-  throw new ToolExecutionFailure(output);
-}
-
 function parseStructuredToolOutput(
   output: string,
 ): Record<string, unknown> | null {
@@ -529,31 +518,6 @@ function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function runTaskSandboxDocker(params: {
-  args: string[];
-  timeoutMs?: number;
-  input?: string;
-}): {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-  error?: Error;
-} {
-  const result = spawnSync('docker', params.args, {
-    encoding: 'utf-8',
-    input: params.input,
-    timeout: params.timeoutMs,
-    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    env: { ...process.env },
-  });
-  return {
-    status: typeof result.status === 'number' ? result.status : null,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    error: result.error ?? undefined,
-  };
-}
-
 function ensureTaskSandboxSuccess(
   result: {
     status: number | null;
@@ -569,33 +533,6 @@ function ensureTaskSandboxSuccess(
     .join('\n')
     .trim();
   failTool(`Error: ${detail || result.error?.message || fallback}`);
-}
-
-function copyTaskSandboxFileToTemp(sandboxPath: string): {
-  tempDir: string;
-  localPath: string;
-} {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-taskfs-'));
-  const localPath = path.join(
-    tempDir,
-    path.posix.basename(sandboxPath) || 'file',
-  );
-  const result = runTaskSandboxDocker({
-    args: ['cp', `${BASH_DOCKER_CONTAINER}:${sandboxPath}`, localPath],
-  });
-  if (result.status !== 0) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
-    if (/no such file|could not find|not found/i.test(detail)) {
-      failTool(
-        `Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`,
-      );
-    }
-    failTool(
-      `Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`,
-    );
-  }
-  return { tempDir, localPath };
 }
 
 function writeTempFileToTaskSandbox(
