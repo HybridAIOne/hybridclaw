@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.43.0',
+  version: '0.43.1',
   highlights: [
-    'Steer a running web chat',
-    'Sign in to websites from chat',
-    'Nebius Token Factory models',
-    'Voice calls keep chat context',
+    'One deadline across retries and delegated work',
+    'Clear errors for incomplete replies',
+    'Fewer prompts for current-channel replies',
+    'Tool-use summaries in the audit log',
   ],
 } as const;
 
