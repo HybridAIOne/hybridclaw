@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.42.4',
+  version: '0.43.0',
   highlights: [
-    'Cleaner model picker',
-    'Persistent Docker tool settings',
-    'Safer file and image handling',
-    'Long command output preserved',
+    'Steer a running web chat',
+    'Sign in to websites from chat',
+    'Nebius Token Factory models',
+    'Voice calls keep chat context',
   ],
 } as const;
 

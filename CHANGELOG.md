@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+## [0.43.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.0) - 2026-11-12
+
+### Added
+
+- Send a follow-up from web chat while HybridClaw is working. The running task
+  receives the message when it can, or web chat queues it for the next turn (#2272).
+- Enter website credentials in the web chat sign-in card. The card saves them
+  directly to the encrypted secret store, outside the conversation (#2243).
+- Connect Nebius Token Factory with `hybridclaw auth login nebius` and select
+  models from its authenticated catalog (#2246).
+
+### Changed
+
+- Model selection names the provider's replacement when you pick a legacy
+  model. `hybridclaw doctor --fix` can switch a legacy default to that
+  replacement, including when HybridAI omits a retirement date (#2216, #2235).
+- Each Bash call starts in the workspace root. To run a later command in a
+  subdirectory, include `cd` in that call. Exported variables and activated
+  virtual environments still carry over. Tool output displays the root as
+  `.`, and file tools resolve nested relative paths consistently (#2237, #2238, #2264).
+- Microsoft Teams uses the Microsoft 365 Agents SDK to authenticate incoming
+  webhooks and verify the reply URL. Existing Teams credentials and stored
+  conversation references continue to work (#2205).
+- Generated PDFs default to 11-point body text and one-inch margins. Use
+  `--font-size` to override the body size (#2282).
+
+### Fixed
+
+- Free-text and voice approvals authorize one pending action. Use an approval
+  button or an explicit approval-ID command to grant broader trust. Checkout
+  approvals check the target the browser will click, and unusual actions can
+  raise the approval tier even with a varied history (#2283, #2267, #2244).
+- Voice calls use the chat's model for context when no compression model is
+  configured and fall back to recent messages if summarization fails. Clients
+  receive the reason code when the provider refuses a call (#2232, #2233).
+- Failed web requests report tool errors with status and recovery information.
+  The fetch tool skips model summaries of HTTP error pages (#2248, #2279).
+- Usage reports retain provider cache hits and count token usage and cost for
+  client-tool and regular-model decision completions (#2249, #2253, #2254).
+- Large tool results survive interruption when a model reuses a call ID.
+  Local-model reasoning preserves completed answers, and vision helpers can use
+  models whose modality metadata is missing (#2240, #2241, #2262).
+- Checked writes can recover after a rejected replacement. Read-only diagnostics
+  and file searches trigger fewer unnecessary approval prompts (#2250).
+
+### Upgrade notes
+
+- **WhatsApp plugin 0.1.x.** Install the official 0.2.0 archive before upgrading
+  HybridClaw. Existing pairing credentials stay in place. Plugin authors using
+  `WhatsAppTransportHost` should use `ChannelTransportHost` and implement the
+  required transport hooks (#2255).
+
+  ```sh
+  hybridclaw plugin reinstall https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.2.0/hybridaione-hybridclaw-whatsapp-0.2.0.tgz
+  ```
+
+- **Legacy audit directories.** If your audit directory contains session
+  directories with names that do not start with `~`, stop the gateway and back
+  up the audit directory. Using v0.42.4, run `hybridclaw audit verify <sessionId>`
+  for each affected session using its exact ID. Confirm the directory moved
+  and the chain verified before upgrading. Recover mixed or malformed logs
+  separately. In v0.43, per-session reads and writes use the hashed path only.
+
 ## [0.42.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.4) - 2026-11-08
 
 ### Changed

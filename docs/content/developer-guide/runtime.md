@@ -143,17 +143,13 @@ Gateway IPC and audit directories use `~` followed by the SHA-256 digest of the
 JSON-encoded session ID. Punctuation, whitespace and case remain distinct, including
 on case-insensitive filesystems. Agent workspaces and session IDs do not change.
 
-Stop the gateway before upgrading to this layout, then start the updated version;
-do not run old and new gateway/CLI versions against the same data directory.
-IPC files are disposable and are recreated in the new directory. On first access,
-a legacy audit directory is moved only if every record names the requested
-session. Its bytes and hash chain stay unchanged. A directory owned by another
-session is never claimed. Mixed-session, missing-identity or malformed legacy
-logs fail closed and remain untouched for manual recovery (including historical
-renames whose records span multiple session IDs); preserve a backup
-and resolve ownership before resuming affected sessions. The legacy migration
-is scheduled for removal after v0.43, so access/verify existing audits before
-upgrading beyond that version.
+IPC directories are recreated as needed. Before upgrading to v0.43, stop the
+gateway, back up the audit directory, and use the v0.42.4 CLI to run
+`hybridclaw audit verify <sessionId>` for each session with a legacy directory
+(name without the leading `~`). Use the exact ID recorded in the log. Confirm
+that verification succeeds and the directory moved. Resolve ambiguous or
+damaged logs separately before resuming affected sessions. Starting with
+v0.43, per-session reads and writes use only the hashed directory.
 
 Scheduler jobs have at most one pending run per gateway process. Retry and
 recurrence timers exclude active jobs until their execution settles, then rearm

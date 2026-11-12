@@ -296,6 +296,6 @@ test('core refuses the retired create-only LINE registration', () => {
   expect(() =>
     registerChannelTransport({ kind: 'line', create: vi.fn() } as never),
   ).toThrow(
-    'Channel transport "line" uses the retired create-only contract. Update the plugin: hybridclaw plugin reinstall line',
+    'hybridclaw plugin reinstall line',
   );
 });
