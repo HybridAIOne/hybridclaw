@@ -72,6 +72,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   { name: 'device_data', group: 'Phone Data', parallelSafe: true },
   { name: 'show_widget', group: 'App Widgets' },
   { name: 'draft_transfer', group: 'App Widgets' },
+  { name: 'ask_questions', group: 'App Widgets' },
   { name: 'show_dashboard', group: 'App Widgets' },
   { name: 'show_slide_samples', group: 'App Widgets' },
   { name: 'vision_analyze', group: 'Vision', parallelSafe: true },

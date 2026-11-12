@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Question cards**: In the Hy app, `ask_questions` lets the agent ask up to
+  four questions with choices to tap when it needs to know more before it goes
+  on. The app shows them as one card and sends the answers back as the user's
+  next message. Other clients, scheduled runs and subagents do not get the tool.
+
 ## [0.42.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.42.4) - 2026-11-08
 
 ### Changed

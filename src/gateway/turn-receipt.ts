@@ -77,6 +77,7 @@ const SKIPPED_TOOLS = new Set([
   'work',
   'draft_email',
   'draft_transfer',
+  'ask_questions',
   'show_widget',
   'show_slide_samples',
   'estimate_cost',

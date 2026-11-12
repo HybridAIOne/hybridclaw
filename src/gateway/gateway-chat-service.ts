@@ -165,6 +165,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import {
+  ASK_QUESTIONS_TOOL,
   DRAFT_TRANSFER_TOOL,
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
@@ -449,11 +450,12 @@ function receiptOf(
 }
 
 /**
- * `show_slide_samples`, `show_widget`, `draft_transfer`, `estimate_cost` and
- * `show_dashboard` need a client that draws them: a card of slide pictures to
- * pick from, a live widget under the reply, a transfer card with a GiroCode, a
- * cost estimate card, or a dashboard. Only the Hy app (`client: "mobile"`)
- * does. Elsewhere the agent answers in words.
+ * `show_slide_samples`, `show_widget`, `draft_transfer`, `ask_questions`,
+ * `estimate_cost` and `show_dashboard` need a client that draws them: a card
+ * of slide pictures to pick from, a live widget under the reply, a transfer
+ * card with a GiroCode, a card of questions, a cost estimate card, or a
+ * dashboard. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent
+ * answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
@@ -465,6 +467,7 @@ function blockAppOnlyToolsUnlessApp(
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
+    ASK_QUESTIONS_TOOL,
     'estimate_cost',
     SHOW_DASHBOARD_TOOL,
   ];
