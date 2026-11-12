@@ -1512,6 +1512,11 @@ The primary call also refuses replay after partial text has reached the user.
 Retries can incur additional provider usage if the failed request was processed
 before its connection was lost.
 
+A final model response with `finish_reason: length` reports an output-token-limit
+error for both local and remote providers. Partial text or reasoning-only output
+does not complete the task. Prior tool results, artifacts and token usage remain
+available; this check does not retry the call or replay tools.
+
 ## Activity-Based Agent Timeout
 
 Successful streaming provider responses use a 90-second idle deadline for body chunks,
