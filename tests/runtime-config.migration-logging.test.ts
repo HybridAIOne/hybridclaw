@@ -165,6 +165,34 @@ describe('runtime config migration logging', () => {
     },
   );
 
+  it.each([
+    { version: 42, tokenBudget: 100_000, expected: 0 },
+    { version: 42, tokenBudget: 150_000, expected: 150_000 },
+    { version: 43, tokenBudget: 100_000, expected: 100_000 },
+  ])(
+    'loads a v$version session token cap of $tokenBudget as $expected',
+    async ({ version, tokenBudget, expected }) => {
+      const homeDir = makeTempHome();
+      writeRuntimeConfig(homeDir, (config) => {
+        config.version = version;
+        config.sessionCompaction.tokenBudget = tokenBudget;
+      });
+
+      const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+      const stored = JSON.parse(
+        fs.readFileSync(
+          path.join(homeDir, '.hybridclaw', 'config.json'),
+          'utf-8',
+        ),
+      ) as RuntimeConfig;
+
+      expect(
+        runtimeConfig.getRuntimeConfig().sessionCompaction.tokenBudget,
+      ).toBe(expected);
+      expect(stored.sessionCompaction.tokenBudget).toBe(expected);
+    },
+  );
+
   it('keeps GPT-5.6 Luna when a current config picks it', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
