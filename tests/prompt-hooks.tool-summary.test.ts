@@ -1,7 +1,11 @@
 import { expect, test, vi } from 'vitest';
 import { ACTION_PREREQUISITE_LINES } from '@hybridclaw/shared/action-prerequisites';
 import { FILE_HYGIENE_LINES } from '../src/agent/file-hygiene-prompt.js';
-import { AFTER_FILE_CHANGE_LINES } from '../src/agent/mobile-prompt.js';
+import {
+  AFTER_FILE_CHANGE_LINES,
+  APP_DELEGATION_LINES,
+  DELEGATION_PLAYBOOK_LINES,
+} from '../src/agent/mobile-prompt.js';
 
 import {
   buildRetrievedContextPrompt,
@@ -815,7 +819,14 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   expect(mobile).toContain(
     'The app shows the files, images and videos you return in the final reply',
   );
-  expect(mobile).toContain('Delegation is push-based: do not poll or wait.');
+  for (const text of APP_DELEGATION_LINES.filter(Boolean)) {
+    expect(mobile).toContain(text);
+    expect(web).not.toContain(text);
+  }
+  for (const text of DELEGATION_PLAYBOOK_LINES) {
+    expect(web).toContain(text);
+    expect(mobile).not.toContain(text);
+  }
   expect(web).not.toContain('The app shows the files');
 });
 
