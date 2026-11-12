@@ -175,6 +175,13 @@ remaining-time notes to model history without rewriting prior context; checkpoin
 refuse new model/tool calls after expiry and retain completed artifacts and usage.
 The gateway owns cancellation; worker checkpoints do not interrupt running tools.
 
+Daily-memory capacity rejections persist as note-revision and payload hashes in
+`memory-capacity-<path hash>.json` in the session state directory. Replacement
+workers block the same rejected mutation against unchanged content. A changed
+note revision invalidates the recorded rejections on the next capacity failure;
+retry history never contains raw note or payload text. Unreadable records fail
+closed, leaving the daily note untouched.
+
 Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
