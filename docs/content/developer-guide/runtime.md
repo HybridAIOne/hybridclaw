@@ -166,6 +166,16 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Each worker turn checkpoints model-call metadata before a request starts and
+after a response or error: requested provider/model, helper task, duration,
+reported tokens and any reported charge. Aggregate counters include primary
+and helper calls; pricing projects primary calls separately and records helpers
+at their own model's price. Recovery retains unfinished calls as unknown usage.
+These records contain no prompts, credentials, reasoning or response text.
+Request scopes close when their work finishes, so late callbacks cannot amend a
+completed turn or the next request. Workers reconstruct this state from the
+gateway-owned turn checkpoint after replacement.
+
 Explicit execution bounds belong to the gateway request, not a worker's uptime.
 The absolute `executionDeadlineAtMs` travels in every `ContainerInput`, including
 replacements, nested delegates, queued children and the parent's continuation.

@@ -264,7 +264,6 @@ export interface ClassifiedAction {
 
 export interface ApprovalPrelude {
   interpretation?: ApprovalReplyInterpretation;
-  modelResponse?: import('./types.js').ChatCompletionResponse;
   immediateMessage?: string;
   pendingApproval?: import('./types.js').PendingApproval;
   replayPrompt?: string;

@@ -66,7 +66,6 @@ async function setup() {
         model: 'example/model',
         chatbotId: '',
       },
-      onModelResponse: vi.fn(),
     },
   };
 }
@@ -103,7 +102,6 @@ test('a backup and matching revision cannot skip preservation review', async () 
     existing_content: original,
     proposed_content: replacement,
   });
-  expect(input.onModelResponse).toHaveBeenCalledOnce();
   expect(state.getFileWriteConflict('session-a', 'report.md')).toBeTruthy();
   expect(fs.readFileSync(path.join(workspace, 'report.md'), 'utf8')).toBe(
     original,
@@ -141,7 +139,6 @@ test('a stale revision never sends changed content to the reviewer', async () =>
     decision: 'denied',
   });
   expect(model.call).not.toHaveBeenCalled();
-  expect(input.onModelResponse).not.toHaveBeenCalled();
   expect(fs.readFileSync(path.join(workspace, 'report.md'), 'utf8')).toBe(
     'Newer private document',
   );

@@ -103,7 +103,7 @@ export function finishRoutingTraceAttempt(params: {
   cacheWriteTokens?: number;
   tokensEstimated?: boolean;
   costUsd?: number;
-  costSource?: 'reported' | 'estimated';
+  costSource?: RoutingTraceAttempt['costSource'];
   /** Model requests behind the attempt; an auxiliary call is one. */
   modelCalls?: number;
 }): void {
@@ -145,12 +145,10 @@ export function finishRoutingTraceAttempt(params: {
   )
     attempt.modelCalls = modelCalls;
   const explicit = finite(params.costUsd);
-  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
   const estimated =
+    params.costSource !== 'unknown' &&
     attempt.inputTokens !== null &&
-    attempt.outputTokens !== null &&
-    (attempt.inputTokens === 0 || pricing.input != null) &&
-    (attempt.outputTokens === 0 || pricing.output != null)
+    attempt.outputTokens !== null
       ? estimateModelUsageCostUsd({
           model: params.model,
           promptTokens: attempt.inputTokens,

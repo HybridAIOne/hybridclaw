@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { createTokenUsageStats } from '../container/src/token-usage.js';
-import type { ChatMessage, TokenUsageStats, ToolDefinition } from '../container/src/types.js';
+import type {
+  ChatMessage,
+  TokenUsageStats,
+  ToolDefinition,
+} from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const runtime = { workspace: '' };
@@ -144,7 +147,11 @@ describe('in-loop compaction model routing', () => {
                 : {
                     id: 'test',
                     model,
-                    usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132 },
+                    usage: {
+                      prompt_tokens: 120,
+                      completion_tokens: 12,
+                      total_tokens: 132,
+                    },
                     choices: [
                       {
                         message: {
@@ -161,42 +168,66 @@ describe('in-loop compaction model routing', () => {
         },
       );
       vi.stubGlobal('fetch', fetch);
-      const usage = createTokenUsageStats();
+      const { TurnToolHistory } = await import(
+        '../container/src/turn-tool-history.js'
+      );
+      const { withModelUsage } = await import(
+        '../container/src/model-usage.js'
+      );
+      const owner = new TurnToolHistory(
+        'session_a',
+        runtime.workspace,
+        runtime.workspace,
+        'run-a',
+      );
+      const usage = owner.tokenUsage;
       const snapshots: TokenUsageStats[] = [];
-      const result = await compactInLoopWithModel({
-        sessionId: 'session_a',
-        history: messages,
-        tools: knownTool ? [readTool] : [],
-        tokenUsage: usage,
-        checkpointUsage: () => snapshots.push(structuredClone(usage)),
-        taskModels: {
-          compression: {
-            provider,
-            model,
-            baseUrl,
-            apiKey: 'test-key',
-            chatbotId: '',
-            contextWindow: 128_000,
-          },
-        },
-        fallbackContext: {
-          provider: 'hybridai',
-          model: 'fallback',
-          baseUrl: 'https://example.com',
-          apiKey: 'test-key',
-          chatbotId: 'test-bot',
-        },
+      const checkpoint = owner.checkpointUsage.bind(owner);
+      vi.spyOn(owner, 'checkpointUsage').mockImplementation(() => {
+        checkpoint();
+        snapshots.push(structuredClone(usage));
       });
+      const result = await withModelUsage(owner, () =>
+        compactInLoopWithModel({
+          sessionId: 'session_a',
+          history: messages,
+          tools: knownTool ? [readTool] : [],
+          taskModels: {
+            compression: {
+              provider,
+              model,
+              baseUrl,
+              apiKey: 'test-key',
+              chatbotId: '',
+              contextWindow: 128_000,
+            },
+          },
+          fallbackContext: {
+            provider: 'hybridai',
+            model: 'fallback',
+            baseUrl: 'https://example.com',
+            apiKey: 'test-key',
+            chatbotId: 'test-bot',
+          },
+        }),
+      );
       expect(fetch).toHaveBeenCalledOnce();
       expect(result.changed).toBe(true);
       expect(messages).toEqual(original);
       expect(usage.modelCalls).toBe(1);
-      expect(snapshots).toHaveLength(2);
-      expect(snapshots[0]).toMatchObject({ modelCalls: 1, estimatedCompletionTokens: 0 });
-      expect(snapshots[0].estimatedPromptTokens).toBeGreaterThan(0);
-      expect(snapshots[1].estimatedCompletionTokens).toBeGreaterThan(0);
-      expect(snapshots[0].apiUsageAvailable).toBe(false);
-      expect(snapshots[1]).toMatchObject({ apiUsageAvailable: true, apiTotalTokens: 132 });
+      const calls = snapshots.filter((snapshot) => snapshot.modelCalls === 1);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({
+        modelCalls: 1,
+        estimatedCompletionTokens: 0,
+      });
+      expect(calls[0].estimatedPromptTokens).toBeGreaterThan(0);
+      expect(calls[1].estimatedCompletionTokens).toBeGreaterThan(0);
+      expect(calls[0].apiUsageAvailable).toBe(false);
+      expect(calls[1]).toMatchObject({
+        apiUsageAvailable: true,
+        apiTotalTokens: 132,
+      });
       const archive = String(result.history[4].content).split(
         'Original messages: ',
       )[1];
@@ -258,8 +289,6 @@ describe('in-loop compaction model routing', () => {
         sessionId: 'session_a',
         history: messages,
         tools: [readTool],
-        tokenUsage: createTokenUsageStats(),
-        checkpointUsage: vi.fn(),
         fallbackContext: {
           provider,
           model:

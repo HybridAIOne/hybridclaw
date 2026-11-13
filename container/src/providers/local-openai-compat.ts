@@ -9,6 +9,10 @@ import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
 import { resolveModelBehavior } from '../model-behavior.js';
 import {
+  finalizeParsedToolCalls,
+  INCOMPLETE_RESPONSE,
+} from '../model-response-completion.js';
+import {
   collapseSystemMessages,
   mergeSystemMessage,
 } from '../system-messages.js';
@@ -514,11 +518,9 @@ function adaptLocalOpenAICompatResponse(
   const normalizationOptions = buildToolCallNormalizationOptions(params);
   const hasStructuredToolCalls =
     Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
-  const normalizedContentInput =
-    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content;
   let normalized = normalizeToolCalls(
     message?.tool_calls,
-    normalizedContentInput,
+    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content,
     normalizationOptions,
   );
   if (
@@ -537,6 +539,10 @@ function adaptLocalOpenAICompatResponse(
       normalized = { content: null, toolCalls: thinkingToolCalls.toolCalls };
     }
   }
+  const { content, toolCalls, finishReason } = finalizeParsedToolCalls(
+    normalized,
+    choice?.finish_reason,
+  );
   return {
     ...payload,
     choices: [
@@ -544,15 +550,10 @@ function adaptLocalOpenAICompatResponse(
         ...choice,
         message: {
           role: message?.role || 'assistant',
-          content: normalized.content,
-          ...(normalized.toolCalls.length > 0
-            ? { tool_calls: normalized.toolCalls }
-            : {}),
+          content,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
-        finish_reason:
-          normalized.toolCalls.length > 0
-            ? 'tool_calls'
-            : choice?.finish_reason || 'stop',
+        finish_reason: finishReason,
       },
     ],
   };
@@ -1012,9 +1013,8 @@ export async function callLocalOpenAICompatProviderStream(
     decoder.decode();
   }
 
-  if (!sawPayload) {
-    throw new Error('Streaming response ended without payload');
-  }
+  if (!sawPayload) throw new Error('Streaming response ended without payload');
+  if (!streamDone && !finishReason) finishReason = INCOMPLETE_RESPONSE;
 
   visibleToolFilter?.close();
   reasoningToolFilter?.close();

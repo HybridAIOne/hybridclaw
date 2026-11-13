@@ -104,7 +104,7 @@ import {
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
-import { recordRoutingLatency } from '../routing/latency.js';
+import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import {
   isScopeRunError,
@@ -154,6 +154,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
@@ -2514,8 +2515,7 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
-      if (output.status === 'success' && toolExecutions.length === 0)
-        recordRoutingLatency(model, executionDurationMs);
+      recordWorkerRoutingLatency(model, executionDurationMs, output);
       finishRoutingTraceAttempt({
         model,
         status: output.status === 'success' ? 'success' : 'error',
@@ -2523,16 +2523,11 @@ async function handleGatewayMessageInner(
         inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
         outputTokens: firstNumber([usagePayload.completionTokens]) ?? undefined,
         totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-        cacheReadTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheReadTokens
-          : undefined,
-        cacheWriteTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheWriteTokens
-          : undefined,
+        ...readCacheTokenUsage(output.tokenUsage),
         tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
         costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
         costSource: explicitUsageCostSource(output.tokenUsage),
-        modelCalls: output.tokenUsage?.modelCalls,
+        modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
       });
       enqueueTokenUsage({
         ...usageAttribution,
@@ -2551,11 +2546,11 @@ async function handleGatewayMessageInner(
       for (let index = 0; index < routingAttempts.length; index += 1) {
         const attempt = routingAttempts[index];
         const attemptToolExecutions = attempt.output.toolExecutions || [];
-        if (
-          attempt.output.status === 'success' &&
-          attemptToolExecutions.length === 0
-        )
-          recordRoutingLatency(attempt.model, attempt.durationMs);
+        recordWorkerRoutingLatency(
+          attempt.model,
+          attempt.durationMs,
+          attempt.output,
+        );
         const usagePayload = buildTokenUsageAuditPayload(
           messages,
           attempt.output.result,
@@ -2594,17 +2589,12 @@ async function handleGatewayMessageInner(
           outputTokens:
             firstNumber([usagePayload.completionTokens]) ?? undefined,
           totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-          cacheReadTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheReadTokens
-            : undefined,
-          cacheWriteTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheWriteTokens
-            : undefined,
+          ...readCacheTokenUsage(attempt.output.tokenUsage),
           tokensEstimated: !attempt.output.tokenUsage?.apiUsageAvailable,
           costUsd:
             extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
           costSource: explicitUsageCostSource(attempt.output.tokenUsage),
-          modelCalls: attempt.output.tokenUsage?.modelCalls,
+          modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
         });
         enqueueTokenUsage({
           ...usageAttribution,
@@ -2625,6 +2615,15 @@ async function handleGatewayMessageInner(
         });
       }
     }
+    await recordWorkerAuxiliaryUsage({
+      ...usageAttribution,
+      sessionId: req.sessionId,
+      agentId,
+      auditRunId: runId,
+      usages: (routingAttempts ?? [{ output }]).map(
+        (attempt) => attempt.output.tokenUsage,
+      ),
+    });
     tail.mark('usageAccounting');
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: req.sessionId,

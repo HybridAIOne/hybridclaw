@@ -45,6 +45,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { sleep } from '../utils/sleep.js';
 import {
   getActiveDelegationChildContext,
@@ -139,6 +140,12 @@ async function persistDelegationAttempt(params: {
         usage: usagePayload,
       }),
       auditRunId: runId,
+    });
+    await recordWorkerAuxiliaryUsage({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      auditRunId: runId,
+      usages: [params.output.tokenUsage],
     });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: params.sessionId,

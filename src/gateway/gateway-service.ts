@@ -405,10 +405,6 @@ import {
   formatAuditTurnTrace,
 } from '../session/session-turn-trace.js';
 import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
-import {
   getAgentScoreboard,
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
@@ -449,7 +445,6 @@ import type {
   Session,
   StoredMessage,
 } from '../types/session.js';
-import type { TokenUsageStats } from '../types/usage.js';
 import { cacheHitRatio } from '../usage/cache-accounting.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
@@ -460,6 +455,10 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import {
+  buildTokenUsageAuditPayload,
+  recordWorkerAuxiliaryUsage,
+} from '../usage/worker-model-usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import {
   dedupeStrings,
@@ -4249,76 +4248,7 @@ function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   return pendingSessionResets.get(sessionId) ?? null;
 }
 
-export function buildTokenUsageAuditPayload(
-  messages: ChatMessage[],
-  resultText: string | null | undefined,
-  tokenUsage?: TokenUsageStats,
-): Record<string, boolean | number | unknown[]> {
-  const promptChars = messages.reduce((total, message) => {
-    const content = typeof message.content === 'string' ? message.content : '';
-    return total + content.length;
-  }, 0);
-  const completionChars = (resultText || '').length;
-
-  const fallbackEstimatedPromptTokens =
-    estimateTokenCountFromMessages(messages);
-  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(
-    resultText || '',
-  );
-  const estimatedPromptTokens =
-    tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
-  const estimatedCompletionTokens =
-    tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
-  const estimatedTotalTokens =
-    tokenUsage?.estimatedTotalTokens ||
-    estimatedPromptTokens + estimatedCompletionTokens;
-
-  const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-  const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-  const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-  const apiTotalTokens =
-    tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-  const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
-  const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-  const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-  const promptTokens = apiUsageAvailable
-    ? apiPromptTokens
-    : estimatedPromptTokens;
-  const completionTokens = apiUsageAvailable
-    ? apiCompletionTokens
-    : estimatedCompletionTokens;
-  const totalTokens = apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens;
-
-  return {
-    modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-    promptChars,
-    completionChars,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedPromptTokens,
-    estimatedCompletionTokens,
-    estimatedTotalTokens,
-    apiUsageAvailable,
-    apiPromptTokens,
-    apiCompletionTokens,
-    apiTotalTokens,
-    ...(tokenUsage?.performanceSamples?.length
-      ? { performanceSamples: tokenUsage.performanceSamples }
-      : {}),
-    ...(apiCacheUsageAvailable
-      ? {
-          apiCacheUsageAvailable,
-          apiCacheReadTokens,
-          apiCacheWriteTokens,
-          cacheReadTokens: apiCacheReadTokens,
-          cacheReadInputTokens: apiCacheReadTokens,
-          cacheWriteTokens: apiCacheWriteTokens,
-          cacheWriteInputTokens: apiCacheWriteTokens,
-        }
-      : {}),
-  };
-}
+export { buildTokenUsageAuditPayload };
 
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
@@ -8390,6 +8320,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
         usage: usagePayload,
       }),
       auditRunId: runId,
+    });
+    await recordWorkerAuxiliaryUsage({
+      ...params.usageAttribution,
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      auditRunId: runId,
+      usages: [output.tokenUsage],
     });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: session.id,
