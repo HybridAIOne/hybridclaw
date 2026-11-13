@@ -759,6 +759,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(web).not.toContain('call `show_widget`');
   expect(mobile).toContain('call `draft_transfer`');
   expect(web).not.toContain('call `draft_transfer`');
+  expect(mobile).toContain('call `ask_questions`');
+  expect(web).not.toContain('call `ask_questions`');
   expect(mobile).toContain('call `show_dashboard`');
   expect(web).not.toContain('call `show_dashboard`');
 });

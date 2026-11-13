@@ -138,6 +138,11 @@ import {
 } from './tools/preferences.js';
 import { PROOF_TOOL_DEFINITION, runProofTool } from './tools/proof.js';
 import {
+  ASK_QUESTIONS_DEFINITION,
+  ASK_QUESTIONS_TOOL,
+  runAskQuestions,
+} from './tools/questions.js';
+import {
   runGlobSearch,
   runGrepSearch,
   SEARCH_TOOL_DEFINITIONS,
@@ -2949,6 +2954,16 @@ async function executeToolInternal(
       }
     }
 
+    case ASK_QUESTIONS_TOOL: {
+      try {
+        return runAskQuestions(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case SHOW_DASHBOARD_TOOL: {
       try {
         return runShowDashboard(args, writeWorkspaceFile, readWorkspaceText);
@@ -4202,6 +4217,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WRITE_TOOL_DEFINITION,
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
+  ASK_QUESTIONS_DEFINITION,
   SHOW_DASHBOARD_DEFINITION,
   {
     type: 'function',

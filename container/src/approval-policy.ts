@@ -2923,6 +2923,23 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
+    if (lowerTool === 'ask_questions') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'ask the user questions in the chat',
+        consequenceIfDenied: 'I will ask in text instead.',
+        reason:
+          'this only writes a new file under questions/ for the app to show and sends nothing',
+        commandPreview: '',
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool === 'show_dashboard') {
       return {
         tier: 'green',
