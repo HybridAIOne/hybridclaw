@@ -33,32 +33,12 @@ import type {
   StoredMessage,
 } from '../types/session.js';
 import { normalizeNonNegativeInteger } from '../utils/number-normalization.js';
+import { readConversationHistoryRows } from './conversation-history-query.js';
 import { withMemoryDatabase } from './database.js';
 import { parseMessageApproval } from './message-approval.js';
 import { ensureSessionBranchesTable } from './schema/migrations.js';
 import { resolveSessionIdCompat } from './sessions.js';
 import { queryAll, queryOne } from './sqlite.js';
-
-interface ConversationHistoryPageRow {
-  session_agent_id: string | null;
-  session_key: string | null;
-  main_session_key: string | null;
-  id: number | null;
-  session_id: string | null;
-  user_id: string | null;
-  username: string | null;
-  role: string | null;
-  agent_id: string | null;
-  content: string | null;
-  artifacts_json: string | null;
-  activity_trace_json: string | null;
-  routing_trace_json: string | null;
-  reaction: string | null;
-  email_draft_json: string | null;
-  approval_json: string | null;
-  source: string | null;
-  created_at: string | null;
-}
 
 interface ResponseRatingRow {
   session_id: string;
@@ -826,45 +806,14 @@ export function getConversationBranchFamilies(
 export function getConversationHistoryPage(
   sessionId: string,
   limit = 50,
+  beforeMessageId?: number,
 ): ConversationHistoryPage {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const rows = getMessageDatabase()
-    .prepare(
-      `SELECT
-         s.agent_id AS session_agent_id,
-         s.session_key,
-         s.main_session_key,
-         m.id,
-         m.session_id,
-         m.user_id,
-         m.username,
-         m.role,
-         m.agent_id,
-         m.content,
-         m.artifacts_json,
-         m.activity_trace_json,
-         m.routing_trace_json,
-         m.reaction,
-         m.email_draft_json,
-         m.approval_json,
-         m.source,
-         m.created_at
-       FROM sessions s
-       LEFT JOIN (
-         SELECT *
-         FROM messages
-         WHERE session_id = ?
-         ORDER BY id DESC
-         LIMIT ?
-       ) m ON m.session_id = s.id
-       WHERE s.id = ?
-       ORDER BY m.id DESC`,
-    )
-    .all(
-      resolvedSessionId,
-      Math.max(1, Math.floor(limit)),
-      resolvedSessionId,
-    ) as ConversationHistoryPageRow[];
+  const { rows, nextCursor } = readConversationHistoryRows(
+    resolvedSessionId,
+    limit,
+    beforeMessageId,
+  );
 
   if (rows.length === 0) {
     return {
@@ -874,6 +823,7 @@ export function getConversationHistoryPage(
       mainSessionKey: null,
       history: [],
       branchFamilies: [],
+      nextCursor,
     };
   }
 
@@ -920,6 +870,7 @@ export function getConversationHistoryPage(
     mainSessionKey: rows[0]?.main_session_key || null,
     history,
     branchFamilies: getConversationBranchFamilies(resolvedSessionId),
+    nextCursor,
   };
 }
 

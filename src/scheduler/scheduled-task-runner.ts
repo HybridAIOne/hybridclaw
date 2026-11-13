@@ -5,6 +5,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
 import {
@@ -39,6 +40,7 @@ import {
   trackedOwningTask,
   trackedTaskPrompt,
 } from '../tracking/track-store.js';
+import type { ToolExecution } from '../types/execution.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { taskCostFromUsage } from '../usage/task-cost.js';
@@ -235,6 +237,7 @@ export async function runIsolatedScheduledTask(params: {
       : undefined,
   );
   const endWork = beginWork(activeSessionId, runId);
+  let toolExecutions: ToolExecution[] = [];
   try {
     const output = await runAgent({
       sessionId: activeSessionId,
@@ -254,10 +257,11 @@ export async function runIsolatedScheduledTask(params: {
         ? { approvalUserId: params.approver, approvalUserText: storedPrompt }
         : {}),
     });
+    toolExecutions = output.toolExecutions || [];
     emitToolExecutionAuditEvents({
       sessionId: activeSessionId,
       runId,
-      toolExecutions: output.toolExecutions || [],
+      toolExecutions,
     });
     updateWork(runId, (work) => {
       work.actions = (output.toolExecutions ?? []).flatMap((tool, index) =>
@@ -405,6 +409,7 @@ export async function runIsolatedScheduledTask(params: {
           type: 'turn.end',
           turnIndex: 1,
           finishReason: 'completed',
+          ...turnToolSummary(toolExecutions),
         },
       });
       recordAuditEvent({
@@ -444,6 +449,7 @@ export async function runIsolatedScheduledTask(params: {
         type: 'turn.end',
         turnIndex: 1,
         finishReason: 'error',
+        ...turnToolSummary(toolExecutions),
       },
     });
     recordAuditEvent({
@@ -483,6 +489,7 @@ export async function runIsolatedScheduledTask(params: {
         type: 'turn.end',
         turnIndex: 1,
         finishReason: 'error',
+        ...turnToolSummary(toolExecutions),
       },
     });
     recordAuditEvent({

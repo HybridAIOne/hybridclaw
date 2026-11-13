@@ -96,6 +96,8 @@ places:
    within a shared history budget, the current session summary, and relevant
    retrieval snippets. It is appended after the static system prompt so
    provider prefix caches can reuse the same system prompt bytes across turns.
+   A daily note is sent when it is new to the prompt or changed, not repeated
+   with every turn.
 3. Memory recall
    This includes canonical cross-channel context and relevant semantic recall.
 4. Recent raw history
@@ -151,6 +153,22 @@ and "the workspace has a cleaned-up long-term memory file."
 ### Raw Session History
 
 Raw session history lives in the SQLite messages table.
+
+The web chat loads the latest 80 stored messages initially. Scrolling upward
+near the top or selecting **Load older messages** fetches an older page while
+preserving the visible message's position. New replies do not pull readers
+away from older history; **Latest** returns to the bottom.
+
+`GET /api/history?sessionId=<id>&limit=80` returns chronological `history` and
+`nextCursor` (a stored-message ID string, or `null` at the beginning). Pass it
+as `before=<nextCursor>` for the next older page. The cursor is exclusive and
+the gateway caps each page at 200 stored rows. Display filtering can produce
+an empty page with a non-null cursor; clients must use the cursor to determine
+whether more history exists. Each query remains scoped to the requested
+session under the history endpoint's existing authentication and access checks.
+Cursors grant no access themselves; malformed, non-positive, or unsafe-integer
+cursor values are rejected with HTTP 400 before history is read.
+Paging does not change retention, compaction, or the model's context window.
 
 Gateway-managed agent turns retain ordered tool calls and results alongside
 their final assistant message in `messages.tool_history_json`. The next turn
@@ -390,20 +408,25 @@ The values below describe the built-in defaults in the current codebase.
 Prompt history and compaction share one budget:
 
 ```text
-session budget  = min(model context window, sessionCompaction.tokenBudget)
-                  × sessionCompaction.budgetRatio
+session budget  = model context window × sessionCompaction.budgetRatio
 history budget  = max(2,000, session budget − prompt overhead)
 ```
 
 Prompt overhead is the estimated size of the system blocks plus the dynamic
 context message (bootstrap files, daily notes, session summary, recall). The
-model context window comes from the model catalog; unknown models fall back to
-`tokenBudget`.
+model context window comes from the model catalog. A non-zero
+`sessionCompaction.tokenBudget` clips the window before the ratio applies. For
+a model the catalog does not know, the window is `tokenBudget`, or `100,000`
+tokens without one.
+
+A larger budget keeps more turns verbatim and compacts less often, and it also
+lets each prompt grow: a turn sent after the provider's prompt cache expired
+pays for the whole history again. Set `tokenBudget` to bound that cost.
 
 | Limit | Default | Meaning |
 | --- | ---: | --- |
-| token budget | `100,000` estimated tokens | upper cap on the session budget, also the fallback when the model's context window is unknown |
-| budget ratio | `0.7` | share of the clipped context window given to the session prompt |
+| token budget | `0` (no cap) | optional upper cap on the context window used for the session budget |
+| budget ratio | `0.7` | share of the context window given to the session prompt |
 | history floor | `2,000` estimated tokens | history budget never drops below this, even when prompt overhead is large |
 | history fetch cap | `500` rows | safety cap on stored rows loaded per turn; only reached when compaction is not running |
 
@@ -567,6 +590,25 @@ after verifying that no writer is running; locks are never stolen based on age.
 Reads without a target use `MEMORY.md`. Prefer `append` to save additional notes;
 `write` replaces the entire daily note and requires `confirm_overwrite: true`.
 Explicit targets remain subject to the today-only write restriction.
+
+Daily reads and successful mutations report `current_chars`, `limit_chars`,
+`remaining_chars`, and `append_capacity_chars`. The last field accounts for the
+blank-line separator and final newline, after trimming existing trailing
+whitespace. Counts use JavaScript string length (UTF-16 code units).
+
+An oversized mutation leaves the note unchanged and returns
+`MEMORY_CAPACITY_EXCEEDED`, the attempted size and overflow, and recovery steps.
+Read today's note, condense duplicate or verbose entries with exact `replace`
+operations while preserving unique facts, and append only new durable facts that
+fit. Do not blindly overwrite or truncate a note, write another date, or bypass
+the cap with another tool. If safe condensation is impossible, report the unsaved
+memory and continue the user task. Dream consolidation does not free daily-note
+space because it never rewrites source daily files.
+
+Repeating a rejected effective payload against the same note revision returns
+`MEMORY_RETRY_BLOCKED`. Changing the payload or note permits a fresh attempt.
+Rejection hashes persist per session and daily file across worker replacement;
+raw note and payload text are not stored in retry records.
 
 Daily filenames use the timezone in `USER.md`. An empty or invalid timezone uses
 the host's resolved timezone, which the gateway passes to Docker as `TZ`.

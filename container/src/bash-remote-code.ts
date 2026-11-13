@@ -2,7 +2,7 @@
  * Fetched-code provenance follows curl/wget inputs through scripts and workers.
  * Bounded Python inspection distinguishes data use and retains derived files;
  * Python startup import roots also retain downloaded-module provenance.
- * Unknown wrappers or source stay conservative; other copies are not followed.
+ * Parsed output destinations retain origins; opaque copies stay uninspected.
  * Unlike approval policy, this records origins and effects, never permission;
  * hard safety blocks and sandbox boundaries remain independent.
  */
@@ -80,7 +80,7 @@ function redirectedInput(args: string[]): string | undefined {
   let input: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width === 0) continue;
     // Redirections can follow inline program text and use attached targets.
     if (/^0?</.test(arg)) {
@@ -106,7 +106,7 @@ function pythonCodeSource(
         : { file: input, pythonStartup: startup };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
       continue;
@@ -181,7 +181,7 @@ export function codeSource({
   const operands: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
     } else if (operands.length === 0 && /^[-+]./.test(arg)) {
@@ -237,6 +237,14 @@ export function findFetchedCode(
       (savedBefore.has(resolved) || saved.includes(resolved))
     );
   };
+  const rememberWrites = (targets: Iterable<string>, cwd: Cwd): void => {
+    for (const target of targets) {
+      const resolved = resolvePath(target, cwd);
+      const origin = resolved ?? UNKNOWN_FETCH_LOCATION;
+      if (!saved.includes(origin)) saved.push(origin);
+      unknownLocation ||= resolved === null;
+    }
+  };
   // Whether a substitution result can hold fetched bytes; `$(…)` bodies are
   // commands of their own, so this looks at the whole script from where it
   // starts.
@@ -248,11 +256,9 @@ export function findFetchedCode(
   );
   for (const command of commands) {
     const { words, program, args, piped, cwd } = command;
+    let dataFetched = false;
     if (FETCH_PROGRAMS.has(program)) {
-      for (const target of commandWriteTargets(words)) {
-        const resolved = resolvePath(target, cwd);
-        if (resolved !== null) saved.push(resolved);
-      }
+      rememberWrites(commandWriteTargets(words), cwd);
     }
     const programPath = words[command.start] ?? '';
     if (programPath.includes('/') && isSaved(programPath, cwd)) runs = true;
@@ -335,16 +341,11 @@ export function findFetchedCode(
       } else if (data) {
         pathHints.push(...data.pathHints);
         writeIntent ||= data.writes.length > 0;
-        if (
+        dataFetched =
           data.reads.some((file) => isSaved(file, cwd)) ||
           (piped && pipelineFetched) ||
-          (source.input !== undefined && isSaved(source.input, cwd))
-        ) {
-          for (const file of data.writes) {
-            const resolved = resolvePath(file, cwd);
-            if (resolved !== null) saved.push(resolved);
-          }
-        }
+          (source.input !== undefined && isSaved(source.input, cwd));
+        if (dataFetched) rememberWrites(data.writes, cwd);
       } else if (depth < MAX_NESTED_SCRIPT_DEPTH) {
         const innerCommands = scriptCommands(source.inline, cwd);
         if (
@@ -387,10 +388,12 @@ export function findFetchedCode(
       runs ||= unknownLocation || isSaved(source.file, cwd);
       uncertain ||= unknownLocation;
     }
-    pipelineFetched =
+    const fetchedInput: boolean =
+      dataFetched ||
       (piped && pipelineFetched) ||
-      FETCH_PROGRAMS.has(program) ||
       args.some((arg) => isSaved(arg, cwd));
+    if (fetchedInput) rememberWrites(commandWriteTargets(words), cwd);
+    pipelineFetched = fetchedInput || FETCH_PROGRAMS.has(program);
     pipelineOpaque =
       (piped && pipelineOpaque) || Boolean(source && 'opaque' in source);
   }

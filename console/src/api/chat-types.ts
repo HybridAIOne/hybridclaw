@@ -119,6 +119,7 @@ export interface BranchVariant {
 }
 
 export interface ChatHistoryResponse {
+  nextCursor?: string | null;
   sessionId?: string;
   agentId?: string | null;
   history: ChatHistoryMessage[];

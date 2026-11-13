@@ -74,6 +74,26 @@ export function messageToolTarget(
   return undefined;
 }
 
+// A Discord channel is also spelled `<#id>`, `channel:id` or `discord:id`.
+function channelKey(value: string): string {
+  return value
+    .replace(/^<#(\d+)>$/, '$1')
+    .replace(/^(?:channel|discord):(\d+)$/i, '$1');
+}
+
+/** Who a message-tool call names besides the conversation's own channel. */
+export function messageToolOutsideTarget(
+  args: Record<string, unknown>,
+  currentChannelId: string | undefined,
+): string | undefined {
+  const current = currentChannelId ? channelKey(currentChannelId) : undefined;
+  for (const key of MESSAGE_TARGET_KEYS) {
+    const value = stringValue(args[key]);
+    if (value && channelKey(value) !== current) return value;
+  }
+  return undefined;
+}
+
 /** The address a message-tool send mails to, when its target is one. */
 export function messageToolEmailTarget(
   args: Record<string, unknown>,

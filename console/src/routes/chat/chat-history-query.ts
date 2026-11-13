@@ -1,3 +1,13 @@
+/**
+ * Stored chat pages hydrate into the same cache used by live streaming.
+ * Stable persisted IDs keep mounted messages intact across prepends and refreshes;
+ * this is display history, never the model's context window.
+ */
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { structuredReply } from '../../../../src/gateway/structured-reply';
 import { fetchChatHistory } from '../../api/chat';
 import type {
@@ -16,6 +26,8 @@ import type {
 
 export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
+  nextCursor?: string | null;
+  hasLoadedOlder?: boolean;
   branchFamilies: Map<string, BranchVariant[]>;
   requestedSessionId: string;
   resolvedSessionId: string;
@@ -188,7 +200,8 @@ export function buildChatHistoryUiData(
           : null;
     const chatMessage: ChatMessage = {
       ...structuredReply(msg),
-      id: nextMsgId(),
+      id:
+        msg.id == null ? nextMsgId() : `history:${resolvedSessionId}:${msg.id}`,
       role: msg.role,
       content: msg.content,
       rawContent: msg.content,
@@ -213,9 +226,8 @@ export function buildChatHistoryUiData(
     if (msg.role === 'assistant') {
       const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);
       if (trace) {
-        // Keep an expanded progress trace open across background updates.
-        if (msg.id != null)
-          trace.id = `history-trace:${resolvedSessionId}:${msg.id}`;
+        trace.id = `${chatMessage.id}:trace`;
+        trace.messageId = msg.id ?? null;
         messages.push(trace);
       }
     }
@@ -234,6 +246,7 @@ export function buildChatHistoryUiData(
 
   return {
     messages: removeResolvedA2ADeliveryStatusMessages(messages),
+    nextCursor: raw.nextCursor ?? null,
     branchFamilies,
     requestedSessionId,
     resolvedSessionId,
@@ -254,7 +267,104 @@ export async function loadChatHistoryUi(
   sessionId: string,
   userId?: string,
   agentId?: string,
+  before?: string,
 ): Promise<ChatHistoryUiData> {
-  const raw = await fetchChatHistory(token, sessionId, 80, userId, agentId);
+  const raw =
+    before === undefined
+      ? await fetchChatHistory(token, sessionId, 80, userId, agentId)
+      : await fetchChatHistory(token, sessionId, 80, userId, agentId, before);
   return buildChatHistoryUiData(raw, sessionId);
+}
+
+export function prependChatHistory(
+  older: ChatHistoryUiData,
+  current: ChatHistoryUiData,
+): ChatHistoryUiData {
+  if (older.resolvedSessionId !== current.resolvedSessionId) return current;
+  const currentKeys = new Set(current.messages.map(messageKey));
+  const messages = [
+    ...older.messages.filter(
+      (message) =>
+        message.role !== 'approval' && !currentKeys.has(messageKey(message)),
+    ),
+    ...current.messages,
+  ];
+  // A page can split a user/assistant exchange. Complete replay context once
+  // both halves are loaded without replacing the mounted newer message's ID.
+  let lastUser: string | null = null;
+  return {
+    ...current,
+    messages: messages.map((message) => {
+      if (message.role === 'user') lastUser = message.content;
+      return message.role === 'assistant' &&
+        !message.replayRequest &&
+        lastUser !== null
+        ? { ...message, replayRequest: { content: lastUser, media: [] } }
+        : message;
+    }),
+    branchFamilies: new Map([
+      ...older.branchFamilies,
+      ...current.branchFamilies,
+    ]),
+    nextCursor: older.nextCursor ?? null,
+    hasLoadedOlder: true,
+  };
+}
+
+function messageKey(message: ChatUiMessage): string {
+  return message.messageId == null
+    ? message.id
+    : `${message.role}:${message.messageId}`;
+}
+
+export function retainOlderChatHistory(
+  newest: ChatHistoryUiData,
+  previous: ChatHistoryUiData | undefined,
+): ChatHistoryUiData {
+  if (
+    !previous?.hasLoadedOlder ||
+    !newest.nextCursor ||
+    previous.resolvedSessionId !== newest.resolvedSessionId
+  )
+    return newest;
+  const firstId = newest.messages.find(
+    (message) => typeof message.messageId === 'number',
+  )?.messageId;
+  const older = previous.messages.filter(
+    (message) =>
+      typeof message.messageId === 'number' &&
+      (typeof firstId !== 'number' || message.messageId < firstId),
+  );
+  return prependChatHistory({ ...previous, messages: older }, newest);
+}
+
+export async function loadCachedChatHistoryUi(
+  queryClient: QueryClient,
+  token: string,
+  sessionId: string,
+  userId?: string,
+  agentId?: string,
+): Promise<ChatHistoryUiData> {
+  const newest = await loadChatHistoryUi(token, sessionId, userId, agentId);
+  return retainOlderChatHistory(
+    newest,
+    queryClient.getQueryData(chatHistoryQueryKey(token, sessionId)),
+  );
+}
+
+export function useChatHistory(
+  token: string,
+  sessionId: string,
+  userId: string,
+  agentId: string | undefined,
+  enabled: boolean,
+) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: chatHistoryQueryKey(token, sessionId),
+    queryFn: () =>
+      loadCachedChatHistoryUi(queryClient, token, sessionId, userId, agentId),
+    enabled: enabled && Boolean(sessionId),
+    staleTime: Infinity,
+  });
 }

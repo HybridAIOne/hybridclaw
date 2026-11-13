@@ -27,6 +27,7 @@ describe('buildChatHistoryUiData', () => {
     });
     const updated = buildChatHistoryUiData(raw, 'session-a').messages[0];
     expect(updated?.id).toBe(first?.id);
+    expect(updated?.messageId).toBe(42);
     expect(updated?.role === 'trace' && updated.done).toBe(false);
     expect(updated?.role === 'trace' && updated.steps).toHaveLength(2);
   });

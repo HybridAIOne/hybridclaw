@@ -39,6 +39,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
@@ -446,6 +447,22 @@ function receiptOf(
   toolExecutions: ToolExecution[],
 ): Pick<GatewayChatResult, 'receipt'> {
   return { receipt: turnReceiptFromExecutions(toolExecutions) };
+}
+
+// Streamed tool progress stands in for executions a failed turn never returned.
+function errorTurnToolSummary(
+  toolExecutions: readonly ToolExecution[],
+  observed: readonly ErrorTurnToolRecord[],
+): ReturnType<typeof turnToolSummary> {
+  return turnToolSummary(
+    toolExecutions.length > 0
+      ? toolExecutions
+      : observed.map(({ name, outcome }) => ({
+          name,
+          isError: outcome === 'failed',
+          blocked: outcome === 'blocked',
+        })),
+  );
 }
 
 /**
@@ -1064,6 +1081,8 @@ async function handleGatewayMessageInner(
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
     workspaceOverrides: req,
+    executionDeadlineAtMs: req.executionDeadlineAtMs,
+    maxWallClockMs: req.maxWallClockMs,
     abortSignal: req.abortSignal,
     steerInbox,
     onToolProgress: (event) => emitGatewayToolProgress(event),
@@ -1470,7 +1489,7 @@ async function handleGatewayMessageInner(
         userMedia: blockedMedia,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
@@ -2089,7 +2108,7 @@ async function handleGatewayMessageInner(
         userMedia: media,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
@@ -2281,6 +2300,7 @@ async function handleGatewayMessageInner(
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,
+        executionDeadlineAtMs: activeGatewayRequest.executionDeadlineAtMs,
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
@@ -2389,52 +2409,13 @@ async function handleGatewayMessageInner(
       }
     } else {
       startRoutingTraceAttempt(model);
-      output = await runAgent({
-        sessionId: req.executionSessionId || req.sessionId,
-        runId,
-        messages,
-        chatbotId,
-        enableRag,
-        executorModeOverride: req.executorModeOverride,
+      output = await invokeAgent({
         model,
-        reasoningEffort: req.reasoningEffort,
-        agentId,
-        addressEnvelope: req.addressEnvelope,
-        workspacePathOverride,
-        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-        runtimeScope: scopeRunAgentParams(scopeRun).runtimeScope,
-        skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
-        maxTokens: req.maxTokens,
-        maxWallClockMs: req.maxWallClockMs,
-        inactivityTimeoutMs: req.inactivityTimeoutMs,
-        bashProxy: req.bashProxy,
-        channelId: req.channelId,
-        client: req.client,
-        browserProvider: resolveTurnBrowserProvider(req.client),
-        ralphMaxIterations: resolveSessionRalphIterations(session),
-        approvalMode,
-        ...approvalReplyContext(req, userTurnContent),
-        approvalReplyDecision: connectorReply,
-        fullAutoNeverApproveTools: neverAutoApproveTools,
-        scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
-        background: isGoalContinuationSource(source),
-        skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
-        toolCallLimits: req.toolCallLimits,
-        blockedTools,
+        chatbotId,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
         onToolProgress,
         onApprovalProgress,
-        abortSignal: activeGatewayRequest.signal,
-        media,
-        readableMediaPaths: collectEarlierAttachments(history).map(
-          (item) => item.path,
-        ),
-        audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-        pluginTools: pluginManager?.getToolDefinitions() ?? [],
-        escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
-        steerInbox,
       });
     }
     replyFetches.finish(output.toolExecutions);
@@ -2761,6 +2742,7 @@ async function handleGatewayMessageInner(
       acceptedDelegationPlans.length > 0
         ? enqueueDelegationBatchFromSideEffects({
             plans: acceptedDelegationPlans,
+            executionDeadlineAtMs: activeGatewayRequest.executionDeadlineAtMs,
             fileWriteGuardSessionId:
               output.fileWriteGuardSessionId ??
               req.executionSessionId ??
@@ -2778,7 +2760,7 @@ async function handleGatewayMessageInner(
             },
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
-            runParentTurn: ({ content, onTextDelta }) =>
+            runParentTurn: ({ content, onTextDelta, executionDeadlineAtMs }) =>
               handleGatewayMessage({
                 sessionId: req.sessionId,
                 guildId: req.guildId,
@@ -2793,6 +2775,7 @@ async function handleGatewayMessageInner(
                 onTextDelta,
                 onProactiveMessage: req.onProactiveMessage,
                 source: DELEGATION_RESULTS_SOURCE,
+                executionDeadlineAtMs,
                 workspacePathOverride,
                 workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
               }),
@@ -2864,6 +2847,7 @@ async function handleGatewayMessageInner(
           turnIndex,
           finishReason: 'error',
           assistantMessageId: storedErrorTurn.assistantMessageId,
+          ...errorTurnToolSummary(toolExecutions, observedToolCalls),
         },
       });
       recordAuditEvent({
@@ -3057,7 +3041,7 @@ async function handleGatewayMessageInner(
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
-      toolCallCount: toolExecutions.length,
+      toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       promptOverheadTokens,
@@ -3273,6 +3257,7 @@ async function handleGatewayMessageInner(
         ...(storedErrorTurn
           ? { assistantMessageId: storedErrorTurn.assistantMessageId }
           : {}),
+        ...errorTurnToolSummary([], observedToolCalls),
       },
     });
     recordAuditEvent({

@@ -312,7 +312,7 @@ test.each(['failed', 'restart'] as const)(
   },
 );
 
-test('waiting delegates stream child calls to the parent with distinct sibling call ids', async () => {
+test('waiting delegates retain their deadline while streaming distinct sibling calls', async () => {
   await setup();
   const { registerActiveGatewayRequest } = await import(
     '../src/gateway/gateway-request-runtime.js'
@@ -321,10 +321,12 @@ test('waiting delegates stream child calls to the parent with distinct sibling c
     '../src/gateway/gateway-delegation.js'
   );
   const onToolProgress = vi.fn();
+  const executionDeadlineAtMs = Date.now() + 60_000;
   const request = registerActiveGatewayRequest({
     sessionId: 'parent',
     executionSessionId: 'worker',
     onToolProgress,
+    executionDeadlineAtMs,
   });
   runAgent.mockImplementation(
     async (params: {
@@ -369,6 +371,11 @@ test('waiting delegates stream child calls to the parent with distinct sibling c
       .filter((event) => event.phase === 'start');
     expect(starts.every((event) => event.sessionId === 'parent')).toBe(true);
     expect(new Set(starts.map((event) => event.toolCallId)).size).toBe(2);
+    expect(
+      runAgent.mock.calls.every(
+        ([params]) => params.executionDeadlineAtMs === executionDeadlineAtMs,
+      ),
+    ).toBe(true);
   } finally {
     request.release();
   }
