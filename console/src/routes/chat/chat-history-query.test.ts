@@ -3,6 +3,34 @@ import type { ChatHistoryResponse } from '../../api/chat-types';
 import { buildChatHistoryUiData } from './chat-history-query';
 
 describe('buildChatHistoryUiData', () => {
+  it('preserves the trace identity when background activity updates', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 42,
+          role: 'assistant',
+          content: 'Running research',
+          activityTrace: {
+            running: true,
+            steps: [
+              { kind: 'tool', toolName: 'web_search', status: 'running' },
+            ],
+          },
+        },
+      ],
+    };
+    const first = buildChatHistoryUiData(raw, 'session-a').messages[0];
+    raw.history[0]?.activityTrace?.steps.push({
+      kind: 'tool',
+      toolName: 'web_fetch',
+    });
+    const updated = buildChatHistoryUiData(raw, 'session-a').messages[0];
+    expect(updated?.id).toBe(first?.id);
+    expect(updated?.messageId).toBe(42);
+    expect(updated?.role === 'trace' && updated.done).toBe(false);
+    expect(updated?.role === 'trace' && updated.steps).toHaveLength(2);
+  });
   it('pairs assistant messages with the prior user content for replay', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

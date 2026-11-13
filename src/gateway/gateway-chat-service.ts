@@ -1085,6 +1085,7 @@ async function handleGatewayMessageInner(
     maxWallClockMs: req.maxWallClockMs,
     abortSignal: req.abortSignal,
     steerInbox,
+    onToolProgress: (event) => emitGatewayToolProgress(event),
   });
   const resolvedRequest = resolveAgentForRequest({
     agentId: req.agentId,

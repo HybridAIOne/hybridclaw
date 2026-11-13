@@ -5,7 +5,8 @@ import {
 } from '../config/config.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import { withMemoryDatabase } from './database.js';
-import { queryOne } from './sqlite.js';
+import { interruptDelegationProgress } from './delegation-progress.js';
+import { queryAll, queryOne } from './sqlite.js';
 
 export type DelegationJobStatus =
   | 'queued'
@@ -220,21 +221,24 @@ export function completeDelegationJob(
 }
 
 export function failDelegationJob(publicId: string, error: string): void {
-  withMemoryDatabase((database) => {
-    const normalized = normalizeDelegationJobId(publicId);
-    if (!normalized) return;
-    const normalizedError = String(error || '').trim() || 'delegation_failed';
-    database
-      .prepare(
-        `UPDATE delegation_jobs
+  withMemoryDatabase((database) =>
+    database.transaction(() => {
+      const normalized = normalizeDelegationJobId(publicId);
+      if (!normalized) return;
+      const normalizedError = String(error || '').trim() || 'delegation_failed';
+      const result = database
+        .prepare(
+          `UPDATE delegation_jobs
          SET status = 'failed',
              error = ?,
              completed_at = datetime('now')
          WHERE public_id = ?
            AND status IN ('queued', 'in_progress')`,
-      )
-      .run(normalizedError, normalized);
-  });
+        )
+        .run(normalizedError, normalized);
+      if (result.changes) interruptDelegationProgress(database, normalized);
+    })(),
+  );
 }
 
 export function getDelegationJob(publicId: string): DelegationJobRow | null {
@@ -252,17 +256,25 @@ export function getDelegationJob(publicId: string): DelegationJobRow | null {
 }
 
 export function failStaleDelegationJobs(error: string): number {
-  return withMemoryDatabase((database) => {
-    const normalizedError = String(error || '').trim() || 'gateway_restart';
-    const result = database
-      .prepare(
-        `UPDATE delegation_jobs
+  return withMemoryDatabase((database) =>
+    database.transaction(() => {
+      const normalizedError = String(error || '').trim() || 'gateway_restart';
+      const stale = queryAll<{ public_id: string }>(
+        database,
+        "SELECT public_id FROM delegation_jobs WHERE status IN ('queued', 'in_progress')",
+      );
+      const result = database
+        .prepare(
+          `UPDATE delegation_jobs
          SET status = 'failed',
              error = ?,
              completed_at = datetime('now')
          WHERE status IN ('queued', 'in_progress')`,
-      )
-      .run(normalizedError);
-    return result.changes;
-  });
+        )
+        .run(normalizedError);
+      for (const row of stale)
+        interruptDelegationProgress(database, row.public_id);
+      return result.changes;
+    })(),
+  );
 }
