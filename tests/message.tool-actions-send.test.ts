@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { fakeWhatsAppRegistration } from './helpers/fake-channel-transport.js';
 
 async function importFreshMessageToolActions(
   a2aLocalMode = false,
@@ -253,10 +254,6 @@ async function importFreshMessageToolActions(
   );
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
 
-  vi.doMock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
-    ...(await importOriginal<object>()),
-    getWhatsAppAuthStatus,
-  }));
   vi.doMock('../src/channels/plugin-channel/host.js', () => ({
     createChannelTransportHost: () => ({}),
   }));
@@ -311,20 +308,29 @@ async function importFreshMessageToolActions(
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
-  // The released WhatsApp plugin registers the create-only shape; core's
-  // compat adapter supplies the target, auth, and send-description hooks.
   if (whatsappPluginLoaded) {
     (
       await import('../src/channels/channel-transport.js')
     ).registerChannelTransport({
-      kind: 'whatsapp',
-      create: () => ({
+      ...fakeWhatsAppRegistration({
         init: async () => {},
         shutdown: async () => {},
         sendText: sendToWhatsAppChat,
         sendMedia: sendWhatsAppMediaToChat,
       }),
-    } as never);
+      getAuthStatus: getWhatsAppAuthStatus,
+      describeSend: ({ target, auth }) => {
+        const recipient = '+' + target.split('@')[0];
+        const sentFrom = typeof auth.jid === 'string'
+          ? '+' + auth.jid.split(/[:@]/)[0]
+          : 'the linked WhatsApp account';
+        return {
+          recipient,
+          sentFrom,
+          ...(sentFrom === recipient ? { note: 'fixture self-chat advisory' } : {}),
+        };
+      },
+    });
   }
   const loaders = await import('../src/channels/channel-runtime-loaders.js');
   if (channelsRunning) {
@@ -1701,7 +1707,7 @@ test('WhatsApp send results warn when the recipient is the linked account itself
     sentFrom: '+491234567890',
     recipient: '+491234567890',
   });
-  expect(String(result.note)).toContain('does not send a push notification');
+  expect(result.note).toBe('fixture self-chat advisory');
 });
 
 

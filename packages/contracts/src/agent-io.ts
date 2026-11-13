@@ -200,10 +200,16 @@ export interface MediaContextItem {
   unavailableReason?: string | null;
 }
 
+/** A gateway-owned absolute bound; descendants and retries cannot renew it. */
+export interface ExecutionDeadline {
+  executionDeadlineAtMs?: number;
+}
+
 export interface ContainerInput
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
     FileWriteGuardContext,
+    ExecutionDeadline,
     ToolCallLimits {
   healthCheck?: {
     nonce: string;

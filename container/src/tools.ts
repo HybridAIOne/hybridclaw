@@ -5,17 +5,12 @@
  * gateway's visual-data permission. This never grants action approval.
  */
 
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
 import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
-import { DAILY_MEMORY_MAX_CHARS } from '@hybridclaw/shared/daily-memory';
-import {
-  waitForMemoryFileLock,
-  writeMemoryFileAtomic,
-} from '@hybridclaw/shared/memory-file';
+import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
@@ -31,7 +26,6 @@ import {
 } from '@hybridclaw/shared/workspace-time';
 import {
   BASH_DOCKER_CONTAINER,
-  BASH_EXEC_MAX_BUFFER_BYTES,
   type BashProcessResult,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
@@ -79,6 +73,7 @@ import type { McpClientManager } from './mcp/client-manager.js';
 import {
   type AuxiliaryRuntimeContext,
   captureAuxiliaryRuntimeContext,
+  getCurrentExecutionDeadline,
 } from './model-context.js';
 import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
@@ -104,8 +99,13 @@ import {
 } from './runtime-paths.js';
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import {
+  copyTaskSandboxFileToTemp,
+  runTaskSandboxDocker,
+} from './task-sandbox-files.js';
 import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
+import { failTool, ToolExecutionFailure } from './tool-errors.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -131,6 +131,7 @@ import {
   INBOX_CLEANUP_TOOL_DEFINITION,
   runInboxCleanup,
 } from './tools/inbox-cleanup.js';
+import { formatMemoryCapacity, runMemoryWrite } from './tools/memory-write.js';
 import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
@@ -389,20 +390,6 @@ type DiscordMessageToolAction =
   | 'thread-create'
   | 'thread-reply';
 
-class ToolExecutionFailure extends Error {
-  readonly output: string;
-
-  constructor(output: string) {
-    super(output);
-    this.name = 'ToolExecutionFailure';
-    this.output = output;
-  }
-}
-
-function failTool(output: string): never {
-  throw new ToolExecutionFailure(output);
-}
-
 function parseStructuredToolOutput(
   output: string,
 ): Record<string, unknown> | null {
@@ -532,31 +519,6 @@ function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function runTaskSandboxDocker(params: {
-  args: string[];
-  timeoutMs?: number;
-  input?: string;
-}): {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-  error?: Error;
-} {
-  const result = spawnSync('docker', params.args, {
-    encoding: 'utf-8',
-    input: params.input,
-    timeout: params.timeoutMs,
-    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    env: { ...process.env },
-  });
-  return {
-    status: typeof result.status === 'number' ? result.status : null,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    error: result.error ?? undefined,
-  };
-}
-
 function ensureTaskSandboxSuccess(
   result: {
     status: number | null;
@@ -572,33 +534,6 @@ function ensureTaskSandboxSuccess(
     .join('\n')
     .trim();
   failTool(`Error: ${detail || result.error?.message || fallback}`);
-}
-
-function copyTaskSandboxFileToTemp(sandboxPath: string): {
-  tempDir: string;
-  localPath: string;
-} {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-taskfs-'));
-  const localPath = path.join(
-    tempDir,
-    path.posix.basename(sandboxPath) || 'file',
-  );
-  const result = runTaskSandboxDocker({
-    args: ['cp', `${BASH_DOCKER_CONTAINER}:${sandboxPath}`, localPath],
-  });
-  if (result.status !== 0) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
-    if (/no such file|could not find|not found/i.test(detail)) {
-      failTool(
-        `Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`,
-      );
-    }
-    failTool(
-      `Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`,
-    );
-  }
-  return { tempDir, localPath };
 }
 
 function writeTempFileToTaskSandbox(
@@ -2251,10 +2186,6 @@ function readWorkspaceText(userPath: string): string {
 
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
-const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
-  'MEMORY.md': 12_000,
-  'USER.md': 8_000,
-};
 
 function normalizeDateStamp(input: string): string | null {
   const trimmed = input.trim();
@@ -2368,10 +2299,6 @@ function listMemoryFiles(): string[] {
 
   files.sort((a, b) => a.localeCompare(b));
   return files;
-}
-
-function memoryCharLimit(relativePath: string): number {
-  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_MAX_CHARS;
 }
 
 interface TranscriptRow {
@@ -3221,102 +3148,27 @@ async function executeToolInternal(
       }
 
       if (action === 'read') {
-        if (!fs.existsSync(filePath)) {
-          return `${relativePath}\n\n(empty)`;
-        }
-        const content = fs.readFileSync(filePath, 'utf-8');
-        return `${relativePath}\n\n${content || '(empty)'}`;
+        const content = fs.existsSync(filePath)
+          ? fs.readFileSync(filePath, 'utf-8')
+          : '';
+        const capacity = DAILY_MEMORY_FILE_RE.test(relativePath)
+          ? `${formatMemoryCapacity(content)}\n\n`
+          : '';
+        return `${relativePath}\n\n${capacity}${content || '(empty)'}`;
       }
 
-      const release = isMemoryWriteAction(action)
-        ? await waitForMemoryFileLock(filePath)
-        : undefined;
-      try {
-        if (action === 'append') {
-          const content =
-            typeof args.content === 'string' ? args.content.trim() : '';
-          if (!content)
-            return failTool('Error: content is required for memory append');
-
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          const existing = fs.existsSync(filePath)
-            ? fs.readFileSync(filePath, 'utf-8')
-            : '';
-          let next = existing.replace(/\s+$/, '');
-          if (next.length > 0) next += '\n\n';
-          next += `${content}\n`;
-          const limit = memoryCharLimit(relativePath);
-          if (next.length > limit) {
-            return failTool(
-              `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
-            );
-          }
-          writeMemoryFileAtomic(filePath, next);
-          return `Appended ${content.length} chars to ${relativePath}`;
-        }
-
-        if (action === 'write') {
-          if (args.confirm_overwrite !== true) {
-            return failTool(
-              'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
-            );
-          }
-          const content = args.content;
-          assertTextPayload(content, 'content');
-          const limit = memoryCharLimit(relativePath);
-          if (content.length > limit) {
-            return failTool(
-              `Error: ${relativePath} exceeds ${limit} char limit.`,
-            );
-          }
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          writeMemoryFileAtomic(filePath, content);
-          return `Wrote ${content.length} chars to ${relativePath}`;
-        }
-
-        if (action === 'replace') {
-          const oldText =
-            typeof args.old_text === 'string' ? args.old_text : '';
-          const newText = args.new_text;
-          assertTextPayload(newText, 'new_text');
-          if (!oldText)
-            return failTool('Error: old_text is required for memory replace');
-          if (!fs.existsSync(filePath))
-            return failTool(`Error: File not found: ${relativePath}`);
-          const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText))
-            return failTool(`Error: old_text not found in ${relativePath}`);
-          const next = content.replace(oldText, () => newText);
-          const limit = memoryCharLimit(relativePath);
-          if (next.length > limit) {
-            return failTool(
-              `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
-            );
-          }
-          writeMemoryFileAtomic(filePath, next);
-          return `Updated ${relativePath}`;
-        }
-
-        if (action === 'remove') {
-          const oldText =
-            typeof args.old_text === 'string' ? args.old_text : '';
-          if (!oldText)
-            return failTool('Error: old_text is required for memory remove');
-          if (!fs.existsSync(filePath))
-            return failTool(`Error: File not found: ${relativePath}`);
-          const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText))
-            return failTool(`Error: old_text not found in ${relativePath}`);
-          writeMemoryFileAtomic(filePath, content.replace(oldText, ''));
-          return `Removed matching text from ${relativePath}`;
-        }
-
+      if (!isMemoryWriteAction(action)) {
         return failTool(
           `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
         );
-      } finally {
-        release?.();
       }
+      return runMemoryWrite(
+        action,
+        relativePath,
+        filePath,
+        args,
+        currentSessionId,
+      );
     }
 
     case 'message': {
@@ -3888,7 +3740,7 @@ async function executeToolInternal(
       }
       if (result.nextPageUrl) {
         lines.push(
-          `Next page: ${result.nextPageUrl} (paginated; fetch it for more items).`,
+          `Next link: ${result.nextPageUrl} (may lead to more items or a separate document; check relevance before fetching).`,
         );
       }
       let outputText = result.text;
@@ -4287,6 +4139,7 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
+    throwIfExecutionDeadlineExceeded(getCurrentExecutionDeadline());
     reserveToolCall(name);
     const result = await executeToolInternal(name, argsJson, sentFiles, boost);
     const metadata =
@@ -4417,7 +4270,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation. Daily reads and writes report capacity; append_capacity_chars includes separator overhead. On a capacity error, read the note and condense duplicates with replace, preserving unique facts, before saving only new durable facts. Identical rejected writes are blocked until the payload or note changes; never bypass the cap or blindly overwrite the note. If recovery is unsafe, report unsaved memory and continue the user task.",
       parameters: {
         type: 'object',
         properties: {

@@ -4,6 +4,7 @@
  * (`grep -r`, `find -exec`, `find | xargs`) reaching `.env*`, `/etc`, or `~/.ssh` without
  * naming them. Static: variables and interpreter scripts escape it, and an
  * earlier call's `cd` counts only through the start directory of the parse.
+ * Certified literal filter arguments retain data roles instead of path roles.
  * NOT a sandbox, NOT the grep tool's walk filter.
  */
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ import {
   scriptCommands,
   xargsCommandWords,
 } from './bash-commands.js';
+import { sedLiteralDataArgs } from './bash-sed-data.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
 import { expandUserPath, WORKSPACE_ROOT } from './runtime-paths.js';
 
@@ -236,7 +238,7 @@ function scanGrep(args: string[]): ProgramScan {
   const operands: number[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
     } else if (arg === '--') {
@@ -260,7 +262,7 @@ function scanGrep(args: string[]): ProgramScan {
         recursive = true;
       }
       if (name === '--regexp' || name === '--file') patternGiven = true;
-      if (name === '--regexp' && valueAt >= 0) nonPathArgs.push(valueAt);
+      if (name === '--regexp') nonPathArgs.push(valueAt >= 0 ? valueAt : index);
       if ((name === '--include' || name === '--exclude') && value) {
         filters.push({ include: name === '--include', glob: value });
       }
@@ -311,7 +313,7 @@ function scanRipgrep(args: string[]): ProgramScan {
   const operands: number[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
     } else if (arg === '--') {
@@ -430,7 +432,7 @@ function scanLs(args: string[]): ProgramScan {
   const roots: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) index += width - 1;
     else if (arg === '--all' || arg === '--almost-all') dotfiles = true;
     else if (/^-[^-]/.test(arg)) dotfiles ||= /[aA]/.test(arg);
@@ -455,7 +457,7 @@ function scanXargs(args: string[]): ProgramScan {
 function scanPrintedText(args: string[]): ProgramScan {
   const nonPathArgs: number[] = [];
   for (let index = 0; index < args.length; index += 1) {
-    const width = redirectWidth(args[index]);
+    const width = redirectWidth(args, index);
     if (width > 0) index += width - 1;
     else nonPathArgs.push(index);
   }
@@ -469,6 +471,8 @@ function scanProgram(
   args: string[],
   pipesOut: boolean,
 ): ProgramScan {
+  const sedData = sedLiteralDataArgs(program, args);
+  if (sedData) return { nonPathArgs: sedData, walk: null, reads: false };
   switch (program) {
     case 'grep':
     case 'egrep':
@@ -489,6 +493,18 @@ function scanProgram(
     default:
       return { nonPathArgs: [], walk: null, reads: false };
   }
+}
+
+// A shared argument role, not a permission: patterns never become paths or
+// opaque write expressions. Unknown sed grammar keeps its previous inspection.
+export function shellLiteralDataArgs(
+  program: string,
+  args: string[],
+): number[] {
+  if (program === 'grep' || program === 'egrep' || program === 'fgrep') {
+    return scanGrep(args).nonPathArgs;
+  }
+  return sedLiteralDataArgs(program, args) ?? [];
 }
 
 // Values that name files to skip: `--exclude .env`, `--exclude=.env*`, and

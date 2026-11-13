@@ -3,8 +3,13 @@
  * after every agent call, including failures and retries. Nested runs inherit
  * their live parent's workspace and scope; deleted scopes never become unscoped runs.
  * Terminal policy denials remain blocked; a recovered denial can still complete.
+ * Retries cannot extend the inherited execution deadline.
  * Background delivery and parent wakeups belong to gateway-delegation.
  */
+import {
+  ExecutionDeadlineError,
+  remainingExecutionMs,
+} from '@hybridclaw/shared/execution-deadline';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import { runAgent } from '../agent/agent.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
@@ -334,6 +339,11 @@ export async function runDelegationTaskWithRetry(
   let lastTokenCount: number | undefined;
 
   while (attempt < maxAttempts) {
+    if (remainingExecutionMs(input.executionDeadlineAtMs) === 0) {
+      lastError = new ExecutionDeadlineError().message;
+      lastStatus = 'timeout';
+      break;
+    }
     attempt += 1;
     const startedAt = Date.now();
     let output: ContainerOutput | undefined;
@@ -345,6 +355,7 @@ export async function runDelegationTaskWithRetry(
           channelId,
           fileWriteGuardSessionId,
           fileWriteGuardUserPrompt: input.fileWriteGuardUserPrompt,
+          executionDeadlineAtMs: input.executionDeadlineAtMs,
           chatbotId,
           enableRag,
           agentId,
@@ -357,6 +368,7 @@ export async function runDelegationTaskWithRetry(
             sessionId,
             fileWriteGuardSessionId,
             fileWriteGuardUserPrompt: input.fileWriteGuardUserPrompt,
+            executionDeadlineAtMs: input.executionDeadlineAtMs,
             messages: requestMessages,
             chatbotId,
             enableRag,
@@ -436,7 +448,9 @@ export async function runDelegationTaskWithRetry(
       lastStatus = inferDelegationStatus(errorText);
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
-        classification === 'transient' && attempt < maxAttempts;
+        classification === 'transient' &&
+        attempt < maxAttempts &&
+        remainingExecutionMs(input.executionDeadlineAtMs) !== 0;
       if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
 
       logger.warn(
@@ -450,7 +464,12 @@ export async function runDelegationTaskWithRetry(
         },
         'Delegation retry scheduled after transient error',
       );
-      await sleep(delayMs);
+      await sleep(
+        Math.min(
+          delayMs,
+          remainingExecutionMs(input.executionDeadlineAtMs) ?? delayMs,
+        ),
+      );
       delayMs = Math.min(delayMs * 2, PROACTIVE_AUTO_RETRY_MAX_DELAY_MS);
     } catch (err) {
       const durationMs = Date.now() - startedAt;
@@ -468,7 +487,9 @@ export async function runDelegationTaskWithRetry(
       });
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
-        classification === 'transient' && attempt < maxAttempts;
+        classification === 'transient' &&
+        attempt < maxAttempts &&
+        remainingExecutionMs(input.executionDeadlineAtMs) !== 0;
       if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
       logger.warn(
         {
@@ -481,7 +502,12 @@ export async function runDelegationTaskWithRetry(
         },
         'Delegation retry scheduled after transient exception',
       );
-      await sleep(delayMs);
+      await sleep(
+        Math.min(
+          delayMs,
+          remainingExecutionMs(input.executionDeadlineAtMs) ?? delayMs,
+        ),
+      );
       delayMs = Math.min(delayMs * 2, PROACTIVE_AUTO_RETRY_MAX_DELAY_MS);
     }
   }

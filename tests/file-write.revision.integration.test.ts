@@ -7,6 +7,7 @@ const runAgent = useContainerAgentHarness();
 test('the agent recovers a stale replacement with its returned revision and continues', async () => {
   let step = 0;
   let revision = '';
+  let reviews = 0;
   const call = (name: string, args: Record<string, unknown>) => ({
     role: 'assistant',
     content: null,
@@ -20,6 +21,19 @@ test('the agent recovers a stale replacement with its returned revision and cont
   });
   const run = await runAgent(
     async (body) => {
+      if ((body.tools ?? []).length === 0) {
+        expect(JSON.parse(String(body.messages.at(-1)?.content))).toMatchObject(
+          {
+            existing_content: 'Original\n',
+            proposed_content: 'Revised\n',
+          },
+        );
+        reviews++;
+        return {
+          role: 'assistant',
+          content: '{"decision":"allow","reason":"Requested revision"}',
+        };
+      }
       switch (step++) {
         case 0:
           return call('write', { path: 'note.txt', contents: 'Original\n' });
@@ -50,6 +64,7 @@ test('the agent recovers a stale replacement with its returned revision and cont
     { approvalMode: 'full' },
   );
   expect(run.output.status).toBe('success');
+  expect(reviews).toBe(1);
   expect(run.output.pendingApproval).toBeUndefined();
   expect(fs.readFileSync(path.join(run.dir, 'note.txt'), 'utf8')).toBe(
     'Revised\n',

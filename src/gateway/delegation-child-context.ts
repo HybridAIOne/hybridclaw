@@ -4,11 +4,14 @@
  * durable parent session; sibling prefixes and finished children never match.
  */
 
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { RuntimeScope } from '../scopes/scope-runtime-auth.js';
 
-export interface DelegationChildContext extends FileWriteGuardContext {
+export interface DelegationChildContext
+  extends FileWriteGuardContext,
+    ExecutionDeadline {
   channelId: string;
   chatbotId: string;
   enableRag: boolean;

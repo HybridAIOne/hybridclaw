@@ -44,45 +44,23 @@ test('colliding legacy names have independent IPC files and audit chains', async
   }
 });
 
-async function legacyLog(sessionId: string) {
-  await audit.appendAuditEvent({ sessionId, runId: 'run-a', event: { type: 'test' } });
-  audit.forgetAuditSessionState([sessionId]);
-  const current = audit.getAuditSessionDir(sessionId);
-  const legacy = path.join(dataDir, 'audit', sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_'));
-  fs.renameSync(current, legacy);
-  return legacy;
-}
-
-test('moves an owned legacy log without changing its bytes or chain', async () => {
-  const legacy = await legacyLog('session.test');
-  const before = fs.readFileSync(path.join(legacy, 'wire.jsonl'), 'utf8');
-  expect(fs.readFileSync(audit.getAuditWirePath('session.test'), 'utf8')).toBe(before);
-  expect(fs.existsSync(legacy)).toBe(false);
-  await audit.appendAuditEvent({ sessionId: 'session.test', runId: 'run-b', event: { type: 'test' } });
-  expect(audit.verifyAuditSessionChain('session.test')).toMatchObject({ ok: true, checkedRecords: 2 });
-});
-
-test('a colliding session cannot claim another session’s legacy log', async () => {
-  const legacy = await legacyLog('session.test');
-  await audit.appendAuditEvent({ sessionId: 'session_test', runId: 'run-b', event: { type: 'test' } });
-  expect(fs.existsSync(legacy)).toBe(true);
-  expect(audit.verifyAuditSessionChain('session_test')).toMatchObject({ ok: true, checkedRecords: 1 });
-  expect(audit.verifyAuditSessionChain('session.test')).toMatchObject({ ok: true, checkedRecords: 1 });
-});
-
-test('leaves an already mixed legacy log untouched and fails closed', async () => {
-  const legacy = await legacyLog('session.test');
+test('a per-session read or append leaves a legacy wire log untouched', async () => {
+  const sessionId = 'session.test';
+  const legacy = path.join(dataDir, 'audit', 'session_test');
+  fs.mkdirSync(legacy, { recursive: true });
   const wire = path.join(legacy, 'wire.jsonl');
-  fs.appendFileSync(wire, `${JSON.stringify({ sessionId: 'session_test' })}\n`);
-  const before = fs.readFileSync(wire, 'utf8');
-  for (const sessionId of ['session.test', 'session_test']) {
-    expect(() => audit.getAuditWirePath(sessionId)).toThrow('multiple sessions');
+  const bytes = JSON.stringify({ sessionId }) + '\n';
+  fs.writeFileSync(wire, bytes);
+  expect(audit.verifyAuditSessionChain(sessionId).ok).toBe(false);
+  for (const id of [sessionId, 'session_test']) {
+    await audit.appendAuditEvent({ sessionId: id, runId: 'run-a', event: { type: 'test' } });
+    expect(audit.verifyAuditSessionChain(id)).toMatchObject({ ok: true, checkedRecords: 1 });
   }
-  expect(fs.readFileSync(wire, 'utf8')).toBe(before);
+  expect(fs.readFileSync(wire, 'utf8')).toBe(bytes);
 });
 
-test('leak scanning resolves the exact session ID after migration', async () => {
-  await legacyLog('session.test');
+test('leak scanning resolves the exact session ID in a hashed directory', async () => {
+  await audit.appendAuditEvent({ sessionId: 'session.test', runId: 'run-a', event: { type: 'test' } });
   const { scanAuditSessionForLeaks, listAuditedSessions, scanAllAuditSessionsForLeaks } = await import('../src/audit/leak-scanner.js');
   const { parseConfidentialYaml } = await import('../src/security/confidential-rules.js');
   const rules = parseConfidentialYaml('clients: []');
@@ -91,14 +69,3 @@ test('leak scanning resolves the exact session ID after migration', async () => 
   expect(listAuditedSessions(dataDir)).toEqual([{ sessionId: 'session.test', filePath: report.filePath }]);
   expect(scanAllAuditSessionsForLeaks(rules, dataDir).map((item) => item.filePath)).toEqual([report.filePath]);
 });
-
-test.each(['{', 'null', '{}', ''])(
-  'does not migrate a legacy log with malformed or missing identity: %j',
-  async (raw) => {
-    const legacy = await legacyLog('session.test');
-    const wire = path.join(legacy, 'wire.jsonl');
-    fs.writeFileSync(wire, raw);
-    expect(() => audit.getAuditWirePath('session.test')).toThrow(/Legacy audit log/);
-    expect(fs.readFileSync(wire, 'utf8')).toBe(raw);
-  },
-);

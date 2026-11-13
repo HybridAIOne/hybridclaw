@@ -42,9 +42,6 @@ async function importWithChannelMocks() {
     hasActiveSlackSession: vi.fn(() => true),
     sendToActiveSlackSession,
   }));
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
-    getWhatsAppAuthStatus: vi.fn(async () => ({ linked: false })),
-  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     readEmailMailbox: vi.fn(),
     sendEmailAttachmentTo: vi.fn(),
