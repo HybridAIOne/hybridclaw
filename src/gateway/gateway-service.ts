@@ -3426,16 +3426,14 @@ export function formatCanonicalContextPrompt(params: {
   }
 
   if (params.recentMessages.length > 0) {
-    const lines = params.recentMessages.slice(-6).map((entry) => {
+    // The caller selects authorized turns; preserve their constraints and receipts.
+    const lines = params.recentMessages.map((entry) => {
       const role = (entry.role || 'user').trim().toLowerCase();
       const who = role === 'assistant' ? 'Assistant' : 'User';
       const from = entry.channel_id?.trim()
         ? `${entry.channel_id.trim()} (${entry.session_id})`
         : entry.session_id;
-      const compact = entry.content.replace(/\s+/g, ' ').trim();
-      const short =
-        compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
-      return `- ${who} [${from}]: ${short}`;
+      return `- ${who} [${from}]: ${JSON.stringify(entry.content)}`;
     });
     sections.push(
       [

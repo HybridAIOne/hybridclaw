@@ -197,6 +197,20 @@ and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
 
+Local output-limit recovery remembers exhaustion for the current turn only.
+Remaining requests use reasoning effort `none`, allowing supported local
+backends to finish without consuming another thinking budget. The output cap
+and bounded recovery count stay unchanged; a new turn restores its requested
+effort. Default local turns also switch after 8,192 cumulative completion tokens
+across primary requests, using API usage when available and estimates otherwise.
+This preserves initial reasoning instead of disabling it from the start. Explicit
+effort bypasses this cumulative allowance; truncation recovery still applies.
+Backend generation admission and per-call limits stay unchanged. The allowance
+resets on a new turn, never on successful tools, and is not a wall-clock deadline.
+Cross-channel recall keeps the caller-selected turns in full, with
+quoted content attributed to its original speaker; normal context budgeting
+controls their size without silently dropping conditions or action receipts.
+
 Shell argv redirection roles are parser-local metadata keyed by the parsed
 arrays. Explicit slices and command-prefix extraction retain them within an
 inspection; each tool call rebuilds them from its original command. Workers
@@ -685,6 +699,12 @@ Common advanced areas:
   delivery targets (`one_shot` jobs run immediately, retry up to
   `maxRetries`, and land in review on success or terminal failure).
   Pausing a scheduled task remains effective if an active run later fails.
+
+  Routine guidance distinguishes internal checks from user-facing reminders,
+  scopes native `cron` rules to native schedules, and requires monitoring
+  runs to consult persistent delivery receipts before repeating an alert.
+  Absolute scheduling guidance requires computing the offset on the target
+  date and checking the stored instant against the requested local time.
   `webhook` delivery posts only to public `https://` URLs, never follows
   redirects, and signs every body with the stored `SCHEDULER_WEBHOOK_SECRET`
   in `X-HybridClaw-Signature: t=<unix seconds>, v1=<hex HMAC-SHA256 of

@@ -550,9 +550,11 @@ function adaptLocalOpenAICompatResponse(
             : {}),
         },
         finish_reason:
-          normalized.toolCalls.length > 0
-            ? 'tool_calls'
-            : choice?.finish_reason || 'stop',
+          choice?.finish_reason === 'length'
+            ? 'length'
+            : normalized.toolCalls.length > 0
+              ? 'tool_calls'
+              : choice?.finish_reason || 'stop',
       },
     ],
   };

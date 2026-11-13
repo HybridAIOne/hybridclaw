@@ -11,6 +11,8 @@ import type { ChatMessage, ToolDefinition } from '../../container/src/types.js';
 export type ModelRequestBody = {
   messages: ChatMessage[];
   tools: ToolDefinition[];
+  max_tokens?: number;
+  chat_template_kwargs?: { enable_thinking: boolean };
 };
 
 // Scripted workflows inspect business turns while captured requests retain all policy.
@@ -63,12 +65,14 @@ export async function startScriptedModelServer(
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
+    const { usage, ...assistantMessage } = message;
     res.end(
       JSON.stringify({
         id: 'test',
+        ...(usage ? { usage } : {}),
         choices: [
           {
-            message,
+            message: assistantMessage,
             finish_reason:
               message.finish_reason ??
               (message.tool_calls ? 'tool_calls' : 'stop'),

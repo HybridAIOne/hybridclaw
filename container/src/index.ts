@@ -67,6 +67,10 @@ import {
   writeHealthOutput,
   writeOutput,
 } from './ipc.js';
+import {
+  localOutputRecoveryPrompt,
+  localReasoningExhausted,
+} from './local-output-recovery.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -1229,6 +1233,9 @@ async function processRequestInner(
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
   let invalidToolCallRetries = 0;
+  let localOutputRecoveries = 0;
+  let localOutputBudgetExhausted = false;
+  let localCompletionTokens = 0;
   let latestFinalAssistantText: string | null = null;
   const collectArtifacts = (
     finalText: string | null = latestFinalAssistantText,
@@ -1570,7 +1577,7 @@ async function processRequestInner(
         contextWindow,
         modelBehavior,
         thinkingFormat,
-        reasoningEffort,
+        reasoningEffort: localOutputBudgetExhausted ? 'none' : reasoningEffort,
       });
     } catch (err) {
       if (
@@ -1661,6 +1668,17 @@ async function processRequestInner(
     });
 
     turnToolHistory.checkpointUsage();
+    localCompletionTokens += completionTokensForSample;
+    if (
+      localReasoningExhausted({
+        isLocal: Boolean(isLocal),
+        reasoningEffort,
+        finishReason: choice.finish_reason,
+        completionTokens: localCompletionTokens,
+      })
+    ) {
+      localOutputBudgetExhausted = true;
+    }
     let toolCalls = choice.message.tool_calls || [];
     const malformedToolCallError = validateStructuredToolCalls(toolCalls);
     let invalidToolCallError = malformedToolCallError;
@@ -1775,6 +1793,19 @@ async function processRequestInner(
       return failed;
     }
     invalidToolCallRetries = 0;
+    const outputRecovery = localOutputRecoveryPrompt({
+      isLocal: Boolean(isLocal),
+      finishReason: choice.finish_reason,
+      toolCallCount: toolCalls.length,
+      recoveryCount: localOutputRecoveries,
+    });
+    if (outputRecovery) {
+      localOutputRecoveries += 1;
+      stalledTurns += 1;
+      history.push({ role: 'user', content: outputRecovery });
+      console.error('[model] continuing after local output-token limit');
+      continue;
+    }
     const assistantSegment = classifyAssistantChatSegment({
       content: choice.message.content,
       hasToolCalls: toolCalls.length > 0,
