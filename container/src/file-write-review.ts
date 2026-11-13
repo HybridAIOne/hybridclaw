@@ -1,6 +1,7 @@
 /**
  * A conflicted file gets an independent preservation check before automatic edits.
- * This veto uses the active model and proposed text, never extra filesystem reads.
+ * Hash-only retries review a matching snapshot from the tool's filesystem;
+ * the write tool still rechecks its byte precondition before mutation.
  * Unlike approval policy it grants no permission; verdicts are not durable consent.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
@@ -8,6 +9,7 @@ import {
   fileWriteReviewPrompt,
   getFileWriteConflict,
 } from './file-write-conflicts.js';
+import { readFileWriteReviewContent } from './file-write-review-content.js';
 import { withModelTask } from './model-usage.js';
 import {
   callRoutedModel,
@@ -54,7 +56,7 @@ export async function reviewFileWriteIntent(params: {
     return evaluation;
   const args = parseToolArgsJson(params.argsJson);
   if (!args || typeof args.path !== 'string') return evaluation;
-  const existing =
+  let existing =
     params.toolName === 'write'
       ? args.overwrite === true
         ? args.expected_content
@@ -68,7 +70,15 @@ export async function reviewFileWriteIntent(params: {
       : typeof args.new === 'string'
         ? args.new
         : args.new_text;
-  if (typeof existing !== 'string' || typeof proposed !== 'string')
+  const revisionOnly =
+    params.toolName === 'write' &&
+    args.overwrite === true &&
+    args.expected_content === undefined &&
+    args.expected_sha256 !== undefined;
+  if (
+    (typeof existing !== 'string' && !revisionOnly) ||
+    typeof proposed !== 'string'
+  )
     return evaluation;
   const conflict = getFileWriteConflict(params.sessionId, args.path);
   if (!conflict) return evaluation;
@@ -80,6 +90,8 @@ export async function reviewFileWriteIntent(params: {
     );
     if (!userPrompt?.trim())
       throw new Error('Original user request is unavailable.');
+    if (revisionOnly)
+      existing = readFileWriteReviewContent(args.path, args.expected_sha256);
     const response = await withModelTask('file_preservation_review', () =>
       callRoutedModel({
         ...params.fallbackContext,

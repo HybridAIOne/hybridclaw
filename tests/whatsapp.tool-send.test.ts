@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import {
+  type ChannelTransportRegistration,
   registerChannelTransport,
   unregisterChannelTransport,
 } from '../src/channels/channel-transport.js';
@@ -9,21 +10,25 @@ import {
 } from '../src/channels/plugin-channel/tool-send.js';
 import {
   createFakeTransportInstance,
-  legacyWhatsAppRegistration,
+  fakeWhatsAppRegistration,
 } from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn() }));
-vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getWhatsAppAuthStatus: mocks.auth,
-}));
+const auth = vi.fn();
 vi.mock('../src/channels/plugin-channel/host.js', () => ({
   createChannelTransportHost: () => ({}),
 }));
 
 const instance = createFakeTransportInstance();
-registerChannelTransport(legacyWhatsAppRegistration(instance));
+const registration: ChannelTransportRegistration = {
+  ...fakeWhatsAppRegistration(instance),
+  getAuthStatus: auth,
+  describeSend: ({ auth: status }) => ({
+    sentFrom: status.jid ? '+15550100100' : 'the linked WhatsApp account',
+    recipient: '+15550100200',
+  }),
+};
+registerChannelTransport(registration);
 
 useCleanMocks({ cleanup: () => vi.clearAllMocks() });
 afterEach(() => {
@@ -43,7 +48,7 @@ const params = {
 test.each([null, '/tmp/image.png'])(
   'preserves IDs for filePath=%s without claiming delivery or recipient verification',
   async (filePath) => {
-    mocks.auth.mockResolvedValue({
+    auth.mockResolvedValue({
       linked: true,
       jid: '15550100100:7@s.whatsapp.net',
     });
@@ -69,7 +74,7 @@ test.each([null, '/tmp/image.png'])(
 test.each([null, '/tmp/image.png'])(
   'propagates transport failure for filePath=%s',
   async (filePath) => {
-    mocks.auth.mockResolvedValue({ linked: true });
+    auth.mockResolvedValue({ linked: true });
     instance.sendText.mockRejectedValue(new Error('transport failed'));
     instance.sendMedia.mockRejectedValue(new Error('transport failed'));
     await expect(
@@ -79,7 +84,7 @@ test.each([null, '/tmp/image.png'])(
 );
 
 test('does not invent a sender when auth has no JID', async () => {
-  mocks.auth.mockResolvedValue({ linked: true });
+  auth.mockResolvedValue({ linked: true });
   await expect(
     sendPluginChannelToolMessage({ ...params, from: '+15550100200' }),
   ).rejects.toThrow('the linked WhatsApp account');
@@ -88,7 +93,7 @@ test('does not invent a sender when auth has no JID', async () => {
 });
 
 test('fails loudly once the WhatsApp plugin is gone', async () => {
-  mocks.auth.mockResolvedValue({ linked: true });
+  auth.mockResolvedValue({ linked: true });
   unregisterChannelTransport('whatsapp');
   try {
     // A stored JID stays WhatsApp's instead of resolving as an email address.
@@ -101,6 +106,6 @@ test('fails loudly once the WhatsApp plugin is gone', async () => {
       'WhatsApp transport plugin is not installed',
     );
   } finally {
-    registerChannelTransport(legacyWhatsAppRegistration(instance));
+    registerChannelTransport(registration);
   }
 });

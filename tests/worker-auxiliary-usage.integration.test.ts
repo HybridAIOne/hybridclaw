@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -30,7 +31,12 @@ afterEach(async () => {
 type Task = 'vision' | 'session_search' | 'file_preservation_review';
 async function fixture(
   task: Task,
-  options: { limited?: boolean; retry?: boolean; holdFinal?: boolean } = {},
+  options: {
+    limited?: boolean;
+    retry?: boolean;
+    holdFinal?: boolean;
+    revisionOnly?: boolean;
+  } = {},
 ) {
   const root = temp();
   fs.writeFileSync(
@@ -89,7 +95,16 @@ async function fixture(
                 path: 'report.md',
                 contents: 'Requested release report.',
                 ...(counts.primary === 2
-                  ? { overwrite: true, expected_content: original }
+                  ? {
+                      overwrite: true,
+                      ...(options.revisionOnly
+                        ? {
+                            expected_sha256: createHash('sha256')
+                              .update(original)
+                              .digest('hex'),
+                          }
+                        : { expected_content: original }),
+                    }
                   : {}),
               }),
             },
@@ -242,6 +257,27 @@ test.each(['vision', 'session_search', 'file_preservation_review'] as const)(
     else expect(output.toolExecutions?.[0].isError).not.toBe(true);
   },
 );
+
+test('a revision-only preservation review retains helper usage and protects the file', async () => {
+  const worker = await fixture('file_preservation_review', {
+    revisionOnly: true,
+  });
+  const output = await runContainerWorker(worker.input, worker.env);
+  expect(output.status, output.error).toBe('success');
+  expect(worker.counts).toEqual({ primary: 3, helpers: 1 });
+  expect(output.tokenUsage?.apiTotalTokens).toBe(708);
+  expect(output.tokenUsage?.modelUsage?.filter((call) => call.task)).toMatchObject([
+    {
+      task: 'file_preservation_review',
+      status: 'success',
+      costUsd: 0.002,
+      usage: { apiTotalTokens: 333 },
+    },
+  ]);
+  expect(fs.readFileSync(path.join(worker.root, 'report.md'), 'utf8')).toBe(
+    worker.original,
+  );
+});
 
 test('a host-interpreted approval denial reports no worker inference', async () => {
   const worker = await runConversation(

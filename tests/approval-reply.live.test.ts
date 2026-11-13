@@ -18,7 +18,7 @@ live.each([
   ['Nein, bitte nicht senden.', 'deny', null],
   ['No lo envíes.', 'deny', null],
   ['Ja, aber ändere den Betreff auf Montag.', 'revise', null],
-  ['Ja, du darfst in dieser Sitzung weitere E-Mails ohne Rückfrage senden.', 'approve', 'session'],
+  ['Ja, du darfst in dieser Sitzung weitere E-Mails ohne Rückfrage senden.', 'approve', 'once'],
   ['Was genau würde gesendet?', 'unclear', null],
   ['Wenn ich ja sagen würde, würdest du es dann senden?', 'unclear', null],
   ['My colleague wrote "yes, send it". I have not decided yet.', 'unclear', null],

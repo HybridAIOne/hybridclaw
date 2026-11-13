@@ -1,10 +1,10 @@
 /**
- * Shell prefixes expose an executable only when their argument boundary is known.
- * Unresolved wrappers stay explicit for provenance checks; an option value never
- * becomes an executable by accident. Unlike bash-commands, this does not follow
- * pipelines, resolve working directories or decide whether execution is allowed.
+ * Prefix parsing retains literal operators and exposes only known argv boundaries.
+ * Unresolved wrappers stay explicit; option values never become executables.
+ * Unlike bash-commands, this does not follow pipelines, resolve cwd or grant access.
  */
 import path from 'node:path';
+import { isShellRedirect, sliceShellWords } from './bash-word-roles.js';
 
 export const PYTHON_PROGRAM_RE = /^python\d*(?:\.\d+)?$/;
 
@@ -97,7 +97,7 @@ export function isCommandLookup(words: string[], start = 0): boolean {
   let lookup = false;
   for (let index = start + 1; index < words.length; index++) {
     const option = words[index];
-    const width = redirectWidth(option);
+    const width = redirectWidth(words, index);
     if (width) {
       index += width - 1;
       continue;
@@ -111,7 +111,9 @@ export function isCommandLookup(words: string[], start = 0): boolean {
 
 // Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
 // the next word as its target.
-export function redirectWidth(word: string): number {
+export function redirectWidth(words: readonly string[], index: number): number {
+  if (isShellRedirect(words, index) === false) return 0;
+  const word = words[index];
   if (!REDIRECT_RE.test(word)) return 0;
   return BARE_REDIRECT_RE.test(word) ? 2 : 1;
 }
@@ -160,7 +162,7 @@ export function commandProgram(words: string[]): CommandProgram {
   const result = (start: number, unresolved = false): CommandProgram => ({
     start,
     program: path.posix.basename(words[start] ?? '').toLowerCase(),
-    args: words.slice(start + 1),
+    args: sliceShellWords(words, start + 1),
     ...(unresolved ? { unresolvedPrefix: true as const } : {}),
   });
   for (let start = 0; start < words.length; start += 1) {

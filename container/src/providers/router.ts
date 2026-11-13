@@ -4,7 +4,10 @@
  * Vision returns a complete textual analysis or an error; a token-limited
  * fragment must never be presented as a successful full analysis.
  * Context overhead includes schemas even when the API accepts them outside messages.
+ * Every routed or visual-fallback dispatch retains the original execution bound.
  */
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
@@ -59,7 +62,7 @@ import {
 const DEFAULT_VISION_INSTRUCTIONS =
   'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 
-export interface RoutedModelContext {
+export interface RoutedModelContext extends ExecutionDeadline {
   sessionId?: string;
   provider: RuntimeProviderId | undefined;
   providerMethod?: string;
@@ -104,6 +107,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     sessionId: params.sessionId,
+    executionDeadlineAtMs: params.executionDeadlineAtMs,
     provider: params.provider,
     providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
@@ -146,6 +150,7 @@ function buildStreamCallArgs(
 async function dispatchProviderModel(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(args.executionDeadlineAtMs);
   if (args.provider === 'anthropic') {
     return callAnthropicProvider(args);
   }
@@ -167,6 +172,7 @@ async function dispatchProviderModel(
 async function dispatchProviderModelStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(args.executionDeadlineAtMs);
   if (args.provider === 'anthropic') {
     return callAnthropicProviderStream(args);
   }
@@ -238,6 +244,7 @@ export function estimateRoutedPromptOverheadTokens(
 export async function callRoutedModel(
   params: RoutedModelCallParams,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const args = buildCallArgs(params);
   const response = await callWithVisualContent(args, callProviderModel);
   if (args.debugModelResponses) {
@@ -254,6 +261,7 @@ export async function callRoutedModel(
 export async function callRoutedModelStream(
   params: RoutedModelStreamCallParams,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const args = buildStreamCallArgs(params);
   let emitted = false;
   const response = await callWithVisualContent(
@@ -350,11 +358,13 @@ export async function callVisionProviderModel(
   analysis: string;
   response: ChatCompletionResponse;
 }> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const contextError = getVisionModelContextError(params);
   if (contextError) throw new Error(contextError);
 
   const request = {
     provider: params.provider,
+    executionDeadlineAtMs: params.executionDeadlineAtMs,
     providerMethod: params.providerMethod,
     baseUrl: normalizeVisionBaseUrl(params.provider, params.baseUrl),
     apiKey: params.apiKey,

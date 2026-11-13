@@ -73,6 +73,9 @@ test.each([
   'pdfinfo -v',
   'pdfinfo document.pdf >/dev/null 2>&1',
   'pdfinfo - < document.pdf',
+  "sed 's/<[^>]*>//' report.md",
+  "sed -n -e 's/.*class=\"snippet\"[^>]*>//p' report.md",
+  "grep -oE '<a[^>]*>' report.md | sed 's/<[^>]*>//'",
   'cd /workspace && file document.pdf && (command -v pdfinfo >/dev/null && pdfinfo document.pdf | grep -Ei "pages|title" || echo unavailable) && head -3 report-new.md',
 ])(
   'read-only verification remains automatic after a conflict: %s',
@@ -87,6 +90,9 @@ test.each([
 );
 
 test.each([
+  "sed -i 's/before/after/' report.md",
+  "sed -f rules.sed report.md",
+  "sed 's/before/after/e' report.md",
   'file -C -m rules',
   'file --compile --magic-file rules',
   'file -p report.md',

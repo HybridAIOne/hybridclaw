@@ -1,3 +1,4 @@
+import type { OutputPresentationMetadata } from '@hybridclaw/contracts/agent-io';
 import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
 import type { StructuredReply } from '../../../src/gateway/structured-reply';
@@ -115,6 +116,7 @@ export interface BranchVariant {
 }
 
 export interface ChatHistoryResponse {
+  nextCursor?: string | null;
   sessionId?: string;
   agentId?: string | null;
   history: ChatHistoryMessage[];
@@ -180,20 +182,6 @@ export interface ChatArtifact {
   path?: string;
   mimeType?: string;
   type?: string;
-}
-
-export type OutputSegmentKind =
-  | 'draft'
-  | 'final'
-  | 'tool_request'
-  | 'approval'
-  | 'status';
-export type OutputDisplaySurface = 'none' | 'assistant_bubble' | 'approval';
-
-export interface OutputPresentationMetadata {
-  segmentKind: OutputSegmentKind;
-  visible: boolean;
-  displaySurface: OutputDisplaySurface;
 }
 
 export interface ChatStreamTextDelta {

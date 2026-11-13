@@ -306,7 +306,7 @@ jobs:
             console/package-lock.json
 
       - name: Use npm 11
-        run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+        run: npm install --global npm@11.21.1 --ignore-scripts --no-audit --fund=false
 
       - name: Check npm package version
         id: npm-version

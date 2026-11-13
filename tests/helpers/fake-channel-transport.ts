@@ -1,5 +1,13 @@
 import { vi } from 'vitest';
-import type { ChannelTransportInstance } from '../../src/channels/channel-transport.js';
+import type {
+  ChannelTransportInstance,
+  ChannelTransportRegistration,
+} from '../../src/channels/channel-transport.js';
+
+import {
+  isWhatsAppJid,
+  normalizeWhatsAppTarget,
+} from '../../src/channels/whatsapp/phone.js';
 
 /**
  * A transport instance whose methods are spies, for registering a fake
@@ -17,13 +25,15 @@ export function createFakeTransportInstance(
   } satisfies ChannelTransportInstance;
 }
 
-/**
- * The create-only shape the released hybridclaw-whatsapp 0.1.x plugin
- * registers; core adapts it through the WhatsApp compat registration.
- */
-export function legacyWhatsAppRegistration(instance: ChannelTransportInstance) {
+export function fakeWhatsAppRegistration(
+  instance: ChannelTransportInstance = createFakeTransportInstance(),
+) {
   return {
     kind: 'whatsapp',
     create: vi.fn(() => instance),
-  } as never;
+    matchesTarget: isWhatsAppJid,
+    normalizeTarget: normalizeWhatsAppTarget,
+    getAuthStatus: async () => ({ linked: false, jid: null }),
+    resetAuth: vi.fn(async () => '/unused'),
+  } satisfies ChannelTransportRegistration;
 }

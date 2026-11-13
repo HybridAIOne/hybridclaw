@@ -1615,6 +1615,34 @@ aside[data-state="collapsed"] .chatSidebarContent {
   transition: border-color 0.15s;
 }
 
+.queuedList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 14px 0;
+  list-style: none;
+}
+
+.queuedItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--muted);
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.queuedText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pendingMediaRow {
   display: flex;
   flex-wrap: wrap;

@@ -70,12 +70,14 @@ export function fetchChatHistory(
   limit = 80,
   userId?: string,
   agentId?: string,
+  before?: string,
 ): Promise<ChatHistoryResponse> {
   const params = new URLSearchParams({
     sessionId,
     limit: String(limit),
   });
   if (userId) params.set('userId', userId);
+  if (before !== undefined) params.set('before', before);
   if (agentId?.trim()) params.set('agentId', agentId.trim());
   return requestJson<ChatHistoryResponse>(`/api/history?${params.toString()}`, {
     token,
@@ -142,6 +144,19 @@ export function createChatBranch(
     token,
     method: 'POST',
     body: { sessionId, beforeMessageId },
+  });
+}
+
+/** `accepted: false` means nothing happened; send it as a turn later. */
+export function steerChat(
+  token: string,
+  sessionId: string,
+  content: string,
+): Promise<{ accepted: boolean }> {
+  return requestJson<{ accepted: boolean }>('/api/chat/steer', {
+    token,
+    method: 'POST',
+    body: { sessionId, content },
   });
 }
 

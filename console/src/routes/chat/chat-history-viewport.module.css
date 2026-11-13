@@ -1,0 +1,10 @@
+/* History controls stay above the message list without changing message layout.
+ * Scrolling belongs to the viewport, not this status and retry area. */
+.historyPager {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--muted-foreground);
+}

@@ -5,7 +5,15 @@
  * worker execution. Audit records never become authoritative instructions.
  */
 import { randomUUID } from 'node:crypto';
-import { validateTokenUsage } from '@hybridclaw/shared/token-usage';
+import {
+  ExecutionDeadlineError,
+  resolveExecutionDeadline,
+  throwIfExecutionDeadlineExceeded,
+} from '@hybridclaw/shared/execution-deadline';
+import {
+  createTokenUsageStats,
+  validateTokenUsage,
+} from '@hybridclaw/shared/token-usage';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
 import { findAgentBudgetHardStop } from '../board/budget-chip.js';
@@ -139,6 +147,10 @@ function buildMiddlewareToolExecution(params: {
 export async function runAgent(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  const executionDeadlineAtMs = resolveExecutionDeadline(
+    params.maxWallClockMs,
+    params.executionDeadlineAtMs,
+  );
   return withSpan(
     'hybridclaw.agent.run',
     {
@@ -146,7 +158,22 @@ export async function runAgent(
       'hybridclaw.agent_id': params.agentId || '',
       'hybridclaw.model': params.model || '',
     },
-    async () => runAgentInner(params),
+    async () => {
+      try {
+        throwIfExecutionDeadlineExceeded(executionDeadlineAtMs);
+        return await runAgentInner({ ...params, executionDeadlineAtMs });
+      } catch (error) {
+        if (!(error instanceof ExecutionDeadlineError)) throw error;
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          toolExecutions: [],
+          error: error.message,
+          tokenUsage: createTokenUsageStats(),
+        };
+      }
+    },
   );
 }
 
@@ -204,6 +231,7 @@ async function runAgentInner(
     preparedMessages,
     'agent.messages',
   );
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const workerOutput = await executor.exec({
     ...params,
     sessionId,

@@ -7342,6 +7342,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
+      nextCursor: null,
       agentId: 'research',
       sessionKey: undefined,
       mainSessionKey: undefined,

@@ -62,10 +62,10 @@ export function getModelCompletionError(params: {
   hasToolCalls: boolean;
   visibleText: string | null | undefined;
 }): string | null {
-  if (params.isLocal && !params.hasToolCalls) {
+  if (!params.hasToolCalls) {
     if (params.finishReason === 'length')
-      return 'The local model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.';
-    if (!params.visibleText?.trim())
+      return 'The model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.';
+    if (params.isLocal && !params.visibleText?.trim())
       return 'The local model returned no final answer or tool call. Reasoning alone does not confirm task completion.';
   }
   return null;

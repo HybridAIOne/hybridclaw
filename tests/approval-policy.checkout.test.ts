@@ -164,6 +164,23 @@ describe('browser checkout classification', () => {
     expect(classifyBrowserCheckout('browser_click', { ref: 'e4' })).toBeNull();
   });
 
+  test('a click that names two targets is judged by the one it clicks', () => {
+    onCheckout();
+    // The click lands on the ref; the text beside it is ignored.
+    expect(
+      classifyBrowserCheckout('browser_click', { ref: 'e9', text: 'Continue' }),
+    ).toMatchObject({ kind: 'purchase', label: 'Place your order' });
+    expect(
+      classifyBrowserCheckout('browser_click', { ref: 'e4', text: 'Buy now' }),
+    ).toBeNull();
+    expect(
+      classifyBrowserCheckout('browser_click', {
+        text: 'Buy now',
+        selector: '#back',
+      }),
+    ).toMatchObject({ kind: 'purchase', label: 'Buy now' });
+  });
+
   test('on a checkout page, unnamed clicks and Enter ask first', () => {
     onCheckout();
     expect(
