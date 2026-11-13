@@ -177,17 +177,18 @@ function hostOf(url: string): string {
   }
 }
 
+// The label of the element the click lands on. The order and the coercion
+// match `resolveClickTarget` in browser-tools.ts: a call that names two
+// targets must be judged by the one that is clicked.
 function clickLabel(args: Record<string, unknown>): string | null {
-  if (typeof args.text === 'string' && args.text.trim()) {
-    return args.text.trim();
-  }
-  if (typeof args.ref === 'string' && args.ref.trim()) {
-    const known = state.refs.get(normalizeRef(args.ref));
-    return known?.name.trim() || null;
-  }
-  if (typeof args.selector === 'string') {
+  const ref = String(args.ref || '').trim();
+  if (ref) return state.refs.get(normalizeRef(ref))?.name.trim() || null;
+  const text = String(args.text || '').trim();
+  if (text) return text;
+  const selector = String(args.selector || '').trim();
+  if (selector) {
     // `text=Place order`, `button:has-text("Buy now")`, …
-    const quoted = args.selector.match(
+    const quoted = selector.match(
       /(?:text=|has-text\(|:contains\()\s*["']?([^"')]+)/i,
     );
     if (quoted?.[1]) return quoted[1].trim();

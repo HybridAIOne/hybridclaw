@@ -1057,23 +1057,18 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
   process.env.HOME = homeDir;
   vi.resetModules();
   mockHealthProbes();
-  vi.doMock('../src/channels/whatsapp/pairing-state.js', () => ({
-    getWhatsAppPairingState: vi.fn(() => ({
-      pairingQrText: '▄▄\n██',
-      updatedAt: '2026-04-08T10:00:00.000Z',
-      error: null,
-    })),
-  }));
-
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getGatewayStatus } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  // The released WhatsApp plugin registers the create-only shape.
+  const { fakeWhatsAppRegistration } = await import('./helpers/fake-channel-transport.js');
   const { registerChannelTransport } = await import(
     '../src/channels/channel-transport.ts'
   );
-  registerChannelTransport({ kind: 'whatsapp', create: vi.fn() } as never);
+  registerChannelTransport({
+    ...fakeWhatsAppRegistration(),
+    getPairingState: () => ({ pairingQrText: '▄▄\n██', updatedAt: '2026-04-08T10:00:00.000Z', error: null }),
+  });
 
   initDatabase({ quiet: true });
   const status = await getGatewayStatus();

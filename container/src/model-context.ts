@@ -64,6 +64,10 @@ export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
   currentTaskModelPolicies = cloneTaskModelPolicies(taskModels);
 }
 
+export function getCurrentExecutionDeadline(): number | undefined {
+  return currentModelContext.executionDeadlineAtMs;
+}
+
 export function captureAuxiliaryRuntimeContext(): AuxiliaryRuntimeContext {
   return {
     visualMediaAllowed: isVisualMediaAllowed(),

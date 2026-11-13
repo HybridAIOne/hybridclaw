@@ -109,9 +109,6 @@ export async function resolveApprovalReply(
                   arguments: item.argsJson,
                   originalRequest: item.originalPrompt,
                   reason: item.reason,
-                  allowedScopes: item.pinned
-                    ? ['once']
-                    : ['once', 'session', 'agent', 'all'],
                 })),
                 lastAssistantMessage: normalizeContentText(
                   [...messages]

@@ -82,7 +82,11 @@ import {
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import {
+  makeAuditRunId,
+  recordAuditEvent,
+  turnToolSummary,
+} from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import {
   type AuthStatusReport,
@@ -481,7 +485,9 @@ import {
 } from './agent-addressing.js';
 import {
   handleApprovalsCommand,
+  mayStopAsking,
   resolveSessionApprovalMode,
+  STOP_ASKING_REFUSAL,
 } from './approval-mode.js';
 import {
   normalizePlaceholderToolReply,
@@ -3521,7 +3527,7 @@ export function recordSuccessfulTurn(opts: {
   steerNotes?: readonly string[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
-  toolCallCount: number;
+  toolExecutions: readonly ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
@@ -3562,6 +3568,7 @@ export function recordSuccessfulTurn(opts: {
       turnIndex: opts.turnIndex,
       finishReason: 'completed',
       assistantMessageId: storedTurn.assistantMessageId,
+      ...turnToolSummary(opts.toolExecutions),
     },
   });
   recordAuditEvent({
@@ -3573,7 +3580,7 @@ export function recordSuccessfulTurn(opts: {
       stats: {
         userMessages: 1,
         assistantMessages: 1,
-        toolCalls: opts.toolCallCount,
+        toolCalls: opts.toolExecutions.length,
         durationMs: Date.now() - opts.startedAt,
       },
     },
@@ -4116,6 +4123,9 @@ function enableFullAutoCommand(params: {
   req: GatewayCommandRequest;
   prompt: string | null;
 }): GatewayCommandResult {
+  if (!mayStopAsking(params.req)) {
+    return badCommand('Full-Auto', STOP_ASKING_REFUSAL);
+  }
   const { session: refreshed, seeded } = enableFullAutoSession(params);
   return infoCommand(
     'Full-Auto Enabled',
@@ -8183,6 +8193,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
             type: 'turn.end',
             turnIndex,
             finishReason: 'empty',
+            ...turnToolSummary([]),
           },
         });
         recordAuditEvent({
@@ -8259,6 +8270,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           turnIndex,
           finishReason: 'completed',
           assistantMessageId,
+          ...turnToolSummary([]),
         },
       });
       recordAuditEvent({
@@ -8396,6 +8408,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           type: 'turn.end',
           turnIndex,
           finishReason: output.status === 'success' ? 'empty' : 'error',
+          ...turnToolSummary(output.toolExecutions || []),
         },
       });
       recordAuditEvent({
@@ -8445,6 +8458,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         turnIndex,
         finishReason: 'completed',
         assistantMessageId,
+        ...turnToolSummary(output.toolExecutions || []),
       },
     });
     recordAuditEvent({
@@ -8519,11 +8533,13 @@ export function getGatewayHistory(
   limit = MAX_HISTORY_MESSAGES,
   options?: {
     operatorUserId?: string | null;
+    beforeMessageId?: number;
   },
 ): ConversationHistoryPage {
   const page = memoryService.getConversationHistoryPage(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
+    options?.beforeMessageId,
   );
   const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
   const responseRatings = ratingOperatorUserId
@@ -8586,6 +8602,7 @@ export function getGatewayHistory(
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+    nextCursor: page.nextCursor ?? null,
   };
 }
 
