@@ -2,6 +2,7 @@ import type { OutputPresentationMetadata } from '@hybridclaw/contracts/agent-io'
 import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
 import type { StructuredReply } from '../../../src/gateway/structured-reply';
+import type { MessageApproval } from '../../../src/memory/message-approval';
 import type { PendingApproval } from '../../../src/types/execution';
 import type { RoutingTrace } from '../../../src/types/routing-trace';
 
@@ -92,6 +93,7 @@ export interface ChatHistoryMessage extends StructuredReply {
   assistantPresentation?: AssistantPresentation | null;
   routingTrace?: RoutingTrace | null;
   activityTrace?: ChatActivityTrace | null;
+  approval?: MessageApproval;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
 }
@@ -323,6 +325,7 @@ export interface ChatMessage extends StructuredReply {
   artifacts?: ChatArtifact[];
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
+  approvalDecision?: MessageApproval['decision'];
   assistantPresentation?: AssistantPresentation | null;
   routingTrace?: RoutingTrace | null;
   addressedAgentPresentation?: AssistantPresentation | null;

@@ -30,6 +30,84 @@ function page(ids: number[], nextCursor: string | null) {
 }
 
 describe('chat history pages', () => {
+  it.each(['allowed', 'denied'] as const)(
+    'retains stored %s approval cards when loading and refreshing older pages',
+    (decision) => {
+      const approval = {
+        approvalId: 'approval-1',
+        prompt: 'Review this action.',
+        intent: 'Run a command',
+        reason: 'Review required',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: null,
+        decision,
+      };
+      const older = buildChatHistoryUiData(
+        {
+          history: [
+            { id: 2, role: 'assistant', content: 'Fallback', approval },
+          ],
+          nextCursor: '2',
+        },
+        'session-a',
+      );
+      const combined = prependChatHistory(older, page([3, 4], '3'));
+      for (const result of [
+        combined,
+        retainOlderChatHistory(page([5, 6], '5'), combined),
+      ]) {
+        expect(
+          result.messages.filter((message) => message.role === 'approval'),
+        ).toEqual([
+          expect.objectContaining({
+            id: 'history:session-a:2',
+            messageId: 2,
+            approvalDecision: decision,
+            pendingApproval: expect.objectContaining({
+              approvalId: 'approval-1',
+            }),
+          }),
+        ]);
+      }
+    },
+  );
+
+  it('replaces a floating pending card with its stored snapshot from an older page', () => {
+    const approval = {
+      approvalId: 'approval-1',
+      prompt: 'Review this action.',
+      intent: 'Run a command',
+      reason: 'Review required',
+      allowSession: true,
+      allowAgent: true,
+      allowAll: true,
+      expiresAt: null,
+    };
+    const current = buildChatHistoryUiData(
+      {
+        history: [{ id: 4, role: 'assistant', content: 'Other reply' }],
+        pendingApproval: { ...approval, type: 'approval' },
+      },
+      'session-a',
+    );
+    const older = buildChatHistoryUiData(
+      {
+        history: [{ id: 2, role: 'assistant', content: 'Fallback', approval }],
+        pendingApproval: { ...approval, type: 'approval' },
+      },
+      'session-a',
+    );
+    const result = prependChatHistory(older, current);
+    expect(
+      result.messages.map((message) => [message.role, message.messageId]),
+    ).toEqual([
+      ['approval', 2],
+      ['assistant', 4],
+    ]);
+  });
+
   it('keeps the initial 80-message request and includes the cursor only for older pages', async () => {
     fetchHistory.mockResolvedValue({
       sessionId: 'session-a',

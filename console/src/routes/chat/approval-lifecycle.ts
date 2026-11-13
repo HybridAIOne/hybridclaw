@@ -5,10 +5,10 @@
  *
  * The gateway keeps at most one pending approval per session, so "only the
  * newest approval item is actionable" mirrors server semantics exactly.
+ * Only structured approval metadata identifies an item; prose never does.
  */
 
 import type { ApprovalAction } from '../../lib/chat-helpers';
-import { parseApprovalAnnouncement } from '../../lib/chat-helpers';
 import type { ChatUiMessage } from './chat-ui-message';
 
 export type ApprovalItemStatus =
@@ -21,7 +21,6 @@ export interface ApprovalItemState {
   approvalId: string;
   status: ApprovalItemStatus;
   respondedAction?: ApprovalAction;
-  /** Only known for structured (streamed) approvals; text announcements don't carry it. */
   expiresAt?: number | null;
 }
 
@@ -29,6 +28,7 @@ interface ApprovalItem {
   messageId: string;
   approvalId: string;
   expiresAt: number | null;
+  respondedAction?: ApprovalAction;
 }
 
 function extractApprovalItem(msg: ChatUiMessage): ApprovalItem | null {
@@ -37,20 +37,13 @@ function extractApprovalItem(msg: ChatUiMessage): ApprovalItem | null {
       messageId: msg.id,
       approvalId: msg.pendingApproval.approvalId,
       expiresAt: msg.pendingApproval.expiresAt ?? null,
+      respondedAction:
+        msg.approvalDecision === 'allowed'
+          ? 'once'
+          : msg.approvalDecision === 'denied'
+            ? 'deny'
+            : undefined,
     };
-  }
-  if (
-    msg.role === 'approval' ||
-    msg.role === 'assistant' ||
-    msg.role === 'command'
-  ) {
-    const parsed = parseApprovalAnnouncement(msg.content);
-    if (parsed)
-      return {
-        messageId: msg.id,
-        approvalId: parsed.approvalId,
-        expiresAt: null,
-      };
   }
   return null;
 }
@@ -78,7 +71,8 @@ export function deriveApprovalStates(
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
     if (!item) continue;
-    const respondedAction = resolvedApprovals.get(item.approvalId);
+    const respondedAction =
+      resolvedApprovals.get(item.approvalId) ?? item.respondedAction;
     if (respondedAction !== undefined) {
       result.set(item.messageId, {
         approvalId: item.approvalId,

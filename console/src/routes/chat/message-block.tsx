@@ -481,13 +481,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const isDraft = msg.role === 'draft';
   const isA2ADeliveryStatus = Boolean(msg.a2aDelivery);
   const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
-  // A text-rendered approval item (role 'approval' without its structured
-  // payload, or an assistant/command message announcing one in plain text) —
-  // chat-page has already worked out whether it's still actionable.
-  const isTextApprovalItem =
-    Boolean(props.approvalState) && !shouldRenderApprovalCard;
-  const showApprovalTextActions =
-    isTextApprovalItem && props.approvalState?.status === 'active';
   const isMarkdownMessage =
     !isA2ADeliveryStatus &&
     (msg.role === 'assistant' ||
@@ -631,7 +624,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
       ) : null}
 
       {shouldRenderBubble ? (
-        <div className={bubbleClass}>
+        <div
+          className={bubbleClass}
+          data-approval-tier={
+            isApproval ? msg.pendingApproval?.approvalTier : undefined
+          }
+        >
           {isVoice ? <span className={css.voiceBubbleTag}>Voice</span> : null}
           {isA2ADeliveryStatus && msg.a2aDelivery ? (
             <A2ADeliveryChip descriptor={msg.a2aDelivery} token={token} />
@@ -665,35 +663,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
                   onSend={props.onSendDraft}
                   onCopy={props.onCopy}
                 />
-              ) : null}
-              {showApprovalTextActions ? (
-                <div className={css.approvalTextActions}>
-                  <Button
-                    size="sm"
-                    disabled={props.approvalBusy}
-                    onClick={() =>
-                      props.onApprovalAction(
-                        'once',
-                        props.approvalState?.approvalId ?? '',
-                      )
-                    }
-                  >
-                    Allow once
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    disabled={props.approvalBusy}
-                    onClick={() =>
-                      props.onApprovalAction(
-                        'deny',
-                        props.approvalState?.approvalId ?? '',
-                      )
-                    }
-                  >
-                    Cancel
-                  </Button>
-                </div>
               ) : null}
             </>
           ) : isUser ? (

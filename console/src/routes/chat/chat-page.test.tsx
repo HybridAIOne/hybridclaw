@@ -485,67 +485,60 @@ describe('ChatPage', () => {
     );
   });
 
-  it('marks an approval resolved before the resumed model turn completes', async () => {
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'session-a',
-      history: [
-        {
-          id: 101,
-          role: 'assistant',
-          content: [
-            'Approval needed for: deploy the release',
-            'Approval ID: approval-1',
-            'Reply `yes` to approve once.',
-          ].join('\n'),
-        },
-      ],
-    });
-    let finishSend: ((sent: boolean) => void) | undefined;
-    sendMessageMock.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        finishSend = resolve;
-      }),
-    );
+  it.each([true, false])(
+    'resolves an approval while resuming and restores it if sending fails (%s)',
+    async (sent) => {
+      const approval = {
+        approvalId: 'approval-1',
+        prompt: 'Review deployment.',
+        intent: 'Deploy a release',
+        reason: 'Review required',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: null,
+      };
+      fetchChatHistoryMock.mockResolvedValue({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Fallback approval text.',
+            approval,
+          },
+        ],
+        pendingApproval: { ...approval, type: 'approval' },
+      });
+      let finishSend: ((sent: boolean) => void) | undefined;
+      sendMessageMock.mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          finishSend = resolve;
+        }),
+      );
 
-    renderChatPage();
+      renderChatPage();
+      const allow = await screen.findByRole('button', { name: 'Allow once' });
+      expect(screen.getAllByText('Confirmation required')).toHaveLength(1);
+      expect(screen.queryByText('Fallback approval text.')).toBeNull();
+      fireEvent.click(allow);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
-
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      '/approve yes approval-1',
-      [],
-      { hideUser: true },
-    );
-    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
-
-    await act(async () => finishSend?.(true));
-  });
-
-  it('restores an approval when the resumed model turn cannot start', async () => {
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'session-a',
-      history: [
-        {
-          id: 101,
-          role: 'assistant',
-          content: [
-            'Approval needed for: deploy the release',
-            'Approval ID: approval-1',
-            'Reply `yes` to approve once.',
-          ].join('\n'),
-        },
-      ],
-    });
-    sendMessageMock.mockResolvedValue(false);
-
-    renderChatPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
-
-    expect(await screen.findByRole('button', { name: 'Allow once' })).not.toBe(
-      null,
-    );
-  });
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        '/approve yes approval-1',
+        [],
+        { hideUser: true },
+      );
+      expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+      await act(async () => finishSend?.(sent));
+      if (sent) {
+        expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+      } else {
+        expect(
+          await screen.findByRole('button', { name: 'Allow once' }),
+        ).not.toBeNull();
+      }
+    },
+  );
 
   it('prefills the composer from the prompt search param', async () => {
     window.history.replaceState(

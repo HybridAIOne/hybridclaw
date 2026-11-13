@@ -202,7 +202,7 @@ export function buildChatHistoryUiData(
       ...structuredReply(msg),
       id:
         msg.id == null ? nextMsgId() : `history:${resolvedSessionId}:${msg.id}`,
-      role: msg.role,
+      role: msg.approval ? 'approval' : msg.role,
       content: msg.content,
       rawContent: msg.content,
       sessionId: resolvedSessionId,
@@ -222,6 +222,10 @@ export function buildChatHistoryUiData(
       a2aDelivery:
         msg.role === 'assistant' ? hydrateA2ADelivery(msg.content) : null,
       source: msg.source ?? null,
+      pendingApproval: msg.approval
+        ? { ...msg.approval, type: 'approval' }
+        : null,
+      approvalDecision: msg.approval?.decision,
     };
     if (msg.role === 'assistant') {
       const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);
@@ -234,7 +238,14 @@ export function buildChatHistoryUiData(
     messages.push(chatMessage);
   });
 
-  if (raw.pendingApproval) {
+  if (
+    raw.pendingApproval &&
+    !messages.some(
+      (message) =>
+        message.role === 'approval' &&
+        message.pendingApproval?.approvalId === raw.pendingApproval?.approvalId,
+    )
+  ) {
     messages.push({
       id: `approval:${raw.pendingApproval.approvalId}`,
       role: 'approval',
@@ -282,12 +293,24 @@ export function prependChatHistory(
 ): ChatHistoryUiData {
   if (older.resolvedSessionId !== current.resolvedSessionId) return current;
   const currentKeys = new Set(current.messages.map(messageKey));
+  const olderMessages = older.messages.filter(
+    (message) =>
+      (message.role !== 'approval' || message.messageId != null) &&
+      !currentKeys.has(messageKey(message)),
+  );
+  const storedApprovalIds = new Set(
+    olderMessages
+      .filter((message) => message.role === 'approval')
+      .map((message) => message.pendingApproval?.approvalId),
+  );
   const messages = [
-    ...older.messages.filter(
+    ...olderMessages,
+    ...current.messages.filter(
       (message) =>
-        message.role !== 'approval' && !currentKeys.has(messageKey(message)),
+        message.role !== 'approval' ||
+        message.messageId != null ||
+        !storedApprovalIds.has(message.pendingApproval?.approvalId),
     ),
-    ...current.messages,
   ];
   // A page can split a user/assistant exchange. Complete replay context once
   // both halves are loaded without replacing the mounted newer message's ID.
