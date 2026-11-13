@@ -169,6 +169,52 @@ test('preference edits refresh the new turn while preserving earlier preference 
   expect(latestContext?.content).not.toContain(firstPreferences);
 });
 
+test('a daily note is sent when it is new, changed or cleared, not with every turn', async () => {
+  await setupSession();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const requests: ChatMessage[][] = [];
+  runAgentMock.mockImplementation(async (params: ExecutorRequest) => {
+    requests.push(structuredClone(params.messages));
+    return success();
+  });
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.js'
+  );
+  const send = (content: string) =>
+    handleGatewayMessage({ ...REQUEST, content });
+  const latestContext = () =>
+    String(
+      requests
+        .at(-1)
+        ?.filter((message) => isDynamicContextMessageText(message.content))
+        .at(-1)?.content,
+    );
+
+  await send('First');
+  const notePath = path.join(
+    agentWorkspaceDir('main'),
+    /Daily note: (memory\/\S+\.md)/.exec(latestContext())?.[1] ?? '',
+  );
+  fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  fs.writeFileSync(notePath, '- Prefers tea.\n');
+
+  await send('Second');
+  expect(latestContext()).toContain('- Prefers tea.');
+  await send('Third');
+  expect(latestContext()).not.toContain('## Daily Memory');
+
+  fs.appendFileSync(notePath, '- Allergic to nuts.\n');
+  await send('Fourth');
+  expect(latestContext()).toContain('- Prefers tea.\n- Allergic to nuts.');
+  expect(requests[3].slice(0, requests[2].length)).toEqual(requests[2]);
+
+  fs.writeFileSync(notePath, '');
+  await send('Fifth');
+  expect(latestContext()).toMatch(/## Daily Memory \(\S+\)\n\n\(empty\)$/);
+  await send('Sixth');
+  expect(latestContext()).not.toContain('## Daily Memory');
+});
+
 test('the stored user message keeps its text and carries the context it was sent with', async () => {
   await runTurns([success(), success()]);
   const { memoryService } = await import('../src/memory/memory-service.js');

@@ -51,9 +51,13 @@ export const WRITE_TOOL_DEFINITION: ToolDefinition = {
   },
 };
 
+export function isFileWriteRevision(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
 const STALE_WRITE =
   'Stale write: expected_content does not match; read the file again.';
-function revisionOf(content: string | Buffer): string {
+export function fileWriteRevision(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex');
 }
 const missingFinalEnding = (ending: 'LF' | 'CRLF') =>
@@ -143,8 +147,7 @@ export async function runFileWrite(
   try {
     if (
       args.expected_sha256 !== undefined &&
-      (typeof args.expected_sha256 !== 'string' ||
-        !/^[a-f0-9]{64}$/.test(args.expected_sha256))
+      !isFileWriteRevision(args.expected_sha256)
     ) {
       throw new Error('expected_sha256 must be a lowercase SHA-256 digest');
     }
@@ -205,7 +208,7 @@ export async function runFileWrite(
           }
           const current = fs.readFileSync(target);
           if (typeof args.expected_sha256 === 'string') {
-            if (revisionOf(current) !== args.expected_sha256) {
+            if (fileWriteRevision(current) !== args.expected_sha256) {
               throw new Error(
                 'Stale write: expected_sha256 does not match; read the file again.',
               );
@@ -235,7 +238,7 @@ export async function runFileWrite(
     if (!sandbox) {
       try {
         if (fs.lstatSync(target).isFile()) {
-          revision = ` Current revision SHA-256: ${revisionOf(fs.readFileSync(target))}. Read and review the file before retrying with overwrite=true and expected_sha256.`;
+          revision = ` Current revision SHA-256: ${fileWriteRevision(fs.readFileSync(target))}. Read and review the file before retrying with overwrite=true and expected_sha256.`;
         }
       } catch {
         /* The original write failure remains authoritative. */
@@ -256,5 +259,5 @@ export async function runFileWrite(
     throw error;
   }
   await resolveFileWriteConflict(sessionId, args.path);
-  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}\nRevision SHA-256: ${revisionOf(args.contents)}${fileSyntaxFeedback(args.path, args.contents)}`;
+  return `Wrote ${Buffer.byteLength(args.contents)} bytes to ${args.path}\nRevision SHA-256: ${fileWriteRevision(args.contents)}${fileSyntaxFeedback(args.path, args.contents)}`;
 }

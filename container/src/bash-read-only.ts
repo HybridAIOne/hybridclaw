@@ -1,11 +1,13 @@
 /**
- * Read-only shell recognition has one whitelist and literal diagnostic grammar.
+ * Read-only shell recognition has one whitelist and certified literal grammars.
  * Unlike approval-policy, it grants no permission: paths, redirects, fetched
  * code and whole-script effects still face that policy. Unknown diagnostic
- * options and dynamic operands never gain read-only classification here.
+ * options and opaque filter scripts retain their normal classification.
  */
 import { isCommandLookup, redirectWidth } from './bash-commands.js';
 import { isReadOnlyDateCommand } from './bash-date.js';
+import { sedLiteralDataArgs } from './bash-sed-data.js';
+import { sliceShellWords } from './bash-word-roles.js';
 
 export const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
@@ -149,7 +151,6 @@ function isReadOnlyDiagnosticCommand(
   firstSurface?: string,
 ): boolean {
   const name = words[0];
-  if (!Object.hasOwn(DIAGNOSTICS, name)) return false;
   // Preserve the first-command gate: quoted names, wrappers and leading groups
   // do not gain green classification from this diagnostic recognizer.
   if (
@@ -157,11 +158,13 @@ function isReadOnlyDiagnosticCommand(
     firstSurface.match(/^\s*([a-z]+)(?=\s|$)/)?.[1] !== name
   )
     return false;
+  if (sedLiteralDataArgs(name, sliceShellWords(words, 1))) return true;
+  if (!Object.hasOwn(DIAGNOSTICS, name)) return false;
   if (words.slice(1).some((arg) => /[$`*?[\]{}~]/.test(arg))) return false;
   const args: string[] = [];
   for (let index = 1; index < words.length; index++) {
     const arg = words[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(words, index);
     if (width) index += width - 1;
     else args.push(arg);
   }

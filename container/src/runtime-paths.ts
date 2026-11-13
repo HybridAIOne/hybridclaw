@@ -262,12 +262,40 @@ function isAbsoluteMediaCachePathOutsideWorkspace(rawPath: string): boolean {
   );
 }
 
+// The cache file that a path re-rooted under the workspace stands for. With the
+// caches under the workspace *display* root, a model that takes the display
+// root for its workspace turns /workspace/.data/uploaded-media-cache/f into
+// <workspace>/.data/uploaded-media-cache/f. A file really there wins.
+function resolveMediaCachePathRerootedInWorkspace(
+  rawPath: string,
+): string | null {
+  const inWorkspace = resolveRootBoundPath(
+    rawPath,
+    WORKSPACE_ROOT,
+    WORKSPACE_ROOT_DISPLAY,
+  );
+  if (!inWorkspace || !isWithinRoot(inWorkspace, WORKSPACE_ROOT)) return null;
+  const cachePath = path.resolve(
+    WORKSPACE_ROOT_DISPLAY,
+    path.relative(WORKSPACE_ROOT, inWorkspace),
+  );
+  const inCache =
+    isWithinRoot(cachePath, DISCORD_MEDIA_CACHE_ROOT) ||
+    isWithinRoot(cachePath, UPLOADED_MEDIA_CACHE_ROOT);
+  return inCache && !fs.existsSync(inWorkspace) ? cachePath : null;
+}
+
 export function resolveWorkspacePath(rawPath: string): string | null {
   // In host mode the media caches can live under the workspace *display* root
   // (for example DATA_DIR=/workspace/.data with display root /workspace).
   // Such paths belong to resolveMediaPath; remapping them through the display
   // alias would point at a non-existent file inside the actual workspace.
-  if (isAbsoluteMediaCachePathOutsideWorkspace(rawPath)) return null;
+  if (
+    isAbsoluteMediaCachePathOutsideWorkspace(rawPath) ||
+    resolveMediaCachePathRerootedInWorkspace(rawPath)
+  ) {
+    return null;
+  }
   return resolveRootBoundPath(rawPath, WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY);
 }
 
@@ -314,6 +342,8 @@ export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
 export function resolveMediaPath(rawPath: string): string | null {
   return (
     resolveManagedTempMediaPath(rawPath) ||
+    // Before the roots below: host mode allows the workspace under each.
+    resolveMediaCachePathRerootedInWorkspace(rawPath) ||
     resolveRootBoundPath(
       rawPath,
       DISCORD_MEDIA_CACHE_ROOT,

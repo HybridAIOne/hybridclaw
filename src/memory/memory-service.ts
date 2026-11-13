@@ -125,6 +125,7 @@ export interface MemoryBackend {
   getConversationHistoryPage: (
     sessionId: string,
     limit?: number,
+    beforeMessageId?: number,
   ) => ConversationHistoryPage;
   getConversationBranchFamilies: (
     sessionId: string,
@@ -535,8 +536,13 @@ export class MemoryService {
   getConversationHistoryPage(
     sessionId: string,
     limit = 50,
+    beforeMessageId?: number,
   ): ConversationHistoryPage {
-    return this.backend.getConversationHistoryPage(sessionId, limit);
+    return this.backend.getConversationHistoryPage(
+      sessionId,
+      limit,
+      beforeMessageId,
+    );
   }
 
   getConversationBranchFamilies(sessionId: string): ConversationBranchFamily[] {
