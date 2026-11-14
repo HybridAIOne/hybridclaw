@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   getSupportedReasoningEfforts,
   isReasoningEffort,
-} from '../container/shared/reasoning-effort.js';
+} from '@hybridclaw/shared/reasoning-effort';
 
 describe('reasoning effort support', () => {
   test('advertises the verified HybridAI Qwen3.8 27B family', () => {

@@ -15,11 +15,13 @@ import type { ChatUiMessage } from './chat-ui-message';
 import { useChatStream } from './use-chat-stream';
 
 const executeCommandMock = vi.fn();
+const steerChatMock = vi.fn();
 const requestChatStreamMock = vi.fn();
 const nextMsgIdMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
   executeCommand: (...args: unknown[]) => executeCommandMock(...args),
+  steerChat: (...args: unknown[]) => steerChatMock(...args),
 }));
 
 vi.mock('../../lib/chat-helpers', async () => {
@@ -89,6 +91,7 @@ function makeHarness(initialMessages: ChatUiMessage[] = []) {
 describe('useChatStream', () => {
   beforeEach(() => {
     executeCommandMock.mockReset();
+    steerChatMock.mockReset();
     requestChatStreamMock.mockReset();
     nextMsgIdMock.mockReset();
     let nextId = 0;
@@ -101,6 +104,42 @@ describe('useChatStream', () => {
       return 0;
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+
+  it('preserves loaded-history pagination while appending a live turn', async () => {
+    const harness = makeHarness();
+    harness.queryClient.setQueryData<ChatHistoryUiData>(
+      chatHistoryQueryKey(TOKEN, SESSION_ID),
+      (current) =>
+        current && { ...current, nextCursor: '12', hasLoadedOlder: true },
+    );
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      result: 'Answer',
+      messageRole: 'assistant',
+    } satisfies ChatStreamResult);
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    await act(async () => {
+      await result.current.sendMessage('Test request', []);
+    });
+    expect(harness.readSession(SESSION_ID)).toMatchObject({
+      nextCursor: '12',
+      hasLoadedOlder: true,
+    });
+    expect(
+      harness.messages.some((message) => message.content === 'Answer'),
+    ).toBe(true);
   });
 
   it('includes an explicit reasoning effort in the chat request', async () => {
@@ -998,6 +1037,88 @@ describe('useChatStream', () => {
       });
       await firstSend;
     });
+  });
+
+  it.each([
+    { accepted: true, shown: true },
+    { accepted: false, shown: false },
+  ])(
+    'steers the running turn (accepted: $accepted)',
+    async ({ accepted, shown }) => {
+      const harness = makeHarness();
+      let resolveStream: ((value: ChatStreamResult) => void) | null = null;
+      requestChatStreamMock.mockImplementation(
+        () =>
+          new Promise<ChatStreamResult>((resolve) => {
+            resolveStream = resolve;
+          }),
+      );
+      steerChatMock.mockResolvedValue({ accepted });
+      const { result } = renderHook(
+        () =>
+          useChatStream({
+            token: TOKEN,
+            userId: 'user_a',
+            getSessionId: () => SESSION_ID,
+            setError: harness.setError,
+            refreshRecent: vi.fn(),
+            onSessionIdCorrection: harness.correctionMock,
+          }),
+        { wrapper: harness.wrapper },
+      );
+
+      let send: Promise<boolean>;
+      act(() => {
+        send = result.current.sendMessage('first', []);
+      });
+      let steered: boolean | undefined;
+      await act(async () => {
+        steered = await result.current.steerMessage(SESSION_ID, 'second');
+      });
+
+      expect(steered).toBe(accepted);
+      expect(steerChatMock).toHaveBeenCalledWith(TOKEN, SESSION_ID, 'second');
+      expect(harness.messages.map((m) => `${m.role}:${m.content}`)).toEqual([
+        'user:first',
+        'trace:',
+        ...(shown ? ['user:second'] : []),
+        'thinking:',
+      ]);
+
+      await act(async () => {
+        resolveStream?.({
+          status: 'success',
+          result: 'Answer',
+          messageRole: 'assistant',
+        });
+        await send;
+      });
+      expect(harness.messages.map((m) => m.content)).toEqual([
+        'first',
+        ...(shown ? ['second'] : []),
+        'Answer',
+      ]);
+    },
+  );
+
+  it('steers only the session whose turn is running', async () => {
+    const harness = makeHarness();
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    await expect(result.current.steerMessage(SESSION_ID, 'note')).resolves.toBe(
+      false,
+    );
+    expect(steerChatMock).not.toHaveBeenCalled();
   });
 
   it('collects thinking and tool events into a trace and collapses it on finalize', async () => {

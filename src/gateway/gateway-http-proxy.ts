@@ -20,15 +20,14 @@ import type { LookupFunction } from 'node:net';
 import net from 'node:net';
 import path from 'node:path';
 import {
+  HTTP_RESPONSE_ARTIFACT_DIR,
+  HTTP_RESPONSE_ARTIFACT_PREFIX,
+} from '@hybridclaw/shared/http-response-artifacts';
+import { isPrivateNetworkAddress } from '@hybridclaw/shared/private-network';
+import {
   buildConnector as buildUndiciConnector,
   Agent as UndiciAgent,
 } from 'undici';
-
-import {
-  HTTP_RESPONSE_ARTIFACT_DIR,
-  HTTP_RESPONSE_ARTIFACT_PREFIX,
-} from '../../container/shared/http-response-artifacts.js';
-import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {

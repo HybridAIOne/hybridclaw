@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
-import { TASK_MODEL_KEYS as WORKER_TASK_MODEL_KEYS } from '../container/src/types.js';
+import { AGENT_TASK_MODEL_KEYS as WORKER_TASK_MODEL_KEYS } from '../container/src/types.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { TASK_MODEL_KEYS } from '../src/types/models.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

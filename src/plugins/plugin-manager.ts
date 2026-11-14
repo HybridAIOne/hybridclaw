@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { checkNodeVersion } from '@hybridclaw/shared/node-version';
 import * as wsModule from 'ws';
 import { parse as parseYaml } from 'yaml';
-import { checkNodeVersion } from '../../container/shared/node-version.js';
 import {
   type AgentTurnContext,
   applyClassifierMiddleware,

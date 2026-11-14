@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { ACTION_PREREQUISITE_LINES } from '../container/shared/action-prerequisites.js';
+import { ACTION_PREREQUISITE_LINES } from '@hybridclaw/shared/action-prerequisites';
 import { FILE_HYGIENE_LINES } from '../src/agent/file-hygiene-prompt.js';
 import { AFTER_FILE_CHANGE_LINES } from '../src/agent/mobile-prompt.js';
 

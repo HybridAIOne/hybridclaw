@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import {
   encodeSteerNote,
   steerInboxDirName,
-} from '../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/steer-inbox';
 import { SteerInbox } from '../src/infra/steer-inbox.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 

@@ -2,7 +2,7 @@
  * Owns channel startup and shutdown; webhook handlers only consume live runtimes.
  */
 
-import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
+import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
 import {
   startA2AInboxDispatchProcessor,
   stopA2AInboxDispatchProcessor,

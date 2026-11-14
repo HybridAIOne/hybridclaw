@@ -5,8 +5,8 @@ import {
   TurnCheckpoint,
   turnCheckpointPath,
   type TurnRecoveryEvidence,
-} from '../container/shared/turn-checkpoint.js';
-import { isRetrySafeRun } from '../container/shared/retry-safety.js';
+} from '@hybridclaw/shared/turn-checkpoint';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import {
   recoverWorkerFailure,
   recoverWorkerOutput,

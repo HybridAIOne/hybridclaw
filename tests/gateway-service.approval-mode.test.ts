@@ -98,3 +98,45 @@ test('learning is persisted, audited, and remains effective during full-auto', a
   const event = db.getRecentStructuredAuditForSession('s-learning').find(row => row.event_type === 'approval.mode_changed');
   expect(JSON.parse(event?.payload || '{}')).toMatchObject({ from: 'auto', to: 'learning', user_id: 'user_a' });
 });
+
+test('a phone or a credential without the policy action cannot stop the asking', async () => {
+  const { memoryService } = await setup('s-phone');
+  const gateway = await import('../src/gateway/gateway-service.ts');
+  const run = (extra: object, ...args: string[]) =>
+    gateway.handleGatewayCommand({
+      sessionId: 's-phone',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user_a',
+      args,
+      ...extra,
+    });
+  const phone = { client: 'mobile' as const };
+  const scoped = { adminActions: ['admin.approvals.read'] };
+  for (const caller of [phone, scoped]) {
+    for (const mode of ['full', 'learning']) {
+      expect((await run(caller, 'approvals', 'mode', mode)).kind).toBe('error');
+    }
+    expect((await run(caller, 'fullauto', 'on')).kind).toBe('error');
+    expect((await run(caller, 'fullauto', 'keep going')).kind).toBe('error');
+  }
+  const session = memoryService.getSessionById('s-phone');
+  expect(session?.approval_mode).not.toBe('full');
+  expect(session?.approval_mode).not.toBe('learning');
+  expect(session?.full_auto_enabled).toBeFalsy();
+
+  // Asking more often stays open to both.
+  expect((await run(phone, 'approvals', 'mode', 'ask')).kind).toBe('info');
+  expect((await run(scoped, 'approvals', 'mode', 'auto')).kind).toBe('info');
+  // A credential that may write the policy keeps the choice.
+  expect(
+    (
+      await run(
+        { adminActions: ['admin.policy.write'] },
+        'approvals',
+        'mode',
+        'full',
+      )
+    ).kind,
+  ).toBe('info');
+});

@@ -13,7 +13,7 @@ function parseArgs(argv) {
     outputPath: '',
     text: '',
     title: '',
-    fontSize: 24,
+    fontSize: 11,
     fontName: 'Helvetica',
     fontPath: '',
     imagePath: '',
@@ -314,7 +314,7 @@ async function main() {
     (!args.text && !args.title && !args.imagePath && !args.imageUrl)
   ) {
     console.error(
-      'Usage: node skills/pdf/scripts/create_pdf.mjs <output.pdf> --text "content" [--title "heading"] [--image-url https://example.com/logo.png] [--image-path logo.png] [--font-size 24] [--font Helvetica] [--font-path font.ttf]',
+      'Usage: node skills/pdf/scripts/create_pdf.mjs <output.pdf> --text "content" [--title "heading"] [--image-url https://example.com/logo.png] [--image-path logo.png] [--font-size 11] [--font Helvetica] [--font-path font.ttf]',
     );
     process.exitCode = 1;
     return;
@@ -350,7 +350,7 @@ async function main() {
   }
   const firstPage = pdfDoc.addPage();
   const { width, height } = firstPage.getSize();
-  const margin = 50;
+  const margin = 72;
   const maxWidth = width - margin * 2;
   let page = firstPage;
   let y = height - margin;

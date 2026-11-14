@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { encodeFileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import { beginFileWriteReviewContext } from '../src/infra/file-write-review-context.js';
 import { isContainerOutput } from '../src/infra/ipc-output-validation.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';

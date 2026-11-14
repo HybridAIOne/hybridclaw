@@ -1,4 +1,4 @@
-import { isRecord } from '../../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import type { ToolCall } from '../types.js';
 
 const TOOL_CALL_TAGS = [

@@ -336,11 +336,16 @@ const DEFAULT_DOCKERHUB_IMAGE = 'hybridaione/hybridclaw-agent';
 const TRACKED_FILES = [
   'package.json',
   'container/Dockerfile',
+  'container/Dockerfile.dockerignore',
   'container/package.json',
   'container/package-lock.json',
   'container/scripts/bundle.mjs',
 ];
-const TRACKED_SOURCE_ROOTS = ['container/src', 'container/shared'];
+const TRACKED_SOURCE_ROOTS = [
+  'container/src',
+  'packages/contracts',
+  'packages/shared',
+];
 
 function isSourceCheckout(cwd: string): boolean {
   return fs.existsSync(path.join(cwd, '.git'));

@@ -82,7 +82,7 @@ program. Bounded syntax inspection never executes the program; unsupported
 shell forms, non-UTF-8 source encodings and failed inspection retain text matching.
 Executable code, strings and independent safety rules remain checked.
 
-Implementation: [shared catalog](./container/shared/safety-rules.js),
+Implementation: [shared catalog](./packages/shared/src/safety-rules.ts),
 [worker enforcement](./container/src/safety-rules.ts), and
 [admin controls](./src/gateway/safety-rules-admin.ts)
 
@@ -98,9 +98,12 @@ Tool actions are risk-tiered at runtime:
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
 
-Fetched-code review recognizes bounded JSON readers and Pillow image
-open/thumbnail/save operations with literal workspace paths. Inspection never
-executes supplied Python. Recognized image writes retain write intent and
+Fetched-code review recognizes bounded JSON and read-only ElementTree XML
+readers, and Pillow image open/thumbnail/save operations with literal workspace
+paths. XML file operands retain their resolved and canonical pinned-path checks,
+including scratch-directory reads. Custom XML parsers and XML mutations remain
+unrecognized. Output pipes and redirects from recognized fetched-data readers
+retain provenance across workers. Inspection never executes supplied Python. Recognized image writes retain write intent and
 pinned-path checks; outputs derived from fetched inputs retain provenance
 across workers. Unsupported Python string literals remain visible to the
 existing fetched-file checks. Downloaded importable files and unknown download
@@ -167,6 +170,13 @@ of the sandbox.
 
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 
+Shell inspection retains literal argument and redirection roles through command
+prefixes and nested-command extraction. Quoted filter patterns do not become
+redirects or filename globs. Literal `sed` substitutions receive data roles only
+when their recognized options and scripts cannot write files or execute commands;
+other scripts remain opaque. Actual file operands, redirects, fetched-code
+provenance and configured pins still pass their existing checks.
+
 Teams can show a model-authored explanation before the technical command.
 That explanation is untrusted: it may omit or misdescribe effects, even though
 it cannot change the policy decision, approval scope, or saved executable call.
@@ -186,6 +196,13 @@ the file; a successful checked write clears only that path's conflict. Read and
 review changed content before retrying. Arbitrary shell mutations and external
 writers remain outside the cooperative lock, as with exact-content replacement.
 
+After a write conflict, revision-only replacements undergo the same preservation
+review as exact-content replacements. The reviewer receives text only after a
+regular-file snapshot matches the supplied revision, using the tool's normal
+workspace or task-container filesystem. Stale, unreadable and non-text snapshots
+fail closed without sending their content to the reviewer. The final write still
+rechecks its precondition, and copying a backup does not bypass the review.
+
 ### 3) Container Isolation
 
 Tool execution runs inside Docker with sandbox constraints:
@@ -201,7 +218,7 @@ Tool execution runs inside Docker with sandbox constraints:
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
 [src/security/mount-security.ts](./src/security/mount-security.ts),
-[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
+[packages/shared/src/ipc-input-auth.ts](./packages/shared/src/ipc-input-auth.ts)
 
 ### 4) Session Isolation
 
@@ -377,7 +394,7 @@ declared dependency.
 Recommended dependency update workflow:
 
 ```bash
-npm install --global npm@11.10.0 --no-audit --fund=false
+npm install --global npm@11.21.1 --no-audit --fund=false
 npm run deps:update-lockfile
 git diff -- package.json package-lock.json container/package.json container/package-lock.json
 npm run deps:verify

@@ -14,7 +14,7 @@ import https from 'node:https';
 import type { LookupFunction } from 'node:net';
 import { URL } from 'node:url';
 
-import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
+import { isPrivateNetworkAddress } from '@hybridclaw/shared/private-network';
 
 export interface PublicHttpsFetchOptions {
   method?: 'GET' | 'POST';

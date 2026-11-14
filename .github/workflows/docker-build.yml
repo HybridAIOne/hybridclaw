@@ -31,7 +31,7 @@ jobs:
       matrix:
         include:
           - image: hybridclaw-agent
-            context: ./container
+            context: .
             file: ./container/Dockerfile
             target: runtime
           - image: hybridclaw-gateway

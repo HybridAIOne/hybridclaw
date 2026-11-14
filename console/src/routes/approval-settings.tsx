@@ -3,15 +3,16 @@
  * Drafts retain the observed value for stale-edit protection. This page does
  * not bulk-change sessions or answer the pending approvals shown under policy.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+
 import {
   APPROVAL_MODE_PRESENTATION,
   APPROVAL_MODES,
   type ApprovalMode,
   type ApprovalSettingsUpdate,
   isApprovalMode,
-} from '../../../container/shared/approval-mode.js';
+} from '@hybridclaw/shared/approval-mode';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import {
   fetchApprovalSettings,
   saveApprovalSettings,

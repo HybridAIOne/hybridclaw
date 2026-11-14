@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_LOCAL_STARTER_TOOLS, normalizeLocalStarterTools } from '../container/shared/local-tool-config.js';
+import { DEFAULT_LOCAL_STARTER_TOOLS, normalizeLocalStarterTools } from '@hybridclaw/shared/local-tool-config';
 import { ToolCatalog } from '../container/src/tool-catalog.js';
 import { leadingParallelRun } from '../container/src/tool-parallelism.js';
 import type { ToolCall, ToolDefinition } from '../container/src/types.js';

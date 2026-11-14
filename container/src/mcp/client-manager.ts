@@ -8,6 +8,25 @@
  */
 
 import { createHash } from 'node:crypto';
+import {
+  type BoostAnswer,
+  parseBoostOffer,
+} from '@hybridclaw/shared/boost-offer';
+import {
+  CONNECTOR_APPROVAL_CONTEXT_META,
+  CONNECTOR_APPROVAL_META,
+  CONNECTOR_APPROVAL_REQUIRED_META,
+  parseConnectorApproval,
+} from '@hybridclaw/shared/connector-approval';
+import {
+  HYBRIDAI_MCP_SERVER_NAME,
+  parseMcpToolBehaviorConfig,
+} from '@hybridclaw/shared/mcp-server-config';
+import {
+  buildMcpServerNamespaces,
+  sanitizeMcpToolSegment,
+} from '@hybridclaw/shared/mcp-tool-namespaces';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import {
@@ -25,22 +44,6 @@ import {
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { type BoostAnswer, parseBoostOffer } from '../../shared/boost-offer.js';
-import {
-  CONNECTOR_APPROVAL_CONTEXT_META,
-  CONNECTOR_APPROVAL_META,
-  CONNECTOR_APPROVAL_REQUIRED_META,
-  parseConnectorApproval,
-} from '../../shared/connector-approval.js';
-import {
-  HYBRIDAI_MCP_SERVER_NAME,
-  parseMcpToolBehaviorConfig,
-} from '../../shared/mcp-server-config.js';
-import {
-  buildMcpServerNamespaces,
-  sanitizeMcpToolSegment,
-} from '../../shared/mcp-tool-namespaces.js';
-import { isRecord } from '../../shared/primitive-values.js';
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';

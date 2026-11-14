@@ -2,11 +2,12 @@
  * Thinking effort control — exposes only levels advertised by the selected model.
  * It does not infer provider capabilities or persist a gateway default.
  */
-import { useMemo, useState } from 'react';
+
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
-} from '../../../../container/shared/reasoning-effort.js';
+} from '@hybridclaw/shared/reasoning-effort';
+import { useMemo, useState } from 'react';
 import { ChevronDown, Lightbulb } from '../../components/icons';
 import {
   Popover,

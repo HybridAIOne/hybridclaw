@@ -1,13 +1,17 @@
 /**
  * Compatible API transport preserves tool calls, reasoning, and finish reasons.
- * MLX uses streaming on the wire even for a collected answer so ongoing thought
- * remains observable to idle timeouts; this adapter never sets its context budget.
+ * Final answers take precedence over reasoning-only call recovery.
+ * MLX streams keep thought observable; context budgets remain caller-owned.
  * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 import { createHash } from 'node:crypto';
-import { isRecord } from '../../shared/primitive-values.js';
-import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
+import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
 import { resolveModelBehavior } from '../model-behavior.js';
+import {
+  finalizeParsedToolCalls,
+  INCOMPLETE_RESPONSE,
+} from '../model-response-completion.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -514,15 +518,14 @@ function adaptLocalOpenAICompatResponse(
   const normalizationOptions = buildToolCallNormalizationOptions(params);
   const hasStructuredToolCalls =
     Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
-  const normalizedContentInput =
-    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content;
   let normalized = normalizeToolCalls(
     message?.tool_calls,
-    normalizedContentInput,
+    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content,
     normalizationOptions,
   );
   if (
     normalized.toolCalls.length === 0 &&
+    thinking.thinkingOnly &&
     thinking.thinking &&
     (normalizationOptions.parser === 'qwen' ||
       normalizationOptions.parser === 'qwen3_coder')
@@ -533,12 +536,13 @@ function adaptLocalOpenAICompatResponse(
       normalizationOptions,
     );
     if (thinkingToolCalls.toolCalls.length > 0) {
-      normalized = {
-        content: thinking.thinkingOnly ? null : normalized.content,
-        toolCalls: thinkingToolCalls.toolCalls,
-      };
+      normalized = { content: null, toolCalls: thinkingToolCalls.toolCalls };
     }
   }
+  const { content, toolCalls, finishReason } = finalizeParsedToolCalls(
+    normalized,
+    choice?.finish_reason,
+  );
   return {
     ...payload,
     choices: [
@@ -546,15 +550,10 @@ function adaptLocalOpenAICompatResponse(
         ...choice,
         message: {
           role: message?.role || 'assistant',
-          content: normalized.content,
-          ...(normalized.toolCalls.length > 0
-            ? { tool_calls: normalized.toolCalls }
-            : {}),
+          content,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
-        finish_reason:
-          normalized.toolCalls.length > 0
-            ? 'tool_calls'
-            : choice?.finish_reason || 'stop',
+        finish_reason: finishReason,
       },
     ],
   };
@@ -1014,9 +1013,8 @@ export async function callLocalOpenAICompatProviderStream(
     decoder.decode();
   }
 
-  if (!sawPayload) {
-    throw new Error('Streaming response ended without payload');
-  }
+  if (!sawPayload) throw new Error('Streaming response ended without payload');
+  if (!streamDone && !finishReason) finishReason = INCOMPLETE_RESPONSE;
 
   visibleToolFilter?.close();
   reasoningToolFilter?.close();

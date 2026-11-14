@@ -13,7 +13,7 @@ import {
   toolResultDigest,
   toolResultFilePath,
   toolResultForTransport,
-} from '../../container/shared/tool-history.js';
+} from '@hybridclaw/shared/tool-history';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerOutput } from '../types/container.js';

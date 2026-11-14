@@ -3,8 +3,8 @@
  * facts for the authenticated client; never logs them or changes grant scope.
  * Review arguments are projected at the producer, separately from diagnostic prose.
  */
-import { parseApprovalRule } from '../../container/shared/approval-rules.js';
-import { parseBoostPrompt } from '../../container/shared/boost-offer.js';
+import { parseApprovalRule } from '@hybridclaw/shared/approval-rules';
+import { parseBoostPrompt } from '@hybridclaw/shared/boost-offer';
 import { redactCredentialSecrets } from '../security/redact.js';
 import {
   normalizeEscalationTarget,

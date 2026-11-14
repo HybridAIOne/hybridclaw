@@ -8,7 +8,7 @@ import { deflateRawSync } from 'node:zlib';
 import {
   readFiniteNumberOr,
   readString as readStringValue,
-} from '../shared/primitive-values.js';
+} from '@hybridclaw/shared/primitive-values';
 import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,

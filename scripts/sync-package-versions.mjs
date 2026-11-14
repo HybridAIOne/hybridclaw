@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   checkNodeVersion,
   parseNodeRange,
-} from '../container/shared/node-version.js';
+} from '@hybridclaw/shared/node-version';
 
 const checkOnly = process.argv.includes('--check');
 

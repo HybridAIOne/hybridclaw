@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import {
   toolResultDigest,
   toolResultFilePath,
-} from '../container/shared/tool-history.js';
+} from '@hybridclaw/shared/tool-history';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import type { ChatMessage } from '../src/types/api.js';
 import type { ContainerInput } from '../src/types/container.js';

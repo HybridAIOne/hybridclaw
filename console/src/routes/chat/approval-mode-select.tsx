@@ -6,13 +6,14 @@
  * effect; the parent confirms through `/approvals mode`. NOT the per-request
  * approval card, which answers one pending prompt.
  */
-import type { ComponentType } from 'react';
+
 import {
   APPROVAL_MODE_PRESENTATION,
   APPROVAL_MODES,
   type ApprovalMode,
   isApprovalMode,
-} from '../../../../container/shared/approval-mode.js';
+} from '@hybridclaw/shared/approval-mode';
+import type { ComponentType } from 'react';
 import {
   ChevronDown,
   Hand,

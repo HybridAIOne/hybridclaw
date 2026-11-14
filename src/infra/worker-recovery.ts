@@ -4,7 +4,7 @@
  * returns evidence only, never success, approvals or queued side effects;
  * it never starts a replacement worker or repeats a call.
  */
-import { readTurnRecovery } from '../../container/shared/turn-checkpoint.js';
+import { readTurnRecovery } from '@hybridclaw/shared/turn-checkpoint';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../config/config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerOutput } from '../types/container.js';

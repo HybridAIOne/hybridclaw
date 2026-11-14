@@ -8,7 +8,7 @@ import {
   loadVisualSnapshot,
   VISUAL_SNAPSHOT_MAX_BYTES,
   validateVisualAttachments,
-} from '../../shared/visual-snapshots.js';
+} from '@hybridclaw/shared/visual-snapshots';
 import { WORKSPACE_STATE_ROOT } from '../runtime-paths.js';
 import {
   estimateChatMessageTokens,

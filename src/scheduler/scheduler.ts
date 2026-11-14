@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import { registerChannel } from '../channels/channel-registry.js';

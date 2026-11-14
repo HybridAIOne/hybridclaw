@@ -13,7 +13,7 @@
  */
 
 import type { ServerResponse } from 'node:http';
-import { readSingleEmoji } from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '@hybridclaw/shared/reactions';
 import {
   findAgentConfig,
   resolveAgentForRequest,

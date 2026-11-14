@@ -4,8 +4,8 @@
  * their source choice. Unlike worker state, these settings survive restarts.
  */
 import { randomUUID } from 'node:crypto';
+import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
 import type Database from 'better-sqlite3';
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';

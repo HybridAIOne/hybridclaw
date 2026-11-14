@@ -2272,7 +2272,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'sessionCompaction.tokenBudget',
       section: 'sessionCompaction',
       kind: 'number',
-      defaultValue: 100000,
+      defaultValue: 0,
     },
     {
       path: 'sessionReset.defaultPolicy.atHour',
@@ -2734,7 +2734,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 42,
+      defaultValue: 43,
     },
     {
       path: 'voice.allowFrom',

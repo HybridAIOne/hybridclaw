@@ -1,6 +1,6 @@
 ---
 title: Local Providers
-description: Configure HybridClaw for LM Studio, llama.cpp, Ollama, or vLLM and run the gateway in host mode.
+description: Configure HybridClaw for LM Studio, llama.cpp, Ollama, vLLM, or any OpenAI-compatible server.
 sidebar_position: 2
 ---
 
@@ -34,6 +34,30 @@ hybridclaw auth login local ollama llama3.2
 hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
+
+## OpenAI-Compatible Servers
+
+The `vllm` backend works with any server that implements the OpenAI Chat
+Completions API (`/v1/models` and `/v1/chat/completions`) with an optional
+bearer API key, local or remote: a university or company LLM gateway, LiteLLM,
+or a hosted inference endpoint. Give it a name so its models get their own
+prefix:
+
+```bash
+hybridclaw auth login local vllm llama-3.3-70b --name uni --base-url https://llm.example.edu --api-key <key>
+```
+
+```text
+/model list vllm
+/model set uni/llama-3.3-70b
+```
+
+The base URL may include or omit the trailing `/v1`. Named endpoints default
+to the `cloud` privacy zone, which is right for a server outside your machine.
+
+`hybridclaw auth login openai --base-url <url>` also accepts a custom URL, but
+it speaks the OpenAI Responses API (`/v1/responses`), which many
+OpenAI-compatible servers do not implement.
 
 ## Multiple vLLM Endpoints
 

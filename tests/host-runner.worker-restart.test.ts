@@ -571,8 +571,8 @@ test('HostExecutor turns an exception after dispatch into terminal journal evide
     agentId: 'default', isLocal: false,
   }));
   const { hostWorkspaceStateRoot } = await import('../src/infra/host-workspace.js');
-  const { TurnCheckpoint } = await import('../container/shared/turn-checkpoint.js');
-  const { isRetrySafeRun } = await import('../container/shared/retry-safety.js');
+  const { TurnCheckpoint } = await import('@hybridclaw/shared/turn-checkpoint');
+  const { isRetrySafeRun } = await import('@hybridclaw/shared/retry-safety');
   const params = {
     sessionId: 'session-a', runId: 'run-a', agentId: 'default',
     messages: [{ role: 'user' as const, content: 'Save the sample.' }],

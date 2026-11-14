@@ -7,7 +7,7 @@
 import {
   type HybridAIDestination,
   parseHybridAIDestination,
-} from '../../container/shared/hybridai-destination.js';
+} from '@hybridclaw/shared/hybridai-destination';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,

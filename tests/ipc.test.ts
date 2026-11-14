@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
-import { decodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { decodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 

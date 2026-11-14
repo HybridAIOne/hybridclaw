@@ -1,6 +1,17 @@
+/**
+ * Compatibility wire input is validated before routing or agent execution.
+ * Explicit execution budgets start before body/media preparation; the gateway
+ * and runners enforce them. Parsing never grants tool access.
+ */
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import {
+  ExecutionDeadlineError,
+  readExecutionDeadline,
+  remainingExecutionMs,
+} from '@hybridclaw/shared/execution-deadline';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import { normalizeOptionalTrimmedString as normalizeOptionalString } from '../utils/normalized-strings.js';
@@ -10,6 +21,7 @@ import type {
 } from './openai-compatible-model.js';
 
 const MAX_REQUEST_BYTES = 1_000_000;
+const EXECUTION_TIMEOUT_HEADER = 'X-HybridClaw-Timeout-Ms';
 
 type OpenAIChatCompletionRequestBody = {
   model?: unknown;
@@ -39,7 +51,7 @@ type OpenAIChatCompletionContentPart = {
   audio_url?: { url?: unknown } | unknown;
 };
 
-export interface ParsedOpenAICompatibleChatRequest {
+export interface ParsedOpenAICompatibleChatRequest extends ExecutionDeadline {
   model: string;
   user: string;
   wantsStream: boolean;
@@ -745,9 +757,31 @@ async function serializeMessageForHistory(
   return content ? { role, content } : null;
 }
 
+function readExecutionTimeoutHeader(
+  value: string | string[] | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const duration =
+    typeof value === 'string' && /^[1-9][0-9]*$/.test(value)
+      ? Number(value)
+      : NaN;
+  try {
+    return readExecutionDeadline(Date.now() + duration);
+  } catch {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `${EXECUTION_TIMEOUT_HEADER} must be a positive integer duration.`,
+      { param: EXECUTION_TIMEOUT_HEADER },
+    );
+  }
+}
+
 export async function readOpenAICompatibleChatRequest(
   req: IncomingMessage,
 ): Promise<ParsedOpenAICompatibleChatRequest> {
+  const executionDeadlineAtMs = readExecutionTimeoutHeader(
+    req.headers[EXECUTION_TIMEOUT_HEADER.toLowerCase()],
+  );
   const body = await readJsonBody(req);
   const wantsStream = body.stream === true;
   const model = normalizeOptionalString(body.model);
@@ -765,6 +799,13 @@ export async function readOpenAICompatibleChatRequest(
   const tools = normalizeToolDefinitions(body);
   const toolChoice = normalizeToolChoice(body);
   const usesClientTools = tools.length > 0 || toolChoice !== undefined;
+  if (usesClientTools && executionDeadlineAtMs !== undefined) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `${EXECUTION_TIMEOUT_HEADER} requires server-managed tools.`,
+      { param: EXECUTION_TIMEOUT_HEADER, code: 'unsupported_value' },
+    );
+  }
   if (body.stream_options !== undefined && !wantsStream) {
     throw new OpenAICompatibleRequestError(
       400,
@@ -839,11 +880,19 @@ export async function readOpenAICompatibleChatRequest(
     );
   }
 
+  if (remainingExecutionMs(executionDeadlineAtMs) === 0)
+    throw new OpenAICompatibleRequestError(
+      408,
+      new ExecutionDeadlineError().message,
+      { code: 'execution_deadline_exceeded' },
+    );
+
   return {
     model,
     user: normalizeOptionalString(body.user) || 'openai',
     wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
+    executionDeadlineAtMs,
     usesClientTools,
     ...(normalizeEvalProfileHeader(req.headers['x-hybridclaw-eval-profile'])
       ? {

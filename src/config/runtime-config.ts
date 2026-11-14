@@ -14,21 +14,21 @@ import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   normalizeApprovalMode,
-} from '../../container/shared/approval-mode.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+} from '@hybridclaw/shared/approval-mode';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '@hybridclaw/shared/context-guard-config';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
   normalizeMcpToolMode,
-} from '../../container/shared/local-tool-config.js';
-import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
-import { normalizeDisabledSafetyRules } from '../../container/shared/safety-rules.js';
+} from '@hybridclaw/shared/local-tool-config';
+import { parseMcpToolBehaviorConfig } from '@hybridclaw/shared/mcp-server-config';
+import { normalizeDisabledSafetyRules } from '@hybridclaw/shared/safety-rules';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -196,7 +196,8 @@ import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
 // 42: audit keeps truncated tool results unless `full` is chosen again.
-export const CONFIG_VERSION = 42;
+// 43: the session budget follows the model's context window unless capped again.
+export const CONFIG_VERSION = 43;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1968,7 +1969,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   sessionCompaction: {
     enabled: true,
-    tokenBudget: 100_000,
+    // 0 = no cap (2026-11-10): the model's context window decides. The fixed
+    // 100k cap made large-window models compact every other turn.
+    tokenBudget: 0,
     budgetRatio: 0.7,
     threshold: 200,
     keepRecent: 40,
@@ -6576,11 +6579,18 @@ function normalizeRuntimeConfig(
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.threshold,
     { min: 20 },
   );
-  const tokenBudget = normalizeInteger(
+  const configuredTokenBudget = normalizeInteger(
     rawSessionCompaction.tokenBudget,
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.tokenBudget,
-    { min: 1_000 },
+    { min: 0 },
   );
+  // compat: remove after v0.44. Before v43 every config carried the
+  // then-default cap of 100,000.
+  const tokenBudget =
+    configuredTokenBudget === 100_000 &&
+    (sourceVersion === null || sourceVersion < 43)
+      ? DEFAULT_RUNTIME_CONFIG.sessionCompaction.tokenBudget
+      : configuredTokenBudget;
   const budgetRatio = normalizeNumber(
     rawSessionCompaction.budgetRatio,
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.budgetRatio,

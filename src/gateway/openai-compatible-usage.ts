@@ -1,6 +1,7 @@
 /**
  * Usage recording for OpenAI-compatible completions that call the model
- * directly (client tools), outside the agent turn that records its own usage.
+ * directly (client tools, the `regular` decision alias), outside the agent
+ * turn that records its own usage.
  *
  * Records the model that served the call, which after provider fallback may
  * differ from the requested one. Does not shape the response's `usage` field.

@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { encodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
+import { encodeFileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));

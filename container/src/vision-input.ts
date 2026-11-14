@@ -5,7 +5,7 @@
  */
 import os from 'node:os';
 import path from 'node:path';
-import { readString } from '../shared/primitive-values.js';
+import { readString } from '@hybridclaw/shared/primitive-values';
 import { resolveHttpArtifactReadPath } from './http-artifact-read-path.js';
 import { resolveMediaPath, resolveWorkspacePath } from './runtime-paths.js';
 

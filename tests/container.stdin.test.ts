@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream';
 import { expect, test, vi } from 'vitest';
 
-import { encodeWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import { encodeWarmWorkerFrame } from '@hybridclaw/shared/warm-worker-frame';
 import { createLineReader, readFirstInput } from '../container/src/stdin.js';
 
 const SERVERS = {

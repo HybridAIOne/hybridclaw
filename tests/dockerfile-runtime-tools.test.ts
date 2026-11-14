@@ -100,8 +100,8 @@ describe('Docker runtime tool parity', () => {
     );
     expectSystemRuntimeTools(runtime);
     expectRuntimePipInstallable(runtime);
-    // The agent image builds with `container/` as its context.
-    expectManifestInstall(runtime, 'tools', inventory);
+    // Both images build with the repository root as their context.
+    expectManifestInstall(runtime, RUNTIME_TOOLS_DIR, inventory);
     expect(runtime).toContain(
       `NODE_PATH=${RUNTIME_TOOLS_TARGET}/node_modules:/usr/local/lib/node_modules:/app/node_modules`,
     );

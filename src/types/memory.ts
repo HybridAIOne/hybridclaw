@@ -1,13 +1,6 @@
-export interface MemoryCitation {
-  /** Stable reference tag used in the prompt, e.g. "[mem:3]" */
-  ref: string;
-  /** semantic_memories.id */
-  memoryId: number;
-  /** Truncated content preview */
-  content: string;
-  /** Decayed confidence at recall time */
-  confidence: number;
-}
+import type { MemoryCitation } from '@hybridclaw/contracts/agent-io';
+
+export type { MemoryCitation };
 
 /** Prompt-time built-in memory access exposed to clients for transparency. */
 export interface MemoryAccess {

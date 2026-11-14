@@ -1,6 +1,6 @@
-import type { McpServerConfig } from '../../../container/shared/mcp-server-config.js';
-import type { LocalBackendType } from '../../../container/shared/provider-ids.js';
-import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
+import type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
+import type { LocalBackendType } from '@hybridclaw/shared/provider-ids';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
   GatewayAdminStatisticsChannelRow,
@@ -556,7 +556,7 @@ export interface AdminEmailAccountConfig {
 export interface AdminConfig {
   version: number;
   security: {
-    defaultApprovalMode: import('../../../container/shared/approval-mode.js').ApprovalMode;
+    defaultApprovalMode: import('@hybridclaw/shared/approval-mode').ApprovalMode;
     disabledSafetyRules: string[];
     trustModelAccepted: boolean;
     trustModelAcceptedAt: string;

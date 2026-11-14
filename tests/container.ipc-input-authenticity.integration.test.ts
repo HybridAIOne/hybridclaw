@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { encodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
+import { encodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
 import type {
   ContainerInput,
   ContainerOutput,

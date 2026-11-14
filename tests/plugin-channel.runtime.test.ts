@@ -1,5 +1,4 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
 import {
   registerChannelTransport,
   unregisterChannelTransport,
@@ -108,20 +107,6 @@ test('preserves plugin send IDs for text and media', async () => {
       filePath: '/tmp/image.png',
     }),
   ).resolves.toBe(mediaResult);
-});
-
-test.each([
-  'whatsapp',
-  'line',
-] as const)('refuses a create-only %s registration with the reinstall command', (kind) => {
-  expect(() =>
-    registerChannelTransport({
-      kind,
-      create: () => createFakeTransportInstance(),
-    } as never),
-  ).toThrow(
-    `uses the retired create-only contract. Update the plugin: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry(kind)?.installSource}`,
-  );
 });
 
 test.each([

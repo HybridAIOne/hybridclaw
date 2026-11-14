@@ -8,7 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
+import { parseBooleanWithDefault } from '@hybridclaw/shared/boolean-utils';
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,

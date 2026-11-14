@@ -3,12 +3,13 @@
  * Browser storage remembers only review disposition, never email content;
  * the runtime, not this card, confirms whether a send succeeded.
  */
-import { useRef, useState } from 'react';
+
 import {
   type EmailDraft,
   emailDraftText,
   normalizeEmailDraft,
-} from '../../../../container/shared/email-draft.js';
+} from '@hybridclaw/shared/email-draft';
+import { useRef, useState } from 'react';
 import { Button } from '../../components/button';
 import css from './review-card.module.css';
 

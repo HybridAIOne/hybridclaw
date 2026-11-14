@@ -26,7 +26,7 @@ export async function withChatRoutingTrace(
   const safeTrace = redactSecretsDeep(trace);
   const runId = makeAuditRunId('routing');
   for (const attempt of trace.attempts.filter(
-    (entry) => entry.kind === 'auxiliary',
+    (entry) => entry.kind === 'auxiliary' && entry.usageSource !== 'worker',
   )) {
     enqueueTokenUsage({
       sessionId: result.sessionId || req.sessionId,

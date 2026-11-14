@@ -1,15 +1,15 @@
-import { fetchHybridAIDestination } from '../../container/shared/hybridai-destination.js';
-import { readProviderCacheUsage } from '../../container/shared/provider-cache-usage.js';
-import { getProviderContextError } from '../../container/shared/provider-context.js';
+import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
-} from '../../container/shared/request-max-tokens.js';
-import { extractResponseTextContent } from '../../container/shared/response-text.js';
+} from '@hybridclaw/shared/request-max-tokens';
+import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
-} from '../../container/shared/server-sent-events.js';
+} from '@hybridclaw/shared/server-sent-events';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';

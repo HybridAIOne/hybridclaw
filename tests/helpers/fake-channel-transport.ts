@@ -1,9 +1,9 @@
 import { vi } from 'vitest';
 import type {
-  ChannelTransportAuthStatus,
   ChannelTransportInstance,
   ChannelTransportRegistration,
 } from '../../src/channels/channel-transport.js';
+
 import {
   isWhatsAppJid,
   normalizeWhatsAppTarget,
@@ -25,13 +25,8 @@ export function createFakeTransportInstance(
   } satisfies ChannelTransportInstance;
 }
 
-/**
- * A full-contract WhatsApp registration over a fake instance. The real plugin
- * owns JID formatting and send descriptions; these fakes only give core
- * something to route through.
- */
 export function fakeWhatsAppRegistration(
-  instance: ChannelTransportInstance,
+  instance: ChannelTransportInstance = createFakeTransportInstance(),
   overrides: Partial<ChannelTransportRegistration> = {},
 ) {
   return {
@@ -39,18 +34,8 @@ export function fakeWhatsAppRegistration(
     create: vi.fn(() => instance),
     matchesTarget: isWhatsAppJid,
     normalizeTarget: normalizeWhatsAppTarget,
-    getAuthStatus: vi.fn(
-      async (): Promise<ChannelTransportAuthStatus> => ({ linked: true }),
-    ),
-    resetAuth: vi.fn(async () => '/tmp/unused'),
-    describeSend: ({ target, auth }) => ({
-      sentFrom:
-        typeof auth.jid === 'string' ? auth.jid : 'the linked WhatsApp account',
-      recipient: target,
-    }),
-    messageToolHints: () => [FAKE_WHATSAPP_HINT],
+    getAuthStatus: async () => ({ linked: false, jid: null }),
+    resetAuth: vi.fn(async () => '/unused'),
     ...overrides,
   } satisfies ChannelTransportRegistration;
 }
-
-export const FAKE_WHATSAPP_HINT = 'fake WhatsApp transport hint';

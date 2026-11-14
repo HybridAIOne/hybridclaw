@@ -5,10 +5,6 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
-import {
-  createFakeTransportInstance,
-  fakeWhatsAppRegistration,
-} from './helpers/fake-channel-transport.js';
 import { useTempDir } from './test-utils.js';
 import YAML from 'yaml';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
@@ -1061,24 +1057,18 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
   process.env.HOME = homeDir;
   vi.resetModules();
   mockHealthProbes();
-
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getGatewayStatus } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  const { fakeWhatsAppRegistration } = await import('./helpers/fake-channel-transport.js');
   const { registerChannelTransport } = await import(
     '../src/channels/channel-transport.ts'
   );
-  registerChannelTransport(
-    fakeWhatsAppRegistration(createFakeTransportInstance(), {
-      getAuthStatus: async () => ({ linked: false, jid: null }),
-      getPairingState: () => ({
-        pairingQrText: '▄▄\n██',
-        updatedAt: '2026-04-08T10:00:00.000Z',
-        error: null,
-      }),
-    }),
-  );
+  registerChannelTransport({
+    ...fakeWhatsAppRegistration(),
+    getPairingState: () => ({ pairingQrText: '▄▄\n██', updatedAt: '2026-04-08T10:00:00.000Z', error: null }),
+  });
 
   initDatabase({ quiet: true });
   const status = await getGatewayStatus();

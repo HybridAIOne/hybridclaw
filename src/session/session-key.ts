@@ -1,10 +1,10 @@
 import {
   buildSessionKey,
   parseSessionKey,
-} from '../../container/shared/session-keys.js';
+} from '@hybridclaw/shared/session-keys';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 
-export type { ParsedSessionKey } from '../../container/shared/session-keys.js';
+export type { ParsedSessionKey } from '@hybridclaw/shared/session-keys';
 export { buildSessionKey, parseSessionKey };
 
 export interface SessionKeyMigrationResult {

@@ -7,9 +7,9 @@ import {
   loadVisualSnapshot,
   saveVisualSnapshot,
   validateVisualAttachments,
-} from '../container/shared/visual-snapshots.js';
-import { readPdfPages } from '../container/shared/pdf-reader.js';
-import { validateToolHistory } from '../container/shared/tool-history.js';
+} from '@hybridclaw/shared/visual-snapshots';
+import { readPdfPages } from '@hybridclaw/shared/pdf-reader';
+import { validateToolHistory } from '@hybridclaw/shared/tool-history';
 import type { ChatMessage } from '../container/src/types.js';
 import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

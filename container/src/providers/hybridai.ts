@@ -3,9 +3,9 @@
  * Unlike transport EOF, a terminal marker establishes completion; provider
  * error events reject the call even after visible deltas were delivered.
  */
-import { fetchHybridAIDestination } from '../../shared/hybridai-destination.js';
-import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
-import { getSupportedReasoningEfforts } from '../../shared/reasoning-effort.js';
+import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
+import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,

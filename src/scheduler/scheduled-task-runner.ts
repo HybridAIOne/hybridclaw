@@ -5,6 +5,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
 import {
@@ -39,13 +40,18 @@ import {
   trackedOwningTask,
   trackedTaskPrompt,
 } from '../tracking/track-store.js';
+import type { ToolExecution } from '../types/execution.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
-import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import {
+  explicitUsageCostSource,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
 import { taskCostFromUsage } from '../usage/task-cost.js';
 import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { startWork, updateWork } from '../work/work-store.js';
 import { beginWork, workPrompt } from '../work/work-tool.js';
 import { isConnectorEventCurrent } from './connector-events.js';
@@ -71,7 +77,7 @@ export async function runIsolatedScheduledTask(params: {
   channelId: string;
   chatbotId: string;
   model: string;
-  reasoningEffort?: import('../../container/shared/reasoning-effort.js').ReasoningEffort;
+  reasoningEffort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort;
   agentId: string;
   sessionId?: string;
   sessionKey?: string;
@@ -235,6 +241,7 @@ export async function runIsolatedScheduledTask(params: {
       : undefined,
   );
   const endWork = beginWork(activeSessionId, runId);
+  let toolExecutions: ToolExecution[] = [];
   try {
     const output = await runAgent({
       sessionId: activeSessionId,
@@ -254,10 +261,11 @@ export async function runIsolatedScheduledTask(params: {
         ? { approvalUserId: params.approver, approvalUserText: storedPrompt }
         : {}),
     });
+    toolExecutions = output.toolExecutions || [];
     emitToolExecutionAuditEvents({
       sessionId: activeSessionId,
       runId,
-      toolExecutions: output.toolExecutions || [],
+      toolExecutions,
     });
     updateWork(runId, (work) => {
       work.actions = (output.toolExecutions ?? []).flatMap((tool, index) =>
@@ -303,12 +311,22 @@ export async function runIsolatedScheduledTask(params: {
       costUsd,
       auditRunId: runId,
     });
+    const auxiliaryUsage = await recordWorkerAuxiliaryUsage({
+      sessionId: activeSessionId,
+      agentId,
+      auditRunId: runId,
+      usages: [output.tokenUsage],
+    });
     noteTaskRun(params.taskRunId, {
       workId: runId,
       cost: taskCostFromUsage({
         model,
-        costUsd,
-        requests: output.tokenUsage?.modelCalls ?? null,
+        costUsd:
+          explicitUsageCostSource(output.tokenUsage) === 'unknown'
+            ? null
+            : costUsd,
+        requests: usage.modelCalls,
+        additionalCalls: auxiliaryUsage,
       }),
     });
     for (const event of buildMediaGenerationUsageEvents({
@@ -405,6 +423,7 @@ export async function runIsolatedScheduledTask(params: {
           type: 'turn.end',
           turnIndex: 1,
           finishReason: 'completed',
+          ...turnToolSummary(toolExecutions),
         },
       });
       recordAuditEvent({
@@ -444,6 +463,7 @@ export async function runIsolatedScheduledTask(params: {
         type: 'turn.end',
         turnIndex: 1,
         finishReason: 'error',
+        ...turnToolSummary(toolExecutions),
       },
     });
     recordAuditEvent({
@@ -483,6 +503,7 @@ export async function runIsolatedScheduledTask(params: {
         type: 'turn.end',
         turnIndex: 1,
         finishReason: 'error',
+        ...turnToolSummary(toolExecutions),
       },
     });
     recordAuditEvent({

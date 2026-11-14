@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
-import { readTurnCheckpoint } from '../container/shared/turn-checkpoint.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
+import { toolResultFilePath } from '@hybridclaw/shared/tool-history';
+import { readTurnCheckpoint } from '@hybridclaw/shared/turn-checkpoint';
 import type {
   ChatMessage,
   ContainerInput,

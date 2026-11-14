@@ -5,8 +5,8 @@
  * Guarantees that compaction is triggered by the same number that would make
  * the next prompt drop turns, so stored history is either sent verbatim or
  * already folded into `session_summary`. The budget is the model's context
- * window clipped by `sessionCompaction.tokenBudget`, scaled by
- * `sessionCompaction.budgetRatio`.
+ * window scaled by `sessionCompaction.budgetRatio`; a non-zero
+ * `sessionCompaction.tokenBudget` clips the window first.
  *
  * NOT the in-loop context guard (`sessionCompaction.inLoopGuard`), which
  * bounds tool results inside a single agent run.
@@ -21,20 +21,25 @@ import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 // notes consume the whole budget, the newest turns still get this much room.
 export const MIN_HISTORY_BUDGET_TOKENS = 2_000;
 
+// 100k: the cap every install carried until the cap became optional, kept as
+// the window assumed for a model the catalog does not know.
+const UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS = 100_000;
+
 export function resolveSessionContextBudgetTokens(
   model: string | null | undefined,
 ): number {
-  const cap = Math.max(1_000, SESSION_COMPACTION_TOKEN_BUDGET);
+  const cap = SESSION_COMPACTION_TOKEN_BUDGET || null;
   const normalizedModel = String(model || '').trim();
   const contextWindow = normalizedModel
     ? getModelCatalogMetadata(normalizedModel).contextWindow
     : null;
-  const window =
+  const knownWindow =
     contextWindow != null && Number.isFinite(contextWindow) && contextWindow > 0
-      ? Math.min(contextWindow, cap)
-      : cap;
+      ? contextWindow
+      : null;
+  const window = knownWindow ?? cap ?? UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS;
   const ratio = Math.max(0.05, Math.min(1, SESSION_COMPACTION_BUDGET_RATIO));
-  return Math.max(1, Math.floor(window * ratio));
+  return Math.max(1, Math.floor(Math.min(window, cap ?? window) * ratio));
 }
 
 export function resolveHistoryBudgetTokens(params: {

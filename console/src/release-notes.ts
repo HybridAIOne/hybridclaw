@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.42.4',
+  version: '0.43.1',
   highlights: [
-    'Cleaner model picker',
-    'Persistent Docker tool settings',
-    'Safer file and image handling',
-    'Long command output preserved',
+    'One deadline across retries and delegated work',
+    'Clear errors for incomplete replies',
+    'Fewer prompts for current-channel replies',
+    'Tool-use summaries in the audit log',
   ],
 } as const;
 

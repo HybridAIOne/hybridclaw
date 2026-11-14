@@ -6,7 +6,7 @@
  * set it from their settings with `--json`, answered in one line that survives
  * a chat relay (`chatSafeJson`).
  */
-import { stripHybridAIModelPrefix } from '../../container/shared/model-names.js';
+import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
 import {
   getStoredAgentConfig,
   resolveAgentModel,

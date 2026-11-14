@@ -6,10 +6,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 import YAML from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
-import {
-  createFakeTransportInstance,
-  fakeWhatsAppRegistration,
-} from './helpers/fake-channel-transport.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
@@ -19,8 +15,6 @@ const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
 const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
-
-const whatsappResetAuth = vi.fn(async () => '/tmp/unused');
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
@@ -45,23 +39,25 @@ async function importFreshCli(
       return [{ folder: 'INBOX', lastProcessedUid: 41, seeded: true }];
     },
   }));
-  whatsappResetAuth.mockClear();
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
     ensurePluginManagerInitialized: async () => {
       const transports = await import('../src/channels/channel-transport.ts');
       if (!transports.hasChannelTransport('whatsapp')) {
-        transports.registerChannelTransport(
-          fakeWhatsAppRegistration(
-            createFakeTransportInstance({
-              createPairingSession: async () => ({
-                start: async () => {},
-                stop: async () => {},
-                waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
-              }),
+        const { fakeWhatsAppRegistration, createFakeTransportInstance } = await import('./helpers/fake-channel-transport.js');
+        const authDir = path.join(homeDir, '.hybridclaw', 'credentials', 'whatsapp');
+        transports.registerChannelTransport({
+          ...fakeWhatsAppRegistration(createFakeTransportInstance({
+            createPairingSession: async () => ({
+              start: async () => {},
+              stop: async () => {},
+              waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
             }),
-            { resetAuth: whatsappResetAuth },
-          ),
-        );
+          })),
+          resetAuth: async () => {
+            fs.rmSync(path.join(authDir, 'creds.json'), { force: true });
+            return authDir;
+          },
+        });
       }
       return {};
     },
@@ -1508,14 +1504,29 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
   expect(config.whatsapp.ackReaction).toBe('✅');
 });
 
-test.each([
-  [['channels', 'whatsapp', 'setup', '--reset']],
-  [['auth', 'whatsapp', 'reset']],
-])('%j resets auth through the WhatsApp plugin', async (args) => {
-  const cli = await importFreshCli(makeTempHome());
-  vi.spyOn(console, 'log').mockImplementation(() => {});
+test('channels whatsapp setup --reset clears stale auth files before pairing', async () => {
+  const homeDir = makeTempHome();
+  const authDir = path.join(homeDir, '.hybridclaw', 'credentials', 'whatsapp');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(path.join(authDir, 'creds.json'), '{"stale":true}', 'utf-8');
 
-  await cli.main(args);
+  const cli = await importFreshCli(homeDir);
 
-  expect(whatsappResetAuth).toHaveBeenCalledTimes(1);
+  await cli.main(['channels', 'whatsapp', 'setup', '--reset']);
+
+  expect(fs.existsSync(path.join(authDir, 'creds.json'))).toBe(false);
+});
+
+test('auth whatsapp reset clears stale auth files without pairing', async () => {
+  const homeDir = makeTempHome();
+  const authDir = path.join(homeDir, '.hybridclaw', 'credentials', 'whatsapp');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(path.join(authDir, 'creds.json'), '{"stale":true}', 'utf-8');
+
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main(['auth', 'whatsapp', 'reset']);
+
+  expect(fs.existsSync(path.join(authDir, 'creds.json'))).toBe(false);
+  expect(fs.existsSync(authDir)).toBe(true);
 });

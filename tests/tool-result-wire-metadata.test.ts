@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { toolResultDigest } from '../container/shared/tool-history.js';
+import { toolResultDigest } from '@hybridclaw/shared/tool-history';
 import {
   callRoutedModel,
   callRoutedModelStream,

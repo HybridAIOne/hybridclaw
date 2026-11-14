@@ -7,10 +7,12 @@ FROM --platform=$BUILDPLATFORM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3f
 
 WORKDIR /app
 
-RUN npm install --global npm@11.10.0 --no-audit --fund=false
+RUN npm install --global npm@11.21.1 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY container/package*.json container/
 RUN npm --prefix container ci --ignore-scripts
@@ -33,10 +35,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-RUN npm install --global npm@11.10.0 --no-audit --fund=false
+RUN npm install --global npm@11.21.1 --no-audit --fund=false
 
 COPY .npmrc package*.json ./
 COPY console/package*.json console/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/shared/package.json packages/shared/
 COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
 RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true

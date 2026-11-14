@@ -23,8 +23,8 @@
  * proactive policy forward; both are fed by the same relay.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import { CronExpressionParser } from 'cron-parser';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import { TRIGGER_PATH_PREFIX } from '../gateway/trigger-webhook.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { createJob, deleteJob, getAllJobs, getJob } from '../memory/jobs.js';

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { readProviderCacheUsage } from '../container/shared/provider-cache-usage.js';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import {
   accumulateApiUsage,
   createTokenUsageStats,

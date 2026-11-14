@@ -1,32 +1,25 @@
 /**
- * Read-only view of the WhatsApp link the plugin stores under
- * `<data dir>/credentials/whatsapp`, for core decisions that must stay
- * synchronous (binding a running channel to its agent).
- *
- * The plugin owns this directory: credential writes, the lock, pairing, and
- * reset live there. NOT the plugin's `getAuthStatus`, which is what gateway
- * status, doctor, and sends ask.
+ * Agent activation can read an existing pairing before plugins have loaded.
+ * The transport plugin owns writes to this credential directory.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../../config/runtime-paths.js';
 
-const WHATSAPP_CREDS_PATH = path.join(
+export const WHATSAPP_AUTH_DIR = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'credentials',
   'whatsapp',
-  'creds.json',
 );
 
-export function isWhatsAppLinked(): boolean {
+export function isWhatsAppLinked(authDir = WHATSAPP_AUTH_DIR): boolean {
   try {
-    const parsed = JSON.parse(
-      fs.readFileSync(WHATSAPP_CREDS_PATH, 'utf-8'),
-    ) as { registered?: unknown; me?: { id?: unknown } | null };
-    const id = parsed?.me?.id;
+    const creds = JSON.parse(
+      fs.readFileSync(path.join(authDir, 'creds.json'), 'utf8'),
+    );
     return (
-      (typeof id === 'string' && id.trim() !== '') ||
-      parsed?.registered === true
+      creds?.registered === true ||
+      (typeof creds?.me?.id === 'string' && creds.me.id.trim().length > 0)
     );
   } catch {
     return false;

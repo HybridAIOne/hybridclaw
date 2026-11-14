@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-
-import YAML from 'yaml';
 import type {
   SkillPolicyAccessEvaluation,
   SkillPolicyAccessInput,
@@ -8,12 +6,13 @@ import type {
   SkillPolicyActionType,
   SkillPolicyRule,
   SkillPolicyState,
-} from '../../container/shared/skill-policy.js';
+} from '@hybridclaw/shared/skill-policy';
 import {
   DEFAULT_SKILL_POLICY_ACTION,
   evaluateSkillPolicyAccess,
   readSkillPolicyState,
-} from '../../container/shared/skill-policy.js';
+} from '@hybridclaw/shared/skill-policy';
+import YAML from 'yaml';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
 export type {

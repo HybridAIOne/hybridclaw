@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
-import { ACTION_PREREQUISITE_LINES } from '../container/shared/action-prerequisites.js';
-import { TOOL_ARGUMENT_CARDINALITY } from '../container/shared/tool-argument-contract.js';
+import { ACTION_PREREQUISITE_LINES } from '@hybridclaw/shared/action-prerequisites';
+import { TOOL_ARGUMENT_CARDINALITY } from '@hybridclaw/shared/tool-argument-contract';
 import { buildSystemPromptBlocksFromHooks, buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
 import { TOOL_RECOVERY_LINES } from '../src/agent/tool-recovery.js';
 

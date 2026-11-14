@@ -1,14 +1,12 @@
 /**
  * Real plugin loading for the plugin channels: the plugin manager discovers
- * the bundled LINE plugin source and a fixture of the create-only WhatsApp
- * 0.1.x plugin in an isolated data dir that already holds 0.39.1
- * credentials. Core reaches LINE only through the transport registry and
- * refuses the 0.1.x WhatsApp plugin with the reinstall command.
+ * the bundled LINE plugin source and a fixture of the released create-only
+ * WhatsApp plugin in an isolated data dir that already holds 0.39.1
+ * credentials, then core rejects the retired contract and keeps the pairing.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -102,30 +100,42 @@ async function loadCore(dataDir: string) {
   };
 }
 
-test('a 0.39.1 LINE pairing keeps working through its plugin registration', async () => {
+test('upgrading rejects the old WhatsApp transport and preserves both pairings', async () => {
   const dataDir = seed039DataDir({ linePlugin: 'current' });
   const core = await loadCore(dataDir);
-
   expect(
-    core.manager.getLoadedPlugins().find((plugin) => plugin.id === 'line'),
-  ).toMatchObject({ status: 'loaded' });
-
-  const lineTarget = `line:${SELF_MID}`;
-  expect(core.descriptors.resolveChannelTargetKind(lineTarget)).toBe('line');
-
-  const before = await core.status.getPluginChannelGatewayStatuses(
-    core.getRuntimeConfig(),
-  );
-  expect(before.line).toMatchObject({
-    enabled: true,
-    linked: true,
-    mid: SELF_MID,
-    pairingQrSvg: null,
+    core.manager.getLoadedPlugins().find((plugin) => plugin.id === 'whatsapp'),
+  ).toMatchObject({
+    status: 'failed',
+    error: expect.stringContaining('hybridclaw plugin reinstall'),
   });
-
+  expect(core.transports.hasChannelTransport('whatsapp')).toBe(false);
+  const jid = '491701234567@s.whatsapp.net';
+  expect(core.descriptors.resolveChannelTargetKind(jid)).toBe('whatsapp');
   await expect(
-    core.status.checkPluginChannels(core.getRuntimeConfig()),
-  ).resolves.toContainEqual({ severity: 'ok', message: 'LINE linked' });
+    core.toolSend.sendPluginChannelToolMessage({
+      kind: 'whatsapp',
+      channelId: jid,
+      content: 'hello',
+      filePath: null,
+      hasComponents: false,
+      from: undefined,
+    }),
+  ).rejects.toThrow('hybridclaw plugin reinstall');
+  expect(
+    JSON.parse(
+      fs.readFileSync(
+        path.join(dataDir, 'credentials', 'whatsapp', 'creds.json'),
+        'utf8',
+      ),
+    ).me.id,
+  ).toBe('491701234567:7@s.whatsapp.net');
+  await expect(
+    core.status.getPluginChannelGatewayStatuses(core.getRuntimeConfig()),
+  ).resolves.toMatchObject({
+    line: { enabled: true, linked: true, mid: SELF_MID },
+    whatsapp: { enabled: true, linked: false },
+  });
 
   const lineRegistration = core.transports.requireChannelTransport('line');
   await expect(lineRegistration.resetAuth()).resolves.toBe(
@@ -135,51 +145,6 @@ test('a 0.39.1 LINE pairing keeps working through its plugin registration', asyn
     linked: false,
     mid: null,
   });
-}, 60_000);
-
-test('a create-only WhatsApp 0.1.x plugin fails loudly with the reinstall command', async () => {
-  const dataDir = seed039DataDir({ linePlugin: 'current' });
-  const core = await loadCore(dataDir);
-  const reinstall = `Reinstall it with: hybridclaw plugin reinstall ${
-    getChannelPluginCatalogEntry('whatsapp')?.installSource
-  }`;
-
-  expect(
-    core.manager.getLoadedPlugins().find((plugin) => plugin.id === 'whatsapp'),
-  ).toMatchObject({
-    status: 'failed',
-    error: expect.stringContaining('retired create-only contract'),
-  });
-  expect(core.transports.hasChannelTransport('whatsapp')).toBe(false);
-  // A stored JID stays WhatsApp's and fails instead of rerouting.
-  const jid = '491701234567@s.whatsapp.net';
-  expect(core.descriptors.resolveChannelTargetKind(jid)).toBe('whatsapp');
-  await expect(
-    core.status.checkPluginChannels(core.getRuntimeConfig()),
-  ).resolves.toContainEqual({
-    severity: 'error',
-    message: expect.stringContaining(reinstall),
-  });
-  const target = core.toolSend.resolvePluginChannelTarget(
-    'whatsapp:+49 170 1234567',
-  );
-  expect(target).toEqual({ kind: 'whatsapp', channelId: 'whatsapp:+49 170 1234567' });
-  await expect(
-    core.toolSend.sendPluginChannelToolMessage({
-      ...(target as NonNullable<typeof target>),
-      content: 'note',
-      filePath: null,
-      hasComponents: false,
-      from: undefined,
-    }),
-  ).rejects.toThrow(reinstall);
-  await expect(
-    core.gateway.startPluginChannelIntegration('whatsapp'),
-  ).resolves.toBe(false);
-  // The linked credentials are untouched, so a reinstall resumes the session.
-  expect(
-    fs.existsSync(path.join(dataDir, 'credentials', 'whatsapp', 'creds.json')),
-  ).toBe(true);
 }, 60_000);
 
 const REINSTALL_LINE =
@@ -228,9 +193,9 @@ test('a stale create-only LINE plugin fails loudly with the reinstall command', 
       from: undefined,
     }),
   ).rejects.toThrow(REINSTALL_LINE);
-  await expect(core.gateway.startPluginChannelIntegration('line')).resolves.toBe(
-    false,
-  );
+  await expect(
+    core.gateway.startPluginChannelIntegration('line'),
+  ).resolves.toBe(false);
   expect(warn).toHaveBeenCalledWith(
     `LINE integration disabled: ${REINSTALL_LINE}`,
   );
@@ -255,7 +220,9 @@ test('a live plugin reload after reinstalling LINE brings the channel back witho
   fs.rmSync(linePluginDir, { recursive: true, force: true });
   copyPlugin(path.join(ROOT, 'plugins/line'), linePluginDir);
 
-  const pluginService = await import('../src/gateway/gateway-plugin-service.js');
+  const pluginService = await import(
+    '../src/gateway/gateway-plugin-service.js'
+  );
   const changes: unknown[] = [];
   pluginService.setChannelPluginAvailabilityListener(async (next) => {
     changes.push(...next);
@@ -277,5 +244,8 @@ test('a live plugin reload after reinstalling LINE brings the channel back witho
   );
   await expect(
     core.status.getPluginChannelGatewayStatuses(core.getRuntimeConfig()),
-  ).resolves.toMatchObject({ line: { linked: true, mid: SELF_MID } });
+  ).resolves.toMatchObject({
+    line: { linked: true, mid: SELF_MID },
+    whatsapp: { linked: false },
+  });
 }, 60_000);

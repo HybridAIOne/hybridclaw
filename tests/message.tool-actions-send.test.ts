@@ -1,9 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import type { ChannelTransportAuthStatus } from '../src/channels/channel-transport.js';
-import {
-  createFakeTransportInstance,
-  fakeWhatsAppRegistration,
-} from './helpers/fake-channel-transport.js';
+import { fakeWhatsAppRegistration } from './helpers/fake-channel-transport.js';
 
 async function importFreshMessageToolActions(
   a2aLocalMode = false,
@@ -175,9 +171,7 @@ async function importFreshMessageToolActions(
         }
       : null,
   );
-  const getWhatsAppAuthStatus = vi.fn(
-    async (): Promise<ChannelTransportAuthStatus> => ({ linked: true }),
-  );
+  const getWhatsAppAuthStatus = vi.fn(async () => ({ linked: true }));
   const sendToWhatsAppChat = vi.fn(async () => {});
   const sendWhatsAppMediaToChat = vi.fn(async () => {});
   const sendToActiveMSTeamsSession = vi.fn(async () => ({
@@ -317,15 +311,26 @@ async function importFreshMessageToolActions(
   if (whatsappPluginLoaded) {
     (
       await import('../src/channels/channel-transport.js')
-    ).registerChannelTransport(
-      fakeWhatsAppRegistration(
-        createFakeTransportInstance({
-          sendText: sendToWhatsAppChat,
-          sendMedia: sendWhatsAppMediaToChat,
-        }),
-        { getAuthStatus: getWhatsAppAuthStatus },
-      ),
-    );
+    ).registerChannelTransport({
+      ...fakeWhatsAppRegistration({
+        init: async () => {},
+        shutdown: async () => {},
+        sendText: sendToWhatsAppChat,
+        sendMedia: sendWhatsAppMediaToChat,
+      }),
+      getAuthStatus: getWhatsAppAuthStatus,
+      describeSend: ({ target, auth }) => {
+        const recipient = '+' + target.split('@')[0];
+        const sentFrom = typeof auth.jid === 'string'
+          ? '+' + auth.jid.split(/[:@]/)[0]
+          : 'the linked WhatsApp account';
+        return {
+          recipient,
+          sentFrom,
+          ...(sentFrom === recipient ? { note: 'fixture self-chat advisory' } : {}),
+        };
+      },
+    });
   }
   const loaders = await import('../src/channels/channel-runtime-loaders.js');
   if (channelsRunning) {
@@ -1676,13 +1681,35 @@ test('WhatsApp send results describe sender, recipient and unconfirmed delivery'
   expect(result).toMatchObject({
     ok: true,
     transport: 'whatsapp',
-    recipient: '491234567890@s.whatsapp.net',
+    recipient: '+491234567890',
     deliveryStatus: 'unknown-recipient',
     messageIds: [],
     deliveryConfirmed: false,
   });
   expect(result).not.toHaveProperty('note');
 });
+
+test('WhatsApp send results warn when the recipient is the linked account itself', async () => {
+  const state = await importFreshMessageToolActions();
+  state.getWhatsAppAuthStatus.mockResolvedValueOnce({
+    linked: true,
+    jid: '491234567890:7@s.whatsapp.net',
+  } as never);
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: '491234567890@s.whatsapp.net',
+    content: 'note to self',
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    sentFrom: '+491234567890',
+    recipient: '+491234567890',
+  });
+  expect(result.note).toBe('fixture self-chat advisory');
+});
+
 
 test.each(['+15550100200', '', null])(
   'WhatsApp rejects from=%s before text or media sends',
@@ -1691,7 +1718,7 @@ test.each(['+15550100200', '', null])(
     state.getWhatsAppAuthStatus.mockResolvedValue({
       linked: true,
       jid: '15550100100:7@s.whatsapp.net',
-    });
+    } as never);
     for (const filePath of [undefined, 'notes/image.png']) {
       await expect(
         state.runMessageToolAction({
@@ -1702,7 +1729,7 @@ test.each(['+15550100200', '', null])(
           from,
           filePath,
         }),
-      ).rejects.toThrow('Messages are sent from 15550100100:7@s.whatsapp.net');
+      ).rejects.toThrow('Messages are sent from +15550100100');
     }
     expect(state.sendToWhatsAppChat).not.toHaveBeenCalled();
     expect(state.sendWhatsAppMediaToChat).not.toHaveBeenCalled();

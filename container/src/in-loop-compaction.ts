@@ -4,7 +4,7 @@
  * evidence stays intact. Failed summaries never authorize a lossy replacement.
  * Under pressure, older batches compact while the newest whole exchange stays live.
  */
-import { extractResponseTextContent } from '../shared/response-text.js';
+import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import { isContextWindowExceededError } from './model-retry.js';
 import { ProviderRequestError } from './providers/shared.js';

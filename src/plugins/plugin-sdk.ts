@@ -10,7 +10,7 @@ export {
   readFiniteNumber,
   readString,
   toTrimmedString,
-} from '../../container/shared/primitive-values.js';
+} from '@hybridclaw/shared/primitive-values';
 export {
   getAgentById,
   upsertRegisteredAgent,

@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { BUILTIN_TOOLS } from '../container/shared/builtin-tools.js';
+import { BUILTIN_TOOLS } from '@hybridclaw/shared/builtin-tools';
 
 test('the built-in tool manifest lists every container tool definition exactly once', async () => {
   vi.resetModules();

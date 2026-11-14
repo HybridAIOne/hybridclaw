@@ -5,14 +5,15 @@
  */
 
 import type { JsonWebKey } from 'node:crypto';
-import type { BaseMessageOptions } from 'discord.js';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type {
   ApprovalReplyContext,
   ApprovalReplyInterpretation,
-} from '../../container/shared/approval-reply.js';
-import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import type { ToolCallLimits } from '../../container/shared/tool-call-limits.js';
+} from '@hybridclaw/shared/approval-reply';
+import type { MessageEmailDraft } from '@hybridclaw/shared/email-draft';
+import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
+import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
@@ -312,6 +313,7 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayChatRequest
   extends ApprovalReplyContext,
+    ExecutionDeadline,
     ToolCallLimits {
   /** Internal gateway claim; never accepted from HTTP request bodies. */
   approvalClaim?: PendingApprovalClaim;

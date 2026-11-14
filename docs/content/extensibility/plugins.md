@@ -527,9 +527,14 @@ and the message-tool address syntax the channel used to own (WhatsApp:
 command instead of reaching another channel. When the plugin is installed but
 failed to load, that message names `hybridclaw plugin reinstall` instead.
 
-A registration that names any contract hook must supply all required ones. A
-create-only registration (`{ kind, create }`, as WhatsApp 0.1.x and LINE 0.1.0
-shipped) is refused with a `hybridclaw plugin reinstall` hint.
+Channel plugins must supply all required transport hooks. WhatsApp plugin
+0.2.0 implements this contract and uses `ChannelTransportHost`. To upgrade
+a 0.1.x installation, run the following command before upgrading HybridClaw.
+The plugin reuses the existing pairing directory.
+
+```sh
+hybridclaw plugin reinstall https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.2.0/hybridaione-hybridclaw-whatsapp-0.2.0.tgz
+```
 
 Keep `register(api)` synchronous and cheap. If a transport has large or
 license-sensitive dependencies, register a lightweight instance and dynamically

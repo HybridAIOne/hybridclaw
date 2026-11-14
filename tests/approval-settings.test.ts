@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { APPROVAL_MODES, normalizeApprovalMode } from '../container/shared/approval-mode.js';
+import { APPROVAL_MODES, normalizeApprovalMode } from '@hybridclaw/shared/approval-mode';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

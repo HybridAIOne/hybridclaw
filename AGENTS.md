@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js >=22.23.4 <23 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.42.4 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.43.1 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -63,6 +63,11 @@ container/              Sandboxed runtime (separate npm package)
   src/                  Container agent runtime, tool execution, provider adapters, MCP client
   Dockerfile            Container build definition
   package.json          Container-specific deps (Playwright, agent-browser, PDF, MCP SDK)
+
+packages/contracts/     @hybridclaw/contracts: the gateway ↔ agent messages (agent-io.ts) and
+                        the in-house schema builders (schema.ts) their checks come from
+packages/shared/        @hybridclaw/shared: private workspace package of code the gateway,
+                        container, and console share; both bundles inline it
 
 skills/                 Bundled SKILL.md skills (pdf, docx, xlsx, pptx, office, personality, etc.)
 templates/              Runtime workspace bootstrap files seeded into agent workspaces
@@ -141,14 +146,17 @@ core, not dead code).
   and any type that crosses the gateway / container / console boundary, has
   exactly one definition. Before writing one, search for it and derive from it:
   import it, generate from it, or look it up. If a second copy is unavoidable,
-  generate it and add a test that fails when the two diverge.
+  generate it and add a test that fails when the two diverge. Gateway ↔ agent
+  messages live in `packages/contracts/src/agent-io.ts`; data the receiver must
+  check is a schema there (`packages/contracts/src/schema.ts`), and its type is
+  `Infer<typeof Schema>`, never a separate interface.
 - **Logic:** duplicate small local logic when it preserves clarity; extract a
   helper on the third copy. Reusing a helper that already exists is never
-  premature: check `src/utils/`, `container/shared/`, and the owning module
+  premature: check `src/utils/`, `packages/shared/`, and the owning module
   before writing `isRecord`, `sleep`, `parseJsonObject`, a base-URL
   normalizer, or a private-network check.
 - When extracting, preserve module boundaries. Code both the gateway and the
-  container need lives in `container/shared/`.
+  container need lives in `packages/shared/` (`@hybridclaw/shared`).
 
 ### 3.4 Core Is for What Every Install Needs
 
@@ -221,7 +229,7 @@ should verify no broken references.
 
 - Node.js `>=22.23.4 <23` (matches CI and the `engines` field)
 - npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
-  pin (`npm@11.10.0`). Contributors need this version because npm's
+  pin (`npm@11.21.1`). Contributors need this version because npm's
   `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
   npm 11.10+; it is deliberately not enforced on end users via `engines.npm`.
 - Docker when working on container-mode behavior or image builds
@@ -439,7 +447,7 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. Add the id to `container/shared/provider-ids.js` and its `.d.ts` (the one
+1. Add the id to `packages/shared/src/provider-ids.ts` (the one
    id list; OpenAI-compatible remote providers go in
    `OPENAI_COMPAT_REMOTE_PROVIDER_IDS`) and its label, secret key, env vars,
    and defaults to `PROVIDER_META` in `src/providers/provider-meta.ts`. Unions,

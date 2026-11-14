@@ -8,7 +8,7 @@ import {
   type MessageToolChannelKind,
   normalizeMessageToolChannelKinds,
   shouldOfferMessageTool,
-} from '../../container/shared/message-tool-channels.js';
+} from '@hybridclaw/shared/message-tool-channels';
 import { listChannels } from './channel-registry.js';
 
 export type { MessageToolChannelKind };

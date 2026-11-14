@@ -4,7 +4,7 @@ import {
   repairUnicodeForJson,
   replaceUnpairedSurrogates,
   replaceUnsafeJsonStorageChars,
-} from '../container/shared/unicode-utils.js';
+} from '@hybridclaw/shared/unicode-utils';
 
 // The previous character-by-character implementation, kept as the reference
 // the built-in fast paths must match.

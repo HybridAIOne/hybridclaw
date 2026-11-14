@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
-import { encodeWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
+import { encodeWarmWorkerFrame } from '@hybridclaw/shared/warm-worker-frame';
 import type {
   ChatMessage,
   ContainerInput,

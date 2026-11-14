@@ -3,7 +3,7 @@ import path from 'node:path';
 import {
   writeFileAtomic,
   writeFileAtomicAsync,
-} from '../../container/shared/atomic-write.js';
+} from '@hybridclaw/shared/atomic-write';
 
 import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';

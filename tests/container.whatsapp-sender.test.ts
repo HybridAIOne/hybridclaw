@@ -20,11 +20,11 @@ vi.mock('../src/channels/plugin-channel/host.js', () => ({
   createChannelTransportHost: () => ({}),
 }));
 const instance = createFakeTransportInstance();
-registerChannelTransport(
-  fakeWhatsAppRegistration(instance, {
-    getAuthStatus: async () => ({ linked: true, jid: '15550100100' }),
-  }),
-);
+registerChannelTransport({
+  ...fakeWhatsAppRegistration(instance),
+  getAuthStatus: async () => ({ linked: true }),
+  describeSend: () => ({ sentFrom: '+15550100100', recipient: '+15550100200' }),
+});
 useCleanMocks({
   unstubAllGlobals: true,
   restoreAllMocks: true,
@@ -81,7 +81,7 @@ test.each(['+15550100200', '', null])(
           filePath,
         }),
       );
-      expect(result).toContain('Messages are sent from 15550100100');
+      expect(result).toContain('Messages are sent from +15550100100');
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(instance.sendText).not.toHaveBeenCalled();

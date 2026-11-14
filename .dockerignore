@@ -24,7 +24,6 @@ docker/
 tests/
 docs/tools/
 docs/CNAME
-packages/
 plugins/*
 !plugins/browser-use-cloud/
 !plugins/browser-use-cloud/**

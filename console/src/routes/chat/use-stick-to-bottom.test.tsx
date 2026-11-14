@@ -85,6 +85,25 @@ describe('useStickToBottom', () => {
     globalThis.ResizeObserver = originalRO;
   });
 
+  it('pauses bottom following before history is prepended even when initially pinned', () => {
+    const { scroller, getHook } = renderHarness();
+    const metrics = { scrollHeight: 800, clientHeight: 100 };
+    configureScroller(scroller, metrics);
+    act(() => {
+      fireResize();
+    });
+    expect(scroller.scrollTop).toBe(700);
+    act(() => {
+      getHook().pauseFollowing();
+    });
+    metrics.scrollHeight = 1000;
+    act(() => {
+      fireResize();
+    });
+    expect(getHook().isPinned).toBe(false);
+    expect(scroller.scrollTop).toBe(700);
+  });
+
   it('stays pinned and snaps scrollTop to maxScrollTop when content grows', () => {
     const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });

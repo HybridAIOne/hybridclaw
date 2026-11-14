@@ -2,7 +2,7 @@ export type {
   NetworkPolicyAction,
   NetworkPolicyState,
   NetworkRule,
-} from '../../container/shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 
 export {
   DEFAULT_NETWORK_DEFAULT,
@@ -20,4 +20,4 @@ export {
   normalizeNetworkRule,
   normalizePresetNames,
   readNetworkPolicyState,
-} from '../../container/shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';

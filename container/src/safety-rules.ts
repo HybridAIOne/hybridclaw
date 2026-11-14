@@ -10,7 +10,7 @@ import {
   normalizeDisabledSafetyRules,
   SAFETY_RULES,
   type SafetyRule,
-} from '../shared/safety-rules.js';
+} from '@hybridclaw/shared/safety-rules';
 import {
   commandProgram,
   HOME_VARIABLE_RE,

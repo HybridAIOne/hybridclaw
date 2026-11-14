@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import {
   encodeSteerNote,
   steerInboxDirName,
-} from '../container/shared/steer-inbox.js';
+} from '@hybridclaw/shared/steer-inbox';
 import type { PendingApproval } from '../container/src/pending-approval-store.js';
 import { normalizeMessageContentToText } from '../container/src/ralph.js';
 import type { ChatMessage } from '../container/src/types.js';

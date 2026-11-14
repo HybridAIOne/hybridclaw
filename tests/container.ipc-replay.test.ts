@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { encodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
+import { encodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

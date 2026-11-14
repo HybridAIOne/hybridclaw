@@ -10,17 +10,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parseOptionalBoolean } from '../shared/boolean-utils.js';
-import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
-import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
-import { asRecord } from '../shared/primitive-values.js';
+import { parseOptionalBoolean } from '@hybridclaw/shared/boolean-utils';
+import { assertBrowserNavigationUrl } from '@hybridclaw/shared/browser-navigation';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '@hybridclaw/shared/browser-profile';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
 import {
   detectTwoFactorChallenge,
   EXTRACT_TEXT_PREVIEW_SCRIPT,
   normalizeTwoFactorModality,
   TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
   type TwoFactorDetectionResult,
-} from '../shared/two-factor-detection.js';
+} from '@hybridclaw/shared/two-factor-detection';
 import {
   currentBrowserPage,
   pauseBrowserFramesUntilNavigation,

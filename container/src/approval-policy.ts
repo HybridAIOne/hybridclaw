@@ -15,12 +15,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-import YAML from 'yaml';
 import type {
   ApprovalObservation,
   ApprovalMode as SessionApprovalMode,
-} from '../shared/approval-mode.js';
-import type { ApprovalReplyInterpretation } from '../shared/approval-reply.js';
+} from '@hybridclaw/shared/approval-mode';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -29,23 +28,23 @@ import {
   LEGACY_AGENT_TRUST_STORE_FILE,
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
-} from '../shared/approval-rules.js';
-import { writeFileAtomic } from '../shared/atomic-write.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
+} from '@hybridclaw/shared/approval-rules';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
+import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
+import { isAllowedHostlessBrowserNavigationUrl } from '@hybridclaw/shared/browser-navigation';
 import {
   type BrowserStealthPolicyAccessEvaluation,
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../shared/browser-stealth-policy.js';
-import type { ConnectorApproval } from '../shared/connector-approval.js';
-import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
-import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
+} from '@hybridclaw/shared/browser-stealth-policy';
+import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
+import type { ClassifierMiddlewareSkill } from '@hybridclaw/shared/middleware-contract';
+import { applyClassifierMiddlewareSync } from '@hybridclaw/shared/middleware-runner';
 import type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 import {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
@@ -53,8 +52,9 @@ import {
   normalizeNetworkHostScope,
   normalizeNetworkPort,
   readNetworkPolicyState,
-} from '../shared/network-policy.js';
-import { asRecord } from '../shared/primitive-values.js';
+} from '@hybridclaw/shared/network-policy';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
+import YAML from 'yaml';
 import {
   type ApprovalDirective,
   parseApprovalUserResponse,
@@ -67,6 +67,7 @@ import {
 import { approvalReason } from './approval-reason.js';
 import {
   messageToolEmailTarget,
+  messageToolOutsideTarget,
   messageToolTarget,
   ownMailboxRefusal,
 } from './approval-review.js';
@@ -92,6 +93,7 @@ import {
 } from './bash-read-only.js';
 import { findFetchedCode } from './bash-remote-code.js';
 import { runsScript } from './bash-script-run.js';
+import { hasBashWriteIntent } from './bash-write-intent.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -148,12 +150,12 @@ import {
 export type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
-} from '../shared/network-policy.js';
+} from '@hybridclaw/shared/network-policy';
 export { parseApprovalUserResponse } from './approval-directive.js';
 export type {
   StakesClassificationInput,
@@ -262,7 +264,6 @@ export interface ClassifiedAction {
 
 export interface ApprovalPrelude {
   interpretation?: ApprovalReplyInterpretation;
-  modelResponse?: import('./types.js').ChatCompletionResponse;
   immediateMessage?: string;
   pendingApproval?: import('./types.js').PendingApproval;
   replayPrompt?: string;
@@ -343,6 +344,7 @@ export interface ToolCallContextHelpers {
   classifyAction(
     toolName: string,
     args: Record<string, unknown>,
+    channelId?: string,
   ): ClassifiedAction;
   isPinnedRed(input: {
     toolName: string;
@@ -511,14 +513,6 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
-// `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor, and a redirect to
-// /dev/null discards output. None writes a file, so adding one never changes
-// the tier (owner calls, 2026-09-27 and 2026-09-29).
-// `>=` in opaque arguments can be a comparison, not shell redirection.
-// Actual shell redirects (including a filename starting `=`) are covered by
-// commandWriteTargets; retain the fallback for other opaque write expressions.
-const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!=)(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
@@ -1576,6 +1570,7 @@ function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
     return context.helpers.classifyAction(
       context.params.toolName,
       context.args,
+      context.params.channelId,
     );
   } catch {
     return null;
@@ -1607,7 +1602,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   classify_action(context) {
     context.classified = guardApprovalStateChange(
       context.params.toolName,
-      context.helpers.classifyAction(context.params.toolName, context.args),
+      context.helpers.classifyAction(
+        context.params.toolName,
+        context.args,
+        context.params.channelId,
+      ),
     );
     context.decision = 'auto';
     return nextRule();
@@ -2180,12 +2179,12 @@ export class TrustedAgentApprovalRuntime {
         return this.reloadPolicyIfNeeded();
       },
       cleanupExpiredPending: () => this.cleanupExpiredPending(),
-      classifyAction: (toolName, args) =>
+      classifyAction: (toolName, args, channelId) =>
         guardFileWriteConflict(
           this.sessionId,
           toolName,
           args,
-          this.classifyAction(toolName, args),
+          this.classifyAction(toolName, args, channelId),
         ),
       isPinnedRed: (input) => this.isPinnedRed(input),
       resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
@@ -2899,6 +2898,7 @@ export class TrustedAgentApprovalRuntime {
   private classifyAction(
     toolName: string,
     args: Record<string, unknown>,
+    channelId?: string,
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
     const inboxCleanup = classifyInboxCleanup(lowerTool, args);
@@ -3003,8 +3003,12 @@ export class TrustedAgentApprovalRuntime {
         action === 'read' ||
         action === 'member-info' ||
         action === 'channel-info';
-      const target = messageToolTarget(args);
       const emailTarget = messageToolEmailTarget(args);
+      // An email conversation's channel is the sender's address, and mail
+      // to it still asks first.
+      const target = emailTarget
+        ? messageToolTarget(args)
+        : messageToolOutsideTarget(args, channelId);
       // Mail to other people goes from the user's own account, never the
       // agent's mailbox (owner call, 2026-10-08).
       const ownMailboxDenied =
@@ -3018,12 +3022,19 @@ export class TrustedAgentApprovalRuntime {
       // person) asks first in the default mode too, like a connector send;
       // full access still runs it. Owner call, 2026-10-08: nothing goes out
       // without a yes on the email itself. Talking in the current
-      // conversation, the one Hy is already answering in, stays yellow. The
-      // key names the recipient, so trusting one does not trust the next.
+      // conversation, the one Hy is already answering in, stays yellow, also
+      // when the call names that channel. The key names the recipient, so
+      // trusting one does not trust the next.
       if (
         !readonlyAction &&
         (target ||
-          !['send', 'react', 'quote-reply', 'thread-reply'].includes(action))
+          ![
+            'send',
+            'react',
+            'quote-reply',
+            'thread-reply',
+            'thread-create',
+          ].includes(action))
       ) {
         return {
           tier: 'red',
@@ -3653,10 +3664,11 @@ export class TrustedAgentApprovalRuntime {
     // Every write target the parser finds is write intent (owner call,
     // 2026-09-30), so a bare `gcc -o /opt/bin/x main.c` reaches the fence.
     const parsedWrites = commandsRun.flatMap(commandWriteTargets);
+    const opaqueWriteIntent = hasBashWriteIntent(inspectionSurface);
     const deletes =
       DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
-      WRITE_INTENT_RE.test(inspectionSurface) ||
+      opaqueWriteIntent ||
       deletes ||
       parsedWrites.length > 0 ||
       fetchedCode.writeIntent ||
@@ -3873,7 +3885,7 @@ export class TrustedAgentApprovalRuntime {
 
     if (
       GIT_WRITE_RE.test(inspectionSurface) ||
-      WRITE_INTENT_RE.test(inspectionSurface) ||
+      opaqueWriteIntent ||
       parsedWrites.length > 0
     ) {
       return {

@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
 import {
   checkpointOutput,
   readTurnCheckpoint,
   turnCheckpointPath,
-} from '../container/shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/turn-checkpoint';
 import type {
   ChatMessage,
   ContainerInput,

@@ -6,7 +6,7 @@
  * blocked calls do not.
  */
 import { createHash } from 'node:crypto';
-import { asRecord } from '../shared/primitive-values.js';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
 
 const GUARDED_TOOL_NAMES = new Set(['read', 'glob', 'grep']);
 const LOOP_GUARD_PREFIX = 'Tool loop guard:';

@@ -3,8 +3,8 @@
  * schema. Unlike snapshot validation, this module interprets provider payloads;
  * it does not price requests or infer charges for unfinished calls.
  */
-import { isRecord } from '../shared/primitive-values.js';
-import { readProviderCacheUsage } from '../shared/provider-cache-usage.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -37,7 +37,7 @@ function firstDefined(values: unknown[]): unknown {
 export {
   createTokenUsageStats,
   finalizeTokenUsage,
-} from '../shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 
 export function createTokenEstimateCache(): TokenEstimateCache {
   return new WeakMap<ChatMessage, number>();
@@ -45,6 +45,18 @@ export function createTokenEstimateCache(): TokenEstimateCache {
 
 export function estimateTextTokens(text: unknown): number {
   return estimateTextTokensWithRatio(text, CHARS_PER_TOKEN);
+}
+
+export function estimateResponseTokens(
+  response: ChatCompletionResponse,
+): number {
+  const message = response.choices[0]?.message;
+  return (
+    estimateTextTokens(message?.content) +
+    (message?.tool_calls?.length
+      ? estimateTextTokens(JSON.stringify(message.tool_calls))
+      : 0)
+  );
 }
 
 export function estimateToolResultTokens(text: unknown): number {
@@ -126,7 +138,7 @@ export function estimateMessageTokens(
 
 export function accumulateApiUsage(
   stats: TokenUsageStats,
-  response: ChatCompletionResponse,
+  response: Pick<ChatCompletionResponse, 'usage'>,
 ): void {
   const usage = response.usage;
   if (!usage) return;

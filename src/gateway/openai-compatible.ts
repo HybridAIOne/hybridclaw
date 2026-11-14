@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
+import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
@@ -344,6 +344,7 @@ function buildGatewayChatRequest(params: {
     userId: params.prepared.sessionId,
     username: params.input.user,
     content: params.input.prompt,
+    executionDeadlineAtMs: params.input.executionDeadlineAtMs,
     ...(params.input.media.length > 0 ? { media: params.input.media } : {}),
     ...(includeAgentId ? { agentId: params.prepared.requestAgentId } : {}),
     model: params.prepared.model,
@@ -906,6 +907,13 @@ export async function handleOpenAICompatibleChatCompletions(
     const prepared = prepareOpenAICompatibleRequest(input);
     const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
     const usesDecisionModel = isDecisionModel(prepared.model);
+    if (usesDecisionModel && input.executionDeadlineAtMs !== undefined) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        'Execution timeouts require server-managed agent tools.',
+        { code: 'unsupported_value' },
+      );
+    }
     const executionSession =
       input.usesClientTools || usesDecisionModel
         ? null
@@ -918,6 +926,7 @@ export async function handleOpenAICompatibleChatCompletions(
         await handleDecisionCompletion({
           res,
           model: prepared.model,
+          sessionId: prepared.sessionId,
           agentId: prepared.requestAgentId,
           messages: input.messages,
           wantsStream: input.wantsStream,

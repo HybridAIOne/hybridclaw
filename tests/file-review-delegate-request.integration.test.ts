@@ -1,9 +1,9 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { steerInboxDirName } from '../container/shared/steer-inbox.js';
+import { steerInboxDirName } from '@hybridclaw/shared/steer-inbox';
 import { SteerInbox } from '../src/infra/steer-inbox.js';
-import { decodeFileWriteGuardContext } from '../container/shared/file-write-guard.js';
+import { decodeFileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import { afterEach, expect, test } from 'vitest';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 

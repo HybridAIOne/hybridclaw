@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import {
   createTokenUsageStats,
   validateTokenUsage,
-} from '../container/shared/token-usage.js';
+} from '@hybridclaw/shared/token-usage';
 import { isContainerOutput } from '../src/infra/ipc-output-validation.js';
 
 const sample = {

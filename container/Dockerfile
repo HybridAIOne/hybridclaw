@@ -6,18 +6,25 @@ FROM --platform=$BUILDPLATFORM node:22.23.4-slim@sha256:5991875dfb80938dd8a6ba3f
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+    npm install --global npm@11.21.1 --ignore-scripts --no-audit --fund=false
 RUN printf '%s\n' \
     'engine-strict=true' \
     'save-exact=true' \
     'min-release-age=7' \
     > .npmrc
-COPY package.json package-lock.json ./
+# The build context is the repository root. The agent package links its
+# devDependencies @hybridclaw/contracts and @hybridclaw/shared from
+# ../packages, which is /packages beside /app; the bundle inlines them, so
+# later stages never see them.
+COPY container/package.json container/package-lock.json ./
+COPY packages/contracts/package.json /packages/contracts/
+COPY packages/shared/package.json /packages/shared/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
-COPY scripts/bundle.mjs scripts/
-COPY shared/ shared/
-COPY src/ src/
+COPY container/scripts/bundle.mjs scripts/
+COPY packages/contracts/src/ /packages/contracts/src/
+COPY packages/shared/src/ /packages/shared/src/
+COPY container/src/ src/
 RUN node scripts/bundle.mjs
 
 # --- Runtime base (no LibreOffice) ---
@@ -33,7 +40,7 @@ ENV NPM_CONFIG_LOGS_MAX=0
 ENV NODE_DISABLE_COMPILE_CACHE=1
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+    npm install --global npm@11.21.1 --ignore-scripts --no-audit --fund=false
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -53,7 +60,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Agent tool libraries: one lockfile-backed manifest shared with the gateway
 # image (container/tools). Agent-written scripts resolve them via NODE_PATH.
-COPY tools/ /opt/hybridclaw-tools/
+COPY container/tools/ /opt/hybridclaw-tools/
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --break-system-packages --require-hashes \
       -r /opt/hybridclaw-tools/requirements.txt

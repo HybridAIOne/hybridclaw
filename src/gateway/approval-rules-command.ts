@@ -20,8 +20,8 @@ import {
   parseApprovalTrustStore,
   revokeApprovalTrust,
   serializeApprovalTrustStore,
-} from '../../container/shared/approval-rules.js';
-import { writeFileAtomic } from '../../container/shared/atomic-write.js';
+} from '@hybridclaw/shared/approval-rules';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { APPROVALS_RULES_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type { Session } from '../types/session.js';

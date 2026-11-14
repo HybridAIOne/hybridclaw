@@ -6,7 +6,7 @@ import {
   type TwoFactorDetectionInput,
   type TwoFactorDetectionResult,
   type TwoFactorModality,
-} from '../../container/shared/two-factor-detection.js';
+} from '@hybridclaw/shared/two-factor-detection';
 import { listAgents } from '../agents/agent-registry.js';
 import {
   makeAuditRunId,

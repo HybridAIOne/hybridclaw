@@ -3,11 +3,12 @@
  * Unlike chat streaming, this connection survives session navigation and can
  * refresh reminders; desktop alerts never include message contents.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+
 import type {
   WebNotificationPreferences,
   WebNotificationState,
-} from '../../../../container/shared/web-notifications.js';
+} from '@hybridclaw/shared/web-notifications';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { requestHeaders, requestJson } from '../../api/client';
 import { setChatUnreadCount } from '../../lib/browser-title';
 import { disableWebPush, enableWebPush } from '../../lib/web-push';

@@ -1,8 +1,9 @@
 /** Notification delivery tests keep unread state independent of browser permission.
  * They exercise UI reactions, not external push-service delivery. */
+
+import type { WebNotificationState } from '@hybridclaw/shared/web-notifications';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { WebNotificationState } from '../../../../container/shared/web-notifications.js';
 import { useChatNotifications } from './use-chat-notifications';
 
 const requestJson = vi.fn();

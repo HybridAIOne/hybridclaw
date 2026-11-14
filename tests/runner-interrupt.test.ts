@@ -5,9 +5,9 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
-import { isRetrySafeRun } from '../container/shared/retry-safety.js';
-import { steerInboxDirName } from '../container/shared/steer-inbox.js';
+import { ipcOutputFileName } from '@hybridclaw/shared/ipc-output-files';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
+import { steerInboxDirName } from '@hybridclaw/shared/steer-inbox';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('hybridclaw-runner-interrupt-');

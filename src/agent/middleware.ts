@@ -9,18 +9,18 @@ export type {
   MiddlewareDecision,
   MiddlewarePhase,
   MiddlewarePredicate,
-} from '../../container/shared/middleware-contract.js';
+} from '@hybridclaw/shared/middleware-contract';
 
 import type {
   ClassifierMiddlewareSkill,
   EscalationRoute,
   MiddlewareDecision,
   MiddlewarePhase,
-} from '../../container/shared/middleware-contract.js';
+} from '@hybridclaw/shared/middleware-contract';
 import {
   normalizeMiddlewareDecision,
   shouldRunClassifierMiddleware,
-} from '../../container/shared/middleware-runner.js';
+} from '@hybridclaw/shared/middleware-runner';
 
 export interface AgentTurnContext {
   sessionId: string;

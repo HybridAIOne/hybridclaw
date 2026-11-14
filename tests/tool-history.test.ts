@@ -6,7 +6,7 @@ import {
   toolResultFilePath,
   toolResultForTransport,
   validateToolHistory,
-} from '../container/shared/tool-history.js';
+} from '@hybridclaw/shared/tool-history';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import { optimizeHistoryMessagesForPrompt } from '../src/session/token-efficiency.js';
 import {

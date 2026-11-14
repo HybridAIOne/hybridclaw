@@ -1,13 +1,12 @@
 import fs from 'node:fs';
-
-import YAML from 'yaml';
 import {
   type BrowserStealthPolicyContext,
   type BrowserStealthPolicyDecision,
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../../container/shared/browser-stealth-policy.js';
+} from '@hybridclaw/shared/browser-stealth-policy';
+import YAML from 'yaml';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
 
 export type {

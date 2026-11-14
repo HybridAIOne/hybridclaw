@@ -3,12 +3,12 @@
  * The caller enforces visual-data permission; the existing snapshot loader enforces
  * ownership, page selection and integrity. This never renders or reads arbitrary paths.
  */
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   loadVisualSnapshot,
   PDF_READ_MAX_PAGES,
   validateVisualAttachments,
-} from '../shared/visual-snapshots.js';
+} from '@hybridclaw/shared/visual-snapshots';
 import type { AuxiliaryRuntimeContext } from './model-context.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {

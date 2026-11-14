@@ -5,7 +5,7 @@ import {
   toolResultDigest,
   toolResultFilePath,
   toolResultForTransport,
-} from '../container/shared/tool-history.js';
+} from '@hybridclaw/shared/tool-history';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../src/config/config.js';
 import type { ContainerOutput } from '../src/types/container.js';

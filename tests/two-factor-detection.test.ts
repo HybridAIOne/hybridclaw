@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { detectTwoFactorChallenge } from '../container/shared/two-factor-detection.js';
+import { detectTwoFactorChallenge } from '@hybridclaw/shared/two-factor-detection';
 
 const TEL = 'input[type="tel"]';
 const NUMERIC = 'input[inputmode="numeric"]';

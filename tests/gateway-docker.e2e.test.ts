@@ -124,7 +124,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
         `
       import fs from 'node:fs';
       console.log(JSON.stringify({
-        shared: fs.existsSync('/app/container/shared'),
+        shared: fs.existsSync('/app/packages'),
         source: fs.existsSync('/app/src'),
         bundle: fs.existsSync('/app/bundle'),
         nestedJs: fs.readdirSync('/app/dist', { recursive: true })

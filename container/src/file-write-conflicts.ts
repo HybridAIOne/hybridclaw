@@ -7,7 +7,7 @@
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
 import fs from 'node:fs';
-import type { FileWriteGuardContext } from '../shared/file-write-guard.js';
+import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { ClassifiedAction } from './approval-policy.js';
 import {
   isWithinRoot,

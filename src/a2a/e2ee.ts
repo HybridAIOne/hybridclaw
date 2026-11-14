@@ -1,14 +1,13 @@
 import { createHash, generateKeyPairSync, type JsonWebKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { writeFileAtomicExclusive } from '@hybridclaw/shared/atomic-write';
 import {
   CompactEncrypt,
   compactDecrypt,
   importJWK,
   type JWEHeaderParameters,
 } from 'jose';
-import { writeFileAtomicExclusive } from '../../container/shared/atomic-write.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeAssetRevisionState,

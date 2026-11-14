@@ -7,9 +7,9 @@ import {
   APPROVAL_REPLY_INSTRUCTIONS,
   type ApprovalReplyDecision,
   parseApprovalReplyDecision,
-} from '../../container/shared/approval-reply.js';
-import { platformApprovalId } from '../../container/shared/connector-approval.js';
-import { extractResponseTextContent } from '../../container/shared/response-text.js';
+} from '@hybridclaw/shared/approval-reply';
+import { platformApprovalId } from '@hybridclaw/shared/connector-approval';
+import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput } from '../types/container.js';
@@ -65,7 +65,6 @@ export async function resolveConnectorApprovalReply(
                   pending.approval.reviewArguments ||
                   pending.approval.commandPreview,
                 reason: pending.approval.reason,
-                allowedScopes: ['once'],
               },
             ],
             lastAssistantMessage: extractResponseTextContent(
@@ -89,7 +88,7 @@ export async function resolveConnectorApprovalReply(
     });
     if (signal?.aborted) throw new Error('Approval interpretation interrupted');
     const decision = parseApprovalReplyDecision(result.content, [
-      { id: pending.approvalId, pinned: true },
+      { id: pending.approvalId },
     ]);
     if (['approve', 'deny', 'revise'].includes(decision.decision)) {
       const claim = await forwardConnectorDecision(

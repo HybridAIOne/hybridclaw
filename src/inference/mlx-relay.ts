@@ -10,7 +10,7 @@ import path from 'node:path';
 import {
   fetchMlxWithIdleTimeout,
   MLX_MAX_RESPONSE_BYTES,
-} from '../../container/shared/mlx-http.js';
+} from '@hybridclaw/shared/mlx-http';
 import { assertMlxEndpoint } from './mlx-endpoint.js';
 
 export function startMlxRelay(options: {

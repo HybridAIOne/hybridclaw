@@ -1,8 +1,9 @@
-export type ModelThinkingFormat = 'qwen';
+import type { ModelBehavior } from '@hybridclaw/contracts/agent-io';
 
-export interface ModelBehavior {
-  thinkingFormat?: ModelThinkingFormat;
-}
+export type {
+  ModelBehavior,
+  ModelThinkingFormat,
+} from '@hybridclaw/contracts/agent-io';
 
 export function normalizeModelBehavior(
   behavior: ModelBehavior | undefined,

@@ -1,4 +1,4 @@
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
+import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import type { ChatMessage } from '../types/api.js';
 
 export const DEFAULT_CHARS_PER_TOKEN = 4;

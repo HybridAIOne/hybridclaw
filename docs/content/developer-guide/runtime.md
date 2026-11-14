@@ -72,8 +72,9 @@ Maintainer overrides:
 - `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
   even on an interactive terminal
 
-Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
-local secrets or artifacts into published images.
+The agent image builds from the repository root, and
+`container/Dockerfile.dockerignore` limits its context to the files the
+Dockerfile copies, so local secrets and artifacts stay out of published images.
 
 Published images export with `rewrite-timestamp=true` under a fixed
 `SOURCE_DATE_EPOCH`, so a step that reruns still yields byte-identical filesystem
@@ -89,10 +90,12 @@ of source checkouts only.
 
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
-terminal all use `dist/cli.js`. Both gateway and agent bundles inline
-`container/shared`; the image does not ship that directory or plain gateway
-`tsc` output. Source builds, npm packages, and desktop packages also run the
-gateway bundle at `dist/cli.js`; `tsc` emits declarations beside it. A rebuild
+terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
+private `@hybridclaw/shared` workspace package (`packages/shared`); the image
+does not ship that package or plain gateway `tsc` output. Source builds, npm
+packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
+the build rolls the plugin SDK's declarations, shared types included, into
+the one file `dist/plugin-sdk.d.ts` beside it. A rebuild
 keeps earlier content-hashed chunks so a gateway already running from the
 checkout can still load its own lazily; `npm run clean` removes them, and
 `prepack` cleans before packaging.
@@ -140,17 +143,13 @@ Gateway IPC and audit directories use `~` followed by the SHA-256 digest of the
 JSON-encoded session ID. Punctuation, whitespace and case remain distinct, including
 on case-insensitive filesystems. Agent workspaces and session IDs do not change.
 
-Stop the gateway before upgrading to this layout, then start the updated version;
-do not run old and new gateway/CLI versions against the same data directory.
-IPC files are disposable and are recreated in the new directory. On first access,
-a legacy audit directory is moved only if every record names the requested
-session. Its bytes and hash chain stay unchanged. A directory owned by another
-session is never claimed. Mixed-session, missing-identity or malformed legacy
-logs fail closed and remain untouched for manual recovery (including historical
-renames whose records span multiple session IDs); preserve a backup
-and resolve ownership before resuming affected sessions. The legacy migration
-is scheduled for removal after v0.43, so access/verify existing audits before
-upgrading beyond that version.
+IPC directories are recreated as needed. Before upgrading to v0.43, stop the
+gateway, back up the audit directory, and use the v0.42.4 CLI to run
+`hybridclaw audit verify <sessionId>` for each session with a legacy directory
+(name without the leading `~`). Use the exact ID recorded in the log. Confirm
+that verification succeeds and the directory moved. Resolve ambiguous or
+damaged logs separately before resuming affected sessions. Starting with
+v0.43, per-session reads and writes use only the hashed directory.
 
 Scheduler jobs have at most one pending run per gateway process. Retry and
 recurrence timers exclude active jobs until their execution settles, then rearm
@@ -167,6 +166,32 @@ new acknowledged record is never merged into that fragment.
 
 ## Worker State
 
+Each worker turn checkpoints model-call metadata before a request starts and
+after a response or error: requested provider/model, helper task, duration,
+reported tokens and any reported charge. Aggregate counters include primary
+and helper calls; pricing projects primary calls separately and records helpers
+at their own model's price. Recovery retains unfinished calls as unknown usage.
+These records contain no prompts, credentials, reasoning or response text.
+Request scopes close when their work finishes, so late callbacks cannot amend a
+completed turn or the next request. Workers reconstruct this state from the
+gateway-owned turn checkpoint after replacement.
+
+Explicit execution bounds belong to the gateway request, not a worker's uptime.
+The absolute `executionDeadlineAtMs` travels in every `ContainerInput`, including
+replacements, nested delegates, queued children and the parent's continuation.
+Retries keep that bound. Each new request replaces the worker's model context,
+so a prior request's deadline cannot leak into a later turn. Workers append
+remaining-time notes to model history without rewriting prior context; checkpoints
+refuse new model/tool calls after expiry and retain completed artifacts and usage.
+The gateway owns cancellation; worker checkpoints do not interrupt running tools.
+
+Daily-memory capacity rejections persist as note-revision and payload hashes in
+`memory-capacity-<path hash>.json` in the session state directory. Replacement
+workers block the same rejected mutation against unchanged content. A changed
+note revision invalidates the recorded rejections on the next capacity failure;
+retry history never contains raw note or payload text. Unreadable records fail
+closed, leaving the daily note untouched.
+
 Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
@@ -181,6 +206,11 @@ The fetched-code guard refuses unreadable or invalid saved history. Downloads
 and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
+
+Shell argv redirection roles are parser-local metadata keyed by the parsed
+arrays. Explicit slices and command-prefix extraction retain them within an
+inspection; each tool call rebuilds them from its original command. Workers
+neither persist these facts nor transfer them in serialized argv.
 
 Workers remember hashes of consumed authenticated follow-up inputs and reject
 replays for the lifetime of their stdin secret. These hashes stay in memory:
@@ -901,6 +931,15 @@ the HybridAI relay and OpenAI, then read the conversation history from cache,
 not just the system prompt. For the same reason, the tool list and system
 prompt depend on the agent, user, and client, never on the current message.
 
+Daily notes close the context message. A turn's context carries a note only
+when the history in the prompt does not already show the same text: on the
+first turn, after the note changed, and after the turn that carried it left the
+history window. A note the history still shows but that is no longer loaded
+(cleared, deleted, past the lookback, or over the notes budget) is sent once
+as `(empty)`.
+The other sections are sent with every turn. The history budget still reserves
+room for all notes.
+
 Anthropic requests keep the system prompt in volatility-ordered cache blocks:
 static core instructions, workspace and durable memory, then skills. The
 provider adds cache breakpoints at those boundaries and at the last stable
@@ -1310,10 +1349,22 @@ The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. Inline tool-result bounds are fixed
 runtime limits rather than configuration.
 
+Exhausting the agent's consecutive stalled-turn limit returns an error, including
+the reason, completed tool receipts, retained artifacts and accumulated usage.
+Successful tools reset that counter. A final answer before exhaustion remains
+successful. Exhausting the configured Ralph continuation cap before a final STOP
+also returns an error, with its actual cap reason and the last draft retained.
+The worker can accept a follow-up after either incomplete-loop error.
+
 Response-body failures from `web_fetch` and `web_extract` report the HTTP status
 and underlying error messages and codes, such as `Z_DATA_ERROR` for invalid
 compressed data. Failed reads are not cached or returned as complete content;
 the overall timeout still reports `TimeoutError`.
+
+Non-2xx HTTP responses are failed tool calls even when extraction returns a
+diagnostic page and a browser-retrieval hint. Their status, retained text and
+hints remain available to the model, including on cache hits. Error pages skip
+auxiliary summarization and do not count as successful tool progress.
 
 `web_fetch` and `web_extract` accept readable text, HTML, JSON and XML. Known
 binary responses fail with a download continuation instead of entering model
@@ -1477,6 +1528,9 @@ Container-side adaptations for local models:
 - **Tool-call normalization**: XML-style `<tool_call>` tags and malformed
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
+  A completed final answer takes precedence over tool markup found only in
+  reasoning. Qwen-compatible thinking-only recovery and explicit calls in the
+  actual response retain their existing behavior.
 
 ## Model Request Retries
 
@@ -1495,6 +1549,11 @@ tools or select another model, and no new attempt starts after worker shutdown.
 The primary call also refuses replay after partial text has reached the user.
 Retries can incur additional provider usage if the failed request was processed
 before its connection was lost.
+
+A final model response with `finish_reason: length` reports an output-token-limit
+error for both local and remote providers. Partial text or reasoning-only output
+does not complete the task. Prior tool results, artifacts and token usage remain
+available; this check does not retry the call or replay tools.
 
 ## Activity-Based Agent Timeout
 
@@ -1519,12 +1578,23 @@ This is particularly important for local models that may take 30+ seconds
 per iteration and easily exceed a fixed 5-minute wall clock over multiple
 tool-call rounds.
 
+Server-managed `/v1/chat/completions` requests accept
+`X-HybridClaw-Timeout-Ms`, a positive integer duration in milliseconds. The
+budget starts before body/media preparation and can shorten existing wall-clock
+limits, never extend them. Activity does not renew it. Malformed values return
+400; expiry while preparing the request returns 408. Client-managed tools and
+decision completions reject this header with 400 because they do not use the
+agent worker's deadline enforcement. Omitting it preserves existing limits.
+
 ## Request-Scoped Agent Replies
 
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
-`container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
-only:
+`packages/shared/src/ipc-output-files.ts`), and `readOutput()` waits for that file
+only. The reply is untrusted: before anything reads it, the gateway checks it
+against `ContainerOutputSchema` in `packages/contracts/src/agent-io.ts`, the
+one definition of the gateway ↔ agent messages, plus the shared tool-history
+and token-usage validators. A reply that fails becomes an error result.
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
   the tool calls that ran and any delegations it had queued. The interrupted
@@ -1571,7 +1641,7 @@ memory and never writes to disk or the environment.
 
 Every later turn arrives as `input.json` in the session IPC directory, which the
 agent can also reach. So the gateway wraps each follow-up in an authenticity
-envelope keyed by that secret (`container/shared/ipc-input-auth.js`), and the
+envelope keyed by that secret (`packages/shared/src/ipc-input-auth.ts`), and the
 agent runs a follow-up only when the envelope verifies against the secret it
 received on stdin. Input it cannot verify is dropped, never run.
 
@@ -1584,7 +1654,7 @@ echo and never turns a health file into a turn, so it needs no envelope.
 agent makes an inbox directory, `steer-<requestId>`, in the IPC directory when
 it takes a request of a user turn; the gateway delivers a note by renaming a
 finished file into it, signed with the per-worker secret like follow-up input
-(`container/shared/steer-inbox.js`). An agent image without steering makes no
+(`packages/shared/src/steer-inbox.ts`). An agent image without steering makes no
 inbox, so its turns refuse every note. The agent shows waiting notes to the
 model:
 
@@ -1608,6 +1678,11 @@ between the turn's message and its reply. A note accepted just before the turn
 fails or is stopped is dropped with the turn and not stored. When model routing
 escalates, the next request starts from the turn's messages, so it is offered
 every note of the turn again.
+
+The web console keeps its composer open while a reply runs. A text message
+goes to `/api/chat/steer`; one the route refuses, or one with attachments,
+waits above the composer and is sent as a turn once the reply ends. `/stop`
+stops the reply, and an empty send stops it too.
 
 Tool approvals and intent reviews receive the complete current user request,
 including trailing constraints and text parts. The bounded status excerpt is

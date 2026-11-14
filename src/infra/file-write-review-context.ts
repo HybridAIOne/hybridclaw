@@ -7,7 +7,7 @@ import {
   decodeFileWriteGuardContext,
   type FileWriteGuardContext,
   type FileWriteGuardRequest,
-} from '../../container/shared/file-write-guard.js';
+} from '@hybridclaw/shared/file-write-guard';
 import type { ContainerOutput } from '../types/container.js';
 
 const active = new Map<

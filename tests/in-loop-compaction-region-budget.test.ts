@@ -2,10 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
-import {
-  createTokenUsageStats,
-  estimateMessageTokens,
-} from '../container/src/token-usage.js';
+import { estimateMessageTokens } from '../container/src/token-usage.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -120,8 +117,6 @@ test('fits a complete subregion to the compression model and retains every other
     sessionId: 'session_a',
     history,
     tools: [],
-    tokenUsage: createTokenUsageStats(),
-    checkpointUsage: vi.fn(),
     taskModels: {
       compression: {
         provider: 'openrouter',

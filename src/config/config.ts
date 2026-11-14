@@ -10,7 +10,7 @@ import path from 'node:path';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '@hybridclaw/shared/context-guard-config';
 import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import {
@@ -633,7 +633,7 @@ export let OBSERVABILITY_FLUSH_INTERVAL_MS = 10_000;
 export let OBSERVABILITY_BATCH_MAX_EVENTS = 500;
 
 export let SESSION_COMPACTION_ENABLED = true;
-export let SESSION_COMPACTION_TOKEN_BUDGET = 100_000;
+export let SESSION_COMPACTION_TOKEN_BUDGET = 0;
 export let SESSION_COMPACTION_BUDGET_RATIO = 0.7;
 export let SESSION_COMPACTION_THRESHOLD = 200;
 export let SESSION_COMPACTION_KEEP_RECENT = 40;
@@ -1066,10 +1066,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
 
   SESSION_COMPACTION_ENABLED = config.sessionCompaction.enabled;
-  SESSION_COMPACTION_TOKEN_BUDGET = Math.max(
-    1_000,
-    config.sessionCompaction.tokenBudget,
-  );
+  SESSION_COMPACTION_TOKEN_BUDGET =
+    config.sessionCompaction.tokenBudget > 0
+      ? Math.max(1_000, config.sessionCompaction.tokenBudget)
+      : 0;
   SESSION_COMPACTION_BUDGET_RATIO = Math.max(
     0.05,
     Math.min(1, config.sessionCompaction.budgetRatio),

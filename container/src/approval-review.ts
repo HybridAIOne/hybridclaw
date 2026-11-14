@@ -3,7 +3,7 @@
  * command preview. This projection never changes approval scope or execution.
  * Credentials and attachment bytes are not part of the review transport.
  */
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   INBOX_CLEANUP_TOOL,
   inboxCleanupReview,
@@ -70,6 +70,26 @@ export function messageToolTarget(
   for (const key of MESSAGE_TARGET_KEYS) {
     const value = stringValue(args[key]);
     if (value) return value;
+  }
+  return undefined;
+}
+
+// A Discord channel is also spelled `<#id>`, `channel:id` or `discord:id`.
+function channelKey(value: string): string {
+  return value
+    .replace(/^<#(\d+)>$/, '$1')
+    .replace(/^(?:channel|discord):(\d+)$/i, '$1');
+}
+
+/** Who a message-tool call names besides the conversation's own channel. */
+export function messageToolOutsideTarget(
+  args: Record<string, unknown>,
+  currentChannelId: string | undefined,
+): string | undefined {
+  const current = currentChannelId ? channelKey(currentChannelId) : undefined;
+  for (const key of MESSAGE_TARGET_KEYS) {
+    const value = stringValue(args[key]);
+    if (value && channelKey(value) !== current) return value;
   }
   return undefined;
 }

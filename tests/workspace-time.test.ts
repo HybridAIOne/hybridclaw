@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { currentDateStampInTimezone, extractUserTimezone } from '../container/shared/workspace-time.js';
+import { currentDateStampInTimezone, extractUserTimezone } from '@hybridclaw/shared/workspace-time';
 afterEach(() => vi.unstubAllEnvs());
 test('empty timezone does not consume the next USER.md field', () => {
   expect(extractUserTimezone('**Timezone:** \n**Notes:** example')).toBeUndefined();

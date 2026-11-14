@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
   SHELL_RUNTIME_ENV_NAMES,
   SHELL_RUNTIME_ENV_PATH,
-} from '../shared/shell-runtime-env.js';
+} from '@hybridclaw/shared/shell-runtime-env';
 
 // A GitHub CLI login made in this shell's home wins over the injected token.
 function hasOwnGitHubCliLogin(): boolean {

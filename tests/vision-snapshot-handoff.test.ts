@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { expect, test, vi } from 'vitest';
-import { saveVisualSnapshot, validateVisualAttachments } from '../container/shared/visual-snapshots.js';
+import { saveVisualSnapshot, validateVisualAttachments } from '@hybridclaw/shared/visual-snapshots';
 import type { ChatMessage } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

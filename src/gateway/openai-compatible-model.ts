@@ -3,7 +3,7 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
-import { readProviderCacheUsage } from '../../container/shared/provider-cache-usage.js';
+import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,

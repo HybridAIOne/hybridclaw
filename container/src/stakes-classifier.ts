@@ -1,11 +1,11 @@
-import { isRecord } from '../shared/primitive-values.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import type {
   StakesClassificationInput,
   StakesClassifier,
   StakesLevel,
   StakesScore,
   StakesSignal,
-} from '../shared/stakes-classifier.js';
+} from '@hybridclaw/shared/stakes-classifier';
 import { normalizeText } from './text-normalization.js';
 
 export type {
@@ -15,7 +15,7 @@ export type {
   StakesLevel,
   StakesScore,
   StakesSignal,
-} from '../shared/stakes-classifier.js';
+} from '@hybridclaw/shared/stakes-classifier';
 
 export interface RuleBasedStakesClassifierOptions {
   mediumCostEur?: number;

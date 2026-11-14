@@ -42,14 +42,6 @@ export const signatureAuditTargets = [
 ];
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
 
-// Retried (2026-11-08, CI flake fix): npm 11.10.0 bundles pacote 21.3.1, which
-// throws EMISSINGSIGNATUREKEY when an attestations response carries only the
-// keyless provenance bundle, and the registry intermittently serves such
-// responses. pacote 21.4.0 (npm >=11.11.0) fixed this; bumping the repo-wide
-// npm pin is deferred. A keyed attestation with an unknown key still fails
-// once the retries run out.
-const missingSignatureKeyPattern = /EMISSINGSIGNATUREKEY/u;
-
 const signatureFailurePatterns = [
   /packages? (?:has|have) missing registry signatures/iu,
   /packages? (?:has|have) invalid registry signatures/iu,
@@ -60,7 +52,6 @@ const signatureFailurePatterns = [
 
 const transientPatterns = [
   missingAttestationPattern,
-  missingSignatureKeyPattern,
   /E5\d\d/u,
   'ECONNRESET',
   'ECONNREFUSED',
@@ -165,9 +156,7 @@ export function runAudit(target) {
 
     const reason = isMissingAttestationFailure(output)
       ? 'a registry attestation lookup error'
-      : missingSignatureKeyPattern.test(output)
-        ? 'an attestation response without a keyed bundle'
-        : 'a transient registry availability error';
+      : 'a transient registry availability error';
     console.error(
       `npm registry signature audit for ${target.label} failed with ${reason}; retrying in ${retryDelayMs}ms.`,
     );

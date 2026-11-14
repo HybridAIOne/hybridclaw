@@ -5,7 +5,7 @@
 import type {
   ApprovalSettingsResponse,
   ApprovalSettingsUpdate,
-} from '../../../container/shared/approval-mode.js';
+} from '@hybridclaw/shared/approval-mode';
 import { requestJson } from './client';
 
 export function fetchApprovalSettings(token: string) {

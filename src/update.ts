@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { writeFileAtomic } from '../container/shared/atomic-write.js';
+import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
 import { containerBootstrapScriptPath } from './infra/install-root.js';
 import { logger } from './logger.js';

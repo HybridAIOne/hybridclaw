@@ -8,7 +8,7 @@ import {
   normalizeDisabledSafetyRules,
   SAFETY_RULES,
   type SafetyRulesResponse,
-} from '../../container/shared/safety-rules.js';
+} from '@hybridclaw/shared/safety-rules';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeConfig,

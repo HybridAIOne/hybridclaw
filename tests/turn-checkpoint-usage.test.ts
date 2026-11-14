@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import { expect, test, vi } from 'vitest';
-import { createTokenUsageStats } from '../container/shared/token-usage.js';
-import { isRetrySafeRun } from '../container/shared/retry-safety.js';
+import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
+import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import {
   checkpointOutput,
   readTurnCheckpoint,
   TurnCheckpoint,
   turnCheckpointPath,
-} from '../container/shared/turn-checkpoint.js';
+} from '@hybridclaw/shared/turn-checkpoint';
 import { buildInterruptedShutdownOutput } from '../container/src/shutdown-output.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import { recoverWorkerOutput } from '../src/infra/worker-recovery.js';
