@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  isAudioMediaItem,
+  isImageMediaItem,
+} from '@hybridclaw/shared/media-kind';
+
 import { inferArtifactMimeType } from './artifacts.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { normalizeMessageContentToText } from './ralph.js';
@@ -16,8 +21,6 @@ const NATIVE_VISION_MAX_IMAGES = 8;
 const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const NATIVE_AUDIO_MAX_FILES = 1;
 const NATIVE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
-const AUDIO_FILE_EXTENSION_RE =
-  /\.(aac|aif|aiff|alac|flac|m4a|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
 
 function normalizeAllowedLocalMediaPath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
@@ -80,24 +83,6 @@ function inferAudioMimeType(
     default:
       return 'audio/wav';
   }
-}
-
-function isImageMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase();
-  if (mimeType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?)$/i.test(item.filename || '');
-}
-
-function isAudioMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase()
-    .split(';')[0]
-    ?.trim();
-  if (mimeType?.startsWith('audio/')) return true;
-  return AUDIO_FILE_EXTENSION_RE.test(item.filename || '');
 }
 
 function modelSupportsNativeVision(model: string): boolean {

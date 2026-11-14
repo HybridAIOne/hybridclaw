@@ -8,6 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { isManagedTempMediaDirName } from '@hybridclaw/shared/managed-temp-media';
+
 const DEFAULT_WORKSPACE_ROOT_DISPLAY = '/workspace';
 function normalizeDisplayRoot(rawValue: string | undefined): string {
   const trimmed = String(rawValue || '').trim();
@@ -24,7 +26,6 @@ export const WORKSPACE_ROOT_DISPLAY = normalizeDisplayRoot(
 );
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
-const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
@@ -146,13 +147,7 @@ function resolveManagedTempMediaPath(rawPath: string): string | null {
   if (!isWithinRoot(candidate, tempRoot)) return null;
 
   const dirName = path.basename(path.dirname(candidate));
-  if (
-    !MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
-      dirName.startsWith(prefix),
-    )
-  ) {
-    return null;
-  }
+  if (!isManagedTempMediaDirName(dirName)) return null;
 
   return candidate;
 }

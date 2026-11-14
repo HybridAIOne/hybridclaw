@@ -5,9 +5,9 @@
  * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 import { createHash } from 'node:crypto';
+import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
-import { resolveModelBehavior } from '../model-behavior.js';
 import {
   finalizeParsedToolCalls,
   INCOMPLETE_RESPONSE,

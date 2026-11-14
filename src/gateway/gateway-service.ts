@@ -14,6 +14,10 @@ import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { buildMcpServerNamespaces } from '@hybridclaw/shared/mcp-tool-namespaces';
+import {
+  isAudioMediaItem,
+  isImageMediaItem,
+} from '@hybridclaw/shared/media-kind';
 import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import {
   currentDateStampInTimezone,
@@ -241,7 +245,6 @@ import {
   parseMcpServerConfig,
   supportsMcpOAuth,
 } from '../mcp/server-config.js';
-import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { movementMediaLines } from '../media/movement-media.js';
 import {
@@ -2365,16 +2368,6 @@ export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
     });
   }
   return normalized;
-}
-
-function isImageMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase();
-  if (mimeType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
-    item.filename || '',
-  );
 }
 
 function buildVisibleMediaSummary(media: MediaContextItem[]): string {

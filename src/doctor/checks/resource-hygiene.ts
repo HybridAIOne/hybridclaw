@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isManagedTempMediaDirName } from '@hybridclaw/shared/managed-temp-media';
 import Database from 'better-sqlite3';
 import {
   listAgents,
@@ -43,7 +44,6 @@ const ORPHANED_EXPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PROMPT_DUMP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SESSION_COMPACTION_IDLE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const EMPTY_SESSION_MAX_AGE_MS = 48 * 60 * 60 * 1000;
-const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-', 'hybridclaw-slack-'];
 const EPHEMERAL_EVAL_SESSION_RE = /(?:^|[-_/])(?:eval|locomo)(?:[-_/]|$)/i;
 
 interface CleanupCandidate {
@@ -414,13 +414,7 @@ function listManagedTempMediaCandidates(
   const candidates: CleanupCandidate[] = [];
 
   for (const entry of readDirEntries(rootDir)) {
-    if (
-      !MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
-        entry.name.startsWith(prefix),
-      )
-    ) {
-      continue;
-    }
+    if (!isManagedTempMediaDirName(entry.name)) continue;
 
     const entryPath = path.join(rootDir, entry.name);
     let stat: fs.Stats;

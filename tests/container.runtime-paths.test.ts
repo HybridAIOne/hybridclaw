@@ -103,18 +103,21 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  test('allows managed WhatsApp temp media paths', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
-    const tempFile = path.join(tempDir, 'voice-note.ogg');
+  test.each([
+    ['WhatsApp', 'hybridclaw-wa-', true],
+    ['Slack', 'hybridclaw-slack-', true],
+    ['unmanaged', 'hybridclaw-other-', false],
+  ])('%s temp media dir is readable: %s', async (_label, prefix, allowed) => {
+    const tempFile = path.join(makeTempDir(prefix), 'voice-note.ogg');
     fs.writeFileSync(tempFile, 'audio');
 
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'
     );
 
-    expect(resolveMediaPath(tempFile)).toBe(fs.realpathSync.native(tempFile));
-
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    expect(resolveMediaPath(tempFile)).toBe(
+      allowed ? fs.realpathSync.native(tempFile) : null,
+    );
   });
 
   test('maps overridden /app display root into the actual workspace root', async () => {

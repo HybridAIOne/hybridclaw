@@ -3,7 +3,7 @@
  * Reasoning is streamed separately and never becomes a completion claim;
  * the agent loop decides how to handle an empty or truncated answer.
  */
-import { resolveModelBehavior } from '../model-behavior.js';
+import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import {
   finalizeParsedToolCalls,
   INCOMPLETE_RESPONSE,

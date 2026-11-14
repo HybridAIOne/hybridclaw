@@ -1,7 +1,7 @@
 import type {
   ModelBehavior,
   ModelThinkingFormat,
-} from '../types/model-behavior.js';
+} from '@hybridclaw/contracts/agent-io';
 import type { RuntimeProviderId } from './provider-ids.js';
 
 export type { RuntimeProviderId } from './provider-ids.js';
