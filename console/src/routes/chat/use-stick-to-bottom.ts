@@ -21,6 +21,8 @@ interface UseStickToBottomReturn {
    * a long history doesn't crawl by under a smooth animation.
    */
   resetToBottom: () => void;
+  /** Stop following before prepending history, including in short conversations. */
+  pauseFollowing: () => void;
 }
 
 export function useStickToBottom(): UseStickToBottomReturn {
@@ -158,6 +160,15 @@ export function useStickToBottom(): UseStickToBottomReturn {
     smoothScrollRafRef.current = requestAnimationFrame(step);
   }, [setPinned, programmaticScrollTo]);
 
+  const pauseFollowing = useCallback(() => {
+    if (smoothScrollRafRef.current) {
+      cancelAnimationFrame(smoothScrollRafRef.current);
+      smoothScrollRafRef.current = 0;
+    }
+    programmaticScrollRef.current = false;
+    setPinned(false);
+  }, [setPinned]);
+
   const resetToBottom = useCallback(() => {
     // Pin must flip even when the scroller is currently unmounted — e.g. on
     // session switch the .messageArea remounts mid-fetch, so the actual scroll
@@ -179,5 +190,12 @@ export function useStickToBottom(): UseStickToBottomReturn {
     };
   }, []);
 
-  return { scrollRef, contentRef, isPinned, jumpToBottom, resetToBottom };
+  return {
+    scrollRef,
+    contentRef,
+    isPinned,
+    jumpToBottom,
+    resetToBottom,
+    pauseFollowing,
+  };
 }

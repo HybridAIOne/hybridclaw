@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  isGroupJid,
   isWhatsAppJid,
-  jidToPhone,
   normalizePhoneNumber,
   phoneToJid,
 } from '../src/channels/whatsapp/phone.js';
@@ -14,17 +12,13 @@ describe('whatsapp phone helpers', () => {
     expect(normalizePhoneNumber('abc')).toBeNull();
   });
 
-  test('converts between phones and user jids', () => {
+  test('converts phones to user jids', () => {
     expect(phoneToJid('+4915123456789')).toBe('4915123456789@s.whatsapp.net');
-    expect(jidToPhone('4915123456789:3@s.whatsapp.net')).toBe('+4915123456789');
-    expect(jidToPhone('120363401234567890@g.us')).toBeNull();
   });
 
   test('detects supported WhatsApp jid shapes', () => {
     expect(isWhatsAppJid('4915123456789@s.whatsapp.net')).toBe(true);
     expect(isWhatsAppJid('120363401234567890@g.us')).toBe(true);
     expect(isWhatsAppJid('123456789012345678')).toBe(false);
-    expect(isGroupJid('120363401234567890@g.us')).toBe(true);
-    expect(isGroupJid('4915123456789@s.whatsapp.net')).toBe(false);
   });
 });

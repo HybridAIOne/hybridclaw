@@ -1,4 +1,7 @@
-import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
+import type {
+  ApprovalReplyContext,
+  ExecutionDeadline,
+} from '@hybridclaw/contracts/agent-io';
 import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import type { SessionAttachmentAccess } from '@hybridclaw/contracts/session-attachment-access';
@@ -25,6 +28,7 @@ export interface ExecutorRequest
   extends SessionAttachmentAccess,
     ApprovalReplyContext,
     FileWriteGuardContext,
+    ExecutionDeadline,
     ToolCallLimits {
   sessionId: string;
   runId?: string;

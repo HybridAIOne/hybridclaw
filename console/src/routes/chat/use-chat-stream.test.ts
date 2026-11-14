@@ -106,6 +106,42 @@ describe('useChatStream', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
+  it('preserves loaded-history pagination while appending a live turn', async () => {
+    const harness = makeHarness();
+    harness.queryClient.setQueryData<ChatHistoryUiData>(
+      chatHistoryQueryKey(TOKEN, SESSION_ID),
+      (current) =>
+        current && { ...current, nextCursor: '12', hasLoadedOlder: true },
+    );
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      result: 'Answer',
+      messageRole: 'assistant',
+    } satisfies ChatStreamResult);
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    await act(async () => {
+      await result.current.sendMessage('Test request', []);
+    });
+    expect(harness.readSession(SESSION_ID)).toMatchObject({
+      nextCursor: '12',
+      hasLoadedOlder: true,
+    });
+    expect(
+      harness.messages.some((message) => message.content === 'Answer'),
+    ).toBe(true);
+  });
+
   it('includes an explicit reasoning effort in the chat request', async () => {
     const harness = makeHarness();
     requestChatStreamMock.mockResolvedValue({

@@ -1,5 +1,5 @@
 {
-  "version": 42,
+  "version": 43,
   "audit": {
     "toolResults": {
       "mode": "truncate",
@@ -750,7 +750,7 @@
   },
   "sessionCompaction": {
     "enabled": true,
-    "tokenBudget": 100000,
+    "tokenBudget": 0,
     "budgetRatio": 0.7,
     "threshold": 200,
     "keepRecent": 40,

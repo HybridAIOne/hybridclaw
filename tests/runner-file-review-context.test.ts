@@ -127,10 +127,15 @@ test.each(['host', 'container'] as const)(
       agentId: 'main',
       model: 'test-model',
       fileWriteGuardSessionId: 'root',
+      executionDeadlineAtMs: Date.now() + 60_000,
     };
     const first = await executor.exec(params);
     expect(first.error).toBeUndefined();
     expect(first.status).toBe('success');
+    expect(input?.executionDeadlineAtMs).toBe(params.executionDeadlineAtMs);
+    expect(readOutput.mock.calls[0][3].executionDeadlineAtMs).toBe(
+      params.executionDeadlineAtMs,
+    );
     expect(first.fileWriteGuardUserPrompt).toBe('Update the existing notes.');
     expect(first.fileWriteGuardSessionId).toBe('root');
     expect(first.fileWriteGuardProof).toBeUndefined();
@@ -148,6 +153,10 @@ test.each(['host', 'container'] as const)(
     }));
     const second = await executor.exec(params);
     expect(second.status).toBe('error');
+    expect(input?.executionDeadlineAtMs).toBe(params.executionDeadlineAtMs);
+    expect(readOutput.mock.calls[1][3].executionDeadlineAtMs).toBe(
+      params.executionDeadlineAtMs,
+    );
     expect(second.sideEffects?.delegations).toBeUndefined();
     expect(second.fileWriteGuardUserPrompt).toBeUndefined();
     readOutput.mockRejectedValueOnce(new Error('Fixture worker failure.'));
@@ -160,6 +169,18 @@ test.each(['host', 'container'] as const)(
       secret,
     );
     active.close();
+    const { ExecutionDeadlineError } = await import(
+      '@hybridclaw/shared/execution-deadline'
+    );
+    const calls = readOutput.mock.calls.length;
+    const aborted = new AbortController();
+    aborted.abort(new ExecutionDeadlineError());
+    const cancelled = await executor.exec({
+      ...params,
+      abortSignal: aborted.signal,
+    });
+    expect(cancelled.error).toContain('deadline exceeded');
+    expect(readOutput).toHaveBeenCalledTimes(calls);
   },
   20000,
 );

@@ -138,6 +138,19 @@ export function addressDomains(
   return [...domains].slice(0, 10);
 }
 
+/** A turn's tool use for its `turn.end` event, so readers need not scan tool events. */
+export function turnToolSummary(
+  tools: readonly Pick<ToolExecution, 'name' | 'isError' | 'blocked'>[],
+): { toolCalls: number; failedToolCalls: number; toolNames: string[] } {
+  return {
+    toolCalls: tools.length,
+    failedToolCalls: tools.filter(
+      (tool) => tool.isError === true || tool.blocked === true,
+    ).length,
+    toolNames: [...new Set(tools.map((tool) => tool.name))],
+  };
+}
+
 export function emitToolExecutionAuditEvents(input: {
   sessionId: string;
   runId: string;

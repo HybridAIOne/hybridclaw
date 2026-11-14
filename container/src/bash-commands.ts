@@ -1,10 +1,8 @@
 /**
- * What a bash script does, read statically: the commands it runs (including
- * what `xargs`, `find -exec`, `sh -c`, and `eval` run), the paths they write
- * or delete, and the directory each runs in after `cd`. Variables and
- * substitution results and unsupported prefix boundaries stay unknown.
- * NOT a policy: the approval policy and
- * bash-pinned-reach.ts decide what needs approval.
+ * Static shell effects preserve literal/redirect roles and working directories.
+ * Nested commands expose writes and deletion targets; variables and unsupported
+ * prefix or substitution boundaries stay unknown. Unlike approval policy and
+ * pinned-path inspection, this grants no permission.
  */
 import path from 'node:path';
 import {
@@ -15,6 +13,12 @@ import {
 import { installWriteTargets } from './bash-install-targets.js';
 import { sedWriteTargets } from './bash-sed-targets.js';
 import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
+import {
+  concatShellWords,
+  isShellRedirect,
+  recordShellRedirects,
+  sliceShellWords,
+} from './bash-word-roles.js';
 import { expandUserPath } from './runtime-paths.js';
 
 export {
@@ -92,7 +96,9 @@ interface ShellCommand {
 
 interface SubstitutionFrame {
   words: string[];
+  redirects: Set<number>;
   word: string;
+  wordRedirect: boolean;
   quote: '"' | null;
   closer: ')' | '`';
   depth: number;
@@ -106,31 +112,53 @@ export function splitShellCommands(input: string): ShellCommand[] {
   const commands: ShellCommand[] = [];
   const frames: SubstitutionFrame[] = [];
   let words: string[] = [];
+  let redirects = new Set<number>();
   let word = '';
+  let wordRedirect = false;
+  let wordLiteral = false;
   let inWord = false;
   let quote: "'" | '"' | null = null;
   let depth = 0;
   let piped = false;
 
   const endWord = () => {
-    if (inWord) words.push(word);
+    if (inWord) {
+      if (wordRedirect) redirects.add(words.length);
+      words.push(word);
+    }
     word = '';
+    wordRedirect = false;
+    wordLiteral = false;
     inWord = false;
   };
   const endCommand = (pipeNext = false) => {
     endWord();
     if (words.length > 0) {
+      recordShellRedirects(words, redirects);
       commands.push({ words, piped });
       piped = pipeNext;
     } else if (pipeNext) {
       piped = true;
     }
     words = [];
+    redirects = new Set();
   };
   const openSubstitution = (closer: ')' | '`', outerQuote: '"' | null) => {
-    frames.push({ words, word, quote: outerQuote, closer, depth, piped });
+    frames.push({
+      words,
+      redirects,
+      word,
+      wordRedirect,
+      quote: outerQuote,
+      closer,
+      depth,
+      piped,
+    });
     words = [];
+    redirects = new Set();
     word = '';
+    wordRedirect = false;
+    wordLiteral = false;
     inWord = false;
     quote = null;
     depth = 0;
@@ -140,7 +168,10 @@ export function splitShellCommands(input: string): ShellCommand[] {
     endCommand();
     const frame = frames.pop() as SubstitutionFrame;
     words = frame.words;
+    redirects = frame.redirects;
     word = `${frame.word}$()`;
+    wordRedirect = frame.wordRedirect;
+    wordLiteral = true;
     inWord = true;
     quote = frame.quote;
     depth = frame.depth;
@@ -182,10 +213,12 @@ export function splitShellCommands(input: string): ShellCommand[] {
     if (char === "'" || char === '"') {
       quote = char;
       inWord = true;
+      wordLiteral = true;
     } else if (char === '\\') {
       if (next !== undefined && next !== '\n') {
         word += next;
         inWord = true;
+        wordLiteral = true;
       }
       index += 1;
     } else if (char === '#' && !inWord) {
@@ -200,19 +233,21 @@ export function splitShellCommands(input: string): ShellCommand[] {
     } else if (char === '(' || char === ')') {
       depth = Math.max(0, depth + (char === '(' ? 1 : -1));
       endCommand();
-    } else if (char === '|' && inWord && /^\d*>$/.test(word)) {
+    } else if (char === '|' && wordRedirect && /^\d*>$/.test(word)) {
       // `>|` writes like `>`, overriding noclobber; it is not a pipe.
     } else if (char === '|') {
       if (next === '|') index += 1;
       else if (next === '&') index += 1;
       endCommand(next !== '|');
+    } else if (char === '&' && next === '>') {
+      endWord();
+      word = '&';
+      inWord = true;
+      wordRedirect = true;
     } else if (
       char === ';' ||
       char === '\n' ||
-      (char === '&' &&
-        input[index - 1] !== '>' &&
-        input[index - 1] !== '<' &&
-        next !== '>')
+      (char === '&' && !(wordRedirect && /[<>]$/.test(word)) && next !== '>')
     ) {
       if (char === '&' && next === '&') index += 1;
       endCommand();
@@ -224,10 +259,11 @@ export function splitShellCommands(input: string): ShellCommand[] {
       if (
         (char === '<' || char === '>') &&
         inWord &&
-        !/^(?:\d+|&)?[<>&]*$/.test(word)
+        (wordLiteral || !/^(?:\d+|&)?[<>&]*$/.test(word))
       ) {
         endWord();
       }
+      if (char === '<' || char === '>') wordRedirect = true;
       word += char;
       inWord = true;
     }
@@ -249,7 +285,7 @@ export function findStartingPoints(args: string[]): {
   }
   const roots: string[] = [];
   for (; index < args.length && !/^[-(!),]/.test(args[index]); index += 1) {
-    const width = redirectWidth(args[index]);
+    const width = redirectWidth(args, index);
     if (width > 0) index += width - 1;
     else roots.push(args[index]);
   }
@@ -262,7 +298,7 @@ export function xargsCommandWords(args: string[]): string[] {
   while (index < args.length && args[index].startsWith('-')) {
     index += XARGS_VALUE_FLAGS.has(args[index]) ? 2 : 1;
   }
-  return index < args.length ? args.slice(index) : ['echo'];
+  return index < args.length ? sliceShellWords(args, index) : ['echo'];
 }
 
 // Shell code a command runs itself: `bash -c '...'` or `eval ...`.
@@ -281,7 +317,7 @@ function findExecCommands(args: string[]): string[][] {
     if (!FIND_EXEC_ACTIONS.has(args[index])) continue;
     let end = index + 1;
     while (end < args.length && !/^[;+]$/.test(args[end])) end += 1;
-    commands.push(args.slice(index + 1, end));
+    commands.push(sliceShellWords(args, index + 1, end));
     index = end;
   }
   return commands;
@@ -291,7 +327,10 @@ function commandsRun(words: string[], depth: number): string[][] {
   const { start, program, args } = commandProgram(words);
   if (program === 'xargs') {
     return commandsRun(
-      [...words.slice(0, start), ...xargsCommandWords(args)],
+      concatShellWords(
+        sliceShellWords(words, 0, start),
+        xargsCommandWords(args),
+      ),
       depth,
     );
   }
@@ -381,10 +420,11 @@ export function commandArguments(args: string[]): string[] {
   const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const width = redirectWidth(arg);
+    const width = redirectWidth(args, index);
     if (width > 0) index += width - 1;
     else result.push(arg);
   }
+  recordShellRedirects(result, []);
   return result;
 }
 
@@ -454,7 +494,9 @@ function commandDeletionTargets(
     if (args.some((arg) => arg.startsWith('--pathspec-from-file'))) {
       return null;
     }
-    const pathspecs = commandOperands(args.slice(gitSubcommandIndex(args) + 1));
+    const pathspecs = commandOperands(
+      sliceShellWords(args, gitSubcommandIndex(args) + 1),
+    );
     return pathspecs.length > 0 ? resolveTargets(pathspecs, cwd) : null;
   }
   if (program === 'find') {
@@ -621,6 +663,7 @@ function optionWriteTargets(words: string[]): string[] {
 function redirectTargets(words: string[]): string[] {
   const targets: string[] = [];
   for (let index = 0; index < words.length; index += 1) {
+    if (isShellRedirect(words, index) === false) continue;
     const match = /^(?:\d+|&)?>(>|&)?(.*)$/.exec(words[index]);
     if (!match) continue;
     let target = match[2];

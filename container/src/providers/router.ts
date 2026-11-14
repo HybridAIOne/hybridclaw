@@ -1,21 +1,29 @@
 /**
  * Routed provider calls share response handling without changing model policy.
+ * Unfinished streams fail for primary and auxiliary consumers alike.
  * Vision returns a complete textual analysis or an error; a token-limited
  * fragment must never be presented as a successful full analysis.
  * Context overhead includes schemas even when the API accepts them outside messages.
+ * Every routed or visual-fallback dispatch retains the original execution bound.
  */
-
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
+import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import type { ModelBehavior } from '../model-behavior.js';
+import { requireCompleteModelResponse } from '../model-response-completion.js';
+import { observeModelUsage } from '../model-usage.js';
 import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
-import { callWithVisualContent } from './visual-content.js';
+import {
+  callWithVisualContent,
+  estimateVisualMessageTokens,
+} from './visual-content.js';
 
 export { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 
@@ -54,7 +62,7 @@ import {
 const DEFAULT_VISION_INSTRUCTIONS =
   'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 
-export interface RoutedModelContext {
+export interface RoutedModelContext extends ExecutionDeadline {
   sessionId?: string;
   provider: RuntimeProviderId | undefined;
   providerMethod?: string;
@@ -99,6 +107,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     sessionId: params.sessionId,
+    executionDeadlineAtMs: params.executionDeadlineAtMs,
     provider: params.provider,
     providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
@@ -138,9 +147,10 @@ function buildStreamCallArgs(
   };
 }
 
-export async function callProviderModel(
+async function dispatchProviderModel(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(args.executionDeadlineAtMs);
   if (args.provider === 'anthropic') {
     return callAnthropicProvider(args);
   }
@@ -159,9 +169,10 @@ export async function callProviderModel(
   return callHybridAIProvider(args);
 }
 
-export async function callProviderModelStream(
+async function dispatchProviderModelStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(args.executionDeadlineAtMs);
   if (args.provider === 'anthropic') {
     return callAnthropicProviderStream(args);
   }
@@ -178,6 +189,38 @@ export async function callProviderModelStream(
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
+}
+
+export function callProviderModel(
+  args: NormalizedCallArgs,
+): Promise<ChatCompletionResponse> {
+  return observeModelUsage(
+    args,
+    () =>
+      estimateVisualMessageTokens(args.messages, args) +
+      estimateRoutedPromptOverheadTokens(args),
+    async () => {
+      const response = await dispatchProviderModel(args);
+      requireCompleteModelResponse(response);
+      return response;
+    },
+  );
+}
+
+export function callProviderModelStream(
+  args: NormalizedStreamCallArgs,
+): Promise<ChatCompletionResponse> {
+  return observeModelUsage(
+    args,
+    () =>
+      estimateVisualMessageTokens(args.messages, args) +
+      estimateRoutedPromptOverheadTokens(args),
+    async () => {
+      const response = await dispatchProviderModelStream(args);
+      requireCompleteModelResponse(response);
+      return response;
+    },
+  );
 }
 
 export function estimateRoutedPromptOverheadTokens(
@@ -201,6 +244,7 @@ export function estimateRoutedPromptOverheadTokens(
 export async function callRoutedModel(
   params: RoutedModelCallParams,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const args = buildCallArgs(params);
   const response = await callWithVisualContent(args, callProviderModel);
   if (args.debugModelResponses) {
@@ -217,6 +261,7 @@ export async function callRoutedModel(
 export async function callRoutedModelStream(
   params: RoutedModelStreamCallParams,
 ): Promise<ChatCompletionResponse> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const args = buildStreamCallArgs(params);
   let emitted = false;
   const response = await callWithVisualContent(
@@ -313,11 +358,13 @@ export async function callVisionProviderModel(
   analysis: string;
   response: ChatCompletionResponse;
 }> {
+  throwIfExecutionDeadlineExceeded(params.executionDeadlineAtMs);
   const contextError = getVisionModelContextError(params);
   if (contextError) throw new Error(contextError);
 
   const request = {
     provider: params.provider,
+    executionDeadlineAtMs: params.executionDeadlineAtMs,
     providerMethod: params.providerMethod,
     baseUrl: normalizeVisionBaseUrl(params.provider, params.baseUrl),
     apiKey: params.apiKey,

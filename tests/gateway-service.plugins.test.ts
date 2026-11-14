@@ -1374,15 +1374,8 @@ test('handleGatewayCommand plugin install notifies channel availability listener
   const listener = vi.fn(async () => {});
   setChannelPluginAvailabilityListener(listener);
   reloadPluginManagerMock.mockImplementationOnce(async () => {
-    registerChannelTransport({
-      kind: 'whatsapp',
-      create: () => ({
-        init: async () => {},
-        shutdown: async () => {},
-        sendText: async () => {},
-        sendMedia: async () => {},
-      }),
-    });
+    const { fakeWhatsAppRegistration } = await import('./helpers/fake-channel-transport.js');
+    registerChannelTransport(fakeWhatsAppRegistration());
     return pluginManagerMock;
   });
 

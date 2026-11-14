@@ -47,6 +47,18 @@ export function estimateTextTokens(text: unknown): number {
   return estimateTextTokensWithRatio(text, CHARS_PER_TOKEN);
 }
 
+export function estimateResponseTokens(
+  response: ChatCompletionResponse,
+): number {
+  const message = response.choices[0]?.message;
+  return (
+    estimateTextTokens(message?.content) +
+    (message?.tool_calls?.length
+      ? estimateTextTokens(JSON.stringify(message.tool_calls))
+      : 0)
+  );
+}
+
 export function estimateToolResultTokens(text: unknown): number {
   return estimateTextTokensWithRatio(text, TOOL_RESULT_CHARS_PER_TOKEN);
 }
@@ -126,7 +138,7 @@ export function estimateMessageTokens(
 
 export function accumulateApiUsage(
   stats: TokenUsageStats,
-  response: ChatCompletionResponse,
+  response: Pick<ChatCompletionResponse, 'usage'>,
 ): void {
   const usage = response.usage;
   if (!usage) return;

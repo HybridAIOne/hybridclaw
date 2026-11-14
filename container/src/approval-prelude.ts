@@ -5,13 +5,21 @@
  */
 import { resolveApprovalReply } from './approval-reply.js';
 import { handleBoostAnswer } from './boost-offers.js';
+import { withModelUsage } from './model-usage.js';
 import { approvalRuntime } from './tool-approval.js';
+import type { TurnToolHistory } from './turn-tool-history.js';
 import type { ChatMessage, ContainerInput } from './types.js';
 
 export async function resolveApprovalPrelude(
   input: ContainerInput,
   messages: ChatMessage[],
+  history: TurnToolHistory,
 ) {
+  if (history.recovered) return null;
+  return withModelUsage(history, () => resolvePrelude(input, messages));
+}
+
+async function resolvePrelude(input: ContainerInput, messages: ChatMessage[]) {
   // A mode change does not answer or replay an older pending call.
   if (input.approvalMode === 'learning' && !input.approvalReplyDecision) {
     return handleBoostAnswer(input.sessionId, messages, input.approvalUserText);

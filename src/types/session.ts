@@ -114,6 +114,7 @@ export interface ConversationBranchFamily {
 }
 
 export interface ConversationHistoryPage {
+  nextCursor?: string | null;
   sessionId: string;
   agentId: string | null;
   sessionKey: string | null;

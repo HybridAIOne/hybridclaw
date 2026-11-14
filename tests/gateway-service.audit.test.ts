@@ -1018,6 +1018,9 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
     type: 'turn.end',
     finishReason: 'error',
     assistantMessageId: assistantMessage?.id,
+    toolCalls: 2,
+    failedToolCalls: 1,
+    toolNames: ['send_email', 'bash'],
   });
 });
 
@@ -1137,12 +1140,18 @@ test('handleGatewayMessage persists the user message when the agent run throws',
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
   await flushAudit();
-  const sessionEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
-    (row) => row.event_type === 'session.end',
-  );
+  const rows = getRecentStructuredAuditForSession(sessionId, 20);
+  const sessionEnd = rows.find((row) => row.event_type === 'session.end');
   expect(JSON.parse(sessionEnd?.payload || '{}')).toMatchObject({
     reason: 'error',
     stats: { userMessages: 1, assistantMessages: 1, toolCalls: 1 },
+  });
+  const turnEnd = rows.find((row) => row.event_type === 'turn.end');
+  expect(JSON.parse(turnEnd?.payload || '{}')).toMatchObject({
+    finishReason: 'error',
+    toolCalls: 1,
+    failedToolCalls: 0,
+    toolNames: ['write'],
   });
 });
 
@@ -1387,14 +1396,32 @@ test('handleGatewayMessage skips request logs when request logging is disabled',
   expect(rowCount.count).toBe(0);
 });
 
-test('handleGatewayMessage records the stored assistant message id on successful turn end', async () => {
+test('handleGatewayMessage records the stored message and tool use on successful turn end', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'Stored assistant response.',
-    toolsUsed: [],
-    toolExecutions: [],
+    toolsUsed: ['read', 'bash', 'send_email'],
+    toolExecutions: [
+      { name: 'read', arguments: '{}', result: 'ok', durationMs: 1 },
+      {
+        name: 'bash',
+        arguments: '{"command":"false"}',
+        result: 'exit 1',
+        durationMs: 2,
+        isError: true,
+      },
+      { name: 'read', arguments: '{}', result: 'ok', durationMs: 1 },
+      {
+        name: 'send_email',
+        arguments: '{"to":"pat@example.com"}',
+        result: '',
+        durationMs: 0,
+        blocked: true,
+        blockedReason: 'denied by policy',
+      },
+    ],
   });
 
   const {
@@ -1434,6 +1461,9 @@ test('handleGatewayMessage records the stored assistant message id on successful
     type: 'turn.end',
     finishReason: 'completed',
     assistantMessageId: assistantMessage?.id,
+    toolCalls: 4,
+    failedToolCalls: 2,
+    toolNames: ['read', 'bash', 'send_email'],
   });
 });
 

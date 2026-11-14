@@ -1,8 +1,8 @@
 import {
   SESSION_COMPACTION_KEEP_RECENT,
   SESSION_COMPACTION_THRESHOLD,
-  SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
+import { resolveSessionContextBudgetTokens } from '../session/context-budget.js';
 import {
   readSessionStatusSnapshot,
   type SessionStatusSnapshot,
@@ -55,7 +55,7 @@ export function buildContextUsageSnapshot(params: {
     compactionCount: Number.isFinite(params.compactionCount)
       ? Math.max(0, Math.trunc(params.compactionCount))
       : 0,
-    compactionTokenBudget: SESSION_COMPACTION_TOKEN_BUDGET,
+    compactionTokenBudget: resolveSessionContextBudgetTokens(params.model),
     compactionMessageThreshold: SESSION_COMPACTION_THRESHOLD,
     compactionKeepRecent: SESSION_COMPACTION_KEEP_RECENT,
     messageCount: Number.isFinite(params.messageCount)

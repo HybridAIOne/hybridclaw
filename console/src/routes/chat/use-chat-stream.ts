@@ -157,6 +157,7 @@ export function useChatStream(
           typeof updater === 'function' ? updater(prevMessages) : updater;
         if (nextMessages === prevMessages) return prev;
         return {
+          ...prev,
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
           requestedSessionId: prev?.requestedSessionId ?? sessionId,

@@ -1,19 +1,44 @@
 /**
- * Active gateway requests own cancellation, steering and worker identity/roots.
+ * Active gateway requests own cancellation, absolute deadlines and worker identity/roots.
  * A worker alias resolves only to its unique live conversation; this registry
  * does not create durable sessions or guess an owner after a request ends.
  */
 
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import {
+  ExecutionDeadlineError,
+  remainingExecutionMs,
+  resolveExecutionDeadline,
+} from '@hybridclaw/shared/execution-deadline';
 import { stopSessionExecution } from '../agent/executor.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
 import type { SteerInbox } from '../infra/steer-inbox.js';
 
-interface ActiveGatewayRequest {
+interface ActiveGatewayRequest extends ExecutionDeadline {
   controller: AbortController;
   executionSessionId: string;
   steerInbox?: SteerInbox;
   workspaceOverrides?: WorkspaceOverrides;
   detachExternalAbort?: () => void;
+  clearDeadline?: () => void;
+}
+
+function watchExecutionDeadline(entry: ActiveGatewayRequest): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const check = () => {
+    if (entry.controller.signal.aborted) return;
+    const remaining = remainingExecutionMs(entry.executionDeadlineAtMs);
+    if (remaining === undefined) return;
+    if (remaining === 0) {
+      entry.controller.abort(new ExecutionDeadlineError());
+      return;
+    }
+    // Node timers overflow beyond signed 32-bit milliseconds; long bounds recheck.
+    timer = setTimeout(check, Math.min(remaining, 2 ** 31 - 1));
+    timer.unref();
+  };
+  check();
+  return () => clearTimeout(timer);
 }
 
 const activeGatewayRequestsBySession = new Map<
@@ -26,6 +51,7 @@ function deleteGatewayRequestEntry(
   entry: ActiveGatewayRequest,
 ): void {
   entry.detachExternalAbort?.();
+  entry.clearDeadline?.();
   const sessionEntries = activeGatewayRequestsBySession.get(sessionId);
   if (!sessionEntries) return;
   sessionEntries.delete(entry);
@@ -34,19 +60,26 @@ function deleteGatewayRequestEntry(
   }
 }
 
-export function registerActiveGatewayRequest(params: {
-  sessionId: string;
-  abortSignal?: AbortSignal;
-  executionSessionId?: string;
-  workspaceOverrides?: WorkspaceOverrides;
-  steerInbox?: SteerInbox;
-}): {
+export function registerActiveGatewayRequest(
+  params: ExecutionDeadline & {
+    sessionId: string;
+    abortSignal?: AbortSignal;
+    executionSessionId?: string;
+    workspaceOverrides?: WorkspaceOverrides;
+    steerInbox?: SteerInbox;
+    maxWallClockMs?: number | null;
+  },
+): ExecutionDeadline & {
   signal: AbortSignal;
   release: () => void;
 } {
   const controller = new AbortController();
   const entry: ActiveGatewayRequest = {
     controller,
+    executionDeadlineAtMs: resolveExecutionDeadline(
+      params.maxWallClockMs,
+      params.executionDeadlineAtMs,
+    ),
     executionSessionId: params.executionSessionId || params.sessionId,
     steerInbox: params.steerInbox,
     workspaceOverrides: {
@@ -73,9 +106,11 @@ export function registerActiveGatewayRequest(params: {
     activeGatewayRequestsBySession.set(params.sessionId, sessionEntries);
   }
   sessionEntries.add(entry);
+  entry.clearDeadline = watchExecutionDeadline(entry);
 
   return {
     signal: controller.signal,
+    executionDeadlineAtMs: entry.executionDeadlineAtMs,
     release: () => {
       deleteGatewayRequestEntry(params.sessionId, entry);
     },
@@ -89,39 +124,48 @@ export function abortActiveGatewayRequests(sessionId: string): number {
   activeGatewayRequestsBySession.delete(sessionId);
   for (const entry of entries) {
     entry.detachExternalAbort?.();
+    entry.clearDeadline?.();
     entry.controller.abort(new Error('Interrupted by user.'));
   }
   return entries.length;
 }
 
-export function resolveGatewayRequestContext(executionSessionId: string): {
-  sessionId: string;
-  workspaceOverrides?: WorkspaceOverrides;
-} | null {
-  let owner: {
-    sessionId: string;
-    workspaceOverrides?: WorkspaceOverrides;
-  } | null = null;
+export function resolveGatewayRequestContext(executionSessionId: string):
+  | (ExecutionDeadline & {
+      sessionId: string;
+      workspaceOverrides?: WorkspaceOverrides;
+    })
+  | null {
+  let owner:
+    | (ExecutionDeadline & {
+        sessionId: string;
+        workspaceOverrides?: WorkspaceOverrides;
+      })
+    | null = null;
+  let knownOwner = false;
   for (const [sessionId, entries] of activeGatewayRequestsBySession) {
     for (const entry of entries) {
-      if (
-        entry.executionSessionId !== executionSessionId ||
-        entry.controller.signal.aborted
-      )
-        continue;
+      if (entry.executionSessionId !== executionSessionId) continue;
+      knownOwner = true;
+      if (entry.controller.signal.aborted) continue;
       if (
         owner &&
         (owner.sessionId !== sessionId ||
+          owner.executionDeadlineAtMs !== entry.executionDeadlineAtMs ||
           owner.workspaceOverrides?.workspacePathOverride !==
             entry.workspaceOverrides?.workspacePathOverride ||
           owner.workspaceOverrides?.workspaceDisplayRootOverride !==
             entry.workspaceOverrides?.workspaceDisplayRootOverride)
       )
         return null;
-      owner = { sessionId, workspaceOverrides: entry.workspaceOverrides };
+      owner = {
+        sessionId,
+        workspaceOverrides: entry.workspaceOverrides,
+        executionDeadlineAtMs: entry.executionDeadlineAtMs,
+      };
     }
   }
-  return owner ?? { sessionId: executionSessionId };
+  return owner ?? (knownOwner ? null : { sessionId: executionSessionId });
 }
 
 /**

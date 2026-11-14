@@ -1260,7 +1260,7 @@ describe('MessageBlock code-block copy button', () => {
   });
 });
 
-describe('MessageBlock text-announced approvals', () => {
+describe('MessageBlock approval presentation', () => {
   beforeEach(() => {
     renderMarkdownMock.mockReset();
     renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
@@ -1272,7 +1272,7 @@ describe('MessageBlock text-announced approvals', () => {
     'Reply `yes` to approve once.',
   ].join('\n');
 
-  it('renders Allow/Cancel actions for an active text approval item and dispatches the parsed id', () => {
+  it('keeps prose without structured approval metadata as ordinary text', () => {
     const onApprovalAction = vi.fn();
     render(
       <MessageBlock
@@ -1293,11 +1293,9 @@ describe('MessageBlock text-announced approvals', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
-    expect(onApprovalAction).toHaveBeenCalledWith('once', 'approve123');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onApprovalAction).toHaveBeenCalledWith('deny', 'approve123');
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(onApprovalAction).not.toHaveBeenCalled();
   });
 
   it('renders no actions for a resolved (non-active) text approval item', () => {
@@ -1351,3 +1349,48 @@ describe('MessageBlock text-announced approvals', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 });
+
+it.each(['red', 'yellow'] as const)(
+  'renders only a card for a structured %s approval',
+  (tier) => {
+    const onApprovalAction = vi.fn();
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([], {
+          role: 'approval',
+          content:
+            'Fallback approval text that must not appear as a second message.',
+          pendingApproval: {
+            type: 'approval',
+            approvalId: 'approval-1',
+            approvalTier: tier,
+            prompt: 'Review this action.',
+          },
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={onApprovalAction}
+        approvalBusy={false}
+        approvalState={{ approvalId: 'approval-1', status: 'active' }}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+    expect(
+      container
+        .querySelector('[data-approval-tier]')
+        ?.getAttribute('data-approval-tier'),
+    ).toBe(tier);
+    expect(screen.getAllByText('Confirmation required')).toHaveLength(1);
+    expect(
+      screen.queryByText(
+        'Fallback approval text that must not appear as a second message.',
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
+    expect(onApprovalAction).toHaveBeenCalledWith('once', 'approval-1');
+  },
+);
