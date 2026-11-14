@@ -1222,7 +1222,7 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBeNull();
     expect(result.choices[0]?.message.tool_calls).toEqual([
       {
-        id: '',
+        id: expect.any(String),
         type: 'function',
         function: {
           name: 'message',

@@ -201,7 +201,7 @@ test('a fresh worker uses the previous turn’s stored result without calling th
       canonicalScopeId: '',
       userContent: 'Read inventory',
       resultText: first.result || '',
-      toolCallCount: 1,
+      toolExecutions: first.toolExecutions ?? [],
       toolHistory: first.toolHistory,
       toolHistoryForReplay: first.toolHistoryForReplay,
       startedAt: Date.now(),

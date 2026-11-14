@@ -50,6 +50,7 @@ import {
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
 import { ThinkingEffortControl } from './thinking-effort-control';
+import type { QueuedMessage } from './use-queued-messages';
 
 type SuggestionKind = 'slash' | 'agent';
 
@@ -87,9 +88,12 @@ function getAgentMentionContext(
 }
 
 export function Composer(props: {
+  /** Input stays open: a send while streaming steers or queues it. */
   isStreaming: boolean;
   onSend: (content: string, media: MediaItem[]) => void;
   onStop: () => void;
+  queued?: readonly QueuedMessage[];
+  onRemoveQueued?: (id: string) => void;
   onUploadFiles: (files: File[]) => Promise<MediaItem[]>;
   token: string;
   agents?: AgentSwitchOption[];
@@ -454,12 +458,11 @@ export function Composer(props: {
   );
 
   const submit = () => {
-    if (props.isStreaming) {
-      props.onStop();
+    const val = (textareaRef.current?.value ?? '').trim();
+    if (!val && pendingMedia.length === 0) {
+      if (props.isStreaming) props.onStop();
       return;
     }
-    const val = (textareaRef.current?.value ?? '').trim();
-    if (!val && pendingMedia.length === 0) return;
     if (uploading > 0) return;
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
@@ -565,6 +568,8 @@ export function Composer(props: {
   const selectedAgentId = props.selectedAgentId ?? '';
   const modelOptions = props.models ?? [];
   const selectedModelId = props.selectedModelId ?? '';
+  const showStop =
+    props.isStreaming && !composerValue.trim() && pendingMedia.length === 0;
 
   return (
     <div className={css.composerWrapper} ref={wrapperRef}>
@@ -575,6 +580,25 @@ export function Composer(props: {
         }}
       >
         <div className={css.composer}>
+          {props.queued?.length ? (
+            <ul className={css.queuedList} aria-label="Queued messages">
+              {props.queued.map((m) => (
+                <li key={m.id} className={css.queuedItem}>
+                  <span className={css.queuedText}>
+                    {m.content || pluralize(m.media.length, 'attachment')}
+                  </span>
+                  <button
+                    type="button"
+                    className={css.mediaChipRemove}
+                    onClick={() => props.onRemoveQueued?.(m.id)}
+                    aria-label="Remove queued message"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {pendingMedia.length > 0 || uploading > 0 ? (
             <div className={css.pendingMediaRow}>
               {pendingMedia.map((m, i) => (
@@ -616,8 +640,11 @@ export function Composer(props: {
                 composerValue && css.composerInputHasOverlay,
               )}
               rows={1}
-              placeholder="Message HybridClaw"
-              disabled={props.isStreaming}
+              placeholder={
+                props.isStreaming
+                  ? 'Add to the running task'
+                  : 'Message HybridClaw'
+              }
               onInput={handleInput}
               onSelect={syncComposerSelection}
               onClick={syncComposerSelection}
@@ -688,7 +715,7 @@ export function Composer(props: {
             <div className={css.composerRightActions}>
               <DictationControl
                 token={props.token}
-                disabled={props.isStreaming}
+                disabled={false}
                 onTranscript={insertDictationTranscript}
               />
               {props.voiceAvailable ? (
@@ -730,14 +757,11 @@ export function Composer(props: {
               ) : null}
               <button
                 type="button"
-                className={cx(
-                  css.sendButton,
-                  props.isStreaming && css.stopping,
-                )}
+                className={cx(css.sendButton, showStop && css.stopping)}
                 onClick={submit}
-                aria-label={props.isStreaming ? 'Stop' : 'Send message'}
+                aria-label={showStop ? 'Stop' : 'Send message'}
               >
-                {props.isStreaming ? (
+                {showStop ? (
                   <svg
                     viewBox="0 0 24 24"
                     width="16"

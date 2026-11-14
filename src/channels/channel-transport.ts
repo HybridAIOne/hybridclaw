@@ -2,7 +2,7 @@
  * Channel transport registry — the only path from core to a plugin-backed
  * channel. A registration carries the transport factory plus what core asks
  * without starting it: target matching, linked-account state, the live pairing
- * prompt, doctor findings, and prompt hints.
+ * prompt, doctor findings, and prompt hints. Each plugin supplies its own hooks.
  *
  * Kinds come from the official channel plugin catalog; registering or
  * resolving any other kind throws instead of falling back. A catalog plugin
@@ -24,7 +24,6 @@ import {
   PLUGIN_CHANNEL_KINDS,
   type PluginChannelKind,
 } from './channel-plugin-catalog.js';
-import { adaptLegacyWhatsAppRegistration } from './whatsapp/legacy-registration.js';
 
 export type ChannelTransportReplyFn = (content: string) => Promise<void>;
 
@@ -238,40 +237,6 @@ const REQUIRED_REGISTRATION_MEMBERS = [
   'resetAuth',
 ] as const;
 
-// Any of these marks a registration as written against the current contract.
-const CONTRACT_MEMBERS = [
-  ...REQUIRED_REGISTRATION_MEMBERS.filter((member) => member !== 'create'),
-  'getPairingState',
-  'doctorChecks',
-  'messageToolHints',
-  'describeSend',
-] as const;
-
-function normalizeRegistration(
-  registration: ChannelTransportRegistration,
-): ChannelTransportRegistration {
-  if (CONTRACT_MEMBERS.some((member) => member in registration)) {
-    const missing = REQUIRED_REGISTRATION_MEMBERS.filter(
-      (member) => typeof registration[member] !== 'function',
-    );
-    if (missing.length > 0) {
-      throw new Error(
-        `Channel transport "${registration.kind}" is missing ${missing.join(', ')}.`,
-      );
-    }
-    return registration;
-  }
-  // compat: remove after v0.43 — hybridclaw-whatsapp 0.1.x registers only
-  // `{ kind, create }` against the retired WhatsApp host.
-  if (registration.kind === 'whatsapp') {
-    return adaptLegacyWhatsAppRegistration(registration);
-  }
-  const kind = requirePluginChannelKind(registration.kind);
-  throw new Error(
-    `Channel transport "${kind}" uses the retired create-only contract. Update the plugin: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry(kind)?.installSource}`,
-  );
-}
-
 export function registerChannelTransport(
   registration: ChannelTransportRegistration,
 ): ChannelTransportRegistration {
@@ -279,10 +244,17 @@ export function registerChannelTransport(
   if (transports.has(kind)) {
     throw new Error(`Channel transport "${kind}" is already registered.`);
   }
-  const normalized = normalizeRegistration(registration);
-  transports.set(kind, normalized);
+  const missing = REQUIRED_REGISTRATION_MEMBERS.filter(
+    (member) => typeof registration[member] !== 'function',
+  );
+  if (missing.length) {
+    throw new Error(
+      `Channel transport "${kind}" is missing ${missing.join(', ')}. Update the plugin: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry(kind)?.installSource}`,
+    );
+  }
+  transports.set(kind, registration);
   failedPluginKinds.delete(kind);
-  return normalized;
+  return registration;
 }
 
 export function unregisterChannelTransport(kind: string): void {

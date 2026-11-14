@@ -3,6 +3,7 @@
  * Unlike provider routing, this never selects another model or repeats tools;
  * callers still decide whether replay is safe after visible streaming output.
  */
+import { ExecutionDeadlineError } from '@hybridclaw/shared/execution-deadline';
 import type { RuntimeProviderId } from './providers/shared.js';
 import { ProviderRequestError } from './providers/shared.js';
 
@@ -262,6 +263,7 @@ export function modelRetryDelayMs(
   attempt: number,
   error: unknown,
 ): number | null {
+  if (error instanceof ExecutionDeadlineError) return null;
   if (
     !RETRY_ENABLED ||
     !(attempt < RETRY_MAX_ATTEMPTS) ||

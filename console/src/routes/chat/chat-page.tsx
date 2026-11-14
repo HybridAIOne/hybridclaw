@@ -77,8 +77,10 @@ import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
   EMPTY_BRANCH_FAMILIES,
-  loadChatHistoryUi,
+  loadCachedChatHistoryUi,
+  useChatHistory,
 } from './chat-history-query';
+import { ChatHistoryViewport } from './chat-history-viewport';
 import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -93,6 +95,7 @@ import { useChatNotifications } from './use-chat-notifications';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useComputerPresence } from './use-computer-presence';
+import { useQueuedMessages } from './use-queued-messages';
 import { useStickToBottom } from './use-stick-to-bottom';
 import { useVoiceSession } from './use-voice-session';
 import { VoicePanel } from './voice-panel';
@@ -279,6 +282,7 @@ export function ChatPage() {
     isPinned,
     jumpToBottom,
     resetToBottom,
+    pauseFollowing,
   } = useStickToBottom();
   const mobileQrDialogRef = useRef<HTMLDivElement>(null);
   const mobileQrCloseRef = useRef<HTMLButtonElement>(null);
@@ -581,18 +585,13 @@ export function ChatPage() {
     };
   }, [errorState, setError]);
 
-  const historyQuery = useQuery({
-    queryKey: chatHistoryQueryKey(auth.token, sessionId),
-    queryFn: () =>
-      loadChatHistoryUi(
-        auth.token,
-        sessionId,
-        userId,
-        requestedHistoryAgentId || undefined,
-      ),
-    enabled: chatApiReady && Boolean(sessionId),
-    staleTime: Infinity,
-  });
+  const historyQuery = useChatHistory(
+    auth.token,
+    sessionId,
+    userId,
+    requestedHistoryAgentId || undefined,
+    chatApiReady,
+  );
 
   const contextQuery = useQuery({
     queryKey: chatContextQueryKey(auth.token, sessionId),
@@ -887,7 +886,12 @@ export function ChatPage() {
         await queryClient.ensureQueryData({
           queryKey: chatHistoryQueryKey(auth.token, branch.sessionId),
           queryFn: () =>
-            loadChatHistoryUi(auth.token, branch.sessionId, userId),
+            loadCachedChatHistoryUi(
+              queryClient,
+              auth.token,
+              branch.sessionId,
+              userId,
+            ),
         });
         // Bind the ref before sending so the stream captures the branch's
         // sessionId even if React hasn't committed the URL-driven re-render yet.
@@ -1070,6 +1074,14 @@ export function ChatPage() {
     ],
   );
 
+  const queue = useQueuedMessages({
+    sessionId,
+    isStreaming: stream.isStreaming,
+    steer: stream.steerMessage,
+    send: handleSendMessage,
+    stop: stream.stopRequest,
+  });
+
   // Auto-send a seeded conversation (Apps builder / `/app`): when arriving at
   // `/chat?prompt=…&send=1`, fire the first message once the chat API is ready.
   const autoSentSeedRef = useRef(false);
@@ -1120,6 +1132,7 @@ export function ChatPage() {
             return prev;
           }
           return {
+            ...prev,
             messages: [
               ...prevMessages,
               {
@@ -1151,7 +1164,12 @@ export function ChatPage() {
         .fetchQuery({
           queryKey,
           queryFn: () =>
-            loadChatHistoryUi(auth.token, resolvedSessionId, userId),
+            loadCachedChatHistoryUi(
+              queryClient,
+              auth.token,
+              resolvedSessionId,
+              userId,
+            ),
           staleTime: 0,
         })
         .catch((err: unknown) => {
@@ -1316,7 +1334,8 @@ export function ChatPage() {
       if (targetId === getSessionId()) return;
       void queryClient.prefetchQuery({
         queryKey: chatHistoryQueryKey(auth.token, targetId),
-        queryFn: () => loadChatHistoryUi(auth.token, targetId, userId),
+        queryFn: () =>
+          loadCachedChatHistoryUi(queryClient, auth.token, targetId, userId),
         staleTime: 30_000,
       });
     },
@@ -1385,7 +1404,8 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty = visibleMessages.length === 0;
+  const isEmpty =
+    visibleMessages.length === 0 && !historyQuery.data?.nextCursor;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -1479,65 +1499,71 @@ export function ChatPage() {
               <h1 className={css.greeting}>{emptyChatHeader}</h1>
             </div>
           ) : (
-            <div className={css.messageArea} ref={messageAreaRef}>
-              <div className={css.messageList} ref={messageListRef}>
-                {visibleMessages.map((msg) =>
-                  editingId === msg.id &&
-                  msg.role !== 'thinking' &&
-                  msg.role !== 'trace' &&
-                  msg.role !== 'draft' ? (
-                    <div key={msg.id} className={css.messageBlock}>
-                      <EditInline
-                        initial={msg.rawContent ?? msg.content}
-                        onSave={(newContent) =>
-                          void handleEditSave(msg, newContent)
-                        }
-                        onCancel={() => setEditingId(null)}
-                      />
-                    </div>
-                  ) : (
-                    <MessageBlock
-                      showRoutingInfo={
-                        contextQuery.data?.routing?.showRoutingInfo
+            <ChatHistoryViewport
+              key={`${auth.token}:${sessionId}`}
+              token={auth.token}
+              sessionId={sessionId}
+              userId={userId}
+              agentId={requestedHistoryAgentId || undefined}
+              history={historyQuery.data}
+              scrollRef={messageAreaRef}
+              contentRef={messageListRef}
+              onPrepend={pauseFollowing}
+            >
+              {visibleMessages.map((msg) =>
+                editingId === msg.id &&
+                msg.role !== 'thinking' &&
+                msg.role !== 'trace' &&
+                msg.role !== 'draft' ? (
+                  <div key={msg.id} className={css.messageBlock}>
+                    <EditInline
+                      initial={msg.rawContent ?? msg.content}
+                      onSave={(newContent) =>
+                        void handleEditSave(msg, newContent)
                       }
-                      key={msg.id}
-                      message={msg}
-                      token={auth.token}
-                      isStreaming={msg.id === stream.streamingMsgId}
-                      onCopy={copyToClipboard}
-                      draftReviewOwner={userId}
-                      draftActionsDisabled={
-                        stream.isStreaming || msg.sessionId !== sessionId
-                      }
-                      onSendDraft={(draft) =>
-                        stream.sendMessage(reviewedEmailInstruction(draft), [])
-                      }
-                      onEdit={handleEditOpen}
-                      onRegenerate={handleRegenerate}
-                      onRate={handleRateResponse}
-                      ratingBusy={
-                        ratingMutation.isPending &&
-                        ratingMutation.variables?.message.id === msg.id
-                      }
-                      skillInvocationTargets={skillInvocationTargets}
-                      onApprovalAction={handleApprovalAction}
-                      approvalBusy={approvalBusy}
-                      approvalState={approvalStates.get(msg.id)}
-                      branchInfo={branchInfoMap.get(msg.id) ?? null}
-                      onBranchNav={handleBranchNav}
-                      signInHost={
-                        signInAsk?.traceId === msg.id
-                          ? signInAsk.host
-                          : undefined
-                      }
-                      onSignInSaved={(host) =>
-                        stream.sendMessage(signInSavedMessage(host), [])
-                      }
+                      onCancel={() => setEditingId(null)}
                     />
-                  ),
-                )}
-              </div>
-            </div>
+                  </div>
+                ) : (
+                  <MessageBlock
+                    showRoutingInfo={
+                      contextQuery.data?.routing?.showRoutingInfo
+                    }
+                    key={msg.id}
+                    message={msg}
+                    token={auth.token}
+                    isStreaming={msg.id === stream.streamingMsgId}
+                    onCopy={copyToClipboard}
+                    draftReviewOwner={userId}
+                    draftActionsDisabled={
+                      stream.isStreaming || msg.sessionId !== sessionId
+                    }
+                    onSendDraft={(draft) =>
+                      stream.sendMessage(reviewedEmailInstruction(draft), [])
+                    }
+                    onEdit={handleEditOpen}
+                    onRegenerate={handleRegenerate}
+                    onRate={handleRateResponse}
+                    ratingBusy={
+                      ratingMutation.isPending &&
+                      ratingMutation.variables?.message.id === msg.id
+                    }
+                    skillInvocationTargets={skillInvocationTargets}
+                    onApprovalAction={handleApprovalAction}
+                    approvalBusy={approvalBusy}
+                    approvalState={approvalStates.get(msg.id)}
+                    branchInfo={branchInfoMap.get(msg.id) ?? null}
+                    onBranchNav={handleBranchNav}
+                    signInHost={
+                      signInAsk?.traceId === msg.id ? signInAsk.host : undefined
+                    }
+                    onSignInSaved={(host) =>
+                      stream.sendMessage(signInSavedMessage(host), [])
+                    }
+                  />
+                ),
+              )}
+            </ChatHistoryViewport>
           )}
           {!isEmpty && !isPinned ? (
             <button
@@ -1572,8 +1598,10 @@ export function ChatPage() {
           ) : null}
           <Composer
             isStreaming={stream.isStreaming}
-            onSend={handleSendMessage}
+            onSend={stream.isStreaming ? queue.submit : handleSendMessage}
             onStop={() => void stream.stopRequest()}
+            queued={queue.queued}
+            onRemoveQueued={queue.remove}
             onUploadFiles={handleUploadFiles}
             token={auth.token}
             agents={agentOptions}

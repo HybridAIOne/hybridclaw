@@ -1,6 +1,7 @@
 /**
  * A conflicted file gets an independent preservation check before automatic edits.
- * This veto uses the active model and proposed text, never extra filesystem reads.
+ * Hash-only retries review a matching snapshot from the tool's filesystem;
+ * the write tool still rechecks its byte precondition before mutation.
  * Unlike approval policy it grants no permission; verdicts are not durable consent.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
@@ -8,13 +9,14 @@ import {
   fileWriteReviewPrompt,
   getFileWriteConflict,
 } from './file-write-conflicts.js';
+import { readFileWriteReviewContent } from './file-write-review-content.js';
+import { withModelTask } from './model-usage.js';
 import {
   callRoutedModel,
   extractResponseTextContent,
   type RoutedModelContext,
 } from './providers/router.js';
 import { parseToolArgsJson } from './tool-args.js';
-import type { ChatCompletionResponse } from './types.js';
 
 export const FILE_WRITE_REVIEW_ACTION_PREFIX = 'file-preservation-review:';
 
@@ -37,7 +39,6 @@ export async function reviewFileWriteIntent(params: {
   latestUserPrompt: string;
   evaluation: ToolApprovalEvaluation;
   fallbackContext: RoutedModelContext;
-  onModelResponse?: (response: ChatCompletionResponse) => void;
 }): Promise<ToolApprovalEvaluation> {
   const { evaluation } = params;
   if (
@@ -55,7 +56,7 @@ export async function reviewFileWriteIntent(params: {
     return evaluation;
   const args = parseToolArgsJson(params.argsJson);
   if (!args || typeof args.path !== 'string') return evaluation;
-  const existing =
+  let existing =
     params.toolName === 'write'
       ? args.overwrite === true
         ? args.expected_content
@@ -69,7 +70,15 @@ export async function reviewFileWriteIntent(params: {
       : typeof args.new === 'string'
         ? args.new
         : args.new_text;
-  if (typeof existing !== 'string' || typeof proposed !== 'string')
+  const revisionOnly =
+    params.toolName === 'write' &&
+    args.overwrite === true &&
+    args.expected_content === undefined &&
+    args.expected_sha256 !== undefined;
+  if (
+    (typeof existing !== 'string' && !revisionOnly) ||
+    typeof proposed !== 'string'
+  )
     return evaluation;
   const conflict = getFileWriteConflict(params.sessionId, args.path);
   if (!conflict) return evaluation;
@@ -81,28 +90,31 @@ export async function reviewFileWriteIntent(params: {
     );
     if (!userPrompt?.trim())
       throw new Error('Original user request is unavailable.');
-    const response = await callRoutedModel({
-      ...params.fallbackContext,
-      sessionId: params.sessionId,
-      enableRag: false,
-      messages: [
-        { role: 'system', content: REVIEW_PROMPT },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            user_request: userPrompt,
-            path: args.path,
-            existing_content: existing,
-            proposed_content: proposed,
-          }),
-        },
-      ],
-      tools: [],
-      // 8192 (Codex trial, 2026-11-07): reasoning consumed the smaller 2048
-      // allowance without a verdict; visible output still has a short target.
-      maxTokens: 8192,
-    });
-    params.onModelResponse?.(response);
+    if (revisionOnly)
+      existing = readFileWriteReviewContent(args.path, args.expected_sha256);
+    const response = await withModelTask('file_preservation_review', () =>
+      callRoutedModel({
+        ...params.fallbackContext,
+        sessionId: params.sessionId,
+        enableRag: false,
+        messages: [
+          { role: 'system', content: REVIEW_PROMPT },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              user_request: userPrompt,
+              path: args.path,
+              existing_content: existing,
+              proposed_content: proposed,
+            }),
+          },
+        ],
+        tools: [],
+        // 8192 (Codex trial, 2026-11-07): reasoning consumed the smaller 2048
+        // allowance without a verdict; visible output still has a short target.
+        maxTokens: 8192,
+      }),
+    );
     const verdict = parseToolArgsJson(
       extractResponseTextContent(response.choices[0]?.message.content),
     );

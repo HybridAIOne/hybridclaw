@@ -63,7 +63,8 @@ vi.mock('../src/agent/side-effects.js', () => ({
   processSideEffects: mocks.processSideEffects,
 }));
 
-vi.mock('../src/audit/audit-events.js', () => ({
+vi.mock('../src/audit/audit-events.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/audit/audit-events.js')>()),
   emitToolExecutionAuditEvents: mocks.emitToolExecutionAuditEvents,
   makeAuditRunId: mocks.makeAuditRunId,
   recordAuditEvent: mocks.recordAuditEvent,

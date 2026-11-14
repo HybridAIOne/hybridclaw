@@ -1,19 +1,23 @@
 /**
  * Structured tool-call validation — decides whether a model response's calls
- * can reach approval and execution at all. A rejected batch runs nothing; the
+ * can reach approval and execution at all. Unfinished batches run nothing; the
  * model gets the reason as tool results and may correct it. NOT argument
  * validation per tool (the tool handlers do that) and not a permission check.
  */
-import type { ToolCall } from './types.js';
+import { isCompleteToolCallFinish } from './model-response-completion.js';
+import type { ToolCall, ToolExecution } from './types.js';
 
 function describeToolName(toolCall: ToolCall): string {
   const name = String(toolCall.function?.name || '').trim();
   return name || '(unknown tool)';
 }
 
-export function validateStructuredToolCalls(
+export function validateToolCallBatch(
   toolCalls: ToolCall[],
+  finishReason: string | null | undefined,
 ): string | null {
+  if (toolCalls.length && !isCompleteToolCallFinish(finishReason))
+    return 'Model response did not complete its tool-call batch.';
   for (const toolCall of toolCalls) {
     const toolName = describeToolName(toolCall);
     const argsJson = String(toolCall.function?.arguments || '').trim();
@@ -40,13 +44,32 @@ export function validateStructuredToolCalls(
 /** Tool result for every call in a batch that failed validation. */
 export function invalidToolCallCorrection(
   error: string,
-  finishReason?: string | null,
-): string {
+  finishReason: string | null | undefined,
+): string | null {
+  if (!isCompleteToolCallFinish(finishReason) && finishReason !== 'length')
+    return null;
   const cutOff =
     finishReason === 'length'
-      ? 'Your response reached the output-token limit, so the tool arguments were cut off. '
+      ? 'Your response reached the output-token limit, so the tool-call batch may be incomplete. '
       : '';
   return `Error: ${cutOff}${error} Nothing from that response ran. Send the call again with one complete JSON object as its arguments; split large file contents into several smaller write or edit calls.`;
+}
+
+/** Rejected calls keep their linkage without claiming any action started. */
+export function rejectedToolExecution(
+  call: ToolCall,
+  result: string,
+): ToolExecution {
+  return {
+    name: call.function.name,
+    arguments: call.function.arguments,
+    result,
+    toolCallId: call.id,
+    durationMs: 0,
+    isError: true,
+    blocked: true,
+    blockedReason: 'Invalid tool call batch.',
+  };
 }
 
 /**

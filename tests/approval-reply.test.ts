@@ -64,10 +64,20 @@ test('a draft answer drops the send and replays a save-as-draft prompt in one tu
   expect(proposed().decision).toBe('required');
 });
 
-test('session consent survives worker replacement and stays in its session', async () => {
+test.each(['session', 'agent', 'all'])('a reply in words cannot grant %s trust', async scope => {
   const pending = proposed();
-  answer(pending.requestId!, 'approve', 'session');
-  expect((await reply('Für diese Sitzung darfst du Nachrichten senden.'))?.approvalMode).toBe('session');
+  answer(pending.requestId!, 'approve', scope);
+  const result = await reply('Das darfst du ab jetzt immer.');
+  expect(result?.approvedToolCall).toBeUndefined();
+  expect(result?.pendingApproval?.approvalId).toBe(pending.requestId);
+  runtime = fresh();
+  expect(proposed().decision).toBe('required');
+});
+
+test('a command with the approval id still grants session trust', async () => {
+  const pending = proposed();
+  expect((await reply(`yes ${pending.requestId} for session`))?.approvalMode).toBe('session');
+  expect(model).not.toHaveBeenCalled();
   runtime = fresh();
   expect(proposed().decision).toBe('approved_session');
   runtime.setSession('session-b', 'user-a');
@@ -182,14 +192,6 @@ test('multiple pending requests never pick the latest automatically', async () =
   expect((await reply('Yes'))?.approvedToolCall).toBeUndefined();
   expect(runtime.getPendingApprovals()).toHaveLength(2);
   expect(runtime.handleApprovalResponse([{ role: 'user', content: 'yes' }])?.approvedToolCall).toBeUndefined();
-});
-
-test('pinned actions cannot acquire broader trust from a model decision', async () => {
-  const pending = runtime.evaluateToolCall({ toolName: 'write', argsJson: JSON.stringify({ path: '.env', content: 'EXAMPLE=value' }), latestUserPrompt: 'Write the settings.' });
-  answer(pending.requestId!, 'approve', 'all');
-  const result = await reply('Erlaube das dauerhaft.');
-  expect(result?.approvedToolCall).toBeUndefined();
-  expect(runtime.getPendingApprovals()).toHaveLength(1);
 });
 
 

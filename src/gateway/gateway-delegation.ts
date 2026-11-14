@@ -5,13 +5,15 @@
  * tool result. A background batch runs after the turn and then wakes the
  * parent with a hidden results turn, unless that session was reset meanwhile.
  * Worker aliases are resolved through the active request's conversation owner.
- * Each live child carries its own model and exact callback identity.
+ * Each child keeps its model, callback identity and trusted execution deadline.
  * File-preservation intent comes from that owner, never model-authored task fields.
  *
  * NOT A2A: peer-agent delegation across instances lives in `src/a2a/`.
  */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import { earliestExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import { enqueueDelegation } from '../agent/delegation-manager.js';
 import type { WorkspaceOverrides } from '../agent/executor-types.js';
@@ -370,31 +372,34 @@ async function runDelegationPlans(params: {
 }
 
 /** Runs the parent turn that receives finished delegate results. */
-export type DelegationParentTurnRunner = (params: {
-  content: string;
-  onTextDelta?: (delta: string) => void;
-}) => Promise<
+export type DelegationParentTurnRunner = (
+  params: ExecutionDeadline & {
+    content: string;
+    onTextDelta?: (delta: string) => void;
+  },
+) => Promise<
   Pick<GatewayChatResult, 'status' | 'result' | 'artifacts' | 'pendingApproval'>
 >;
 
 export function enqueueDelegationBatchFromSideEffects(
-  params: FileWriteGuardContext & {
-    plans: NormalizedDelegationPlan[];
-    workspaceOverrides?: WorkspaceOverrides;
-    parentSessionId: string;
-    channelId: string;
-    chatbotId: string;
-    enableRag: boolean;
-    agentId: string;
-    parentModel?: string;
-    onProactiveMessage?: (
-      message: ProactiveMessagePayload,
-    ) => void | Promise<void>;
-    parentDepth: number;
-    runParentTurn: DelegationParentTurnRunner;
-    publicId?: string;
-    ackText?: string;
-  },
+  params: FileWriteGuardContext &
+    ExecutionDeadline & {
+      plans: NormalizedDelegationPlan[];
+      workspaceOverrides?: WorkspaceOverrides;
+      parentSessionId: string;
+      channelId: string;
+      chatbotId: string;
+      enableRag: boolean;
+      agentId: string;
+      parentModel?: string;
+      onProactiveMessage?: (
+        message: ProactiveMessagePayload,
+      ) => void | Promise<void>;
+      parentDepth: number;
+      runParentTurn: DelegationParentTurnRunner;
+      publicId?: string;
+      ackText?: string;
+    },
 ): { publicId: string } | null {
   const {
     plans,
@@ -455,6 +460,7 @@ export function enqueueDelegationBatchFromSideEffects(
   }
 
   const context: DelegationRunContext = {
+    executionDeadlineAtMs: params.executionDeadlineAtMs,
     workspaceOverrides: params.workspaceOverrides,
     fileWriteGuardSessionId: params.fileWriteGuardSessionId ?? parentSessionId,
     fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
@@ -546,6 +552,7 @@ export function enqueueDelegationBatchFromSideEffects(
         try {
           reply = await runParentTurn({
             content: buildDelegationResultsMessage(completion.forLLM),
+            executionDeadlineAtMs: context.executionDeadlineAtMs,
             onTextDelta: replyStream?.onTextDelta,
           });
         } catch (err) {
@@ -665,6 +672,10 @@ export async function runDelegationNow(
   }
   const plans = [normalized.plan];
   const context: DelegationRunContext = {
+    executionDeadlineAtMs: earliestExecutionDeadline(
+      parent.executionDeadlineAtMs,
+      request?.executionDeadlineAtMs,
+    ),
     parentSessionId: sessionId,
     fileWriteGuardSessionId:
       params.fileWriteGuardSessionId ??

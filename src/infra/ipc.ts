@@ -21,6 +21,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import {
+  ExecutionDeadlineError,
+  normalizePositiveTimeoutMs,
+  resolveExecutionDeadline,
+} from '@hybridclaw/shared/execution-deadline';
 import { encodeAuthenticatedInput } from '@hybridclaw/shared/ipc-input-auth';
 import {
   ipcOutputFileName,
@@ -184,12 +190,15 @@ export function writeHealthInput(
  * Read output on directory wakeups, reconciling from disk periodically until
  * the file appears, the idle timeout expires, or the hard deadline is reached.
  */
-function interruptedOutput(): ContainerOutput {
+export function interruptedAgentOutput(reason?: unknown): ContainerOutput {
   return {
     status: 'error',
     result: null,
     toolsUsed: [],
-    error: 'Interrupted by user.',
+    error:
+      reason instanceof ExecutionDeadlineError
+        ? reason.message
+        : 'Interrupted by user.',
   };
 }
 
@@ -224,25 +233,18 @@ const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
 // tool history can delay an interrupt.
 const INTERRUPTED_OUTPUT_GRACE_MS = 2_000;
 
-function normalizePositiveTimeoutMs(
-  value: number | null | undefined,
-): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-  return Math.floor(value);
-}
+type OutputReadOptions = ExecutionDeadline & {
+  signal?: AbortSignal;
+  activity?: ActivityTracker;
+  maxWallClockMs?: number | null;
+  terminalError?: () => string | null;
+};
 
 export async function readOutput(
   sessionId: string,
   requestId: string,
   timeoutMs: number | null | undefined,
-  opts?: {
-    signal?: AbortSignal;
-    activity?: ActivityTracker;
-    maxWallClockMs?: number | null;
-    terminalError?: () => string | null;
-  },
+  opts?: OutputReadOptions,
 ): Promise<ContainerOutput> {
   return readOutputFile(
     sessionId,
@@ -256,12 +258,7 @@ async function readOutputFile(
   sessionId: string,
   filenames: readonly string[],
   timeoutMs: number | null | undefined,
-  opts?: {
-    signal?: AbortSignal;
-    activity?: ActivityTracker;
-    maxWallClockMs?: number | null;
-    terminalError?: () => string | null;
-  },
+  opts?: OutputReadOptions,
 ): Promise<ContainerOutput> {
   const outputPaths = filenames.map((filename) =>
     ipcFilePath(sessionId, filename),
@@ -280,9 +277,13 @@ async function readOutputFile(
       : idleTimeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1);
   const hardTimeoutMs = requestedWallClockMs ?? derivedWallClockMs;
   const hardDeadline =
-    hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
+    resolveExecutionDeadline(
+      hardTimeoutMs,
+      opts?.executionDeadlineAtMs,
+      start,
+    ) ?? Number.POSITIVE_INFINITY;
 
-  if (signal?.aborted) return interruptedOutput();
+  if (signal?.aborted) return interruptedAgentOutput(signal.reason);
 
   const wakeup = createIpcWakeup(ipcDir(sessionId));
   try {
@@ -292,26 +293,30 @@ async function readOutputFile(
         idleTimeoutMs === null
           ? Number.POSITIVE_INFINITY
           : (activity ? activity.lastActivityMs : start) + idleTimeoutMs;
-      if (now >= hardDeadline) {
-        return {
-          status: 'error',
-          result: null,
-          toolsUsed: [],
-          error:
-            idleTimeoutMs === null
-              ? `Timeout waiting for agent output after ${hardTimeoutMs}ms total`
-              : `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${idleTimeoutMs}ms inactivity window)`,
-        };
-      }
-      if (now >= idleDeadline) break;
       if (signal?.aborted) {
         return await collectInterruptedOutput(
           sessionId,
           outputPaths,
           wakeup,
           opts?.terminalError,
+          signal.reason,
         );
       }
+      if (now >= hardDeadline) {
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error:
+            opts?.executionDeadlineAtMs !== undefined &&
+            now >= opts.executionDeadlineAtMs
+              ? `Timeout waiting for agent output: ${new ExecutionDeadlineError().message}`
+              : idleTimeoutMs === null
+                ? `Timeout waiting for agent output after ${hardTimeoutMs}ms total`
+                : `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${idleTimeoutMs}ms inactivity window)`,
+        };
+      }
+      if (now >= idleDeadline) break;
 
       const output = readOutputFiles(sessionId, outputPaths);
       if (output) return output;
@@ -339,6 +344,7 @@ async function readOutputFile(
           outputPaths,
           wakeup,
           opts?.terminalError,
+          signal?.reason,
         );
       }
     }
@@ -444,13 +450,14 @@ async function collectInterruptedOutput(
   outputPaths: readonly string[],
   wakeup: IpcWakeup,
   terminalError?: () => string | null,
+  reason?: unknown,
 ): Promise<ContainerOutput> {
   const deadline = Date.now() + INTERRUPTED_OUTPUT_GRACE_MS;
   while (true) {
     const late = readOutputFiles(sessionId, outputPaths);
     if (late) {
       return {
-        ...interruptedOutput(),
+        ...interruptedAgentOutput(reason),
         ...(late.tokenUsage ? { tokenUsage: late.tokenUsage } : {}),
         ...(late.toolHistory?.length ? { toolHistory: late.toolHistory } : {}),
         ...(late.toolHistoryForReplay?.length
@@ -463,7 +470,8 @@ async function collectInterruptedOutput(
     }
     const remainingMs = deadline - Date.now();
     // An agent that already exited will not write anything more.
-    if (remainingMs <= 0 || terminalError?.()) return interruptedOutput();
+    if (remainingMs <= 0 || terminalError?.())
+      return interruptedAgentOutput(reason);
     await wakeup.wait(Math.min(IPC_RECONCILE_INTERVAL_MS, remainingMs));
   }
 }

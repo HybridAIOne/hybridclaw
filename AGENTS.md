@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js >=22.23.4 <23 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.42.4 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.43.1 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -229,7 +229,7 @@ should verify no broken references.
 
 - Node.js `>=22.23.4 <23` (matches CI and the `engines` field)
 - npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
-  pin (`npm@11.10.0`). Contributors need this version because npm's
+  pin (`npm@11.21.1`). Contributors need this version because npm's
   `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
   npm 11.10+; it is deliberately not enforced on end users via `engines.npm`.
 - Docker when working on container-mode behavior or image builds

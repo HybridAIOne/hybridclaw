@@ -12,22 +12,19 @@ import {
 } from '../src/channels/plugin-channel/tool-send.js';
 import {
   createFakeTransportInstance,
-  legacyWhatsAppRegistration,
+  fakeWhatsAppRegistration,
 } from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
-vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getWhatsAppAuthStatus: async () => ({
-    linked: true,
-    jid: '15550100100:7@s.whatsapp.net',
-  }),
-}));
 vi.mock('../src/channels/plugin-channel/host.js', () => ({
   createChannelTransportHost: () => ({}),
 }));
 const instance = createFakeTransportInstance();
-registerChannelTransport(legacyWhatsAppRegistration(instance));
+registerChannelTransport({
+  ...fakeWhatsAppRegistration(instance),
+  getAuthStatus: async () => ({ linked: true }),
+  describeSend: () => ({ sentFrom: '+15550100100', recipient: '+15550100200' }),
+});
 useCleanMocks({
   unstubAllGlobals: true,
   restoreAllMocks: true,

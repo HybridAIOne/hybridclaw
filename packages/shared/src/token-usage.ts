@@ -3,12 +3,13 @@
  * rejects corrupt counters; it never estimates missing provider charges.
  */
 import { isRecord } from './primitive-values.ts';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.ts';
 
 /**
  * Usage snapshots shared by workers and recovery readers. Only observed API
  * tokens are billable evidence; estimates and unfinished calls remain distinct.
  */
-export interface TokenUsageStats {
+export interface TokenUsageCounters {
   modelCalls: number;
   apiUsageAvailable: boolean;
   apiPromptTokens: number;
@@ -21,6 +22,21 @@ export interface TokenUsageStats {
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;
   performanceSamples?: ModelCallPerformanceSample[];
+}
+
+export interface ModelCallUsage {
+  provider?: RuntimeProviderId;
+  model: string;
+  task?: string;
+  status: 'running' | 'success' | 'error';
+  durationMs: number;
+  usage: TokenUsageCounters;
+  costUsd?: number;
+}
+
+export interface TokenUsageStats extends TokenUsageCounters {
+  modelUsage?: ModelCallUsage[];
+  costUsd?: number;
 }
 
 export interface ModelCallTiming {
@@ -59,14 +75,68 @@ export function finalizeTokenUsage(stats: TokenUsageStats): TokenUsageStats {
     apiTotalTokens = stats.apiPromptTokens + stats.apiCompletionTokens;
   }
 
-  return {
+  const costUsd = stats.modelUsage?.every((call) => call.costUsd !== undefined)
+    ? stats.modelUsage.reduce((sum, call) => sum + (call.costUsd as number), 0)
+    : undefined;
+  if (costUsd !== undefined && !Number.isFinite(costUsd))
+    throw new Error('Invalid model usage cost total.');
+  const result: TokenUsageStats = {
     ...stats,
     apiTotalTokens,
     estimatedTotalTokens,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(stats.modelUsage
+      ? {
+          modelUsage: stats.modelUsage.map((call) => ({
+            ...call,
+            usage: finalizeTokenUsage(call.usage),
+          })),
+        }
+      : {}),
   };
+  if (stats.modelUsage && costUsd === undefined) delete result.costUsd;
+  return result;
 }
 
-export function validateTokenUsage(value: unknown): TokenUsageStats {
+/** Gateway pricing sees only the primary calls; helpers are metered separately. */
+export function primaryTokenUsage(stats: TokenUsageStats): TokenUsageStats {
+  if (!stats.modelUsage) return stats;
+  const calls = stats.modelUsage.filter((call) => !call.task);
+  const counters = sumCallCounters(calls);
+  // An auxiliary-only turn has a known absence of primary inference.
+  if (!calls.length) counters.apiUsageAvailable = true;
+  return finalizeTokenUsage({
+    ...counters,
+    performanceSamples: stats.performanceSamples,
+    ...(calls.every((call) => call.costUsd !== undefined)
+      ? {
+          costUsd: calls.reduce(
+            (sum, call) => sum + (call.costUsd as number),
+            0,
+          ),
+        }
+      : {}),
+  });
+}
+
+function sumCallCounters(calls: ModelCallUsage[]): TokenUsageStats {
+  const counters = createTokenUsageStats();
+  for (const call of calls) {
+    for (const [key, initial] of Object.entries(counters)) {
+      if (typeof initial === 'number')
+        (counters as unknown as Record<string, number>)[key] += (
+          call.usage as unknown as Record<string, number>
+        )[key];
+      else if (typeof initial === 'boolean')
+        (counters as unknown as Record<string, boolean>)[key] ||= (
+          call.usage as unknown as Record<string, boolean>
+        )[key];
+    }
+  }
+  return finalizeTokenUsage(counters);
+}
+
+function validateCounters(value: unknown): TokenUsageStats {
   if (!isRecord(value)) throw new Error('Invalid checkpoint usage.');
   const result = createTokenUsageStats();
   for (const [key, initial] of Object.entries(result)) {
@@ -112,4 +182,67 @@ export function validateTokenUsage(value: unknown): TokenUsageStats {
   )
     throw new Error('Invalid checkpoint usage totals.');
   return finalized;
+}
+
+export function validateTokenUsage(value: unknown): TokenUsageStats {
+  const result = validateCounters(value);
+  if ((value as Record<string, unknown>).costUsd !== undefined) {
+    if (
+      typeof (value as Record<string, unknown>).costUsd !== 'number' ||
+      !Number.isFinite((value as Record<string, unknown>).costUsd) ||
+      ((value as Record<string, unknown>).costUsd as number) < 0
+    )
+      throw new Error('Invalid checkpoint reported cost.');
+    result.costUsd = (value as Record<string, unknown>).costUsd as number;
+  }
+  if ((value as Record<string, unknown>).modelUsage !== undefined) {
+    if (!Array.isArray((value as Record<string, unknown>).modelUsage))
+      throw new Error('Invalid checkpoint model usage.');
+    result.modelUsage = (
+      (value as Record<string, unknown>).modelUsage as unknown[]
+    ).map((call: unknown): ModelCallUsage => {
+      if (
+        !isRecord(call) ||
+        typeof call.model !== 'string' ||
+        !call.model.trim() ||
+        (call.provider !== undefined && !isRuntimeProviderId(call.provider)) ||
+        (call.task !== undefined &&
+          (typeof call.task !== 'string' || !call.task.trim())) ||
+        !['running', 'success', 'error'].includes(call.status as string) ||
+        !Number.isSafeInteger(call.durationMs) ||
+        (call.durationMs as number) < 0 ||
+        (call.usage as Record<string, unknown> | undefined)?.modelCalls !== 1 ||
+        (call.costUsd !== undefined &&
+          (typeof call.costUsd !== 'number' ||
+            !Number.isFinite(call.costUsd) ||
+            call.costUsd < 0)) ||
+        (call.usage as Record<string, unknown> | undefined)?.modelUsage !==
+          undefined
+      )
+        throw new Error('Invalid checkpoint model usage.');
+      return {
+        model: call.model,
+        ...(call.provider !== undefined
+          ? { provider: call.provider as RuntimeProviderId }
+          : {}),
+        ...(call.task !== undefined ? { task: call.task as string } : {}),
+        status: call.status as ModelCallUsage['status'],
+        durationMs: call.durationMs as number,
+        usage: validateCounters(call.usage),
+        ...(call.costUsd !== undefined
+          ? { costUsd: call.costUsd as number }
+          : {}),
+      };
+    });
+    const expected = sumCallCounters(result.modelUsage);
+    for (const [key, initial] of Object.entries(createTokenUsageStats())) {
+      if (typeof initial !== 'number' && typeof initial !== 'boolean') continue;
+      if (
+        (result as unknown as Record<string, unknown>)[key] !==
+        (expected as unknown as Record<string, unknown>)[key]
+      )
+        throw new Error('Model call usage does not match aggregate counters.');
+    }
+  }
+  return finalizeTokenUsage(result);
 }

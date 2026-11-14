@@ -99,6 +99,42 @@ describe('Composer', () => {
     clearAgentAvatarUrlCacheForTest();
   });
 
+  it('keeps the input open while streaming: empty stops, text sends', () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    renderComposer({ isStreaming: true, onSend, onStop });
+    const textarea = getTextarea();
+    expect(textarea.disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    textarea.value = 'also update the docs';
+    fireEvent.input(textarea);
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('also update the docs', []);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(textarea.value).toBe('');
+    expect(screen.getByRole('button', { name: 'Stop' })).not.toBeNull();
+  });
+
+  it('lists queued messages and removes one on request', () => {
+    const onRemoveQueued = vi.fn();
+    renderComposer({
+      isStreaming: true,
+      queued: [
+        { id: 'q1', sessionId: 's', content: 'next question', media: [] },
+      ],
+      onRemoveQueued,
+    });
+    const list = screen.getByRole('list', { name: 'Queued messages' });
+    expect(list.textContent).toContain('next question');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove queued message' }),
+    );
+    expect(onRemoveQueued).toHaveBeenCalledWith('q1');
+  });
+
   it('shows the thinking slider only for advertised model support', () => {
     const onReasoningEffortChange = vi.fn();
     const { rerender } = renderComposer();

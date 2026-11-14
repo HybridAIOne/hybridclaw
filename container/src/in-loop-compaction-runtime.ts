@@ -17,11 +17,9 @@ import {
 import { estimateRoutedPromptOverheadTokens } from './providers/router.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
-import { accumulateApiUsage, estimateTextTokens } from './token-usage.js';
 import type {
   ChatMessage,
   TaskModelPolicies,
-  TokenUsageStats,
   ToolDefinition,
 } from './types.js';
 
@@ -61,8 +59,6 @@ export async function compactInLoopWithModel(params: {
   taskModels?: TaskModelPolicies;
   fallbackContext: AuxiliaryTaskContext;
   tools: ToolDefinition[];
-  tokenUsage: TokenUsageStats;
-  checkpointUsage: () => void;
 }) {
   const budgetFor = (messages: ChatMessage[]) => {
     const context = resolveAuxiliaryTaskContext({
@@ -107,9 +103,6 @@ export async function compactInLoopWithModel(params: {
     summarize: async (messages) => {
       await haltIfShuttingDown();
       const { context, tools, inputTokens, maxTokens } = budgetFor(messages);
-      params.tokenUsage.modelCalls += 1;
-      params.tokenUsage.estimatedPromptTokens += inputTokens;
-      params.checkpointUsage();
       console.error(
         `[context] compression request inputTokens=${inputTokens} windowTokens=${context.contextWindow ?? 'unknown'} maxOutputTokens=${maxTokens} historicalTools=${tools.length}`,
       );
@@ -121,11 +114,6 @@ export async function compactInLoopWithModel(params: {
         tools,
         maxTokens,
       });
-      accumulateApiUsage(params.tokenUsage, result.response);
-      params.tokenUsage.estimatedCompletionTokens += estimateTextTokens(
-        result.content,
-      );
-      params.checkpointUsage();
       return result.response;
     },
   });

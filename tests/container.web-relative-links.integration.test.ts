@@ -8,7 +8,7 @@ useCleanMocks({ unstubAllEnvs: true });
 test('resolved article links reach the next model request through the real worker', async () => {
   const url = 'https://93.184.216.34/library/chapter/index.html';
   const discussion = 'A detailed discussion of implementation choices and allocation behavior. '.repeat(30);
-  const html = `<html><head><title>Ticket summary</title></head><body><main><div class="page-header"><h1>Ticket summary</h1><span>Archived without release</span></div><article><p>${discussion}<a href="../reference">Related material</a></p><p>${discussion}</p></article></main></body></html>`;
+  const html = `<html><head><title>Ticket summary</title><link rel="next" href="../next-topic"></head><body><main><div class="page-header"><h1>Ticket summary</h1><span>Archived without release</span></div><article><p>${discussion}<a href="../reference">Related material</a></p><p>${discussion}</p></article></main></body></html>`;
   const preload = `const originalFetch = globalThis.fetch;
     globalThis.fetch = (input, ...args) => String(input) === ${JSON.stringify(url)}
       ? Promise.resolve(new Response(${JSON.stringify(html)}, {headers:{"Content-Type":"text/html"}}))
@@ -24,6 +24,7 @@ test('resolved article links reach the next model request through the real worke
     const result = body.messages?.at(-1);
     expect(result?.role).toBe('tool');
     expect(result?.content).toContain('[Related material](https://93.184.216.34/library/reference)');
+    expect(result?.content).toContain('https://93.184.216.34/library/next-topic');
     expect(result?.content).toContain('allocation behavior');
     observed = true;
     return { role: 'assistant', content: 'The page is archived.' };

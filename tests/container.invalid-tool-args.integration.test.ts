@@ -5,14 +5,14 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
 import { MAX_INVALID_TOOL_CALL_RETRIES } from '../container/src/stalled-turns.js';
-import { validateStructuredToolCalls } from '../container/src/tool-call-validation.js';
-import { useTempDir } from './test-utils.js';
+import { validateToolCallBatch } from '../container/src/tool-call-validation.js';
 import type {
   ChatMessage,
   ContainerInput,
   ContainerOutput,
   ToolCall,
 } from '../container/src/types.js';
+import { useTempDir } from './test-utils.js';
 
 const TRUNCATED_WRITE: ToolCall = {
   id: 'call_write',
@@ -22,7 +22,8 @@ const TRUNCATED_WRITE: ToolCall = {
     arguments: '{"path":"report.md","contents":"# Report\\n\\nPartial',
   },
 };
-const VALIDATION_ERROR = validateStructuredToolCalls([TRUNCATED_WRITE]) || '';
+const VALIDATION_ERROR =
+  validateToolCallBatch([TRUNCATED_WRITE], 'length') || '';
 
 const makeTempDir = useTempDir();
 let child: ChildProcess | null = null;

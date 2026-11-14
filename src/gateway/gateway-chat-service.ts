@@ -39,6 +39,7 @@ import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
+  turnToolSummary,
 } from '../audit/audit-events.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
@@ -103,7 +104,7 @@ import {
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
-import { recordRoutingLatency } from '../routing/latency.js';
+import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import {
   isScopeRunError,
@@ -153,6 +154,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
@@ -446,6 +448,22 @@ function receiptOf(
   toolExecutions: ToolExecution[],
 ): Pick<GatewayChatResult, 'receipt'> {
   return { receipt: turnReceiptFromExecutions(toolExecutions) };
+}
+
+// Streamed tool progress stands in for executions a failed turn never returned.
+function errorTurnToolSummary(
+  toolExecutions: readonly ToolExecution[],
+  observed: readonly ErrorTurnToolRecord[],
+): ReturnType<typeof turnToolSummary> {
+  return turnToolSummary(
+    toolExecutions.length > 0
+      ? toolExecutions
+      : observed.map(({ name, outcome }) => ({
+          name,
+          isError: outcome === 'failed',
+          blocked: outcome === 'blocked',
+        })),
+  );
 }
 
 /**
@@ -1066,6 +1084,8 @@ async function handleGatewayMessageInner(
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
     workspaceOverrides: req,
+    executionDeadlineAtMs: req.executionDeadlineAtMs,
+    maxWallClockMs: req.maxWallClockMs,
     abortSignal: req.abortSignal,
     steerInbox,
   });
@@ -1471,7 +1491,7 @@ async function handleGatewayMessageInner(
         userMedia: blockedMedia,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
         dryRun: req.dryRun,
@@ -2092,7 +2112,7 @@ async function handleGatewayMessageInner(
         userMedia: media,
         userSource: userTurnSource(req),
         resultText,
-        toolCallCount: 0,
+        toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
         dryRun: req.dryRun,
@@ -2285,6 +2305,7 @@ async function handleGatewayMessageInner(
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,
+        executionDeadlineAtMs: activeGatewayRequest.executionDeadlineAtMs,
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
@@ -2394,53 +2415,13 @@ async function handleGatewayMessageInner(
       }
     } else {
       startRoutingTraceAttempt(model);
-      output = await runAgent({
-        sessionId: req.executionSessionId || req.sessionId,
-        runId,
-        messages,
-        chatbotId,
-        enableRag,
-        executorModeOverride: req.executorModeOverride,
+      output = await invokeAgent({
         model,
-        reasoningEffort: req.reasoningEffort,
-        agentId,
-        addressEnvelope: req.addressEnvelope,
-        workspacePathOverride,
-        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-        runtimeScope: scopeRunAgentParams(scopeRun).runtimeScope,
-        skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
-        maxTokens: req.maxTokens,
-        maxWallClockMs: req.maxWallClockMs,
-        inactivityTimeoutMs: req.inactivityTimeoutMs,
-        bashProxy: req.bashProxy,
-        channelId: req.channelId,
-        client: req.client,
-        browserProvider: resolveTurnBrowserProvider(req.client),
-        ralphMaxIterations: resolveSessionRalphIterations(session),
-        approvalMode,
-        dryRun: req.dryRun,
-        ...approvalReplyContext(req, userTurnContent),
-        approvalReplyDecision: connectorReply,
-        fullAutoNeverApproveTools: neverAutoApproveTools,
-        scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
-        background: isGoalContinuationSource(source),
-        skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
-        toolCallLimits: req.toolCallLimits,
-        blockedTools,
+        chatbotId,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
         onToolProgress,
         onApprovalProgress,
-        abortSignal: activeGatewayRequest.signal,
-        media,
-        readableMediaPaths: collectEarlierAttachments(history).map(
-          (item) => item.path,
-        ),
-        audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-        pluginTools: pluginManager?.getToolDefinitions() ?? [],
-        escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
-        steerInbox,
       });
     }
     replyFetches.finish(output.toolExecutions);
@@ -2540,8 +2521,7 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
-      if (output.status === 'success' && toolExecutions.length === 0)
-        recordRoutingLatency(model, executionDurationMs);
+      recordWorkerRoutingLatency(model, executionDurationMs, output);
       finishRoutingTraceAttempt({
         model,
         status: output.status === 'success' ? 'success' : 'error',
@@ -2549,16 +2529,11 @@ async function handleGatewayMessageInner(
         inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
         outputTokens: firstNumber([usagePayload.completionTokens]) ?? undefined,
         totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-        cacheReadTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheReadTokens
-          : undefined,
-        cacheWriteTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheWriteTokens
-          : undefined,
+        ...readCacheTokenUsage(output.tokenUsage),
         tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
         costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
         costSource: explicitUsageCostSource(output.tokenUsage),
-        modelCalls: output.tokenUsage?.modelCalls,
+        modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
       });
       enqueueTokenUsage({
         ...usageAttribution,
@@ -2577,11 +2552,11 @@ async function handleGatewayMessageInner(
       for (let index = 0; index < routingAttempts.length; index += 1) {
         const attempt = routingAttempts[index];
         const attemptToolExecutions = attempt.output.toolExecutions || [];
-        if (
-          attempt.output.status === 'success' &&
-          attemptToolExecutions.length === 0
-        )
-          recordRoutingLatency(attempt.model, attempt.durationMs);
+        recordWorkerRoutingLatency(
+          attempt.model,
+          attempt.durationMs,
+          attempt.output,
+        );
         const usagePayload = buildTokenUsageAuditPayload(
           messages,
           attempt.output.result,
@@ -2620,17 +2595,12 @@ async function handleGatewayMessageInner(
           outputTokens:
             firstNumber([usagePayload.completionTokens]) ?? undefined,
           totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-          cacheReadTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheReadTokens
-            : undefined,
-          cacheWriteTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheWriteTokens
-            : undefined,
+          ...readCacheTokenUsage(attempt.output.tokenUsage),
           tokensEstimated: !attempt.output.tokenUsage?.apiUsageAvailable,
           costUsd:
             extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
           costSource: explicitUsageCostSource(attempt.output.tokenUsage),
-          modelCalls: attempt.output.tokenUsage?.modelCalls,
+          modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
         });
         enqueueTokenUsage({
           ...usageAttribution,
@@ -2651,6 +2621,15 @@ async function handleGatewayMessageInner(
         });
       }
     }
+    await recordWorkerAuxiliaryUsage({
+      ...usageAttribution,
+      sessionId: req.sessionId,
+      agentId,
+      auditRunId: runId,
+      usages: (routingAttempts ?? [{ output }]).map(
+        (attempt) => attempt.output.tokenUsage,
+      ),
+    });
     tail.mark('usageAccounting');
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: req.sessionId,
@@ -2769,6 +2748,7 @@ async function handleGatewayMessageInner(
       acceptedDelegationPlans.length > 0
         ? enqueueDelegationBatchFromSideEffects({
             plans: acceptedDelegationPlans,
+            executionDeadlineAtMs: activeGatewayRequest.executionDeadlineAtMs,
             fileWriteGuardSessionId:
               output.fileWriteGuardSessionId ??
               req.executionSessionId ??
@@ -2786,7 +2766,7 @@ async function handleGatewayMessageInner(
             },
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
-            runParentTurn: ({ content, onTextDelta }) =>
+            runParentTurn: ({ content, onTextDelta, executionDeadlineAtMs }) =>
               handleGatewayMessage({
                 sessionId: req.sessionId,
                 guildId: req.guildId,
@@ -2801,6 +2781,7 @@ async function handleGatewayMessageInner(
                 onTextDelta,
                 onProactiveMessage: req.onProactiveMessage,
                 source: DELEGATION_RESULTS_SOURCE,
+                executionDeadlineAtMs,
                 workspacePathOverride,
                 workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
               }),
@@ -2873,6 +2854,7 @@ async function handleGatewayMessageInner(
           turnIndex,
           finishReason: 'error',
           assistantMessageId: storedErrorTurn.assistantMessageId,
+          ...errorTurnToolSummary(toolExecutions, observedToolCalls),
         },
       });
       recordAuditEvent({
@@ -3066,7 +3048,7 @@ async function handleGatewayMessageInner(
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
-      toolCallCount: toolExecutions.length,
+      toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       dryRun: req.dryRun,
@@ -3284,6 +3266,7 @@ async function handleGatewayMessageInner(
         ...(storedErrorTurn
           ? { assistantMessageId: storedErrorTurn.assistantMessageId }
           : {}),
+        ...errorTurnToolSummary([], observedToolCalls),
       },
     });
     recordAuditEvent({

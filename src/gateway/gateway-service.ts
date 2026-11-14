@@ -82,7 +82,11 @@ import {
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import {
+  makeAuditRunId,
+  recordAuditEvent,
+  turnToolSummary,
+} from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import {
   type AuthStatusReport,
@@ -401,10 +405,6 @@ import {
   formatAuditTurnTrace,
 } from '../session/session-turn-trace.js';
 import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
-import {
   getAgentScoreboard,
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
@@ -445,7 +445,6 @@ import type {
   Session,
   StoredMessage,
 } from '../types/session.js';
-import type { TokenUsageStats } from '../types/usage.js';
 import { cacheHitRatio } from '../usage/cache-accounting.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
@@ -456,6 +455,10 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import {
+  buildTokenUsageAuditPayload,
+  recordWorkerAuxiliaryUsage,
+} from '../usage/worker-model-usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import {
   dedupeStrings,
@@ -481,7 +484,9 @@ import {
 } from './agent-addressing.js';
 import {
   handleApprovalsCommand,
+  mayStopAsking,
   resolveSessionApprovalMode,
+  STOP_ASKING_REFUSAL,
 } from './approval-mode.js';
 import {
   normalizePlaceholderToolReply,
@@ -3523,7 +3528,7 @@ export function recordSuccessfulTurn(opts: {
   steerNotes?: readonly string[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
-  toolCallCount: number;
+  toolExecutions: readonly ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
@@ -3565,6 +3570,7 @@ export function recordSuccessfulTurn(opts: {
       turnIndex: opts.turnIndex,
       finishReason: 'completed',
       assistantMessageId: storedTurn.assistantMessageId,
+      ...turnToolSummary(opts.toolExecutions),
     },
   });
   recordAuditEvent({
@@ -3576,7 +3582,7 @@ export function recordSuccessfulTurn(opts: {
       stats: {
         userMessages: 1,
         assistantMessages: 1,
-        toolCalls: opts.toolCallCount,
+        toolCalls: opts.toolExecutions.length,
         durationMs: Date.now() - opts.startedAt,
       },
     },
@@ -4120,6 +4126,9 @@ function enableFullAutoCommand(params: {
   req: GatewayCommandRequest;
   prompt: string | null;
 }): GatewayCommandResult {
+  if (!mayStopAsking(params.req)) {
+    return badCommand('Full-Auto', STOP_ASKING_REFUSAL);
+  }
   const { session: refreshed, seeded } = enableFullAutoSession(params);
   return infoCommand(
     'Full-Auto Enabled',
@@ -4241,76 +4250,7 @@ function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   return pendingSessionResets.get(sessionId) ?? null;
 }
 
-export function buildTokenUsageAuditPayload(
-  messages: ChatMessage[],
-  resultText: string | null | undefined,
-  tokenUsage?: TokenUsageStats,
-): Record<string, boolean | number | unknown[]> {
-  const promptChars = messages.reduce((total, message) => {
-    const content = typeof message.content === 'string' ? message.content : '';
-    return total + content.length;
-  }, 0);
-  const completionChars = (resultText || '').length;
-
-  const fallbackEstimatedPromptTokens =
-    estimateTokenCountFromMessages(messages);
-  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(
-    resultText || '',
-  );
-  const estimatedPromptTokens =
-    tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
-  const estimatedCompletionTokens =
-    tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
-  const estimatedTotalTokens =
-    tokenUsage?.estimatedTotalTokens ||
-    estimatedPromptTokens + estimatedCompletionTokens;
-
-  const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-  const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-  const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-  const apiTotalTokens =
-    tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-  const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
-  const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-  const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-  const promptTokens = apiUsageAvailable
-    ? apiPromptTokens
-    : estimatedPromptTokens;
-  const completionTokens = apiUsageAvailable
-    ? apiCompletionTokens
-    : estimatedCompletionTokens;
-  const totalTokens = apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens;
-
-  return {
-    modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-    promptChars,
-    completionChars,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedPromptTokens,
-    estimatedCompletionTokens,
-    estimatedTotalTokens,
-    apiUsageAvailable,
-    apiPromptTokens,
-    apiCompletionTokens,
-    apiTotalTokens,
-    ...(tokenUsage?.performanceSamples?.length
-      ? { performanceSamples: tokenUsage.performanceSamples }
-      : {}),
-    ...(apiCacheUsageAvailable
-      ? {
-          apiCacheUsageAvailable,
-          apiCacheReadTokens,
-          apiCacheWriteTokens,
-          cacheReadTokens: apiCacheReadTokens,
-          cacheReadInputTokens: apiCacheReadTokens,
-          cacheWriteTokens: apiCacheWriteTokens,
-          cacheWriteInputTokens: apiCacheWriteTokens,
-        }
-      : {}),
-  };
-}
+export { buildTokenUsageAuditPayload };
 
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
@@ -8187,6 +8127,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
             type: 'turn.end',
             turnIndex,
             finishReason: 'empty',
+            ...turnToolSummary([]),
           },
         });
         recordAuditEvent({
@@ -8263,6 +8204,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           turnIndex,
           finishReason: 'completed',
           assistantMessageId,
+          ...turnToolSummary([]),
         },
       });
       recordAuditEvent({
@@ -8381,6 +8323,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       }),
       auditRunId: runId,
     });
+    await recordWorkerAuxiliaryUsage({
+      ...params.usageAttribution,
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      auditRunId: runId,
+      usages: [output.tokenUsage],
+    });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: session.id,
       agentId: resolved.agentId,
@@ -8400,6 +8349,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           type: 'turn.end',
           turnIndex,
           finishReason: output.status === 'success' ? 'empty' : 'error',
+          ...turnToolSummary(output.toolExecutions || []),
         },
       });
       recordAuditEvent({
@@ -8449,6 +8399,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         turnIndex,
         finishReason: 'completed',
         assistantMessageId,
+        ...turnToolSummary(output.toolExecutions || []),
       },
     });
     recordAuditEvent({
@@ -8523,11 +8474,13 @@ export function getGatewayHistory(
   limit = MAX_HISTORY_MESSAGES,
   options?: {
     operatorUserId?: string | null;
+    beforeMessageId?: number;
   },
 ): ConversationHistoryPage {
   const page = memoryService.getConversationHistoryPage(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
+    options?.beforeMessageId,
   );
   const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
   const responseRatings = ratingOperatorUserId
@@ -8590,6 +8543,7 @@ export function getGatewayHistory(
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+    nextCursor: page.nextCursor ?? null,
   };
 }
 

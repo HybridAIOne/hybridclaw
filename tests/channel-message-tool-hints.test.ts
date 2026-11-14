@@ -14,16 +14,13 @@ import {
 import { registerChannel } from '../src/channels/channel-registry.js';
 import { registerChannelTransport } from '../src/channels/channel-transport.js';
 import { resolveChannelMessageToolHints } from '../src/channels/prompt-adapters.js';
-import {
-  createFakeTransportInstance,
-  legacyWhatsAppRegistration,
-} from './helpers/fake-channel-transport.js';
+import { fakeWhatsAppRegistration } from './helpers/fake-channel-transport.js';
 
-// WhatsApp hints come from the plugin registration (the compat adapter for the
-// released create-only plugin).
-registerChannelTransport(
-  legacyWhatsAppRegistration(createFakeTransportInstance()),
-);
+const pluginHints = ['WhatsApp fixture hint'];
+registerChannelTransport({
+  ...fakeWhatsAppRegistration(),
+  messageToolHints: () => pluginHints,
+});
 
 const CHANNEL_ID = '1475079601968648386';
 
@@ -109,16 +106,7 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
     },
   });
 
-  expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) => entry.includes('current WhatsApp chat automatically')),
-  ).toBe(true);
-  expect(
-    hints.some((entry) => entry.includes('`*bold*`, `_italic_`, `~strike~`')),
-  ).toBe(true);
-  expect(
-    hints.some((entry) => entry.includes('always provide an explicit target')),
-  ).toBe(true);
+  expect(hints).toEqual(pluginHints);
 });
 
 test('resolves Slack webhook hints from explicit Slack webhook context', () => {
@@ -177,12 +165,7 @@ test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
   });
 
   expect(hints.length).toBeGreaterThan(0);
-  expect(
-    hints.some((entry) => entry.includes('current WhatsApp chat automatically')),
-  ).toBe(true);
-  expect(hints.some((entry) => entry.includes('current email peer'))).toBe(
-    false,
-  );
+  expect(hints).toEqual(pluginHints);
 });
 
 test('resolves email hints with read support from explicit email context', () => {

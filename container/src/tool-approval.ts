@@ -8,6 +8,7 @@
  * saved executable arguments.
  * Reviews use the original request plus verified steering already shown before
  * each call; waiting or unverified notes cannot supply review intent.
+ * Trace review retains the request deadline when routing auxiliary calls.
  * One full-auto conflict replan refuses execution before asking for consent;
  * delegated preservation checks use the gateway-owned root request.
  */
@@ -24,6 +25,7 @@ import { evaluateBashSafety } from './bash-safety.js';
 import { emitRuntimeEvent } from './extensions.js';
 import { FILE_WRITE_CONFLICT_ACTION_PREFIX } from './file-write-conflicts.js';
 import { reviewFileWriteIntent } from './file-write-review.js';
+import type { AuxiliaryTaskContext } from './providers/auxiliary.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import { steeredUserPrompt } from './steer-inbox.js';
 import type {
@@ -171,20 +173,7 @@ export function createToolApprovalResolver(params: {
   channelId: string;
   escalationTarget?: EscalationTarget;
   taskModels?: ContainerInput['taskModels'];
-  fallbackContext: {
-    provider: ContainerInput['provider'];
-    providerMethod?: string;
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-    chatbotId: string;
-    requestHeaders?: Record<string, string>;
-    isLocal?: boolean;
-    contextWindow?: number;
-    modelBehavior?: ContainerInput['modelBehavior'];
-    thinkingFormat?: 'qwen';
-    debugModelResponses?: boolean;
-  };
+  fallbackContext: AuxiliaryTaskContext;
   onModelResponse?: (response: ChatCompletionResponse) => void;
 }): (input: {
   toolName: string;

@@ -23,6 +23,11 @@ const missingKeyFailure = {
   stderr: `npm error code EMISSINGSIGNATUREKEY
 npm error pkg-a@1.0.0 has attestations but no corresponding public key(s) can be found`,
 };
+const registryUnavailable = {
+  status: 1,
+  stdout: '',
+  stderr: 'npm error code E503',
+};
 const integrityFailure = {
   status: 1,
   stdout: '',
@@ -73,12 +78,13 @@ npm error 404 Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/d
     });
 
     test.each([
-      ['a missing attestation key that clears', [missingKeyFailure, success], 0],
+      ['a registry outage that clears', [registryUnavailable, success], 0],
       [
-        'a missing attestation key that persists',
-        [missingKeyFailure, missingKeyFailure, missingKeyFailure],
+        'a registry outage that persists',
+        [registryUnavailable, registryUnavailable, registryUnavailable],
         1,
       ],
+      ['a missing attestation key', [missingKeyFailure], 1],
       ['an integrity failure', [integrityFailure], 1],
       ['an invalid registry signature', [invalidSignatureFailure], 1],
     ])('handles %s', (_name, results, expectedStatus) => {
@@ -92,8 +98,8 @@ npm error 404 Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/d
 
     test('retries with a fresh npm cache so cached attestations are refetched', () => {
       spawnSync
-        .mockReturnValueOnce(missingKeyFailure)
-        .mockReturnValueOnce(missingKeyFailure)
+        .mockReturnValueOnce(registryUnavailable)
+        .mockReturnValueOnce(registryUnavailable)
         .mockReturnValueOnce(success);
 
       expect(runAudit(signatureAuditTargets[0])).toBe(0);

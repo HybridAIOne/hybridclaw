@@ -18,6 +18,7 @@ import {
 } from '../src/channels/channel-transport.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { PluginManager } from '../src/plugins/plugin-manager.js';
+import { fakeWhatsAppRegistration } from './helpers/fake-channel-transport.js';
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-channel-transport-');
@@ -27,63 +28,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function createTransportRegistration() {
-  return {
-    kind: 'whatsapp' as const,
-    create: vi.fn(() => ({
-      init: vi.fn(async () => {}),
-      shutdown: vi.fn(async () => {}),
-      sendText: vi.fn(async () => {}),
-      sendMedia: vi.fn(async () => {}),
-    })),
-  };
-}
-
 test('registers, resolves, and unregisters a channel transport', () => {
-  const registration = createTransportRegistration();
+  const registration = fakeWhatsAppRegistration();
   const registered = registerChannelTransport(registration);
 
+  expect(registered).toBe(registration);
   expect(hasChannelTransport('whatsapp')).toBe(true);
   expect(getChannelTransport('whatsapp')).toBe(registered);
   expect(() =>
-    registerChannelTransport(createTransportRegistration()),
+    registerChannelTransport(fakeWhatsAppRegistration()),
   ).toThrow('already registered');
 
   unregisterChannelTransport('whatsapp');
   expect(hasChannelTransport('whatsapp')).toBe(false);
 });
 
-test('a registration that answers every hook is stored as-is', () => {
-  const registration = {
-    ...createTransportRegistration(),
-    matchesTarget: () => false,
-    normalizeTarget: () => null,
-    getAuthStatus: async () => ({ linked: false }),
-    resetAuth: async () => '/tmp/unused',
-  };
-  expect(registerChannelTransport(registration)).toBe(registration);
-});
-
-test('the released create-only WhatsApp plugin gets the compat hooks', () => {
-  const registered = registerChannelTransport(createTransportRegistration());
-  expect(registered.matchesTarget('491701234567@s.whatsapp.net')).toBe(true);
-  expect(registered.normalizeTarget('whatsapp:+49 170 1234567')).toBe(
-    '491701234567@s.whatsapp.net',
-  );
-  expect(registered.normalizeTarget('telegram:123')).toBeNull();
-  expect(registered.getPairingState?.()).toMatchObject({
-    pairingQrText: null,
-    error: null,
-  });
-});
-
 test.each([
   { kind: 'telegram', error: 'Unknown channel transport kind "telegram"' },
   { kind: 'constructor', error: 'Unknown channel transport kind' },
-  {
-    kind: 'line',
-    error: 'retired create-only contract. Update the plugin: hybridclaw plugin reinstall line',
-  },
+  { kind: 'line', error: 'hybridclaw plugin reinstall line' },
+  { kind: 'whatsapp', error: 'hybridclaw plugin reinstall https://github.com/HybridAIOne/hybridclaw-whatsapp/' },
 ])('rejects $kind registrations loudly', ({ kind, error }) => {
   expect(() =>
     registerChannelTransport({ kind, create: vi.fn() } as never),
@@ -94,8 +58,7 @@ test.each([
 test('rejects a registration that skips required hooks', () => {
   expect(() =>
     registerChannelTransport({
-      ...createTransportRegistration(),
-      matchesTarget: () => false,
+      kind: 'whatsapp', create: vi.fn(), matchesTarget: () => false,
     } as never),
   ).toThrow(
     'Channel transport "whatsapp" is missing normalizeTarget, getAuthStatus, resetAuth.',
@@ -125,12 +88,11 @@ test.each([
     missing: 'matchesTarget, normalizeTarget, getAuthStatus, resetAuth',
   },
 ])(
-  'a WhatsApp registration with $name is refused, not adapted as legacy',
+  'a WhatsApp registration with $name is refused',
   ({ hooks, missing }) => {
     expect(() =>
       registerChannelTransport({
-        ...createTransportRegistration(),
-        ...hooks,
+        kind: 'whatsapp', create: vi.fn(), ...hooks,
       } as never),
     ).toThrow(`Channel transport "whatsapp" is missing ${missing}.`);
     expect(hasChannelTransport('whatsapp')).toBe(false);
@@ -171,7 +133,7 @@ test('channel plugin catalog reports transport availability generically', () => 
     loadFailed: false,
   });
 
-  registerChannelTransport(createTransportRegistration());
+  registerChannelTransport(fakeWhatsAppRegistration());
 
   expect(getChannelPluginStatuses()).toContainEqual(
     expect.objectContaining({
@@ -191,7 +153,7 @@ test('channel plugin availability snapshot diff reports transitions', () => {
     ),
   ).toEqual([]);
 
-  registerChannelTransport(createTransportRegistration());
+  registerChannelTransport(fakeWhatsAppRegistration());
   const after = snapshotChannelPluginTransportAvailability();
   expect(diffChannelPluginTransportAvailability(before, after)).toEqual([
     { channel: 'whatsapp', available: true },
@@ -245,6 +207,8 @@ test('plugin registration rollback removes a transport from a failed plugin', as
       '    api.registerChannelTransport({',
       "      kind: 'whatsapp',",
       '      create() { throw new Error("not used"); },',
+      '      matchesTarget() { return false; }, normalizeTarget() { return null; },',
+      '      async getAuthStatus() { return { linked: false }; }, async resetAuth() { return "/unused"; },',
       '    });',
       '    throw new Error("registration failed");',
       '  },',
@@ -267,7 +231,7 @@ test('plugin registration rollback removes a transport from a failed plugin', as
   expect(hasChannelTransport('whatsapp')).toBe(false);
   expect(manager.getLoadedPlugins()).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ id: 'broken-channel', status: 'failed' }),
+      expect.objectContaining({ id: 'broken-channel', status: 'failed', error: expect.stringContaining('registration failed') }),
     ]),
   );
   await manager.shutdown();
@@ -284,7 +248,7 @@ test('plugin manager shutdown unregisters its channel transports', async () => {
     getRuntimeConfig: () => config,
   });
 
-  manager.registerChannelTransport('whatsapp-plugin', createTransportRegistration());
+  manager.registerChannelTransport('whatsapp-plugin', fakeWhatsAppRegistration());
   expect(hasChannelTransport('whatsapp')).toBe(true);
 
   await manager.shutdown();

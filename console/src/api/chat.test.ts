@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { artifactUrl, executeCommand } from './chat';
+import { artifactUrl, executeCommand, fetchChatHistory } from './chat';
 
 describe('chat artifact helpers', () => {
   beforeEach(() => {
@@ -15,6 +15,28 @@ describe('chat artifact helpers', () => {
       '/api/artifact?path=%2Ftmp%2Freport.pdf',
     );
     expect(artifactUrl('/tmp/report.pdf')).not.toContain('token=');
+  });
+
+  it('sends a history cursor with session scope and bearer authentication', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ history: [], nextCursor: null })),
+    );
+    await fetchChatHistory(
+      'test-token',
+      'session-a',
+      80,
+      'user_a',
+      'main',
+      '42',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/history?sessionId=session-a&limit=80&userId=user_a&before=42&agentId=main',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+        }),
+      }),
+    );
   });
 
   it('posts chat commands through the shared web command payload', async () => {

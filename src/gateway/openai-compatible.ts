@@ -241,6 +241,7 @@ function buildGatewayChatRequest(params: {
     userId: params.prepared.sessionId,
     username: params.input.user,
     content: params.input.prompt,
+    executionDeadlineAtMs: params.input.executionDeadlineAtMs,
     ...(params.input.media.length > 0 ? { media: params.input.media } : {}),
     ...(includeAgentId ? { agentId: params.prepared.requestAgentId } : {}),
     model: params.prepared.model,
@@ -803,6 +804,13 @@ export async function handleOpenAICompatibleChatCompletions(
     const prepared = prepareOpenAICompatibleRequest(input);
     const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
     const usesDecisionModel = isDecisionModel(prepared.model);
+    if (usesDecisionModel && input.executionDeadlineAtMs !== undefined) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        'Execution timeouts require server-managed agent tools.',
+        { code: 'unsupported_value' },
+      );
+    }
     const executionSession =
       input.usesClientTools || usesDecisionModel
         ? null

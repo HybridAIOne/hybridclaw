@@ -213,7 +213,7 @@ import { sleep } from '../utils/sleep.js';
 import { isRecord } from '../utils/type-guards.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
 import { resolveRealtimeConnection } from '../voice/realtime-credentials.js';
-import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
+import { handleWorkToolRoute } from '../work/work-routes.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -258,10 +258,7 @@ import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
-import {
-  pendingChatApproval,
-  rememberChatApproval,
-} from './chat-approval-review.js';
+import { rememberChatApproval } from './chat-approval-review.js';
 import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   CHAT_REACTION_PATH,
@@ -376,7 +373,6 @@ import {
   deleteGatewayAdminEmailMessage,
   deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
-  ensureGatewayBootstrapAutostart,
   getGatewayA2AAgentCard,
   getGatewayAdminA2AInbox,
   getGatewayAdminA2ATrust,
@@ -409,9 +405,6 @@ import {
   getGatewayAdminTunnelConfig,
   getGatewayAgentList,
   getGatewayAgents,
-  getGatewayBootstrapAutostartState,
-  getGatewayHistory,
-  getGatewayHistorySummary,
   getGatewayRecentChatSessions,
   getGatewaySessionContextUsage,
   getGatewayStatus,
@@ -466,6 +459,7 @@ import {
   extensionToMimeType,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { handleApiHistory } from './history-route.js';
 import {
   clearOperatorReturn,
   consumeOperatorReturn,
@@ -600,7 +594,6 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_SANDBOX_OPEN_PATH = '/hybridclaw/open';
-const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
 const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
 const LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS = 60_000;
@@ -4466,89 +4459,6 @@ async function handleApiPluginTool(
       error instanceof Error ? error.message : String(error),
     );
   }
-}
-
-async function handleApiHistory(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const sessionId = url.searchParams.get('sessionId')?.trim();
-  if (!sessionId) {
-    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
-    return;
-  }
-  if (isMalformedCanonicalSessionId(sessionId)) {
-    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
-    return;
-  }
-  const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
-  const parsedSummarySinceMs = parseInt(
-    url.searchParams.get('summarySinceMs') || '',
-    10,
-  );
-  const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  const rawAgentId = url.searchParams.get('agentId')?.trim() || '';
-  if (rawAgentId && !HISTORY_AGENT_ID_PATTERN.test(rawAgentId)) {
-    sendJson(res, 400, { error: 'Invalid `agentId` query parameter.' });
-    return;
-  }
-  const requestedAgentId = rawAgentId || undefined;
-  if (requestedAgentId && !getAgentById(requestedAgentId)) {
-    sendJson(res, 404, { error: 'Agent not found.' });
-    return;
-  }
-  const operatorUserId = resolveGatewayRequestUserId({
-    req,
-    channelId: 'web',
-    requestedUserId: url.searchParams.get('userId'),
-    fallbackUserId: 'web',
-  });
-  void ensureGatewayBootstrapAutostart({
-    sessionId,
-    channelId: 'web',
-    userId: operatorUserId,
-    username: operatorUserId,
-    agentId: requestedAgentId,
-  }).catch((error) => {
-    logger.warn(
-      { sessionId, agentId: requestedAgentId ?? null, error },
-      'Failed to start gateway bootstrap autostart',
-    );
-  });
-  const historyPage = getGatewayHistory(sessionId, limit, {
-    operatorUserId,
-  });
-  const summary = getGatewayHistorySummary(sessionId, {
-    sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
-  });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({
-    sessionId,
-    channelId: 'web',
-    agentId: requestedAgentId,
-    allowExistingSessionMessages: true,
-  });
-  const pendingApproval = pendingChatApproval(
-    historyPage.sessionId,
-    operatorUserId ?? '',
-  );
-  // These keys are returned only as chat-routing metadata for the web client.
-  // Auth stays anchored to the existing API/session auth checks above, never to
-  // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
-  // remove them from this response instead of widening their meaning here.
-  sendJson(res, 200, {
-    sessionId: historyPage.sessionId,
-    agentId: historyPage.agentId || undefined,
-    sessionKey: historyPage.sessionKey || undefined,
-    mainSessionKey: historyPage.mainSessionKey || undefined,
-    history: withWorkHistory(historyPage.sessionId, historyPage.history),
-    ...(pendingApproval ? { pendingApproval } : {}),
-    bootstrapAutostart,
-    ...(historyPage.branchFamilies.length > 0
-      ? { branchFamilies: historyPage.branchFamilies }
-      : {}),
-    summary,
-  });
 }
 
 function handleApiAgentAvatar(
@@ -11497,7 +11407,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/history' && method === 'GET') {
-            await handleApiHistory(req, res, url);
+            await handleApiHistory(req, res, url, {
+              isMalformedCanonicalSessionId,
+              resolveGatewayRequestUserId,
+            });
             return;
           }
           if (pathname === ARTIFACT_CHECKLIST_PATH && method === 'POST') {

@@ -1,8 +1,8 @@
 /**
- * Bounded Python inspection distinguishes data operations, imports and comments.
+ * Bounded Python inspection distinguishes JSON, XML and image data from code.
  * The isolated parser never executes supplied source. Failed inspection keeps
  * the caller's conservative result; comments never authorize executable code.
- * Unlike approval policy, this is syntax inspection, not a Python sandbox.
+ * Read operands retain path checks; unlike approval policy this grants no access.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -28,10 +28,13 @@ class Unknown(Exception):
     pass
 
 DATA = 'data'
+TREE = 'xml-tree'
+ELEMENT = 'xml-element'
+ELEMENTS = 'xml-elements'
 FILE = 'file'
 IMAGE = 'image'
 PURE = {'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'tuple', 'set',
-        'sorted', 'enumerate', 'range', 'min', 'max', 'sum', 'abs', 'round'}
+        'sorted', 'enumerate', 'range', 'chr', 'min', 'max', 'sum', 'abs', 'round'}
 METHODS = {'get', 'items', 'keys', 'values', 'strip', 'split', 'splitlines',
            'join', 'lower', 'upper', 'replace'}
 
@@ -40,9 +43,10 @@ class Reader:
         self.names = {}
         self.reserved = PURE | {'open', 'print'}
         self.reads = []
+        self.xml_reads = []
         self.writes = []
 
-    def image_path(self, node, paths):
+    def literal_path(self, node, paths):
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str) or not node.value or '\\0' in node.value:
             raise Unknown()
         paths.append(node.value)
@@ -74,7 +78,7 @@ class Reader:
         if isinstance(node, ast.Constant):
             return DATA
         if isinstance(node, ast.Name):
-            if self.names.get(node.id) in {DATA, FILE, IMAGE}:
+            if self.names.get(node.id) in {DATA, FILE, IMAGE, TREE, ELEMENT, ELEMENTS}:
                 return self.names[node.id]
         elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
             for item in node.elts:
@@ -113,11 +117,20 @@ class Reader:
         elif isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and self.names.get(node.value.id) == 'sys' and node.attr == 'stdin':
                 return FILE
-            if node.attr == 'size' and self.expr(node.value) == IMAGE:
+            kind = self.expr(node.value)
+            if node.attr == 'size' and kind == IMAGE or kind == ELEMENT and node.attr in {'text', 'tail', 'tag', 'attrib'}:
                 return DATA
         elif isinstance(node, ast.Call):
             return self.call(node)
         raise Unknown()
+
+    def xml_module(self, node):
+        if isinstance(node, ast.Name):
+            return self.names.get(node.id) == 'elementtree'
+        return (isinstance(node, ast.Attribute) and node.attr == 'ElementTree'
+                and isinstance(node.value, ast.Attribute) and node.value.attr == 'etree'
+                and isinstance(node.value.value, ast.Name)
+                and self.names.get(node.value.value.id) == 'xml')
 
     def call(self, node):
         fn = node.func
@@ -146,10 +159,15 @@ class Reader:
                 self.args(node)
                 return DATA
         elif isinstance(fn, ast.Attribute):
+            if self.xml_module(fn.value) and fn.attr == 'parse':
+                if len(node.args) != 1 or node.keywords:
+                    raise Unknown()
+                self.literal_path(node.args[0], self.xml_reads)
+                return TREE
             if isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 'pillow' and fn.attr == 'open':
                 if len(node.args) != 1 or node.keywords:
                     raise Unknown()
-                self.image_path(node.args[0], self.reads)
+                self.literal_path(node.args[0], self.reads)
                 return IMAGE
             if isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 'json':
                 if len(node.args) != 1 or node.keywords:
@@ -160,11 +178,19 @@ class Reader:
                     self.data(node.args[0])
                     return DATA
             kind = self.expr(fn.value)
+            if kind == TREE and fn.attr == 'getroot' and not node.args and not node.keywords:
+                return ELEMENT
+            if kind in {TREE, ELEMENT} and fn.attr in {'find', 'findall', 'findtext'}:
+                self.args(node)
+                return {'find': ELEMENT, 'findall': ELEMENTS, 'findtext': DATA}[fn.attr]
+            if kind == ELEMENT and fn.attr == 'get':
+                self.args(node)
+                return DATA
             if kind == IMAGE and fn.attr in {'thumbnail', 'save'}:
                 if len(node.args) != 1 or node.keywords:
                     raise Unknown()
                 if fn.attr == 'save':
-                    self.image_path(node.args[0], self.writes)
+                    self.literal_path(node.args[0], self.writes)
                 else:
                     self.data(node.args[0])
                 return DATA
@@ -177,18 +203,26 @@ class Reader:
         for node in statements:
             if isinstance(node, ast.Import):
                 for alias in node.names:
+                    kind = alias.name
                     name = alias.asname or alias.name
-                    if alias.name not in {'json', 'sys'} or name in self.names or name in self.reserved:
+                    if alias.name == 'xml.etree.ElementTree':
+                        kind = 'elementtree' if alias.asname else 'xml'
+                        name = alias.asname or 'xml'
+                    elif alias.name not in {'json', 'sys'}:
                         raise Unknown()
-                    self.names[name] = alias.name
+                    if name in self.names or name in self.reserved:
+                        raise Unknown()
+                    self.names[name] = kind
                     self.reserved.add(name)
             elif isinstance(node, ast.ImportFrom):
-                if node.level or node.module != 'PIL' or len(node.names) != 1 or node.names[0].name != 'Image':
+                if node.level or len(node.names) != 1:
                     raise Unknown()
-                name = node.names[0].asname or 'Image'
-                if name in self.names or name in self.reserved:
+                alias = node.names[0]
+                kind = {('PIL', 'Image'): 'pillow', ('xml.etree', 'ElementTree'): 'elementtree'}.get((node.module, alias.name))
+                name = alias.asname or alias.name
+                if kind is None or name in self.names or name in self.reserved:
                     raise Unknown()
-                self.names[name] = 'pillow'
+                self.names[name] = kind
                 self.reserved.add(name)
             elif isinstance(node, ast.Assign):
                 kind = self.expr(node.value)
@@ -197,8 +231,10 @@ class Reader:
             elif isinstance(node, ast.Expr):
                 self.expr(node.value)
             elif isinstance(node, ast.For):
-                self.data(node.iter)
-                self.bind(node.target, DATA)
+                kind = self.expr(node.iter)
+                if kind not in {DATA, ELEMENT, ELEMENTS}:
+                    raise Unknown()
+                self.bind(node.target, ELEMENT if kind in {ELEMENT, ELEMENTS} else DATA)
                 self.statements(node.body)
                 self.statements(node.orelse)
             elif isinstance(node, ast.If):
@@ -257,7 +293,7 @@ try:
                 parent = parents.get(node)
                 if not isinstance(parent, ast.Attribute) or parent.attr != 'stdin':
                     changes_path = True
-        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'writes': reader.writes, 'literals': literals, 'imports': imports, 'changesPath': changes_path}))
+        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'xmlReads': reader.xml_reads, 'writes': reader.writes, 'literals': literals, 'imports': imports, 'changesPath': changes_path}))
     elif sys.argv[1] == 'comments':
         lines = source.split('\\n')
         for token in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -361,6 +397,10 @@ export function inspectPythonInline(
       typeof value.recognized !== 'boolean' ||
       !Array.isArray(value.reads) ||
       !Array.isArray(value.writes) ||
+      !Array.isArray(value.xmlReads) ||
+      !value.xmlReads.every(
+        (file): file is string => typeof file === 'string',
+      ) ||
       !Array.isArray(value.imports) ||
       !value.imports.every(
         (text): text is string => typeof text === 'string',
@@ -397,9 +437,23 @@ export function inspectPythonInline(
         path.relative(WORKSPACE_ROOT, actual),
       );
     }
+    // XML reads may use scratch paths; their canonical names still reach pins.
+    for (const file of value.xmlReads as string[]) {
+      const resolved = resolvePath(file, cwd);
+      if (resolved === null) return { data: null, ...metadata };
+      const actual =
+        resolveWorkspacePath(resolved) ??
+        path.resolve(WORKSPACE_ROOT, resolved);
+      const canonical = canonicalFromExistingAncestor(actual);
+      if (canonical === null) return { data: null, ...metadata };
+      pathHints.push(file, resolved, canonical);
+      const root = resolveCanonicalPath(WORKSPACE_ROOT);
+      if (isWithinRoot(canonical, root))
+        pathHints.push(path.relative(root, canonical));
+    }
     return {
       data: {
-        reads: value.reads as string[],
+        reads: [...(value.reads as string[]), ...(value.xmlReads as string[])],
         writes: value.writes as string[],
         pathHints,
       },
@@ -456,7 +510,10 @@ export function pythonImportRisk(
       .join('.');
     if (
       inspection.imports.some(
-        (name) => module === name || module.startsWith(`${name}.`),
+        (name) =>
+          module === name ||
+          module.startsWith(`${name}.`) ||
+          name.startsWith(`${module}.`),
       )
     )
       return true;

@@ -39,26 +39,25 @@ async function importFreshCli(
       return [{ folder: 'INBOX', lastProcessedUid: 41, seeded: true }];
     },
   }));
-  // Plugin init registers what the released WhatsApp plugin registers: the
-  // create-only shape that core's compat adapter completes.
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
     ensurePluginManagerInitialized: async () => {
       const transports = await import('../src/channels/channel-transport.ts');
       if (!transports.hasChannelTransport('whatsapp')) {
+        const { fakeWhatsAppRegistration, createFakeTransportInstance } = await import('./helpers/fake-channel-transport.js');
+        const authDir = path.join(homeDir, '.hybridclaw', 'credentials', 'whatsapp');
         transports.registerChannelTransport({
-          kind: 'whatsapp',
-          create: () => ({
-            init: async () => {},
-            shutdown: async () => {},
-            sendText: async () => {},
-            sendMedia: async () => {},
+          ...fakeWhatsAppRegistration(createFakeTransportInstance({
             createPairingSession: async () => ({
               start: async () => {},
               stop: async () => {},
               waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
             }),
-          }),
-        } as never);
+          })),
+          resetAuth: async () => {
+            fs.rmSync(path.join(authDir, 'creds.json'), { force: true });
+            return authDir;
+          },
+        });
       }
       return {};
     },

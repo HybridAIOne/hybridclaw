@@ -1,3 +1,9 @@
+/**
+ * Provider adapters share normalized request data and error/usage handling.
+ * Execution bounds are inherited context, not provider generation limits;
+ * this contract never chooses a model or renews a request's deadline.
+ */
+import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import { isRecord, readString } from '@hybridclaw/shared/primitive-values';
 import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
@@ -12,7 +18,7 @@ import type { RuntimeProviderId } from './provider-ids.js';
 
 export type { RuntimeProviderId } from './provider-ids.js';
 
-export interface NormalizedCallArgs {
+export interface NormalizedCallArgs extends ExecutionDeadline {
   sessionId?: string;
   provider: RuntimeProviderId | undefined;
   providerMethod?: string;
