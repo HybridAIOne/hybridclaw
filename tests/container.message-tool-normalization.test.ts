@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MessageActionRequestSchema } from '@hybridclaw/contracts/message-action';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
@@ -13,11 +14,17 @@ const CHANNEL_ID = '1475079601968648386';
 const USER_ID = '1312680972151558236';
 
 function mockGatewayFetch(responsePayload: Record<string, unknown>) {
-  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify(responsePayload),
-  }));
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    // Every request the agent sends must pass the gateway's contract check.
+    expect(
+      MessageActionRequestSchema.check(JSON.parse(String(init?.body))),
+    ).toBe(true);
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(responsePayload),
+    };
+  });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }

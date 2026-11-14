@@ -1,3 +1,4 @@
+import type { MessageActionRequest } from '@hybridclaw/contracts/message-action';
 import type {
   AttachmentBuilder,
   Client,
@@ -11,115 +12,6 @@ import type {
 } from './send-permissions.js';
 
 type Awaitable<T> = T | Promise<T>;
-
-export type DiscordToolAction =
-  | 'read'
-  | 'member-info'
-  | 'channel-info'
-  | 'send'
-  | 'react'
-  | 'quote-reply'
-  | 'edit'
-  | 'delete'
-  | 'pin'
-  | 'unpin'
-  | 'thread-create'
-  | 'thread-reply';
-
-export function normalizeDiscordToolAction(
-  rawAction: string | null | undefined,
-): DiscordToolAction | null {
-  const normalized = String(rawAction || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  const compact = normalized.replace(/[\s_-]+/g, '');
-
-  if (
-    compact === 'read' ||
-    compact === 'readmessages' ||
-    compact === 'history' ||
-    compact === 'fetch'
-  ) {
-    return 'read';
-  }
-  if (compact === 'memberinfo' || compact === 'lookup' || compact === 'whois') {
-    return 'member-info';
-  }
-  if (compact === 'channelinfo') return 'channel-info';
-  if (
-    compact === 'react' ||
-    compact === 'reaction' ||
-    compact === 'reactions'
-  ) {
-    return 'react';
-  }
-  if (
-    compact === 'quotereply' ||
-    compact === 'replymessage' ||
-    compact === 'replyto'
-  ) {
-    return 'quote-reply';
-  }
-  if (compact === 'edit' || compact === 'update') return 'edit';
-  if (compact === 'delete' || compact === 'remove') return 'delete';
-  if (compact === 'pin') return 'pin';
-  if (compact === 'unpin') return 'unpin';
-  if (compact === 'threadcreate' || compact === 'createthread') {
-    return 'thread-create';
-  }
-  if (compact === 'threadreply' || compact === 'replythread') {
-    return 'thread-reply';
-  }
-  if (
-    compact === 'send' ||
-    compact === 'sendmessage' ||
-    compact === 'dm' ||
-    compact === 'post' ||
-    compact === 'reply' ||
-    compact === 'respond'
-  ) {
-    return 'send';
-  }
-  return null;
-}
-
-export interface DiscordToolActionRequest {
-  action: DiscordToolAction;
-  sessionId?: string;
-  channelId?: string;
-  guildId?: string;
-  userId?: string;
-  username?: string;
-  user?: string;
-  memberId?: string;
-  resolveAmbiguous?: 'error' | 'best';
-  limit?: number;
-  before?: string;
-  after?: string;
-  around?: string;
-  content?: string;
-  subject?: string;
-  cc?: string[];
-  bcc?: string[];
-  inReplyTo?: string;
-  references?: string[];
-  query?: string;
-  folder?: string;
-  folders?: string[];
-  uid?: number;
-  unreadOnly?: boolean;
-  from?: string;
-  since?: string;
-  beforeDate?: string;
-  filePath?: string;
-  components?: unknown;
-  contextChannelId?: string;
-  messageId?: string;
-  emoji?: string;
-  name?: string;
-  autoArchiveDuration?: number;
-}
 
 export interface CachedDiscordPresenceActivity {
   type: number;
@@ -138,7 +30,7 @@ export interface DiscordToolActionDependencies {
   getDiscordPresence: (userId: string) => CachedDiscordPresence | undefined;
   sendToChannel: (channelId: string, text: string) => Promise<unknown>;
   resolveSendAttachments?: (
-    request: DiscordToolActionRequest,
+    request: MessageActionRequest,
   ) => Promise<AttachmentBuilder[]>;
   resolveSendAllowed: (
     params: ResolveSendAllowedParams,
@@ -541,14 +433,14 @@ function normalizeDate(value: Date | null | undefined): string | null {
 }
 
 function resolveMessageIdFromRequest(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   label: string = 'messageId',
 ): string {
   return sanitizeDiscordId(request.messageId, label);
 }
 
 async function resolveDiscordChannelForAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<{ channelId: string; channel: unknown; note?: string }> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -640,7 +532,7 @@ async function ensureDiscordSendAllowed(params: {
   deps: DiscordToolActionDependencies;
   channel: unknown;
   channelId: string;
-  request: DiscordToolActionRequest;
+  request: MessageActionRequest;
 }): Promise<void> {
   const requestingUserIdRaw = (params.request.userId || '').trim();
   const requestingUserId = requestingUserIdRaw
@@ -724,14 +616,12 @@ async function resolveDmChannelForUserId(params: {
   }
 }
 
-function resolveSendUserLookupTarget(
-  request: DiscordToolActionRequest,
-): string {
+function resolveSendUserLookupTarget(request: MessageActionRequest): string {
   return (request.user || request.username || '').trim();
 }
 
 async function resolveDmChannelForLookupTarget(params: {
-  request: DiscordToolActionRequest;
+  request: MessageActionRequest;
   deps: DiscordToolActionDependencies;
   activeClient: Client;
   inferredGuildId?: string;
@@ -800,7 +690,7 @@ async function resolveDmChannelForLookupTarget(params: {
 }
 
 async function resolveDiscordSendTarget(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<DiscordSendTargetResolution> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -895,7 +785,7 @@ async function resolveDiscordSendTarget(
 }
 
 async function fetchDiscordMessageForAction(params: {
-  request: DiscordToolActionRequest;
+  request: MessageActionRequest;
   deps: DiscordToolActionDependencies;
   actionLabel: string;
 }): Promise<{
@@ -935,7 +825,7 @@ async function fetchDiscordMessageForAction(params: {
 }
 
 async function runDiscordReadAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -1044,7 +934,7 @@ async function runDiscordReadAction(
 }
 
 async function runDiscordMemberInfoAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -1116,7 +1006,7 @@ async function runDiscordMemberInfoAction(
 }
 
 async function runDiscordChannelInfoAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -1185,7 +1075,7 @@ async function runDiscordChannelInfoAction(
 }
 
 async function runDiscordSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const activeClient = await deps.requireDiscordClientReady();
@@ -1268,7 +1158,7 @@ async function runDiscordSendAction(
 }
 
 async function runDiscordReactAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const emoji = (request.emoji || request.content || '').trim();
@@ -1298,7 +1188,7 @@ async function runDiscordReactAction(
 }
 
 async function runDiscordQuoteReplyAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const content = (request.content || '').trim();
@@ -1335,7 +1225,7 @@ async function runDiscordQuoteReplyAction(
 }
 
 async function runDiscordEditAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const content = (request.content || '').trim();
@@ -1372,7 +1262,7 @@ async function runDiscordEditAction(
 }
 
 async function runDiscordDeleteAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const resolved = await fetchDiscordMessageForAction({
@@ -1395,7 +1285,7 @@ async function runDiscordDeleteAction(
 }
 
 async function runDiscordPinAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
   mode: 'pin' | 'unpin',
 ): Promise<Record<string, unknown>> {
@@ -1429,7 +1319,7 @@ async function runDiscordPinAction(
 }
 
 async function runDiscordThreadCreateAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const threadName = (request.name || '').trim();
@@ -1473,7 +1363,7 @@ async function runDiscordThreadCreateAction(
 }
 
 async function runDiscordThreadReplyAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
   const content = (request.content || '').trim();
@@ -1510,8 +1400,8 @@ async function runDiscordThreadReplyAction(
 
 export function createDiscordToolActionRunner(
   deps: DiscordToolActionDependencies,
-): (request: DiscordToolActionRequest) => Promise<Record<string, unknown>> {
-  return async (request: DiscordToolActionRequest) => {
+): (request: MessageActionRequest) => Promise<Record<string, unknown>> {
+  return async (request: MessageActionRequest) => {
     switch (request.action) {
       case 'read':
         return await runDiscordReadAction(request, deps);
