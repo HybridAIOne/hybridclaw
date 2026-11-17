@@ -124,6 +124,7 @@ function makeRuleContext(params?: {
     hasWorkspaceTrust: () => false,
     getExplicitApprovalCount: () => 0,
     approvalMode: () => 'auto',
+    dryRun: () => false,
     approvalUserIsBot: () => false,
     shouldNeverAutoApprove: () => false,
     getPendingCount: () => 0,
