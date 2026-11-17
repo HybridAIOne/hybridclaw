@@ -85,6 +85,8 @@ export interface Receipt {
   when: string | null;
   url: string | null;
   allowed: ReceiptAllowance;
+  // Older gateways also labeled automatic promotions as earlier.
+  priorApproval: boolean;
   ok: boolean;
   error: string | null;
   // Null for a failed action and for one that stays in the sandbox, such as
@@ -109,7 +111,6 @@ function allowance(decision: unknown): ReceiptAllowance {
     case 'approved_session':
     case 'approved_agent':
     case 'approved_all':
-    case 'promoted':
       return 'earlier';
     case 'approved_fullauto':
       return 'full';
@@ -243,6 +244,7 @@ export function listReceipts(
     const args = argumentsOf(call);
     const ok = result.isError !== true;
     const at = new Date(info.at);
+    const allowed = allowance(decision?.approvalDecision);
     receipts.push({
       id: String(call.toolCallId),
       workId: readWork(info.runId)?.id ?? null,
@@ -257,7 +259,8 @@ export function listReceipts(
       title: short(args.summary ?? args.title),
       when: startTime(args),
       url: short(args.url),
-      allowed: allowance(decision?.approvalDecision),
+      allowed,
+      priorApproval: allowed === 'earlier',
       ok,
       error: ok ? null : short(result.resultSummary),
       proof: ok
@@ -285,7 +288,7 @@ function line(receipt: Receipt): string {
     you: 'you allowed it',
     earlier: 'allowed earlier',
     full: 'full autonomy',
-    policy: 'no approval needed',
+    policy: 'allowed automatically',
   }[receipt.allowed];
   const proof = receipt.proof
     ? receipt.proof.status === 'unconfirmed'
