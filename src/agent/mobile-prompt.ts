@@ -154,6 +154,15 @@ export const APP_TRANSFER_LINES = [
 ];
 
 /**
+ * The app shows an `ask_questions` file as one card that steps through the
+ * questions, with choices to tap and a field for the user's own answer. The
+ * answers come back as the user's next message.
+ */
+export const APP_QUESTION_LINES = [
+  'When you cannot do what the user asked well without knowing more, and a wrong guess would cost them time, money or a redo, call `ask_questions` with the one to four questions that decide it, each with two to five likely answers, then end your turn with one short sentence: the app shows the questions as a card under it, and the answers arrive as the next message. Do not ask what the conversation, your memory or a tool can tell you, what a sensible default settles, or anything you can easily change afterwards; then go ahead and say what you assumed. A single open question with no natural choices stays a sentence in your reply.',
+];
+
+/**
  * The app draws a `show_dashboard` file natively: headline numbers, charts and
  * tables, each with its query a tap away, kept in the Library and refreshed
  * there by `/dashboard refresh`, which calls the queries' tools again.
