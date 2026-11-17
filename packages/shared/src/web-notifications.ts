@@ -19,6 +19,10 @@ export interface WebNotificationState {
   preferences: WebNotificationPreferences;
   notifications: WebNotification[];
 }
+/** Metadata-only `chat-updated` SSE event; read content through chat history. */
+export interface WebChatUpdate {
+  sessionId: string;
+}
 /** A phone app registered for mobile alerts through the `/push` command. */
 export interface MobilePushDevice {
   /** APNs hex or case-sensitive Firebase registration token. */

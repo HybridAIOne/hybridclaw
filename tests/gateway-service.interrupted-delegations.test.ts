@@ -307,17 +307,22 @@ test('an agent error without an interrupt still starts its delegations', async (
 
   expect(first.status).toBe('error');
   expect(gateway.getDelegationJob('dlg_started')).not.toBeNull();
-  const stored = gateway
-    .getRecentMessages(request.sessionId)
-    .find((message) => message.role === 'assistant');
-  expect(stored?.content).toContain('Delegations were still started:');
-  expect(stored?.content).not.toContain(gateway.INTERRUPTED_DELEGATIONS_NOTE);
-  expect(JSON.parse(stored?.tool_history_json || '[]')).toEqual(TOOL_HISTORY);
   await vi.waitFor(() =>
     expect(['queued', 'in_progress']).not.toContain(
       gateway.getDelegationJob('dlg_started')?.status,
     ),
   );
+  const history = gateway.getRecentMessages(request.sessionId);
+  expect(
+    history.filter((message) => message.role === 'assistant').length,
+  ).toBeGreaterThan(1);
+  const stored = history.find(
+    (message) => message.id === first.assistantMessageId,
+  );
+  expect(stored?.role).toBe('assistant');
+  expect(stored?.content).toContain('Delegations were still started:');
+  expect(stored?.content).not.toContain(gateway.INTERRUPTED_DELEGATIONS_NOTE);
+  expect(JSON.parse(stored?.tool_history_json || '[]')).toEqual(TOOL_HISTORY);
 });
 
 test.each([

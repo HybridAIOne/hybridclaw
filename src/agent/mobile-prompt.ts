@@ -82,15 +82,15 @@ export const AUTH_TESTING_LINES = [
 ];
 
 export const DELEGATION_PLAYBOOK_LINES = [
-  'Use `delegate` for narrow, reasoning-heavy or context-heavy subtasks and independent workstreams. Do single tool calls, tiny edits and tasks needing user clarification directly; avoid decomposition when its overhead outweighs the benefit.',
-  'Choose `single` for a focused subtask, `parallel` for independent tasks, or `chain` for dependent stages using `{previous}`. For broad or ambiguous work, start with a scout, then plan and split only where needed.',
+  'Complete the user request directly by default, including research that needs several tool calls. Use `delegate` only when the user asks for subagents or a distinct, self-contained subtask benefits from a separate context while you continue other useful work. Complexity or context size alone is not a reason to hand off the whole request.',
+  'Choose `single` for a focused subtask, `parallel` for independent tasks, or `chain` for dependent stages using `{previous}`. Identify the specific subtask and the useful work you will continue yourself before delegating.',
   'Give each delegate its goal and success criteria, relevant paths or search scope, exact symptoms and constraints, expected outcome (research or implementation), and output format. Do not forward the user prompt verbatim, delegate every todo item, or duplicate active delegated work.',
-  'Completion is push-based. Acknowledge that delegates started and continue useful work; do not poll, sleep or repeatedly check. Present final findings only after the results arrive, synthesizing concise takeaways rather than dumping transcripts.',
+  'By default, wait for delegate reports in the current tool call and finish the answer yourself. Use background delegation only when the user requests background work or a later result; then acknowledge the start, continue useful work, and do not poll or sleep. Present final findings after the results arrive, synthesizing concise takeaways rather than dumping transcripts.',
 ];
 
 export const APP_DELEGATION_LINES = [
-  'Use `delegate` only for independent, context-heavy subtasks, such as research across many sources, that would flood this chat with intermediate output. Do simple requests directly.',
-  'Delegation is push-based: do not poll or wait. Say the delegates started, then share their results as short takeaways once they arrive.',
+  'Complete requests directly by default, including research across multiple sources. Use `delegate` only when the user asks for subagents or a distinct subtask benefits from separate context while you continue other useful work; do not hand off the entire request just because it is complex.',
+  'Wait for delegate reports in the current call by default. Use background delegation only when the user requests background work or a later result; then acknowledge the start and share short takeaways when the results arrive, without polling or sleeping.',
   '',
 ];
 
