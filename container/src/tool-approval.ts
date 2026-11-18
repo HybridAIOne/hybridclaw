@@ -80,7 +80,7 @@ export function buildPendingApproval(
     approvalTier: approval.tier,
     toolName,
     commandPreview: approval.commandPreview,
-    reviewArguments: approvalReviewArguments(toolName, argsJson),
+    reviewArguments: approvalReviewArguments(toolName, argsJson, description),
     allowSession: !approval.pinned,
     allowAgent: !approval.pinned,
     allowAll: !approval.pinned,
