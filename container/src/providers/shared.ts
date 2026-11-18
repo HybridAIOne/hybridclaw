@@ -4,8 +4,8 @@
  * this contract never chooses a model or renews a request's deadline.
  */
 import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { isRecord, readString } from '@hybridclaw/shared/primitive-values';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
 import type {

@@ -4,7 +4,7 @@
  * provenance, presents pending requests and records interpretation audit events.
  */
 
-import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
+import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { isGoalContinuationSource } from '../goals/goal-runtime.js';
 import type { ContainerOutput } from '../types/container.js';

@@ -1,7 +1,5 @@
-import {
-  APPROVAL_MODE_PRESENTATION,
-  APPROVAL_MODES,
-} from '@hybridclaw/shared/approval-mode';
+import { APPROVAL_MODES } from '@hybridclaw/contracts/approval-mode';
+import { APPROVAL_MODE_PRESENTATION } from '@hybridclaw/shared/approval-mode';
 import type { CanonicalSlashCommandDefinition } from './command-registry.js';
 
 export const APPROVAL_SCOPE_MODES = [

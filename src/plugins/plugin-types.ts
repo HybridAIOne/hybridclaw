@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { PluginRuntimeToolDefinition } from '@hybridclaw/contracts/agent-io';
-import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
-import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
+import type {
+  ApprovalReplyContext,
+  PluginRuntimeToolDefinition,
+} from '@hybridclaw/contracts/agent-io';
+import type { ToolCallLimits } from '@hybridclaw/contracts/tool-call-limits';
 import type { Logger } from 'pino';
 import type {
   AgentTurnContext,

@@ -1,6 +1,6 @@
 /** Reported provider charges are metadata, never inferred from token counts. */
+import type { RuntimeProviderId } from '@hybridclaw/contracts/provider-ids';
 import { isRecord } from './primitive-values.ts';
-import type { RuntimeProviderId } from './provider-ids.ts';
 
 /** Only a finite, non-negative provider-reported amount is an observed charge. */
 export function readReportedUsageCost(

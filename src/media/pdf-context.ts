@@ -8,11 +8,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { VisualAttachment } from '@hybridclaw/contracts/visual-snapshots';
 import {
   PDF_PREVIEW_MAX_CHARS,
   readPdfPages,
 } from '@hybridclaw/shared/pdf-reader';
-import type { VisualAttachment } from '@hybridclaw/shared/visual-snapshots';
 import { containerDependencyRepairHint } from '../infra/host-runtime-setup.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';

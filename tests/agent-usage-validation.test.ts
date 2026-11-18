@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import type { TokenUsageStats } from '@hybridclaw/shared/token-usage';
+import type { TokenUsageStats } from '@hybridclaw/contracts/token-usage';
 import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';

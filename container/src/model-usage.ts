@@ -6,8 +6,8 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import type { ModelCallUsage } from '@hybridclaw/contracts/token-usage';
 import { readReportedUsageCost } from '@hybridclaw/shared/reported-usage-cost';
-import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
 import {
   IncompleteModelResponseError,
   isCompleteToolCallFinish,

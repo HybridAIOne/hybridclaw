@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  inferProviderFromModelPrefix,
-  RUNTIME_PROVIDER_IDS,
-} from '@hybridclaw/shared/provider-ids';
+import { RUNTIME_PROVIDER_IDS } from '@hybridclaw/contracts/provider-ids';
+import { inferProviderFromModelPrefix } from '@hybridclaw/shared/provider-ids';
 import { GATEWAY_MODEL_PROVIDER_KEYS } from '../src/gateway/model-provider-keys.js';
 import { PROVIDER_META } from '../src/providers/provider-meta.js';
 

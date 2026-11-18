@@ -7,9 +7,9 @@
  * Every routed or visual-fallback dispatch retains the original execution bound.
  */
 import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
 import type { ModelBehavior } from '../model-behavior.js';
 import { requireCompleteModelResponse } from '../model-response-completion.js';

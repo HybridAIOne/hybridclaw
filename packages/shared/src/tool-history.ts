@@ -2,22 +2,18 @@
  * Portable tool exchanges preserve call/result pairing across worker lifetimes.
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
+ * The result-digest field a reply carries is wire data
+ * (`@hybridclaw/contracts/tool-history`).
  */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import {
-  type VisualAttachmentMessage,
-  validateVisualAttachments,
-} from './visual-snapshots.ts';
+import type { FileBackedToolResult } from '@hybridclaw/contracts/tool-history';
+import type { VisualAttachmentMessage } from '@hybridclaw/contracts/visual-snapshots';
+import { validateVisualAttachments } from './visual-snapshots.ts';
 
 /** Full results restore from derived files; bounded replay remains bounded. */
 export interface FileBackedToolResults {
   spilledToolCallIds?: string[];
-}
-
-/** Digest binds one saved outcome; a provider call ID alone is not identity. */
-export interface FileBackedToolResult {
-  resultDigest?: string;
 }
 
 export interface HistoryMessage

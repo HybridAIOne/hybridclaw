@@ -3,10 +3,13 @@
  * language. The policy runtime owns grants and exact-call replay; this module
  * cannot edit tool arguments, grant an unknown scope, or execute a tool.
  */
+
+import type {
+  ApprovalReplyDecision,
+  ApprovalReplyInterpretation,
+} from '@hybridclaw/contracts/agent-io';
 import {
   APPROVAL_REPLY_INSTRUCTIONS,
-  type ApprovalReplyDecision,
-  type ApprovalReplyInterpretation,
   parseApprovalReplyDecision,
 } from '@hybridclaw/shared/approval-reply';
 import { parseApprovalDirective } from './approval-directive.js';

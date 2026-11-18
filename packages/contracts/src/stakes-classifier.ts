@@ -1,3 +1,8 @@
+/**
+ * Stakes scoring vocabulary: the score a tool execution may carry and the
+ * classifier interface the approval pipeline calls. Types only; NOT the
+ * classifiers (`container/src/stakes-classifier.ts`).
+ */
 export type StakesLevel = 'low' | 'medium' | 'high';
 export type StakesApprovalTier = 'green' | 'yellow' | 'red';
 
