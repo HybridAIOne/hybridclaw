@@ -1,7 +1,7 @@
 import type {
   ModelBehavior,
   ModelThinkingFormat,
-} from '../types/model-behavior.js';
+} from '@hybridclaw/contracts/agent-io';
 import type { ModelRoutingZone } from './model-routing.js';
 import type { LocalBackendType } from './provider-ids.js';
 

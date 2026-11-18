@@ -3,14 +3,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import {
+  isManagedTempMediaDirName,
+  MANAGED_TEMP_MEDIA_DIR_PREFIXES,
+} from '@hybridclaw/shared/managed-temp-media';
 import { logger } from '../logger.js';
-
-export const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
-export const SLACK_MEDIA_TMP_PREFIX = 'hybridclaw-slack-';
-export const MANAGED_TEMP_MEDIA_DIR_PREFIXES = [
-  WHATSAPP_MEDIA_TMP_PREFIX,
-  SLACK_MEDIA_TMP_PREFIX,
-];
 
 function resolveManagedTempRoot(rootDir?: string): string {
   return path.resolve(rootDir ?? os.tmpdir());
@@ -37,10 +34,7 @@ export function resolveManagedTempMediaDir(params: {
   }
 
   const [topLevelEntry] = relativePath.split(path.sep);
-  if (
-    !topLevelEntry ||
-    !prefixes.some((prefix) => topLevelEntry.startsWith(prefix))
-  ) {
+  if (!topLevelEntry || !isManagedTempMediaDirName(topLevelEntry, prefixes)) {
     return null;
   }
 
@@ -73,7 +67,7 @@ export async function cleanupManagedTempMediaDirectories(params?: {
   let removedDirs = 0;
   let removedLinks = 0;
   for (const entry of entries) {
-    if (!prefixes.some((prefix) => entry.name.startsWith(prefix))) continue;
+    if (!isManagedTempMediaDirName(entry.name, prefixes)) continue;
 
     const entryPath = path.join(rootDir, entry.name);
     let stat: import('node:fs').Stats;

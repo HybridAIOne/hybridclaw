@@ -1,4 +1,5 @@
 import readline from 'node:readline/promises';
+import type { ModelBehavior } from '@hybridclaw/contracts/agent-io';
 import {
   buildSharedAuthStatusReport,
   isSharedAuthStatusTarget,
@@ -88,7 +89,6 @@ import {
   saveNamedRuntimeSecrets,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
-import type { ModelBehavior } from '../types/model-behavior.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {

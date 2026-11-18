@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL } from '../config/config.js';
 import type {
@@ -13,7 +14,6 @@ import type {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { readStoredRuntimeSecrets } from '../security/runtime-secrets.js';
-import { normalizeMimeType } from './mime-utils.js';
 import { expandUserPath } from './path-utils.js';
 
 const ABSOLUTE_MAX_AUDIO_BYTES = 25 * 1024 * 1024;

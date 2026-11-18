@@ -4,6 +4,8 @@
  * remove stale entries. Lifecycle invalidation supersedes in-flight probes;
  * provider-wide health is a separate, aggregated probe.
  */
+
+import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_DEFAULT_MAX_TOKENS,
@@ -26,7 +28,6 @@ import {
   LOCAL_VLLM_ENABLED,
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
-import { resolveModelBehavior } from '../types/model-behavior.js';
 import { parsePositiveInteger } from '../utils/number-normalization.js';
 import type {
   LocalBackendType,
