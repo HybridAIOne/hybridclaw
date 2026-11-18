@@ -227,6 +227,17 @@ export function approvalReviewArguments(
   argsJson: string,
 ): string | undefined {
   if (toolName === INBOX_CLEANUP_TOOL) return inboxCleanupReview(argsJson);
+  if (toolName === 'bash') {
+    // The whole command, verbatim: the preview is cut short, and the card's
+    // headline may be the model's own description of it.
+    try {
+      const args: unknown = JSON.parse(argsJson);
+      const command = isRecord(args) ? stringValue(args.command) : undefined;
+      return command ? bounded({ command }) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   if (toolName === 'message') {
     try {
       const args: unknown = JSON.parse(argsJson);
