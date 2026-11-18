@@ -12,6 +12,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  ensureAgentMainSession,
+  getAgentById,
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 import {
   DISTRICT_PATTERN,
   districtName,
@@ -35,13 +43,21 @@ const TIME_FORMAT = new Intl.DateTimeFormat('de-DE', {
 const TOOL = {
   name: 'public_warnings',
   description:
-    'Official German public warnings (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) for a town or district in Germany. "check" lists current warnings; "watch" makes you message the user in this chat as soon as a new warning starts there (yellow weather warnings excepted); "unwatch" stops that; "list" shows watched places; "search" finds district keys when a name is ambiguous. Offer "watch" when the user wants to be warned about a place. Messages keep the official German text unless language is set.',
+    'Official German public warnings (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) for a town or district in Germany. "check" lists current warnings; "watch" makes you message the user in this chat as soon as a new warning starts there (yellow weather warnings excepted); "unwatch" stops that; "list" shows saved places and whether alerts are enabled; "pause" silences all saved places and "resume" turns alerts back on; "search" finds district keys when a name is ambiguous. Offer "watch" when the user wants to be warned about a place. Messages keep the official German text unless language is set.',
   parameters: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['check', 'watch', 'unwatch', 'list', 'search'],
+        enum: [
+          'check',
+          'watch',
+          'unwatch',
+          'list',
+          'search',
+          'pause',
+          'resume',
+        ],
       },
       place: {
         type: 'string',
@@ -179,6 +195,42 @@ export default {
       ),
     );
 
+    function settings(agentId) {
+      const entry = store.load().agents[agentId];
+      const places = (entry?.places ?? []).map(
+        ({ district, label, language }) => ({ district, label, language }),
+      );
+      return {
+        enabled: places.length > 0 && !entry.paused,
+        places,
+        maxPlaces: MAX_PLACES,
+      };
+    }
+
+    function setPaused(agentId, paused) {
+      const state = store.load();
+      const entry = state.agents[agentId];
+      if (!paused && !entry?.places.length)
+        throw new Error('Choose a place first.');
+      if (entry) {
+        entry.paused = paused;
+        store.save(state);
+      }
+      return settings(agentId);
+    }
+
+    function removePlace(agentId, district) {
+      const state = store.load();
+      const entry = state.agents[agentId];
+      const index =
+        entry?.places.findIndex((place) => place.district === district) ?? -1;
+      if (index < 0) return null;
+      const [removed] = entry.places.splice(index, 1);
+      if (!entry.places.length) delete state.agents[agentId];
+      store.save(state);
+      return removed;
+    }
+
     const actions = {
       async search(args) {
         return { candidates: await searchPlaces(args.place) };
@@ -212,47 +264,120 @@ export default {
         if (existing) Object.assign(existing, { label, language, seen });
         else places.push({ district: place.district, label, language, seen });
         store.save(state);
-        return { watching: label, district: place.district, warnings };
+        return {
+          watching: label,
+          district: place.district,
+          warnings,
+          enabled: !state.agents[agentId].paused,
+        };
       },
       async unwatch(args, agentId) {
         const place = await resolvePlace(args);
         if (place.candidates) return { ...place, note: AMBIGUOUS };
-        const state = store.load();
-        const places = state.agents[agentId]?.places ?? [];
-        const index = places.findIndex(
-          (item) => item.district === place.district,
-        );
-        if (index < 0) throw new Error(`${place.name} is not watched.`);
-        const [removed] = places.splice(index, 1);
-        store.save(state);
+        const removed = removePlace(agentId, place.district);
+        if (!removed) throw new Error(`${place.name} is not watched.`);
         return { stopped: removed.label };
       },
-      async list(_args, agentId) {
-        const places = store.load().agents[agentId]?.places ?? [];
-        return {
-          places: places.map(({ district, label, language }) => ({
-            district,
-            label,
-            language,
-          })),
-        };
-      },
+      list: (_args, agentId) => settings(agentId),
+      pause: (_args, agentId) => setPaused(agentId, true),
+      resume: (_args, agentId) => setPaused(agentId, false),
     };
+
+    function agentFrom(url) {
+      const id = url.searchParams.get('agentId');
+      if (!id || id in Object.prototype || !getAgentById(id))
+        throw new WebhookHttpError(400, 'Unknown agent.');
+      return id;
+    }
+
+    const settingsPath = '/api/admin/public-warnings/settings';
+    api.registerAdminRoute({
+      method: 'GET',
+      path: settingsPath,
+      rbacAction: 'data_controls.read',
+      async handler({ res, url }) {
+        const agentId = agentFrom(url);
+        const query = url.searchParams.get('place');
+        if (query !== null) {
+          if (!query.trim() || query.length > 160)
+            throw new WebhookHttpError(400, 'Enter a town or district.');
+          const candidates = await searchPlaces(query);
+          const districts = candidates.filter(
+            (place, index) =>
+              candidates.findIndex(
+                (other) => other.district === place.district,
+              ) === index,
+          );
+          sendWebhookJson(res, 200, {
+            ...settings(agentId),
+            candidates: districts,
+          });
+          return;
+        }
+        sendWebhookJson(res, 200, settings(agentId));
+      },
+    });
+    api.registerAdminRoute({
+      method: 'POST',
+      path: settingsPath,
+      rbacAction: 'data_controls.write',
+      async handler({ req, res, url }) {
+        const agentId = agentFrom(url);
+        const change = await readWebhookJsonBody(req, {
+          maxBytes: 1024,
+          requireObject: true,
+          tooLargeMessage: 'Warning settings request too large.',
+          invalidJsonMessage: 'Invalid warning settings request.',
+        });
+        if (
+          ['watch', 'unwatch'].includes(change.action) &&
+          (typeof change.district !== 'string' ||
+            !DISTRICT_PATTERN.test(change.district))
+        ) {
+          throw new WebhookHttpError(400, 'Invalid district.');
+        }
+        if (change.action === 'watch' || change.action === 'resume')
+          ensureAgentMainSession(agentId, change.mainSession);
+        switch (change.action) {
+          case 'pause':
+          case 'resume':
+            setPaused(agentId, change.action === 'pause');
+            break;
+          case 'watch':
+            await actions.watch(
+              {
+                district: change.district,
+                label: change.label,
+                language: change.language,
+              },
+              agentId,
+            );
+            break;
+          case 'unwatch':
+            removePlace(agentId, change.district);
+            break;
+          default:
+            throw new WebhookHttpError(400, 'Unknown change.');
+        }
+        sendWebhookJson(res, 200, settings(agentId));
+      },
+    });
 
     api.registerTool({
       ...TOOL,
       async handler(args, context) {
-        const action = actions[args.action];
-        if (!action) throw new Error(`Unknown action "${args.action}".`);
+        if (!Object.hasOwn(actions, args.action))
+          throw new Error(`Unknown action "${args.action}".`);
         const agentId = api.resolveSessionAgentId(context.sessionId);
-        return JSON.stringify(await action(args, agentId));
+        return JSON.stringify(await actions[args.action](args, agentId));
       },
     });
 
     async function poll() {
       const state = store.load();
-      const watched = Object.entries(state.agents).flatMap(([agentId, entry]) =>
-        entry.places.map((place) => ({ agentId, place })),
+      const watched = Object.entries(state.agents).flatMap(
+        ([agentId, entry]) =>
+          entry.paused ? [] : entry.places.map((place) => ({ agentId, place })),
       );
       const current = new Map();
       for (const district of new Set(
@@ -268,26 +393,46 @@ export default {
       for (const { agentId, place } of watched) {
         const warnings = current.get(place.district);
         if (!warnings) continue;
+        const seen = new Set(
+          warnings
+            .filter(
+              (warning) =>
+                isQuiet(warning) || place.seen.includes(warningKey(warning)),
+            )
+            .map(warningKey),
+        );
         for (const warning of warnings) {
-          if (place.seen.includes(warningKey(warning)) || isQuiet(warning))
-            continue;
+          const key = warningKey(warning);
+          if (seen.has(key)) continue;
           try {
             const text = await warningMessage(place, warning);
-            if (!api.postToMainChat(agentId, text, warning.id))
+            // A phone may have paused or removed this district during the fetch.
+            const entry = store.load().agents[agentId];
+            const saved = entry?.places.find(
+              (item) => item.district === place.district,
+            );
+            if (entry?.paused || !saved) break;
+            if (
+              saved.seen.includes(key) ||
+              api.postToMainChat(agentId, text, warning.id)
+            )
+              seen.add(key);
+            else
               api.logger.info({ agentId }, 'No main chat for a public warning');
           } catch (error) {
             api.logger.warn({ error, agentId }, 'Could not post a warning');
           }
         }
-        updates.push({ agentId, district: place.district, warnings });
+        updates.push({ agentId, before: place, seen: [...seen] });
       }
       // The tool may have changed the list while warnings were fetched.
       const latest = store.load();
-      for (const { agentId, district, warnings } of updates) {
+      for (const { agentId, before, seen } of updates) {
         const place = latest.agents[agentId]?.places.find(
-          (item) => item.district === district,
+          (item) => item.district === before.district,
         );
-        if (place) place.seen = warnings.map(warningKey);
+        if (place && isDeepStrictEqual(place.seen, before.seen))
+          place.seen = seen;
       }
       if (updates.length > 0) store.save(latest);
     }

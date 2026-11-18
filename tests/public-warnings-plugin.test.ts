@@ -1,6 +1,8 @@
+import { Readable } from 'node:stream';
 import { expect, test, vi } from 'vitest';
 import type {
   HybridClawPluginApi,
+  PluginAdminRouteDefinition,
   PluginService,
   PluginToolDefinition,
 } from '../src/plugins/plugin-types.js';
@@ -60,12 +62,14 @@ async function load() {
   );
   let tool: PluginToolDefinition | undefined;
   let service: PluginService | undefined;
+  const routes = new Map<string, PluginAdminRouteDefinition>();
   const postToMainChat = vi.fn(() => true);
   const api = {
     runtime: { homeDir: home },
     logger: { info: vi.fn(), warn: vi.fn() },
     resolveSessionAgentId: () => 'hy',
     registerTool: (value: PluginToolDefinition) => { tool = value; },
+    registerAdminRoute: (route: PluginAdminRouteDefinition) => { routes.set(route.method, route); },
     registerService: (value: PluginService) => { service = value; },
     postToMainChat,
   } as unknown as HybridClawPluginApi;
@@ -76,7 +80,7 @@ async function load() {
     await service!.start!();
     await service!.stop!();
   };
-  return { call, poll, postToMainChat, setDashboard: (value: unknown[]) => { dashboard = value as never; } };
+  return { call, poll, routes, postToMainChat, setDashboard: (value: unknown[]) => { dashboard = value as never; } };
 }
 
 test('a watched place gets each new warning once, in the user language; yellow weather stays quiet', async () => {
@@ -103,6 +107,8 @@ test('a watched place gets each new warning once, in the user language; yellow w
     NEW.id,
   );
   expect(await call({ action: 'list' })).toEqual({
+    enabled: true,
+    maxPlaces: 10,
     places: [{ district: '09162', label: 'Home', language: 'en' }],
   });
 });
@@ -140,4 +146,83 @@ test('postToMainChat stores the message in the agent main chat', async () => {
   expect(getRecentMessages(session!.id, 5)).toEqual([
     expect.objectContaining({ role: 'assistant', content: 'Storm warning', source: 'public-warnings:w-1' }),
   ]);
+});
+
+test('pausing keeps districts saved and resuming delivers active warnings', async () => {
+  const { call, poll, postToMainChat, setDashboard } = await load();
+  expect(await call({ action: 'list' })).toEqual({ enabled: false, places: [], maxPlaces: 10 });
+  await call({ action: 'watch', district: '09162' });
+  const paused = await call({ action: 'pause' });
+  expect(paused).toMatchObject({ enabled: false, places: [{ district: '09162' }] });
+  setDashboard([NEW]);
+  await poll();
+  expect(postToMainChat).not.toHaveBeenCalled();
+  expect(await call({ action: 'resume' })).toEqual({ ...paused, enabled: true });
+  await poll();
+  expect(postToMainChat).toHaveBeenCalledOnce();
+  await call({ action: 'unwatch', district: '09162' });
+  expect(await call({ action: 'list' })).toEqual({ enabled: false, places: [], maxPlaces: 10 });
+});
+
+test('mobile settings share chat watches and can remove a paused district without contacting NINA', async () => {
+  const { routes, call } = await load();
+  const { upsertRegisteredAgent } = await import('../src/agents/agent-registry.js');
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'hy' });
+  const read = routes.get('GET')!;
+  const write = routes.get('POST')!;
+  expect(read.path).toBe('/api/admin/public-warnings/settings');
+  expect(write.path).toBe(read.path);
+  expect([read.rbacAction, write.rbacAction]).toEqual(['data_controls.read', 'data_controls.write']);
+  const request = async (query: string, body?: Record<string, string>) => {
+    const route = body ? write : read;
+    const end = vi.fn();
+    await route.handler({
+      req: Readable.from(body ? [JSON.stringify(body)] : []) as never,
+      res: { setHeader: vi.fn(), end } as never,
+      url: new URL(read.path + '?' + query, 'https://example.test'),
+      params: {},
+    });
+    return JSON.parse(end.mock.calls[0][0]);
+  };
+  const owner = 'agentId=hy';
+  expect((await request(owner + '&place=Neustadt')).candidates).toHaveLength(2);
+  await expect(request('agentId=unknown')).rejects.toThrow('Unknown agent');
+  await expect(request(owner, { action: 'watch' })).rejects.toThrow('Invalid district');
+  const mainSession = 'main-' + 'a'.repeat(32) + '-hy';
+  const saved = await request(owner, { action: 'watch', district: '09162', label: 'Home', language: 'en', mainSession });
+  const { getAgentMainSession } = await import('../src/memory/agent-main-session.js');
+  expect(getAgentMainSession('hy')?.session_key).toBe(mainSession);
+  upsertRegisteredAgent({ id: 'other' });
+  await expect(request('agentId=other', { action: 'watch', district: '09162', mainSession })).rejects.toThrow('another agent');
+  expect(saved.enabled).toBe(true);
+  expect(await call({ action: 'list' })).toEqual(saved);
+  await call({ action: 'pause' });
+  expect(await request(owner)).toEqual({ ...saved, enabled: false });
+  vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
+  expect(await request(owner, { action: 'unwatch', district: '09162' })).toEqual({
+    enabled: false, places: [], maxPlaces: 10,
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test('pausing while the watcher fetches advice stops delivery until resumed', async () => {
+  const { call, poll, postToMainChat, setDashboard } = await load();
+  await call({ action: 'watch', district: '09162' });
+  setDashboard([NEW]);
+  const fetchWarning = globalThis.fetch;
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.includes('/warnings/')) await call({ action: 'pause' });
+    return fetchWarning(url);
+  });
+  await poll();
+  expect(postToMainChat).not.toHaveBeenCalled();
+  vi.stubGlobal('fetch', fetchWarning);
+  await call({ action: 'resume' });
+  postToMainChat.mockReturnValueOnce(false);
+  await poll();
+  await poll();
+  await poll();
+  expect(postToMainChat).toHaveBeenCalledTimes(2);
 });
