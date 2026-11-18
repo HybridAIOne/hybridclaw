@@ -60,6 +60,7 @@ export {
 export type { GatewayChatResult } from '../gateway/gateway-types.js';
 export { resolveInstallPath } from '../infra/install-root.js';
 export { agentWorkspaceDir } from '../infra/ipc.js';
+export { ensureAgentMainSession } from '../memory/agent-main-session.js';
 export type {
   EmbeddingProvider,
   EmbeddingProviderRegistration,

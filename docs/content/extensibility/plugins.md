@@ -152,7 +152,11 @@ in a hand-edited config are dropped when the plugin loads.
   (NINA: civil protection, KATWARN, BIWAPP, DWD weather, floods, police) by
   town or district. Places the agent watches are checked every 10 minutes,
   and each new warning is posted to the agent's main chat with
-  `api.postToMainChat`, without a model turn. Yellow DWD warnings do not ring
+  `api.postToMainChat`, without a model turn. Yellow DWD warnings do not ring.
+  Hy’s Public warnings setting uses the same places as chat. Pausing keeps the
+  list and stops delivery for every phone. The plugin serves settings at
+  `/api/admin/public-warnings/settings?agentId=…` (GET with
+  `data_controls.read`, POST with `data_controls.write`).
 - `transformers-embeddings` registers the `transformers` embedding provider
   for built-in semantic memory, running a local Transformers.js (ONNX) model
   in a worker thread; select it with `memory.embedding.provider`

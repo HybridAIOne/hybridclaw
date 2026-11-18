@@ -12,6 +12,7 @@
  */
 import type { Session } from '../types/session.js';
 import { withMemoryDatabase } from './database.js';
+import { getOrCreateSession, getSessionById } from './sessions.js';
 import { queryOne } from './sqlite.js';
 
 /**
@@ -34,6 +35,23 @@ export function getAgentMainSession(agentId: string): Session | undefined {
       agentId,
     ),
   );
+}
+
+/** A mobile user can enable delivery in Settings before sending their first message. */
+export function ensureAgentMainSession(
+  agentId: string,
+  mobileThread: string,
+): void {
+  if (getAgentMainSession(agentId)) return;
+  if (
+    typeof mobileThread !== 'string' ||
+    !/^main-[0-9a-f]{32}-[a-zA-Z0-9_-]{1,128}$/.test(mobileThread)
+  )
+    throw new Error('A mobile main chat is required.');
+  const existing = getSessionById(mobileThread);
+  if (existing && existing.agent_id !== agentId)
+    throw new Error('This chat belongs to another agent.');
+  getOrCreateSession(mobileThread, null, 'web', agentId, { touch: false });
 }
 
 /**
