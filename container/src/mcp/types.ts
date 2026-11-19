@@ -44,6 +44,9 @@ export const BOOST_OFFERS_META = 'hybridai/boostOffers';
 export const BOOST_OFFER_META = 'hybridai/boostOffer';
 export const BOOST_META = 'hybridai/boost';
 
+/** MCP result `_meta` key with a failed call's google.rpc.Code name. */
+export const ERROR_CODE_META = 'hybridai/errorCode';
+
 /** Approval metadata plus an independent, operator-trusted scheduling decision. */
 export type McpToolBehavior = Pick<
   McpToolDefinition,

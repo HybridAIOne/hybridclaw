@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
+// The container's own SDK copy, the one tool-errors.ts checks with instanceof.
+import { StreamableHTTPError } from '../container/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js';
+import {
+  ErrorCode,
+  McpError,
+} from '../container/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js';
 
 describe.sequential('container MCP tool dispatch', () => {
   afterEach(async () => {
@@ -71,5 +77,26 @@ describe.sequential('container MCP tool dispatch', () => {
 
     expect(await executeToolWithMetadata('hybridai__todoist__add-tasks', '{}'))
       .toEqual({ output: 'Approval required', isError: true, connectorApproval });
+  });
+
+  test.each([
+    [new McpError(ErrorCode.InvalidParams, 'bad'), 'INVALID_ARGUMENT'],
+    [new McpError(ErrorCode.RequestTimeout, 'slow'), 'DEADLINE_EXCEEDED'],
+    [new McpError(-32050, 'server-defined'), 'UNKNOWN'],
+    [new StreamableHTTPError(401, 'expired'), 'UNAUTHENTICATED'],
+    [new Error('socket hang up'), undefined],
+  ])('a thrown %s fails the call with code %s', async (error, errorCode) => {
+    const { executeToolWithMetadata, setMcpClientManager } = await import(
+      '../container/src/tools.js'
+    );
+    setMcpClientManager({
+      isKnownTool: vi.fn().mockReturnValue(true),
+      callToolDetailed: vi.fn().mockRejectedValue(error),
+    } as never);
+
+    const result = await executeToolWithMetadata('demo__echo', '{}');
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(errorCode);
   });
 });

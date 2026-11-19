@@ -165,6 +165,7 @@ test('a cut-off tool call goes back to the model instead of failing the turn', a
     name: 'write',
     blocked: true,
     isError: true,
+    errorCode: 'INVALID_ARGUMENT',
   });
   expect(fs.existsSync(path.join(dir || '', 'report.md'))).toBe(false);
 }, 40_000);

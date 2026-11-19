@@ -14,6 +14,7 @@ import type {
   ToolSchema,
 } from '@hybridclaw/contracts/agent-io';
 import type { ModelCallTiming } from '@hybridclaw/contracts/token-usage';
+import type { ToolErrorCode } from '@hybridclaw/contracts/tool-error-code';
 import type { VisualAttachmentMessage } from '@hybridclaw/contracts/visual-snapshots';
 import type { BoostOffer } from '@hybridclaw/shared/boost-offer';
 import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
@@ -123,6 +124,8 @@ export interface ToolDefinition {
 export interface ToolRunResult extends VisualAttachmentMessage {
   output: string;
   isError: boolean;
+  /** Why a failed call failed, when its path reports a code. */
+  errorCode?: ToolErrorCode;
   /** The platform asks the user first; `output` is then only a placeholder. */
   boostOffer?: BoostOffer;
   connectorApproval?: ConnectorApproval;

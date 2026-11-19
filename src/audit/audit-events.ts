@@ -415,6 +415,9 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         isError: Boolean(execution.isError),
+        ...(execution.isError && execution.errorCode
+          ? { errorCode: execution.errorCode }
+          : {}),
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         resultPreview: truncateAuditText(
