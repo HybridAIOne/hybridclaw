@@ -8,6 +8,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  MESSAGE_TOOL_ACTIONS,
+  type MessageActionRequest,
+} from '@hybridclaw/contracts/message-action';
 import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
 import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
@@ -70,6 +74,7 @@ import {
 } from './gateway-json-post.js';
 import { resolveHttpArtifactReadPath } from './http-artifact-read-path.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import { normalizeMessageToolAction } from './message-tool-actions.js';
 import {
   type AuxiliaryRuntimeContext,
   captureAuxiliaryRuntimeContext,
@@ -381,19 +386,6 @@ let memoryTimezoneCache: {
 } | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
-type DiscordMessageToolAction =
-  | 'read'
-  | 'member-info'
-  | 'channel-info'
-  | 'send'
-  | 'react'
-  | 'quote-reply'
-  | 'edit'
-  | 'delete'
-  | 'pin'
-  | 'unpin'
-  | 'thread-create'
-  | 'thread-reply';
 
 function parseStructuredToolOutput(
   output: string,
@@ -459,8 +451,10 @@ export type ContainerSecretHandleCompileTimeGuards = {
   >;
 };
 
-const MESSAGE_TOOL_ACTION_LIST =
-  'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
+const MESSAGE_TOOL_ACTION_LIST = MESSAGE_TOOL_ACTIONS.join(', ');
+const MESSAGE_TOOL_ACTION_CHOICES = `${MESSAGE_TOOL_ACTIONS.slice(0, -1)
+  .map((action) => `"${action}"`)
+  .join(', ')}, or "${MESSAGE_TOOL_ACTIONS.at(-1)}"`;
 const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
@@ -794,61 +788,6 @@ function readPositiveNumberValue(value: unknown): number | null {
   return parsed;
 }
 
-function resolveDiscordMessageAction(
-  rawAction: unknown,
-): DiscordMessageToolAction | null {
-  const normalized = readStringValue(rawAction)?.toLowerCase();
-  if (!normalized) return null;
-  const compact = normalized.replace(/[\s_-]+/g, '');
-  if (
-    compact === 'read' ||
-    compact === 'readmessages' ||
-    compact === 'history' ||
-    compact === 'fetch'
-  ) {
-    return 'read';
-  }
-  if (compact === 'memberinfo' || compact === 'lookup' || compact === 'whois') {
-    return 'member-info';
-  }
-  if (compact === 'channelinfo') return 'channel-info';
-  if (
-    compact === 'react' ||
-    compact === 'reaction' ||
-    compact === 'reactions'
-  ) {
-    return 'react';
-  }
-  if (
-    compact === 'quotereply' ||
-    compact === 'replymessage' ||
-    compact === 'replyto'
-  ) {
-    return 'quote-reply';
-  }
-  if (compact === 'edit' || compact === 'update') return 'edit';
-  if (compact === 'delete' || compact === 'remove') return 'delete';
-  if (compact === 'pin') return 'pin';
-  if (compact === 'unpin') return 'unpin';
-  if (compact === 'threadcreate' || compact === 'createthread') {
-    return 'thread-create';
-  }
-  if (compact === 'threadreply' || compact === 'replythread') {
-    return 'thread-reply';
-  }
-  if (
-    compact === 'send' ||
-    compact === 'sendmessage' ||
-    compact === 'dm' ||
-    compact === 'post' ||
-    compact === 'reply' ||
-    compact === 'respond'
-  ) {
-    return 'send';
-  }
-  return null;
-}
-
 function normalizeDiscordMessageTarget(value: unknown): string | undefined {
   const raw = readStringValue(value);
   if (!raw) return undefined;
@@ -1002,7 +941,7 @@ function resolveGatewayBrowserSignInUrl(): string | null {
 }
 
 async function callGatewayMessageAction(
-  payload: Record<string, unknown>,
+  payload: MessageActionRequest,
 ): Promise<string> {
   const url = resolveGatewayMessageActionUrl();
   if (!url) {
@@ -1019,12 +958,8 @@ async function callGatewayMessageAction(
   }
 
   let response: Response;
-  const requestPayload = { ...payload };
-  if (
-    currentSessionId &&
-    typeof requestPayload.sessionId !== 'string' &&
-    !Array.isArray(requestPayload.sessionId)
-  ) {
+  const requestPayload: MessageActionRequest = { ...payload };
+  if (currentSessionId && requestPayload.sessionId === undefined) {
     requestPayload.sessionId = currentSessionId;
   }
   try {
@@ -3181,20 +3116,20 @@ async function executeToolInternal(
     }
 
     case 'message': {
-      const action = resolveDiscordMessageAction(args.action);
+      const action = normalizeMessageToolAction(args.action);
       if (!action) {
         return failTool(
-          'Error: unsupported message action. Use "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
+          `Error: unsupported message action. Use ${MESSAGE_TOOL_ACTION_CHOICES}.`,
         );
       }
 
-      const payload: Record<string, unknown> = { action };
-      const resolveAmbiguousRaw = readStringValue(args.resolveAmbiguous);
+      const payload: MessageActionRequest = { action };
+      const resolveAmbiguousRaw = readStringValue(
+        args.resolveAmbiguous,
+      )?.toLowerCase();
       const resolveAmbiguous =
-        resolveAmbiguousRaw &&
-        (resolveAmbiguousRaw.toLowerCase() === 'best' ||
-          resolveAmbiguousRaw.toLowerCase() === 'error')
-          ? resolveAmbiguousRaw.toLowerCase()
+        resolveAmbiguousRaw === 'best' || resolveAmbiguousRaw === 'error'
+          ? resolveAmbiguousRaw
           : undefined;
       const messageId = normalizeDiscordMessageTarget(args.messageId);
       const emoji = readStringValue(args.emoji);
@@ -3271,7 +3206,11 @@ async function executeToolInternal(
       }
 
       if (action === 'send') {
-        if (args.from !== undefined) payload.from = args.from;
+        if (typeof args.from === 'string' || args.from === null) {
+          payload.from = args.from;
+        } else if (args.from !== undefined) {
+          return failTool('Error: from must be a string.');
+        }
         const explicitChannelId =
           resolveDiscordMessageExplicitChannelTarget(args);
         const userLookupTarget =
@@ -4343,22 +4282,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           action: {
             type: 'string',
-            description:
-              'Action to perform: "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
-            enum: [
-              'read',
-              'member-info',
-              'channel-info',
-              'send',
-              'react',
-              'quote-reply',
-              'edit',
-              'delete',
-              'pin',
-              'unpin',
-              'thread-create',
-              'thread-reply',
-            ],
+            description: `Action to perform: ${MESSAGE_TOOL_ACTION_CHOICES}.`,
+            enum: [...MESSAGE_TOOL_ACTIONS],
           },
           channelId: {
             type: 'string',
