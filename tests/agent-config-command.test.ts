@@ -113,13 +113,18 @@ test('activating an agent keeps Discord and WhatsApp on the agent they answered 
   const { handleAgentPackageCommand } = await import(
     '../src/cli/agent-command.ts'
   );
-  const { WHATSAPP_AUTH_DIR } = await import(
-    '../src/channels/whatsapp/auth.ts'
+  const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+    '../src/config/runtime-paths.ts'
   );
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
-  fs.mkdirSync(WHATSAPP_AUTH_DIR, { recursive: true });
+  const whatsappAuthDir = path.join(
+    DEFAULT_RUNTIME_HOME_DIR,
+    'credentials',
+    'whatsapp',
+  );
+  fs.mkdirSync(whatsappAuthDir, { recursive: true });
   fs.writeFileSync(
-    path.join(WHATSAPP_AUTH_DIR, 'creds.json'),
+    path.join(whatsappAuthDir, 'creds.json'),
     JSON.stringify({ me: { id: '4915112345678@s.whatsapp.net' } }),
   );
   vi.spyOn(console, 'log').mockImplementation(() => {});
