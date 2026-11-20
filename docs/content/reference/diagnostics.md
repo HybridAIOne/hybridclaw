@@ -117,8 +117,17 @@ one turn. The audit trail keeps each tool result as a redacted preview of at
 most `audit.toolResults.maxChars` characters (4,000 by default), because tool
 results can carry mail, files, and pages from connected services. Set
 `audit.toolResults.mode` to `full` in `config.json` to also keep the full
-redacted result. If the trace is not enough, start or restart the gateway with
-request logging enabled:
+redacted result.
+
+A failed call's `tool.result` event carries `errorCode`, a google.rpc.Code name
+such as `NOT_FOUND` or `DEADLINE_EXCEEDED`, when its failure path reports one:
+an HTTP status, an MCP JSON-RPC error or `hybridai/errorCode` result metadata,
+the execution deadline, an invalid call, or a policy block. The code never
+quotes the error text. A `model.usage` event counts `modelRetries`, the provider
+calls that resent a request after the previous call failed.
+
+If the trace is not enough, start or restart the gateway with request logging
+enabled:
 
 ```bash
 hybridclaw gateway start --log-requests

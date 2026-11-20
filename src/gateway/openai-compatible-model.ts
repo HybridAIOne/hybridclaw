@@ -701,6 +701,7 @@ export function mapOpenAICompatibleUsageToTokenStats(
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   return {
     modelCalls: 1,
+    modelRetries: 0,
     apiUsageAvailable: true,
     apiPromptTokens: promptTokens,
     apiCompletionTokens: completionTokens,

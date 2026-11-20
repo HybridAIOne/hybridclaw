@@ -82,7 +82,11 @@ import {
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
-import { createRequestTurnHistory, withModelUsage } from './model-usage.js';
+import {
+  createRequestTurnHistory,
+  withModelRetry,
+  withModelUsage,
+} from './model-usage.js';
 import {
   injectNativeAudioContent,
   injectNativeVisionContent,
@@ -214,6 +218,7 @@ import {
   type ToolCall,
   type ToolDefinition,
   type ToolExecution,
+  type ToolRunResult,
 } from './types.js';
 import { latestUserRequestText } from './user-request-text.js';
 
@@ -768,17 +773,19 @@ async function executePreparedToolCall(
   const loopGuard = blockedReason
     ? { stuck: false as const }
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
-  const runtimeResult = blockedReason
+  const runtimeResult: ToolRunResult = blockedReason
     ? {
         output: denied
           ? `Approval denied: ${blockedReason}`
           : `Tool blocked by security hook: ${blockedReason}`,
         isError: true,
+        errorCode: 'PERMISSION_DENIED',
       }
     : loopGuard.stuck
       ? {
           output: loopGuard.message,
           isError: true,
+          errorCode: 'ABORTED',
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
@@ -828,6 +835,9 @@ async function executePreparedToolCall(
       toolCallId: call.id,
       durationMs: toolDuration,
       isError,
+      ...(isError && runtimeResult.errorCode
+        ? { errorCode: runtimeResult.errorCode }
+        : {}),
       blocked: Boolean(executionBlockedReason),
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
@@ -939,30 +949,32 @@ async function callModelWithRetry(
       let response: ChatCompletionResponse;
       if (onTextDelta) {
         try {
-          response = await callRoutedModelStream({
-            provider,
-            executionDeadlineAtMs: params.executionDeadlineAtMs,
-            providerMethod,
-            sessionId,
-            baseUrl,
-            apiKey,
-            model,
-            chatbotId,
-            enableRag,
-            requestHeaders,
-            messages: history,
-            tools,
-            onTextDelta: wrappedOnTextDelta ?? (() => undefined),
-            onThinkingDelta,
-            onActivity,
-            maxTokens,
-            debugModelResponses,
-            isLocal,
-            contextWindow,
-            modelBehavior,
-            thinkingFormat,
-            reasoningEffort,
-          });
+          response = await withModelRetry(attempt > 1, () =>
+            callRoutedModelStream({
+              provider,
+              executionDeadlineAtMs: params.executionDeadlineAtMs,
+              providerMethod,
+              sessionId,
+              baseUrl,
+              apiKey,
+              model,
+              chatbotId,
+              enableRag,
+              requestHeaders,
+              messages: history,
+              tools,
+              onTextDelta: wrappedOnTextDelta ?? (() => undefined),
+              onThinkingDelta,
+              onActivity,
+              maxTokens,
+              debugModelResponses,
+              isLocal,
+              contextWindow,
+              modelBehavior,
+              thinkingFormat,
+              reasoningEffort,
+            }),
+          );
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
             provider,
@@ -977,7 +989,34 @@ async function callModelWithRetry(
           ) {
             throw streamErr;
           }
-          response = await callRoutedModel({
+          // The same request again, without streaming: a resend.
+          response = await withModelRetry(true, () =>
+            callRoutedModel({
+              provider,
+              executionDeadlineAtMs: params.executionDeadlineAtMs,
+              providerMethod,
+              sessionId,
+              baseUrl,
+              apiKey,
+              model,
+              chatbotId,
+              enableRag,
+              requestHeaders,
+              messages: history,
+              tools,
+              maxTokens,
+              debugModelResponses,
+              isLocal,
+              contextWindow,
+              modelBehavior,
+              thinkingFormat,
+              reasoningEffort,
+            }),
+          );
+        }
+      } else {
+        response = await withModelRetry(attempt > 1, () =>
+          callRoutedModel({
             provider,
             executionDeadlineAtMs: params.executionDeadlineAtMs,
             providerMethod,
@@ -997,30 +1036,8 @@ async function callModelWithRetry(
             modelBehavior,
             thinkingFormat,
             reasoningEffort,
-          });
-        }
-      } else {
-        response = await callRoutedModel({
-          provider,
-          executionDeadlineAtMs: params.executionDeadlineAtMs,
-          providerMethod,
-          sessionId,
-          baseUrl,
-          apiKey,
-          model,
-          chatbotId,
-          enableRag,
-          requestHeaders,
-          messages: history,
-          tools,
-          maxTokens,
-          debugModelResponses,
-          isLocal,
-          contextWindow,
-          modelBehavior,
-          thinkingFormat,
-          reasoningEffort,
-        });
+          }),
+        );
       }
       response.timing = {
         durationMs: Date.now() - attemptStartedAt,

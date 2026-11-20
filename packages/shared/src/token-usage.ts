@@ -15,6 +15,7 @@ import { isRuntimeProviderId } from './provider-ids.ts';
 export function createTokenUsageStats(): TokenUsageStats {
   return {
     modelCalls: 0,
+    modelRetries: 0,
     apiUsageAvailable: false,
     apiPromptTokens: 0,
     apiCompletionTokens: 0,
@@ -103,7 +104,8 @@ function validateCounters(value: unknown): TokenUsageStats {
   const result = createTokenUsageStats();
   for (const [key, initial] of Object.entries(result)) {
     if (key === 'performanceSamples') continue;
-    const actual = value[key];
+    // compat: remove after v0.44. Checkpoints written before v0.44 lack modelRetries.
+    const actual = key === 'modelRetries' ? (value[key] ?? 0) : value[key];
     if (
       typeof initial === 'boolean'
         ? typeof actual !== 'boolean'

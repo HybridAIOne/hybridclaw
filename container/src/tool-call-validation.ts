@@ -67,6 +67,7 @@ export function rejectedToolExecution(
     toolCallId: call.id,
     durationMs: 0,
     isError: true,
+    errorCode: 'INVALID_ARGUMENT',
     blocked: true,
     blockedReason: 'Invalid tool call batch.',
   };

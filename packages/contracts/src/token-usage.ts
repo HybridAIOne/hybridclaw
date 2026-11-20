@@ -11,6 +11,8 @@ import type { RuntimeProviderId } from './provider-ids.ts';
  */
 export interface TokenUsageCounters {
   modelCalls: number;
+  /** Calls that resent a request after its previous call failed. */
+  modelRetries: number;
   apiUsageAvailable: boolean;
   apiPromptTokens: number;
   apiCompletionTokens: number;

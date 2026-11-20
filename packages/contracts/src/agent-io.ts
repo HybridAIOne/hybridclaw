@@ -34,6 +34,7 @@ import type { SessionSkillCatalogEntry } from './skill-catalog.ts';
 import type { StakesScore, StakesSignal } from './stakes-classifier.ts';
 import type { TokenUsageStats } from './token-usage.ts';
 import type { ToolCallLimits } from './tool-call-limits.ts';
+import { TOOL_ERROR_CODES } from './tool-error-code.ts';
 import type { FileBackedToolResult } from './tool-history.ts';
 import type {
   PdfFilePart,
@@ -336,6 +337,8 @@ export const ToolExecutionSchema = object({
   resultDigest: optional(string()),
   durationMs: number(),
   isError: optional(boolean()),
+  /** Set only on a failed call whose failure path reports a code. */
+  errorCode: optional(literal(...TOOL_ERROR_CODES)),
   blocked: optional(boolean()),
   blockedReason: optional(string()),
   approvalTier: optional(approvalTier()),

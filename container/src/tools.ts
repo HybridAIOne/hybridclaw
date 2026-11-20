@@ -105,7 +105,12 @@ import {
 } from './task-sandbox-files.js';
 import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
-import { failTool, ToolExecutionFailure } from './tool-errors.js';
+import {
+  failTool,
+  httpStatusErrorCode,
+  ToolExecutionFailure,
+  thrownToolErrorCode,
+} from './tool-errors.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -1409,12 +1414,16 @@ async function callGatewayHttpRequest(
       parsed && typeof parsed.error === 'string'
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
-    return failTool(`Error: ${errorText}`);
+    return failTool(
+      `Error: ${errorText}`,
+      httpStatusErrorCode(response.status),
+    );
   }
 
   if (parsed && parsed.ok === false) {
     return failTool(
       JSON.stringify(summarizeGatewayHttpFailure(parsed), null, 2),
+      httpStatusErrorCode(parsed.status),
     );
   }
 
@@ -3771,7 +3780,8 @@ async function executeToolInternal(
         }
       }
       const output = `${lines.join('\n')}\n\n${header}${outputText}`;
-      if (isHttpError) return failTool(output);
+      if (isHttpError)
+        return failTool(output, httpStatusErrorCode(result.status));
       return output;
     }
 
@@ -4149,6 +4159,7 @@ export async function executeToolWithMetadata(
       output: appendFileReferenceReceipt(metadata.output, sentFiles),
     };
   } catch (err) {
+    const errorCode = thrownToolErrorCode(err);
     if (
       err instanceof ToolExecutionFailure ||
       err instanceof IncompleteVisionAnalysisError
@@ -4156,11 +4167,13 @@ export async function executeToolWithMetadata(
       return {
         output: err.output,
         isError: true,
+        ...(errorCode ? { errorCode } : {}),
       };
     }
     return {
       output: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
       isError: true,
+      ...(errorCode ? { errorCode } : {}),
     };
   }
 }

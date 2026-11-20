@@ -191,6 +191,7 @@ export function buildTokenUsageAuditPayload(
     modelCalls: tokenUsage
       ? Math.max(apiTotalTokens > 0 ? 1 : 0, tokenUsage.modelCalls)
       : 0,
+    modelRetries: tokenUsage?.modelRetries ?? 0,
     promptChars,
     completionChars,
     promptTokens,
