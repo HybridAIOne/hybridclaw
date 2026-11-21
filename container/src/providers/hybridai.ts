@@ -5,7 +5,7 @@
  */
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
 import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
-import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,
@@ -67,50 +67,16 @@ interface StreamChunkPayload {
   error?: unknown;
 }
 
-function buildHybridAIRequestBody(
-  args: NormalizedCallArgs,
-): Record<string, unknown> {
-  const model = stripHybridAIModelPrefix(args.model);
-  const request: Record<string, unknown> = {
-    model,
+function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+  return buildHybridAIRequestBody({
+    model: args.model,
     messages: args.messages,
-    // The bot is optional, and RAG searches the bot's knowledge.
-    ...(args.chatbotId
-      ? { chatbot_id: args.chatbotId, enable_rag: args.enableRag }
-      : {}),
-  };
-  if (args.tools.length > 0) {
-    request.tools = args.tools;
-    request.tool_choice = 'auto';
-  }
-  if (
-    typeof args.maxTokens === 'number' &&
-    Number.isFinite(args.maxTokens) &&
-    args.maxTokens > 0
-  ) {
-    request.max_tokens = Math.floor(args.maxTokens);
-  }
-  const reasoningEffort =
-    args.reasoningEffort &&
-    getSupportedReasoningEfforts('hybridai', model).includes(
-      args.reasoningEffort,
-    )
-      ? args.reasoningEffort
-      : undefined;
-  if (reasoningEffort) {
-    request.reasoning_effort = reasoningEffort;
-    request.chat_template_kwargs = {
-      enable_thinking: reasoningEffort !== 'none',
-    };
-  }
-  if (
-    /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
-      model.toLowerCase(),
-    )
-  ) {
-    request.thinking = { type: 'adaptive', display: 'summarized' };
-  }
-  return request;
+    chatbotId: args.chatbotId,
+    enableRag: args.enableRag,
+    tools: args.tools,
+    maxTokens: args.maxTokens,
+    reasoningEffort: args.reasoningEffort,
+  });
 }
 
 function buildHybridAIRequestHeaders(
@@ -188,7 +154,7 @@ function extractStructuredReasoning(value: unknown): string | null {
 export async function callHybridAIProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const body = buildHybridAIRequestBody(args);
+  const body = buildRequestBody(args);
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -237,7 +203,7 @@ export async function callHybridAIProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
   const body = {
-    ...buildHybridAIRequestBody(args),
+    ...buildRequestBody(args),
     stream: true,
     stream_options: {
       include_usage: true,

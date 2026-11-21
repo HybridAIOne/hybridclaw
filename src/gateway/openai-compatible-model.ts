@@ -12,11 +12,12 @@ import {
   createResponsesStreamState,
   type ResponsesCompletion,
 } from '@hybridclaw/shared/provider-wire/codex-responses';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '@hybridclaw/shared/server-sent-events';
-import { stripHybridAIModelPrefix } from '../providers/model-names.js';
 import {
   isOpenAICompatProviderId,
   type RuntimeProviderId,
@@ -200,27 +201,6 @@ function createProviderError(status: number, body: string): Error {
   );
 }
 
-function buildHybridAIRequestBody(
-  params: OpenAICompatibleModelCallParams,
-): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: stripHybridAIModelPrefix(params.model),
-    messages: params.messages,
-    // The bot is optional, and RAG searches the bot's knowledge.
-    ...(params.runtime.chatbotId
-      ? {
-          chatbot_id: params.runtime.chatbotId,
-          enable_rag: params.runtime.enableRag,
-        }
-      : {}),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools;
-    body.tool_choice = params.toolChoice || 'auto';
-  }
-  return body;
-}
-
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
@@ -254,9 +234,21 @@ function buildChatCompletionsUrl(
 function buildChatCompletionsRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  return params.runtime.provider === 'hybridai'
-    ? buildHybridAIRequestBody(params)
-    : buildOpenAICompatRequestBody(params);
+  if (params.runtime.provider !== 'hybridai') {
+    return buildOpenAICompatRequestBody(params);
+  }
+  return buildHybridAIRequestBody({
+    model: params.model,
+    messages: params.messages,
+    chatbotId: params.runtime.chatbotId,
+    enableRag: params.runtime.enableRag,
+    tools: params.tools,
+    toolChoice: params.toolChoice,
+    maxTokens: resolveProviderRequestMaxTokens({
+      model: params.model,
+      discoveredMaxTokens: params.runtime.maxTokens,
+    }),
+  });
 }
 
 function buildCodexRequest(
