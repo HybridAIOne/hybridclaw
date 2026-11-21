@@ -2,6 +2,14 @@ import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destinatio
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
+  adaptResponsesPayload,
+  buildResponsesRequestBody,
+  buildResponsesStreamResponse,
+  consumeResponsesStreamEvent,
+  createResponsesStreamState,
+  type ResponsesCompletion,
+} from '@hybridclaw/shared/provider-wire/codex-responses';
+import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
 } from '@hybridclaw/shared/request-max-tokens';
@@ -978,10 +986,6 @@ function normalizeOpenAICompatModelName(
   return trimmed.slice(prefix.length) || trimmed;
 }
 
-function normalizeCodexModelName(model: string): string {
-  return stripProviderPrefix(model, 'openai-codex');
-}
-
 function normalizeOllamaModelName(model: string): string {
   return stripProviderPrefix(model, 'ollama');
 }
@@ -1268,75 +1272,21 @@ async function callAnthropicTextModel(
   };
 }
 
-function convertMessageToCodexInput(
-  message: ChatMessage,
-): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  if (message.role === 'system') return items;
-  if (message.role === 'tool') {
-    items.push({
-      type: 'function_call_output',
-      call_id: message.tool_call_id || '',
-      output: contentToText(message.content),
-    });
-    return items;
-  }
-
-  if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-    for (const toolCall of message.tool_calls) {
-      items.push({
-        type: 'function_call',
-        call_id: toolCall.id,
-        name: toolCall.function.name,
-        arguments: toolCall.function.arguments,
-      });
-    }
-  }
-
-  const text = contentToText(message.content);
-  if (text.trim()) {
-    items.push({
-      role: message.role,
-      content: text,
-    });
-  }
-  return items;
-}
-
-function convertToolsToCodexTools(
-  tools: AuxiliaryToolDefinition[],
-): Array<Record<string, unknown>> {
-  return tools.map((tool) => ({
-    type: 'function',
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: tool.function.parameters,
-  }));
-}
-
 async function callCodexTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
-  const instructions = messages
-    .filter((message) => message.role === 'system')
-    .map((message) => contentToText(message.content).trim())
-    .filter((message) => message.length > 0)
-    .join('\n\n');
   const body: Record<string, unknown> = {
     ...(options.extraBody || {}),
-    model: normalizeCodexModelName(context.model),
-    store: false,
+    ...buildResponsesRequestBody({
+      provider: context.provider,
+      model: context.model,
+      messages,
+      tools: options.tools,
+    }),
     stream: true,
-    instructions: instructions || 'You are Codex, a coding assistant.',
-    input: messages.flatMap(convertMessageToCodexInput),
   };
-  if (options.tools.length > 0) {
-    body.tools = convertToolsToCodexTools(options.tools);
-    body.tool_choice = 'auto';
-    body.parallel_tool_calls = true;
-  }
 
   const response = await fetch(`${context.baseUrl}/responses`, {
     method: 'POST',
@@ -1355,117 +1305,49 @@ async function callCodexTextModel(
   const contentType = (
     response.headers.get('content-type') || ''
   ).toLowerCase();
+  let completion: ResponsesCompletion;
   if (
     contentType.includes('application/json') &&
     !contentType.includes('event-stream')
   ) {
-    const payload = (await response.json()) as {
-      output?: Array<{
-        type?: string;
-        content?: Array<{
-          text?: string;
-          output_text?: string;
-        }>;
-      }>;
-      usage?: unknown;
-    };
-    const chunks: string[] = [];
-    for (const entry of payload.output || []) {
-      if (entry.type !== 'message' || !Array.isArray(entry.content)) continue;
-      for (const part of entry.content) {
-        const text =
-          typeof part.text === 'string'
-            ? part.text
-            : typeof part.output_text === 'string'
-              ? part.output_text
-              : '';
-        if (text.trim()) chunks.push(text.trim());
+    completion = adaptResponsesPayload(await response.json(), context.model);
+  } else {
+    if (!response.body) {
+      throw new Error('Auxiliary provider returned no response body.');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const state = createResponsesStreamState(context.model);
+    const handlers = { onTextDelta: () => undefined };
+    let buffer = '';
+    let done = false;
+    while (!done) {
+      const next = await reader.read();
+      if (next.done) break;
+      buffer += decoder.decode(next.value, { stream: true });
+      const drained = drainServerSentEventBlocks(buffer);
+      buffer = drained.remainder;
+      for (const block of drained.blocks) {
+        const event = parseServerSentEventBlock(block);
+        if (!event) continue;
+        done = consumeResponsesStreamEvent(
+          event.data,
+          event.event,
+          state,
+          handlers,
+        );
+        if (done) break;
       }
     }
-    return {
-      content: chunks.join('\n').trim(),
-      usage: readAuxiliaryModelUsage(payload.usage),
-    };
-  }
-
-  if (!response.body) {
-    throw new Error('Auxiliary provider returned no response body.');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let text = '';
-  let usage: AuxiliaryModelUsage | undefined;
-
-  const applyCodexEvent = (payload: Record<string, unknown>): void => {
-    const type = typeof payload.type === 'string' ? payload.type : '';
-    if (type === 'response.output_text.delta') {
-      const delta =
-        typeof payload.delta === 'string'
-          ? payload.delta
-          : typeof payload.text === 'string'
-            ? payload.text
-            : '';
-      if (delta) text += delta;
-      return;
-    }
-    if (type === 'response.output_text.done') {
-      const finalText =
-        typeof payload.text === 'string'
-          ? payload.text
-          : typeof payload.output_text === 'string'
-            ? payload.output_text
-            : '';
-      if (finalText && finalText.length >= text.length) {
-        text = finalText;
-      }
-      return;
-    }
-    if (type !== 'response.completed') return;
-    const responsePayload = payload.response;
-    if (!isRecord(responsePayload)) {
-      return;
-    }
-    usage = readAuxiliaryModelUsage(responsePayload.usage) ?? usage;
-    if (!Array.isArray(responsePayload.output)) return;
-    const completedText = extractResponseTextContent(
-      (
-        responsePayload as { output: Array<{ content?: unknown }> }
-      ).output.flatMap((entry) => entry.content ?? []),
-    );
-    if (completedText && completedText.length >= text.length) {
-      text = completedText;
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-
-    const drained = drainServerSentEventBlocks(buffer);
-    buffer = drained.remainder;
-    for (const block of drained.blocks) {
-      const event = parseServerSentEventBlock(block);
-      if (!event || !event.data || event.data === '[DONE]') continue;
-      const payload = JSON.parse(event.data) as Record<string, unknown>;
-      applyCodexEvent(payload);
-    }
-
-    if (done) break;
-  }
-
-  if (buffer.trim()) {
-    const event = parseServerSentEventBlock(buffer);
-    if (event?.data && event.data !== '[DONE]') {
-      const payload = JSON.parse(event.data) as Record<string, unknown>;
-      applyCodexEvent(payload);
-    }
+    const tail = done ? null : parseServerSentEventBlock(buffer);
+    if (tail)
+      consumeResponsesStreamEvent(tail.data, tail.event, state, handlers);
+    completion = buildResponsesStreamResponse(state, context.model);
   }
 
   return {
-    content: text.trim(),
-    usage,
+    content: extractResponseTextContent(completion.choices[0]?.message.content),
+    usage: readAuxiliaryModelUsage(completion.usage),
   };
 }
 
