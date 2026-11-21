@@ -5,9 +5,18 @@
  */
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import {
-  stripHybridAIModelPrefix,
-  stripProviderPrefix,
-} from '../providers/model-names.js';
+  adaptResponsesPayload,
+  buildResponsesRequestBody,
+  buildResponsesStreamResponse,
+  consumeResponsesStreamEvent,
+  createResponsesStreamState,
+  type ResponsesCompletion,
+} from '@hybridclaw/shared/provider-wire/codex-responses';
+import {
+  drainServerSentEventBlocks,
+  parseServerSentEventBlock,
+} from '@hybridclaw/shared/server-sent-events';
+import { stripHybridAIModelPrefix } from '../providers/model-names.js';
 import {
   isOpenAICompatProviderId,
   type RuntimeProviderId,
@@ -132,10 +141,6 @@ function normalizeOpenAICompatModelName(
     : trimmed;
 }
 
-function normalizeCodexModelName(model: string): string {
-  return stripProviderPrefix(model, 'openai-codex');
-}
-
 function contentToText(content: ChatMessage['content']): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -254,145 +259,55 @@ function buildChatCompletionsRequestBody(
     : buildOpenAICompatRequestBody(params);
 }
 
-function convertMessageToResponsesInput(
-  message: ChatMessage,
-): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  if (message.role === 'system') return items;
-  if (message.role === 'tool') {
-    items.push({
-      type: 'function_call_output',
-      call_id: message.tool_call_id || '',
-      output: contentToText(message.content),
-    });
-    return items;
-  }
-  if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-    for (const toolCall of message.tool_calls) {
-      items.push({
-        type: 'function_call',
-        call_id: toolCall.id,
-        name: toolCall.function.name,
-        arguments: toolCall.function.arguments,
-      });
-    }
-  }
-  if (typeof message.content === 'string') {
-    if (message.content.trim()) {
-      items.push({ role: message.role, content: message.content });
-    }
-    return items;
-  }
-  if (Array.isArray(message.content) && message.content.length > 0) {
-    const content: Array<Record<string, unknown>> = [];
-    for (const part of message.content) {
-      if (part.type === 'text') {
-        content.push({ type: 'input_text', text: part.text });
-        continue;
-      }
-      if (part.type === 'image_url') {
-        content.push({ type: 'input_image', image_url: part.image_url.url });
-      }
-    }
-    if (content.length > 0) {
-      items.push({ role: message.role, content });
-    }
-  }
-  return items;
-}
-
-function buildCodexRequestBody(
+function buildCodexRequest(
   params: OpenAICompatibleModelCallParams,
-): Record<string, unknown> {
-  const instructions = params.messages
-    .filter((message) => message.role === 'system')
-    .map((message) => contentToText(message.content).trim())
-    .filter(Boolean)
-    .join('\n\n');
-  const body: Record<string, unknown> = {
-    model: normalizeCodexModelName(params.model),
-    store: false,
-    instructions: instructions || 'You are Codex, a coding assistant.',
-    input: params.messages.flatMap(convertMessageToResponsesInput),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools.map((tool) => ({
-      type: 'function',
-      name: tool.function.name,
-      description: tool.function.description,
-      parameters: tool.function.parameters,
-    }));
-    body.tool_choice = params.toolChoice || 'auto';
-    body.parallel_tool_calls = true;
-  }
-  return body;
+  stream: boolean,
+): string {
+  return JSON.stringify({
+    ...buildResponsesRequestBody({
+      provider: params.runtime.provider,
+      model: params.model,
+      messages: params.messages,
+      tools: params.tools,
+      toolChoice: params.toolChoice,
+    }),
+    ...(stream ? { stream: true } : {}),
+  });
 }
 
-function adaptCodexResponse(
-  payload: unknown,
-  fallbackModel: string,
+function toModelResponse(
+  completion: ResponsesCompletion<OpenAICompatibleUsagePayload>,
 ): OpenAICompatibleModelResponse {
-  const record = isRecord(payload) ? payload : {};
-  const output = Array.isArray(record.output) ? record.output : [];
-  const toolCalls: ToolCall[] = [];
-  const textChunks: string[] = [];
-
-  for (const entry of output) {
-    if (!isRecord(entry)) continue;
-    const type = typeof entry.type === 'string' ? entry.type : '';
-    if (type === 'message' && Array.isArray(entry.content)) {
-      for (const part of entry.content) {
-        if (!isRecord(part)) continue;
-        const text =
-          typeof part.text === 'string'
-            ? part.text
-            : typeof part.output_text === 'string'
-              ? part.output_text
-              : '';
-        if (text) textChunks.push(text);
-      }
-      continue;
-    }
-    if (type === 'function_call') {
-      toolCalls.push({
-        id:
-          (typeof entry.call_id === 'string' && entry.call_id) ||
-          (typeof entry.id === 'string' && entry.id) ||
-          '',
-        type: 'function',
-        function: {
-          name: typeof entry.name === 'string' ? entry.name : '',
-          arguments:
-            typeof entry.arguments === 'string'
-              ? entry.arguments
-              : JSON.stringify(entry.arguments || {}),
-        },
-      });
-    }
-  }
-
+  const message = completion.choices[0]?.message;
+  const content = Array.isArray(message?.content)
+    ? message.content
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('') || null
+    : (message?.content ?? null);
   return {
-    id: typeof record.id === 'string' ? record.id : 'response',
-    model:
-      typeof record.model === 'string' && record.model
-        ? record.model
-        : normalizeCodexModelName(fallbackModel),
+    id: completion.id,
+    model: completion.model,
     choices: [
       {
         message: {
           role: 'assistant',
-          content: textChunks.join('') || null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          content,
+          ...(message?.tool_calls ? { tool_calls: message.tool_calls } : {}),
         },
-        finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+        finish_reason: completion.choices[0]?.finish_reason || 'stop',
       },
     ],
-    ...(isRecord(record.usage)
-      ? {
-          usage: record.usage as OpenAICompatibleModelResponse['usage'],
-        }
-      : {}),
+    ...(completion.usage ? { usage: completion.usage } : {}),
   };
+}
+
+function adaptCodexResponse(
+  payload: unknown,
+  model: string,
+): OpenAICompatibleModelResponse {
+  return toModelResponse(
+    adaptResponsesPayload<OpenAICompatibleUsagePayload>(payload, model),
+  );
 }
 
 export async function callOpenAICompatibleModel(
@@ -407,7 +322,7 @@ export async function callOpenAICompatibleModel(
           apiKey: params.runtime.apiKey,
           requestHeaders: params.runtime.requestHeaders,
         }),
-        body: JSON.stringify(buildCodexRequestBody(params)),
+        body: buildCodexRequest(params, false),
       },
     );
     if (!response.ok) {
@@ -445,10 +360,7 @@ export async function callOpenAICompatibleModelStream(
           requestHeaders: params.runtime.requestHeaders,
           accept: 'text/event-stream, application/json',
         }),
-        body: JSON.stringify({
-          ...buildCodexRequestBody(params),
-          stream: true,
-        }),
+        body: buildCodexRequest(params, true),
       },
     );
     if (!response.ok) {
@@ -472,69 +384,42 @@ export async function callOpenAICompatibleModelStream(
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    const state = createResponsesStreamState(params.model);
+    const handlers = { onTextDelta: params.onTextDelta };
     let buffer = '';
-    let text = '';
     let done = false;
-    let completedPayload: unknown = null;
     try {
       while (!done) {
         const next = await reader.read();
         if (next.done) break;
         buffer += decoder.decode(next.value, { stream: true });
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() || '';
-        for (const block of blocks) {
-          const dataLines = block
-            .split(/\r?\n/)
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trim());
-          const payloadText = dataLines.join('\n').trim();
-          if (!payloadText) continue;
-          if (payloadText === '[DONE]') {
-            done = true;
-            break;
-          }
-          let payload: unknown;
-          try {
-            payload = JSON.parse(payloadText) as unknown;
-          } catch {
-            continue;
-          }
-          if (!isRecord(payload)) continue;
-          if (payload.type === 'response.output_text.delta') {
-            const delta =
-              typeof payload.delta === 'string' ? payload.delta : '';
-            if (delta) {
-              text += delta;
-              params.onTextDelta(delta);
-            }
-          }
-          if (
-            payload.type === 'response.completed' &&
-            isRecord(payload.response)
-          ) {
-            completedPayload = payload.response;
-            done = true;
-            break;
-          }
+        const drained = drainServerSentEventBlocks(buffer);
+        buffer = drained.remainder;
+        for (const block of drained.blocks) {
+          const event = parseServerSentEventBlock(block);
+          if (!event) continue;
+          done = consumeResponsesStreamEvent(
+            event.data,
+            event.event,
+            state,
+            handlers,
+          );
+          if (done) break;
         }
       }
+      const tail = done ? null : parseServerSentEventBlock(buffer);
+      if (tail)
+        consumeResponsesStreamEvent(tail.data, tail.event, state, handlers);
     } finally {
       reader.releaseLock();
       decoder.decode();
     }
-    return completedPayload
-      ? adaptCodexResponse(completedPayload, params.model)
-      : {
-          id: 'response',
-          model: normalizeCodexModelName(params.model),
-          choices: [
-            {
-              message: { role: 'assistant', content: text || null },
-              finish_reason: 'stop',
-            },
-          ],
-        };
+    return toModelResponse(
+      buildResponsesStreamResponse<OpenAICompatibleUsagePayload>(
+        state,
+        params.model,
+      ),
+    );
   }
 
   const url = buildChatCompletionsUrl(params.runtime);
