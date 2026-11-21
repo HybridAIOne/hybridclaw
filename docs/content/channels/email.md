@@ -93,7 +93,9 @@ console, open **Channels > Email**, use **Add additional mailbox**, select the
 target agent, enter that mailbox address, and set the password SecretRef id for
 a secret stored in **Secrets**. Inbound mail received by the default mailbox is
 handled by the main agent. Outbound mail from agents without an additional
-mailbox uses the default mailbox as its fallback sender. The top-level IMAP/SMTP
+mailbox uses the default mailbox as its fallback sender. Each agent's prompt
+names its own address or says it has none, and a `message` send result reports
+the `from` address it used. The top-level IMAP/SMTP
 fields act as shared defaults; each additional mailbox row can override them.
 When HybridAI credentials are configured, **Fetch HybridAI mailbox** on an
 additional mailbox row loads the preconfigured HybridAI postbox for that row's

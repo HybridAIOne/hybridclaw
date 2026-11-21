@@ -541,9 +541,7 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
     expect(prompt).toContain(
       'Use the `message` tool for sending or reading messages on active communication channels: email.',
     );
-    expect(prompt).toContain(
-      "Email: send and read email in the agent's own mailbox.",
-    );
+    expect(prompt).toContain('Email: this agent has no mailbox of its own');
     expect(prompt).not.toContain('WhatsApp: send messages');
     expect(prompt).toContain(
       'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',

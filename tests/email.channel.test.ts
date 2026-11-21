@@ -1032,10 +1032,14 @@ describe('email runtime', () => {
     );
     const runtime = createEmailRuntime();
 
-    await runtime.sendToEmail('boss@example.com', 'hello from the bot', {
-      fromName: 'assist',
-    });
+    // An agent without its own mailbox is told which address it used.
+    const from = await runtime.sendToEmail(
+      'boss@example.com',
+      'hello from the bot',
+      { agentId: 'research', fromName: 'assist' },
+    );
 
+    expect(from).toBe('agent@example.com');
     expect(sendMail).toHaveBeenCalledTimes(1);
     expect(sendMail.mock.calls[0]?.[0]?.from).toEqual({
       name: 'assist',
