@@ -7,7 +7,7 @@ import {
 } from '@hybridclaw/shared/anthropic-utils';
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
-import { collapseSystemMessages } from '../system-messages.js';
+import { collapseSystemMessages } from '@hybridclaw/shared/provider-wire/chat-completions';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,

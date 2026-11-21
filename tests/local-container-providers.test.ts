@@ -8,7 +8,7 @@ import {
   callLocalOpenAICompatProviderStream,
   estimateLocalOpenAICompatPromptOverheadTokens,
 } from '../container/src/providers/local-openai-compat.js';
-import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
+import { normalizeOpenRouterRuntimeModelName } from '@hybridclaw/shared/model-names';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {

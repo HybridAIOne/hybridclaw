@@ -10,15 +10,14 @@
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { stripHybridAIModelPrefix } from '../model-names.ts';
 import { getSupportedReasoningEfforts } from '../reasoning-effort.ts';
+import {
+  buildChatCompletionsBody,
+  type ChatCompletionsRequestParams,
+} from './chat-completions.ts';
 
-export interface HybridAIRequestParams {
-  model: string;
-  messages: unknown[];
+export interface HybridAIRequestParams extends ChatCompletionsRequestParams {
   chatbotId?: string;
   enableRag?: boolean;
-  tools: unknown[];
-  toolChoice?: unknown;
-  maxTokens?: number;
   reasoningEffort?: ReasoningEffort;
 }
 
@@ -30,24 +29,12 @@ export function buildHybridAIRequestBody(
 ): Record<string, unknown> {
   const model = stripHybridAIModelPrefix(params.model);
   const body: Record<string, unknown> = {
-    model,
-    messages: params.messages,
+    ...buildChatCompletionsBody({ ...params, model }),
     // The bot is optional, and RAG searches the bot's knowledge.
     ...(params.chatbotId
       ? { chatbot_id: params.chatbotId, enable_rag: params.enableRag }
       : {}),
   };
-  if (params.tools.length > 0) {
-    body.tools = params.tools;
-    body.tool_choice = params.toolChoice || 'auto';
-  }
-  if (
-    typeof params.maxTokens === 'number' &&
-    Number.isFinite(params.maxTokens) &&
-    params.maxTokens > 0
-  ) {
-    body.max_tokens = Math.floor(params.maxTokens);
-  }
   const reasoningEffort =
     params.reasoningEffort &&
     getSupportedReasoningEfforts('hybridai', model).includes(

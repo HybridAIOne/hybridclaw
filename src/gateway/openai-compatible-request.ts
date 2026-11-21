@@ -3,6 +3,7 @@
  * Explicit execution budgets start before body/media preparation; the gateway
  * and runners enforce them. Parsing never grants tool access.
  */
+
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
@@ -12,13 +13,11 @@ import {
   readExecutionDeadline,
   remainingExecutionMs,
 } from '@hybridclaw/shared/execution-deadline';
+import type { ChatCompletionsToolChoice } from '@hybridclaw/shared/provider-wire/chat-completions';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import { normalizeOptionalTrimmedString as normalizeOptionalString } from '../utils/normalized-strings.js';
-import type {
-  OpenAICompatibleToolChoice,
-  OpenAICompatibleToolDefinition,
-} from './openai-compatible-model.js';
+import type { OpenAICompatibleToolDefinition } from './openai-compatible-model.js';
 
 const MAX_REQUEST_BYTES = 1_000_000;
 const EXECUTION_TIMEOUT_HEADER = 'X-HybridClaw-Timeout-Ms';
@@ -60,7 +59,7 @@ export interface ParsedOpenAICompatibleChatRequest extends ExecutionDeadline {
   evalProfile?: string;
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
-  toolChoice?: OpenAICompatibleToolChoice;
+  toolChoice?: ChatCompletionsToolChoice;
   priorMessages: Array<{
     role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;
@@ -653,7 +652,7 @@ function normalizeToolDefinitions(
 
 function normalizeToolChoice(
   body: OpenAIChatCompletionRequestBody,
-): OpenAICompatibleToolChoice | undefined {
+): ChatCompletionsToolChoice | undefined {
   const rawToolChoice =
     body.tool_choice !== undefined ? body.tool_choice : body.function_call;
   if (rawToolChoice === undefined) return undefined;

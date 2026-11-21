@@ -3,7 +3,15 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/model-names';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import {
+  applyChatCompletionsChunk,
+  buildChatCompletionsBody,
+  type ChatCompletionsToolChoice,
+  collapseSystemMessages,
+  createChatCompletionsStreamState,
+} from '@hybridclaw/shared/provider-wire/chat-completions';
 import {
   adaptResponsesPayload,
   buildResponsesRequestBody,
@@ -18,10 +26,7 @@ import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '@hybridclaw/shared/server-sent-events';
-import {
-  isOpenAICompatProviderId,
-  type RuntimeProviderId,
-} from '../providers/provider-ids.js';
+import { isOpenAICompatProviderId } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -35,17 +40,6 @@ export interface OpenAICompatibleToolDefinition {
     parameters?: Record<string, unknown>;
   };
 }
-
-export type OpenAICompatibleToolChoice =
-  | 'auto'
-  | 'none'
-  | 'required'
-  | {
-      type: 'function';
-      function: {
-        name: string;
-      };
-    };
 
 // Upstream usage payload. Cache fields are optional and spelled differently
 // per provider family (OpenAI-style prompt_tokens_details.cached_tokens vs
@@ -85,7 +79,7 @@ interface OpenAICompatibleModelCallParams {
   model: string;
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
-  toolChoice?: OpenAICompatibleToolChoice;
+  toolChoice?: ChatCompletionsToolChoice;
 }
 
 interface OpenAICompatibleModelStreamParams
@@ -112,69 +106,6 @@ function normalizeBaseUrl(baseUrl: string): string {
   return String(baseUrl || '')
     .trim()
     .replace(/\/+$/g, '');
-}
-
-function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = 'openrouter/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  const upstreamModel = trimmed.slice(prefix.length).trim();
-  return upstreamModel.includes('/') ? upstreamModel : trimmed;
-}
-
-function normalizeOpenAICompatModelName(
-  provider: RuntimeProviderId,
-  model: string,
-): string {
-  const trimmed = String(model || '').trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  if (provider === 'huggingface') {
-    const prefix = 'huggingface/';
-    return trimmed.toLowerCase().startsWith(prefix)
-      ? trimmed.slice(prefix.length) || trimmed
-      : trimmed;
-  }
-  const prefix = `${provider}/`;
-  return trimmed.toLowerCase().startsWith(prefix)
-    ? trimmed.slice(prefix.length) || trimmed
-    : trimmed;
-}
-
-function contentToText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const textBlocks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text') continue;
-    if (!part.text) continue;
-    textBlocks.push(part.text);
-  }
-  return textBlocks.join('\n');
-}
-
-function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push({ ...message });
-      continue;
-    }
-    const text = contentToText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-  return [
-    {
-      role: 'system',
-      content: systemBlocks.join('\n\n'),
-    },
-    ...remaining,
-  ];
 }
 
 function parseErrorText(body: string): string {
@@ -204,18 +135,15 @@ function createProviderError(status: number, body: string): Error {
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+  return buildChatCompletionsBody({
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
       params.runtime.model || params.model,
     ),
     messages: collapseSystemMessages(params.messages),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools;
-    body.tool_choice = params.toolChoice || 'auto';
-  }
-  return body;
+    tools: params.tools,
+    toolChoice: params.toolChoice,
+  });
 }
 
 function buildChatCompletionsUrl(
@@ -455,25 +383,10 @@ export async function callOpenAICompatibleModelStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const state = createChatCompletionsStreamState<OpenAICompatibleUsagePayload>(
+    params.model,
+  );
   let buffer = '';
-  let streamId = '';
-  let streamModel = params.model;
-  let text = '';
-  let usage: OpenAICompatibleModelResponse['usage'] | undefined;
-  const toolCalls: ToolCall[] = [];
-  let finishReason = 'stop';
-
-  const ensureToolCall = (index: number): ToolCall => {
-    while (toolCalls.length <= index) {
-      toolCalls.push({
-        id: '',
-        type: 'function',
-        function: { name: '', arguments: '' },
-      });
-    }
-    return toolCalls[index] as ToolCall;
-  };
-
   try {
     while (true) {
       const next = await reader.read();
@@ -493,54 +406,8 @@ export async function callOpenAICompatibleModelStream(
           continue;
         }
         if (!isRecord(payload)) continue;
-        if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
-        if (typeof payload.model === 'string' && payload.model) {
-          streamModel = payload.model;
-        }
-        if (isRecord(payload.usage)) {
-          usage = payload.usage as OpenAICompatibleModelResponse['usage'];
-        }
-        const choice = Array.isArray(payload.choices)
-          ? payload.choices[0]
-          : undefined;
-        if (!isRecord(choice)) continue;
-        if (isRecord(choice.delta)) {
-          const delta = choice.delta;
-          if (typeof delta.content === 'string' && delta.content) {
-            text += delta.content;
-            params.onTextDelta(delta.content);
-          }
-          if (Array.isArray(delta.tool_calls)) {
-            for (const rawToolCall of delta.tool_calls) {
-              if (!isRecord(rawToolCall)) continue;
-              const index =
-                typeof rawToolCall.index === 'number' && rawToolCall.index >= 0
-                  ? rawToolCall.index
-                  : 0;
-              const target = ensureToolCall(index);
-              if (typeof rawToolCall.id === 'string' && rawToolCall.id) {
-                target.id += rawToolCall.id;
-              }
-              if (isRecord(rawToolCall.function)) {
-                if (
-                  typeof rawToolCall.function.name === 'string' &&
-                  rawToolCall.function.name
-                ) {
-                  target.function.name += rawToolCall.function.name;
-                }
-                if (
-                  typeof rawToolCall.function.arguments === 'string' &&
-                  rawToolCall.function.arguments
-                ) {
-                  target.function.arguments += rawToolCall.function.arguments;
-                }
-              }
-            }
-          }
-        }
-        if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
+        const added = applyChatCompletionsChunk(state, payload);
+        if (added.content) params.onTextDelta(added.content);
       }
     }
   } finally {
@@ -549,20 +416,23 @@ export async function callOpenAICompatibleModelStream(
   }
 
   return {
-    id: streamId || 'stream',
-    model: streamModel,
+    id: state.id || 'stream',
+    model: state.model,
     choices: [
       {
         message: {
           role: 'assistant',
-          content: text || null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          content: state.content || null,
+          ...(state.toolCalls.length > 0
+            ? { tool_calls: state.toolCalls }
+            : {}),
         },
         finish_reason:
-          finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+          state.finishReason ||
+          (state.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
       },
     ],
-    ...(usage ? { usage } : {}),
+    ...(state.usage ? { usage: state.usage } : {}),
   };
 }
 

@@ -12,33 +12,6 @@ function contentToText(content: ChatMessageContent): string {
   return chunks.join('\n');
 }
 
-export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push(message);
-      continue;
-    }
-
-    const text = contentToText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-
-  return [
-    {
-      role: 'system',
-      content: systemBlocks.join('\n\n'),
-    },
-    ...remaining.map((message) => ({ ...message })),
-  ];
-}
-
 export function mergeSystemMessage(
   messages: ChatMessage[],
   instruction: string,

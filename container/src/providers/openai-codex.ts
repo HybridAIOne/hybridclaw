@@ -28,6 +28,7 @@ import {
   readRetryAfterMs,
 } from './shared.js';
 import {
+  emitResponseTextDeltas,
   fetchWithHeaderTimeout,
   readJsonWithIdleTimeout,
   readWithIdleTimeout,
@@ -75,21 +76,6 @@ function assertNonEmptyCodexResponse(
   );
   const label = provider === 'openai' ? 'OpenAI' : 'Codex';
   throw new Error(`${label} Responses API returned no output items`);
-}
-
-function emitResponseTextDeltas(
-  response: ChatCompletionResponse,
-  onTextDelta: (delta: string) => void,
-): void {
-  const content = response.choices[0]?.message?.content;
-  if (typeof content === 'string') {
-    if (content) onTextDelta(content);
-    return;
-  }
-  if (!Array.isArray(content)) return;
-  for (const part of content) {
-    if (part.type === 'text' && part.text) onTextDelta(part.text);
-  }
 }
 
 export async function callOpenAICodexProvider(

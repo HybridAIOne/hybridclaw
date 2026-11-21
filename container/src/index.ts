@@ -17,6 +17,7 @@ import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config'
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
 import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
+import { collapseSystemMessages } from '@hybridclaw/shared/provider-wire/chat-completions';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
 import { compileToolPatterns } from '@hybridclaw/shared/tool-patterns';
 import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
@@ -131,10 +132,7 @@ import {
   steerAfterToolCalls,
   steerBeforeFinishing,
 } from './steer-inbox.js';
-import {
-  collapseSystemMessages,
-  mergeSystemMessage,
-} from './system-messages.js';
+import { mergeSystemMessage } from './system-messages.js';
 import {
   createTokenEstimateCache,
   estimateResponseTokens,
