@@ -172,6 +172,24 @@ describe('JSON search response parsers', () => {
       expect(parse(payload).map((result) => result.title)).toEqual(['Kept']);
     },
   );
+
+  it.each(JSON_PARSERS)(
+    'keeps %s URL fragments and treats them as distinct URLs',
+    (_name, parse) => {
+      const entries = [
+        { title: 'First', url: 'https://example.com/a#x' },
+        { title: 'Second', url: 'https://example.com/a#y' },
+      ];
+      const payload =
+        parse === parseBraveSearchResponse
+          ? { web: { results: entries } }
+          : { results: entries };
+      expect(parse(payload).map((result) => result.url)).toEqual([
+        'https://example.com/a#x',
+        'https://example.com/a#y',
+      ]);
+    },
+  );
 });
 
 describe('parseDuckDuckGoHtml', () => {
