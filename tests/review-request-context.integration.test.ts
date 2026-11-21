@@ -1,3 +1,4 @@
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
@@ -6,7 +7,6 @@ import {
   steerInboxDirName,
 } from '@hybridclaw/shared/steer-inbox';
 import type { PendingApproval } from '../container/src/pending-approval-store.js';
-import { normalizeMessageContentToText } from '../container/src/ralph.js';
 import type { ChatMessage } from '../container/src/types.js';
 import { SteerInbox } from '../src/infra/steer-inbox.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
@@ -69,7 +69,7 @@ test.each([
     const run = await runAgent(
       async (body) => {
         if (step++ === 0) return tool('read-config', 'read', { path: '.env' });
-        replay = normalizeMessageContentToText(
+        replay = chatContentText(
           body.messages.filter((message) => message.role === 'user').at(-1)
             ?.content ?? null,
         );
@@ -170,7 +170,7 @@ test.each([true, false])(
     const shown = history
       .flat()
       .filter((message) => message.role === 'user')
-      .map((message) => normalizeMessageContentToText(message.content))
+      .map((message) => chatContentText(message.content))
       .join('\n');
     for (const note of notes) {
       if (verified) {

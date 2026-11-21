@@ -17,7 +17,7 @@
  * laundered through state it wrote earlier (files, memory, scheduled prompts)
  * still count as seen.
  */
-import { getMessageTextContent } from '../agent/middleware.js';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import type { ChatMessage } from '../types/api.js';
 import type { ToolExecution, ToolProgressEvent } from '../types/execution.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
@@ -69,7 +69,7 @@ export class ReplyFetchGuard {
   ) {
     for (const message of messages) {
       if (message.role === 'system') continue;
-      const text = getMessageTextContent(message);
+      const text = chatContentText(message.content);
       // The delegate results turn is the children's own writing.
       const said =
         message.role === 'tool' ||

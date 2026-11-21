@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -116,7 +117,6 @@ import {
   chatTypeFromSessionKey,
 } from '../session/session-context.js';
 import { startSessionTitle } from '../session/session-title.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
   expandResolvedSkillInvocation,
@@ -2012,7 +2012,7 @@ async function handleGatewayMessageInner(
       historyBudgetTokens: historyStats.budgetTokens,
       historyTruncated,
       promptOverheadTokens,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
+      historyEstimatedTokens: estimateMessageTokens(
         messages.slice(historyStart),
       ),
       canonicalSummaryIncluded:

@@ -3,7 +3,9 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -136,41 +138,6 @@ function normalizeCodexModelName(model: string): string {
   return stripProviderPrefix(model, 'openai-codex');
 }
 
-function contentToText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const textBlocks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text') continue;
-    if (!part.text) continue;
-    textBlocks.push(part.text);
-  }
-  return textBlocks.join('\n');
-}
-
-function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push({ ...message });
-      continue;
-    }
-    const text = contentToText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-  return [
-    {
-      role: 'system',
-      content: systemBlocks.join('\n\n'),
-    },
-    ...remaining,
-  ];
-}
-
 function parseErrorText(body: string): string {
   const trimmed = String(body || '').trim();
   if (!trimmed) return 'Unknown provider error';
@@ -263,7 +230,7 @@ function convertMessageToResponsesInput(
     items.push({
       type: 'function_call_output',
       call_id: message.tool_call_id || '',
-      output: contentToText(message.content),
+      output: chatContentText(message.content),
     });
     return items;
   }
@@ -306,7 +273,7 @@ function buildCodexRequestBody(
 ): Record<string, unknown> {
   const instructions = params.messages
     .filter((message) => message.role === 'system')
-    .map((message) => contentToText(message.content).trim())
+    .map((message) => chatContentText(message.content).trim())
     .filter(Boolean)
     .join('\n\n');
   const body: Record<string, unknown> = {

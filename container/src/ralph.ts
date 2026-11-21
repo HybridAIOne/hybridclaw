@@ -1,25 +1,12 @@
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import type { ChatMessageContent } from './types.js';
 
 const RALPH_CHOICE_RE = /<choice>\s*([^<]*)\s*<\/choice>/gi;
 
-export function normalizeMessageContentToText(
-  content: ChatMessageContent,
-): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => {
-      if (!part || part.type !== 'text') return '';
-      return part.text || '';
-    })
-    .join('\n')
-    .trim();
-}
-
 export function parseRalphChoice(
   content: ChatMessageContent,
 ): 'CONTINUE' | 'STOP' | null {
-  const normalizedContent = normalizeMessageContentToText(content);
+  const normalizedContent = chatContentText(content).trim();
   if (!normalizedContent) return null;
   let match: RegExpExecArray | null = null;
   let lastChoice: string | null = null;
@@ -35,7 +22,7 @@ export function parseRalphChoice(
 export function stripRalphChoiceTags(
   content: ChatMessageContent,
 ): string | null {
-  const normalizedContent = normalizeMessageContentToText(content);
+  const normalizedContent = chatContentText(content).trim();
   if (!normalizedContent) return null;
   const stripped = normalizedContent
     .replace(RALPH_CHOICE_RE, '')

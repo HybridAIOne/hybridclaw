@@ -40,7 +40,7 @@ test('joins user text parts without treating image metadata as instructions', ()
         ],
       },
     ]),
-  ).toBe('First paragraph\n\nFinal constraint');
+  ).toBe('First paragraph\nFinal constraint');
 });
 
 test.each([
