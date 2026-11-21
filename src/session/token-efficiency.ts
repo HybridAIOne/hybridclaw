@@ -1,3 +1,9 @@
+/**
+ * Prompt history shaping: drops whole older turns to fit a token budget and
+ * truncates text without splitting a surrogate pair. It never estimates tokens
+ * itself; every count comes from `@hybridclaw/shared/token-estimate`, so the
+ * gateway and the worker size the same history the same way.
+ */
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import type { ChatMessage } from '../types/api.js';

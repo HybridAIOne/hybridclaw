@@ -14,7 +14,7 @@ import { chatContentText } from './message-text.ts';
 
 export const CHARS_PER_TOKEN = 4;
 // Tool output (JSON, code, logs) tokenizes denser than prose.
-export const TOOL_RESULT_CHARS_PER_TOKEN = 2;
+const TOOL_RESULT_CHARS_PER_TOKEN = 2;
 // Agent decision, 2026-09-29: reserve 4k tokens per selected page for pixels
 // and native PDF text; exact usage remains provider-reported.
 const VISUAL_PAGE_TOKENS = 4_000;
@@ -48,7 +48,7 @@ export function estimateTextTokens(text: unknown): number {
   return estimateWithRatio(text, CHARS_PER_TOKEN);
 }
 
-export function estimateToolResultTokens(text: unknown): number {
+function estimateToolResultTokens(text: unknown): number {
   return estimateWithRatio(text, TOOL_RESULT_CHARS_PER_TOKEN);
 }
 

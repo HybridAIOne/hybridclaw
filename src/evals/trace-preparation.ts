@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
+import {
+  CHARS_PER_TOKEN,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
 import {
   type RuntimeConfigChangeMeta,
   syncRuntimeAssetRevisionState,
@@ -431,7 +434,7 @@ function fitTraceToTokenBudget(
 
   let truncatedSerializedTrace = false;
   if (estimatedTraceTokens > maxTraceTokens) {
-    traceText = truncateTailText(traceText, maxTraceTokens * 4);
+    traceText = truncateTailText(traceText, maxTraceTokens * CHARS_PER_TOKEN);
     estimatedTraceTokens = estimateTextTokens(traceText);
     truncatedSerializedTrace = true;
   }
