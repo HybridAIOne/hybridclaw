@@ -243,16 +243,6 @@ export function emitRawSsePayloadDebug(
   emitModelResponseDebugFileText(`data: ${payloadText}\n\n`);
 }
 
-export function emitRawSseLineDebug(
-  args: NormalizedCallArgs,
-  rawLine: string,
-): void {
-  if (!args.debugModelResponses) return;
-  const normalized = rawLine.replace(/\r$/, '');
-  if (!normalized.trimStart().startsWith('data:')) return;
-  emitModelResponseDebugFileText(`${normalized}\n\n`);
-}
-
 export function emitRawNdjsonLineDebug(
   args: NormalizedCallArgs,
   rawLine: string,

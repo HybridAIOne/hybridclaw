@@ -4,18 +4,20 @@
  * error events reject the call even after visible deltas were delivered.
  */
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
-import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   applyChatCompletionsChunk,
   createChatCompletionsStreamState,
 } from '@hybridclaw/shared/provider-wire/chat-completions';
 import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import { stripHybridAIModelPrefix } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type { ChatCompletionResponse } from '../types.js';
 import { HYBRIDCLAW_USER_AGENT } from '../user-agent.js';
 import {
   buildRequestHeaders,
-  emitRawSseLineDebug,
+  emitRawNdjsonLineDebug,
+  emitRawSsePayloadDebug,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
@@ -55,16 +57,25 @@ function buildHybridAIRequestHeaders(
   };
 }
 
-function parseStreamPayloadLine(rawLine: string): string | null {
-  const trimmed = rawLine.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith(':')) return null;
-  if (trimmed.startsWith('event:')) return null;
-  if (trimmed.startsWith('id:')) return null;
-  if (trimmed.startsWith('data:')) {
-    return trimmed.slice(5).trim();
+async function* readStreamPayloads(
+  read: () => Promise<{ done: boolean; value?: Uint8Array }>,
+  ndjson: boolean,
+): AsyncGenerator<string> {
+  if (!ndjson) {
+    for await (const event of readServerSentEvents(read)) yield event.data;
+    return;
   }
-  return trimmed;
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    yield* lines;
+    if (done) break;
+  }
+  yield buffer;
 }
 
 export async function callHybridAIProvider(
@@ -187,9 +198,7 @@ export async function callHybridAIProviderStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  let buffer = '';
+  const ndjson = contentType.includes('ndjson');
   const state = createChatCompletionsStreamState<
     ChatCompletionResponse['usage']
   >(stripHybridAIModelPrefix(args.model));
@@ -219,35 +228,20 @@ export async function callHybridAIProviderStream(
   };
 
   try {
-    while (!streamDone) {
-      const { done, value } = await readWithIdleTimeout(
-        reader,
-        STREAM_IDLE_TIMEOUT_MS,
-      );
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const rawLine of lines) {
-        emitRawSseLineDebug(args, rawLine);
-        const payloadText = parseStreamPayloadLine(rawLine);
-        if (!payloadText) continue;
-        consumePayload(payloadText);
-        if (streamDone) break;
-      }
-    }
-
-    if (!streamDone && buffer.trim()) {
-      emitRawSseLineDebug(args, buffer);
-      const payloadText = parseStreamPayloadLine(buffer);
-      if (payloadText) consumePayload(payloadText);
+    for await (const raw of readStreamPayloads(
+      () => readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+      ndjson,
+    )) {
+      const payloadText = raw.trim();
+      if (!payloadText) continue;
+      if (ndjson) emitRawNdjsonLineDebug(args, payloadText);
+      else emitRawSsePayloadDebug(args, payloadText);
+      consumePayload(payloadText);
+      if (streamDone) break;
     }
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
-    decoder.decode();
   }
 
   if (!streamDone && !state.finishReason)

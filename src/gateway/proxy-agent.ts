@@ -1,3 +1,4 @@
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type { AgentConfig, AgentProxyConfig } from '../agents/agent-types.js';
 import { logger } from '../logger.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
@@ -198,28 +199,6 @@ function parseHybridAIStreamPayload(raw: string): unknown {
   }
 }
 
-function parseSseBlock(block: string): string[] {
-  const lines = block.split(/\r?\n/);
-  const dataLines = lines
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => {
-      const value = line.slice(5);
-      return value.startsWith(' ') ? value.slice(1) : value;
-    });
-  return dataLines.length > 0 ? [dataLines.join('\n')] : [];
-}
-
-function parseHybridAISsePayloads(buffer: string): {
-  payloads: string[];
-  remaining: string;
-} {
-  const blocks = buffer.split(/\r?\n\r?\n/);
-  return {
-    payloads: blocks.slice(0, -1).flatMap(parseSseBlock),
-    remaining: blocks.at(-1) || '',
-  };
-}
-
 function extractHybridAIStreamDelta(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
   const delta = payload.delta;
@@ -264,34 +243,18 @@ async function readHybridAISseResponse(params: {
   }
 
   const reader = params.response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
   const resultParts: string[] = [];
   try {
-    while (true) {
-      const next = await readWithIdleTimeout(reader, params.signal);
-      if (next.done) break;
-      const parsed = parseHybridAISsePayloads(
-        [buffer, decoder.decode(next.value, { stream: true })].join(''),
-      );
-      buffer = parsed.remaining;
-      for (const payloadText of parsed.payloads) {
-        const delta = extractHybridAISseText(payloadText);
-        if (!delta) continue;
-        resultParts.push(delta);
-        params.onTextDelta?.(delta);
-      }
-    }
-    if (buffer.trim()) {
-      const delta = extractHybridAISseText(parseSseBlock(buffer)[0] || buffer);
-      if (delta) {
-        resultParts.push(delta);
-        params.onTextDelta?.(delta);
-      }
+    for await (const event of readServerSentEvents(() =>
+      readWithIdleTimeout(reader, params.signal),
+    )) {
+      const delta = extractHybridAISseText(event.data);
+      if (!delta) continue;
+      resultParts.push(delta);
+      params.onTextDelta?.(delta);
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
   return resultParts.join('');
 }

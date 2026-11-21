@@ -6,7 +6,6 @@
  */
 import { createHash } from 'node:crypto';
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
-import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/model-names';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   applyChatCompletionsChunk,
@@ -15,6 +14,8 @@ import {
   createChatCompletionsStreamState,
   extractStructuredReasoning,
 } from '@hybridclaw/shared/provider-wire/chat-completions';
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
 import {
   finalizeParsedToolCalls,
@@ -28,7 +29,7 @@ import type {
 } from '../types.js';
 import { fetchMlx } from './mlx-transport.js';
 import {
-  emitRawSseLineDebug,
+  emitRawSsePayloadDebug,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
@@ -321,18 +322,6 @@ function buildToolCallNormalizationOptions(params: {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
   };
-}
-
-function parseStreamPayloadLine(rawLine: string): string | null {
-  const trimmed = rawLine.trim();
-  if (!trimmed || trimmed.startsWith(':') || trimmed.startsWith('event:')) {
-    return null;
-  }
-  if (trimmed.startsWith('id:')) return null;
-  if (trimmed.startsWith('data:')) {
-    return trimmed.slice(5).trim();
-  }
-  return trimmed;
 }
 
 function normalizeContentToText(
@@ -688,7 +677,6 @@ export async function callLocalOpenAICompatProviderStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const normalizationOptions = buildToolCallNormalizationOptions({
     provider: args.provider,
     model: args.model,
@@ -712,7 +700,6 @@ export async function callLocalOpenAICompatProviderStream(
     reasoningToolFilter?.close();
   };
 
-  let buffer = '';
   const state = createChatCompletionsStreamState<
     ChatCompletionResponse['usage']
   >(normalizeOpenAICompatModelName(args.provider, args.model));
@@ -756,34 +743,17 @@ export async function callLocalOpenAICompatProviderStream(
   };
 
   try {
-    while (!streamDone) {
-      const { done, value } = await readWithIdleTimeout(
-        reader,
-        STREAM_IDLE_TIMEOUT_MS,
-      );
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const rawLine of lines) {
-        emitRawSseLineDebug(args, rawLine);
-        const payloadText = parseStreamPayloadLine(rawLine);
-        if (!payloadText) continue;
-        consumePayload(payloadText);
-        if (streamDone) break;
-      }
-    }
-
-    if (!streamDone && buffer.trim()) {
-      emitRawSseLineDebug(args, buffer);
-      const payloadText = parseStreamPayloadLine(buffer);
-      if (payloadText) consumePayload(payloadText);
+    for await (const event of readServerSentEvents(() =>
+      readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+    )) {
+      const payloadText = event.data.trim();
+      if (!payloadText) continue;
+      emitRawSsePayloadDebug(args, payloadText);
+      consumePayload(payloadText);
+      if (streamDone) break;
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
 
   if (!sawPayload) throw new Error('Streaming response ended without payload');

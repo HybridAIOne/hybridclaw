@@ -584,7 +584,7 @@ describe.sequential('container tool runtime guards', () => {
             'data: {"id":"resp_vision","model":"gpt-5.4","choices":[{"delta":{"role":"assistant","content":"Detected via HybridAI stream."}}]}',
             'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}',
             'data: [DONE]',
-          ].join('\n'),
+          ].join('\n\n'),
           {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },

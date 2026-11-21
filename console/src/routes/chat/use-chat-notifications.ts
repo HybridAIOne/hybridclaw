@@ -4,6 +4,7 @@
  * refresh reminders; desktop alerts never include message contents.
  */
 
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type {
   WebChatUpdate,
   WebNotificationPreferences,
@@ -89,69 +90,50 @@ export function useChatNotifications(options: {
         }
         connected = true;
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (!controller.signal.aborted) {
-          const chunk = await reader.read();
-          if (chunk.done || controller.signal.aborted) break;
-          buffer += decoder.decode(chunk.value, { stream: true });
-          let end = buffer.indexOf('\n\n');
-          while (end >= 0) {
-            const frame = buffer.slice(0, end);
-            buffer = buffer.slice(end + 2);
-            const data = frame
-              .split('\n')
-              .find((line) => line.startsWith('data: '));
-            const event = frame
-              .split('\n')
-              .find((line) => line.startsWith('event: '))
-              ?.slice(7);
-            if (data && event === 'chat-updated') {
-              const update = JSON.parse(data.slice(6)) as WebChatUpdate;
-              if (typeof update.sessionId === 'string' && update.sessionId) {
-                deferredRefresh.current.add(update.sessionId);
-                setHistoryRevision((revision) => revision + 1);
-              }
-            } else if (data && event === 'notifications') {
-              const snapshot = JSON.parse(
-                data.slice(6),
-              ) as WebNotificationState;
-              for (const item of snapshot.notifications) {
-                if (seen.has(item.id)) continue;
-                seen.add(item.id);
-                deferredRefresh.current.add(item.sessionId);
-                if (
-                  initialized &&
-                  supported &&
-                  browserEnabledRef.current &&
-                  !pushEnabledRef.current &&
-                  snapshot.preferences[item.kind] &&
-                  Notification.permission === 'granted' &&
-                  document.visibilityState !== 'visible'
-                ) {
-                  try {
-                    const notification = new Notification(item.title, {
-                      body: 'Open the conversation to view it.',
-                      tag: item.id,
-                    });
-                    desktopNotifications.current.add(notification);
-                    notification.onclose = () =>
-                      desktopNotifications.current.delete(notification);
-                    notification.onclick = () => {
-                      window.focus();
-                      current.current.onOpenSession(item.sessionId);
-                      notification.close();
-                    };
-                  } catch {
-                    /* Unread badges remain available on browsers without desktop alerts. */
-                  }
+        for await (const frame of readServerSentEvents(() => reader.read())) {
+          if (controller.signal.aborted) break;
+          if (frame.event === 'chat-updated') {
+            const update = JSON.parse(frame.data) as WebChatUpdate;
+            if (typeof update.sessionId === 'string' && update.sessionId) {
+              deferredRefresh.current.add(update.sessionId);
+              setHistoryRevision((revision) => revision + 1);
+            }
+          } else if (frame.event === 'notifications') {
+            const snapshot = JSON.parse(frame.data) as WebNotificationState;
+            for (const item of snapshot.notifications) {
+              if (seen.has(item.id)) continue;
+              seen.add(item.id);
+              deferredRefresh.current.add(item.sessionId);
+              if (
+                initialized &&
+                supported &&
+                browserEnabledRef.current &&
+                !pushEnabledRef.current &&
+                snapshot.preferences[item.kind] &&
+                Notification.permission === 'granted' &&
+                document.visibilityState !== 'visible'
+              ) {
+                try {
+                  const notification = new Notification(item.title, {
+                    body: 'Open the conversation to view it.',
+                    tag: item.id,
+                  });
+                  desktopNotifications.current.add(notification);
+                  notification.onclose = () =>
+                    desktopNotifications.current.delete(notification);
+                  notification.onclick = () => {
+                    window.focus();
+                    current.current.onOpenSession(item.sessionId);
+                    notification.close();
+                  };
+                } catch {
+                  /* Unread badges remain available on browsers without desktop alerts. */
                 }
               }
-              initialized = true;
-              setReceived({ token: options.token, value: snapshot });
-              acknowledgeVisible(snapshot);
             }
-            end = buffer.indexOf('\n\n');
+            initialized = true;
+            setReceived({ token: options.token, value: snapshot });
+            acknowledgeVisible(snapshot);
           }
         }
       } catch {

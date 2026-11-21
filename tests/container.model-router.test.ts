@@ -232,7 +232,7 @@ describe('container model router', () => {
             'data: {"id":"resp_vision","model":"gpt-5.4","choices":[{"delta":{"role":"assistant","content":"A chrome logo."}}]}',
             'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}',
             'data: [DONE]',
-          ].join('\n'),
+          ].join('\n\n'),
           {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },

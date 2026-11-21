@@ -13,9 +13,9 @@ import type {
   ChatMessageContent,
   ToolCall,
 } from '@hybridclaw/contracts/agent-io';
-import { stripProviderPrefix } from '../model-names.ts';
 import { isRecord } from '../primitive-values.ts';
 import type { ChatCompletionsToolChoice } from './chat-completions.ts';
+import { stripProviderPrefix } from './model-names.ts';
 
 const CODEX_DEFAULT_INSTRUCTIONS = 'You are Codex, a coding assistant.';
 const OPENAI_DEFAULT_INSTRUCTIONS = 'You are a helpful assistant.';
