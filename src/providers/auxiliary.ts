@@ -1254,9 +1254,15 @@ async function callCodexTextModel(
     const reader = response.body.getReader();
     const state = createResponsesStreamState(context.model);
     const handlers = { onTextDelta: () => undefined };
-    for await (const event of readServerSentEvents(() => reader.read())) {
-      if (consumeResponsesStreamEvent(event.data, event.event, state, handlers))
-        break;
+    try {
+      for await (const event of readServerSentEvents(() => reader.read())) {
+        if (
+          consumeResponsesStreamEvent(event.data, event.event, state, handlers)
+        )
+          break;
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
     }
     completion = buildResponsesStreamResponse(state, context.model);
   }
