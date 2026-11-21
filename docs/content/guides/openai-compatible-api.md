@@ -74,7 +74,11 @@ curl https://gateway.example/v1/chat/completions \
   tool definitions).
 - `stream: true` returns standard SSE chunks; add
   `"stream_options": {"include_usage": true}` for a final usage chunk.
-- `user` is optional and labels the turn in session history.
+- `user` is optional and labels the turn in session history. On requests the
+  gateway sends straight to an OpenAI Codex model (client tools and the
+  `regular` decision model), a hash of `user` becomes the upstream
+  `prompt_cache_key`, so calls with the same `user` can reuse the provider's
+  prompt cache. Send one stable value per conversation or per end user.
 - Image and file URLs in message content are passed through as media.
 
 Every request runs as a **fresh session**: earlier messages in the `messages`

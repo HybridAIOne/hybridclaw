@@ -78,6 +78,7 @@ interface OpenAICompatibleModelCallParams {
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
   toolChoice?: ChatCompletionsToolChoice;
+  promptCacheKey?: string;
 }
 
 interface OpenAICompatibleModelStreamParams
@@ -188,6 +189,7 @@ function buildCodexRequest(
       messages: params.messages,
       tools: params.tools,
       toolChoice: params.toolChoice,
+      promptCacheKey: params.promptCacheKey,
     }),
     ...(stream ? { stream: true } : {}),
   });
