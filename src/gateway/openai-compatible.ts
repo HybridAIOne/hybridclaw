@@ -495,6 +495,7 @@ async function handleOpenAICompatibleToolChat(
         messages,
         tools: input.tools,
         toolChoice: input.toolChoice,
+        promptCacheKey: input.promptCacheKey,
       });
     },
   });
@@ -720,6 +721,7 @@ async function handleOpenAICompatibleStreamingToolChat(
           messages,
           tools: input.tools,
           toolChoice: input.toolChoice,
+          promptCacheKey: input.promptCacheKey,
           onTextDelta: (delta) => {
             if (!delta) return;
             streamStarted = true;
@@ -832,6 +834,7 @@ export async function handleOpenAICompatibleChatCompletions(
           sessionId: prepared.sessionId,
           agentId: prepared.requestAgentId,
           messages: input.messages,
+          promptCacheKey: input.promptCacheKey,
           wantsStream: input.wantsStream,
           completionId,
           created,

@@ -134,6 +134,7 @@ interface AuxiliaryToolDefinition {
 }
 
 interface AuxiliaryRequestOptions {
+  task: AuxiliaryTextTask;
   tools: AuxiliaryToolDefinition[];
   temperature?: number;
   timeoutMs?: number;
@@ -196,6 +197,7 @@ function buildRequestOptions(
   params: AuxiliaryModelCallParams,
 ): AuxiliaryRequestOptions {
   return {
+    task: params.task,
     tools: Array.isArray(params.tools) ? params.tools : [],
     temperature: normalizeTemperature(params.temperature),
     timeoutMs: normalizeTimeoutMs(params.timeoutMs),
@@ -1222,6 +1224,8 @@ async function callCodexTextModel(
       model: context.model,
       messages,
       tools: options.tools,
+      // Each task's instructions are the shared prefix, across sessions.
+      promptCacheKey: `hybridclaw-aux-${options.task}`,
     }),
     stream: true,
   };

@@ -4,6 +4,7 @@
  * and runners enforce them. Parsing never grants tool access.
  */
 
+import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
@@ -21,6 +22,13 @@ import type { OpenAICompatibleToolDefinition } from './openai-compatible-model.j
 
 const MAX_REQUEST_BYTES = 1_000_000;
 const EXECUTION_TIMEOUT_HEADER = 'X-HybridClaw-Timeout-Ms';
+
+// The client's `user` is the only conversation-stable signal this endpoint
+// receives. The key is a hash so it never carries the client's raw string.
+function derivePromptCacheKey(user: string): string {
+  const digest = createHash('sha256').update(user).digest('hex');
+  return `hybridclaw-${digest.slice(0, 32)}`;
+}
 
 type OpenAIChatCompletionRequestBody = {
   model?: unknown;
@@ -53,6 +61,7 @@ type OpenAIChatCompletionContentPart = {
 export interface ParsedOpenAICompatibleChatRequest extends ExecutionDeadline {
   model: string;
   user: string;
+  promptCacheKey?: string;
   wantsStream: boolean;
   includeUsage: boolean;
   usesClientTools: boolean;
@@ -886,9 +895,11 @@ export async function readOpenAICompatibleChatRequest(
       { code: 'execution_deadline_exceeded' },
     );
 
+  const user = normalizeOptionalString(body.user);
   return {
     model,
-    user: normalizeOptionalString(body.user) || 'openai',
+    user: user || 'openai',
+    ...(user ? { promptCacheKey: derivePromptCacheKey(user) } : {}),
     wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
     executionDeadlineAtMs,
