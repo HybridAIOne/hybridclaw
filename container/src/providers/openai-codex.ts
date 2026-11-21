@@ -12,10 +12,7 @@ import {
   normalizeCodexModelName,
   responsesContentText,
 } from '@hybridclaw/shared/provider-wire/codex-responses';
-import {
-  drainServerSentEventBlocks,
-  parseServerSentEventBlock,
-} from '@hybridclaw/shared/server-sent-events';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type { ChatCompletionResponse } from '../types.js';
 import {
   buildRequestHeaders,
@@ -195,74 +192,38 @@ async function callOpenAIResponsesProviderStreamInternal(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const streamState = createResponsesStreamState(args.model);
   const handlers = {
     onTextDelta: args.onTextDelta,
     onActivity: args.onActivity,
   };
-  let buffer = '';
   let sawPayload = false;
-  let streamDone = false;
-  let firstEventMs: number | null = null;
 
   try {
-    while (!streamDone) {
-      const { done, value } = await readWithIdleTimeout(
-        reader,
-        STREAM_IDLE_TIMEOUT_MS,
-      );
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const drained = drainServerSentEventBlocks(buffer);
-      buffer = drained.remainder;
-
-      for (const block of drained.blocks) {
-        const event = parseServerSentEventBlock(block);
-        if (!event) continue;
-        emitRawSsePayloadDebug(args, event.data);
+    for await (const event of readServerSentEvents(() =>
+      readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+    )) {
+      emitRawSsePayloadDebug(args, event.data);
+      if (!sawPayload) {
         sawPayload = true;
-        if (firstEventMs == null) {
-          firstEventMs = Date.now() - startedAt;
-          logCodexTransport(
-            args.provider,
-            `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
-          );
-        }
-        streamDone = consumeResponsesStreamEvent(
-          event.data,
-          event.event,
-          streamState,
-          handlers,
+        logCodexTransport(
+          args.provider,
+          `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt} event=${event.event || '<default>'}`,
         );
-        if (streamDone) break;
       }
-    }
-
-    if (!streamDone && buffer.trim()) {
-      const event = parseServerSentEventBlock(buffer);
-      if (event) {
-        emitRawSsePayloadDebug(args, event.data);
-        sawPayload = true;
-        if (firstEventMs == null) {
-          firstEventMs = Date.now() - startedAt;
-          logCodexTransport(
-            args.provider,
-            `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
-          );
-        }
-        streamDone = consumeResponsesStreamEvent(
+      if (
+        consumeResponsesStreamEvent(
           event.data,
           event.event,
           streamState,
           handlers,
-        );
+        )
+      ) {
+        break;
       }
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
 
   if (!sawPayload) {

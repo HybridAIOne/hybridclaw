@@ -5,7 +5,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
-} from '@hybridclaw/shared/model-names';
+} from '@hybridclaw/shared/provider-wire/model-names';
 import { pluralize } from '../utils/text-format.js';
 import { findLocalEndpointByName } from './local-endpoints.js';
 

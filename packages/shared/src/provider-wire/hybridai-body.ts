@@ -8,12 +8,12 @@
  * headers, and HybridAI destination checks stay with each caller.
  */
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
-import { stripHybridAIModelPrefix } from '../model-names.ts';
 import { getSupportedReasoningEfforts } from '../reasoning-effort.ts';
 import {
   buildChatCompletionsBody,
   type ChatCompletionsRequestParams,
 } from './chat-completions.ts';
+import { stripHybridAIModelPrefix } from './model-names.ts';
 
 export interface HybridAIRequestParams extends ChatCompletionsRequestParams {
   chatbotId?: string;

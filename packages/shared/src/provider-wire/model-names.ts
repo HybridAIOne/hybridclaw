@@ -1,4 +1,11 @@
-import { inferProviderFromModelPrefix } from './provider-ids.ts';
+/**
+ * Model-id prefixes on the wire: the one place that turns a HybridClaw model
+ * id (`openrouter/...`, `vllm/...`, `hybridai/...`) into the id a provider
+ * expects, always through `stripProviderPrefix`. NOT display formatting
+ * (`src/providers/model-names.ts`) or prefix → provider inference
+ * (`provider-ids.ts`).
+ */
+import { inferProviderFromModelPrefix } from '../provider-ids.ts';
 
 export const HYBRIDAI_MODEL_PREFIX: 'hybridai/' = 'hybridai/';
 

@@ -4,7 +4,7 @@
  * the agent loop decides how to handle an empty or truncated answer.
  */
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
-import { stripProviderPrefix } from '@hybridclaw/shared/model-names';
+import { stripProviderPrefix } from '@hybridclaw/shared/provider-wire/model-names';
 import {
   finalizeParsedToolCalls,
   INCOMPLETE_RESPONSE,

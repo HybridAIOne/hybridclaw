@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@hybridclaw/contracts/agent-io';
-import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/model-names';
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
 import {
   applyChatCompletionsChunk,
   buildChatCompletionsBody,

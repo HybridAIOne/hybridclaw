@@ -3,7 +3,7 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
-import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/model-names';
+
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import {
   applyChatCompletionsChunk,
@@ -21,11 +21,9 @@ import {
   type ResponsesCompletion,
 } from '@hybridclaw/shared/provider-wire/codex-responses';
 import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
-import {
-  drainServerSentEventBlocks,
-  parseServerSentEventBlock,
-} from '@hybridclaw/shared/server-sent-events';
 import { isOpenAICompatProviderId } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
@@ -303,36 +301,17 @@ export async function callOpenAICompatibleModelStream(
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
     const state = createResponsesStreamState(params.model);
     const handlers = { onTextDelta: params.onTextDelta };
-    let buffer = '';
-    let done = false;
     try {
-      while (!done) {
-        const next = await reader.read();
-        if (next.done) break;
-        buffer += decoder.decode(next.value, { stream: true });
-        const drained = drainServerSentEventBlocks(buffer);
-        buffer = drained.remainder;
-        for (const block of drained.blocks) {
-          const event = parseServerSentEventBlock(block);
-          if (!event) continue;
-          done = consumeResponsesStreamEvent(
-            event.data,
-            event.event,
-            state,
-            handlers,
-          );
-          if (done) break;
-        }
+      for await (const event of readServerSentEvents(() => reader.read())) {
+        if (
+          consumeResponsesStreamEvent(event.data, event.event, state, handlers)
+        )
+          break;
       }
-      const tail = done ? null : parseServerSentEventBlock(buffer);
-      if (tail)
-        consumeResponsesStreamEvent(tail.data, tail.event, state, handlers);
     } finally {
       reader.releaseLock();
-      decoder.decode();
     }
     return toModelResponse(
       buildResponsesStreamResponse<OpenAICompatibleUsagePayload>(
@@ -382,37 +361,25 @@ export async function callOpenAICompatibleModelStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const state = createChatCompletionsStreamState<OpenAICompatibleUsagePayload>(
     params.model,
   );
-  let buffer = '';
   try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      buffer += decoder.decode(next.value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const rawLine of lines) {
-        const trimmed = rawLine.trim();
-        if (!trimmed?.startsWith('data:')) continue;
-        const payloadText = trimmed.slice(5).trim();
-        if (!payloadText || payloadText === '[DONE]') continue;
-        let payload: unknown;
-        try {
-          payload = JSON.parse(payloadText) as unknown;
-        } catch {
-          continue;
-        }
-        if (!isRecord(payload)) continue;
-        const added = applyChatCompletionsChunk(state, payload);
-        if (added.content) params.onTextDelta(added.content);
+    for await (const event of readServerSentEvents(() => reader.read())) {
+      const payloadText = event.data.trim();
+      if (payloadText === '[DONE]') break;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(payloadText) as unknown;
+      } catch {
+        continue;
       }
+      if (!isRecord(payload)) continue;
+      const added = applyChatCompletionsChunk(state, payload);
+      if (added.content) params.onTextDelta(added.content);
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
 
   return {

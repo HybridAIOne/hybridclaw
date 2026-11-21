@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { TextDecoder } from 'node:util';
 import {
   isAnthropicOAuthToken,
   normalizeAnthropicBaseUrl,
@@ -8,6 +7,7 @@ import {
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { collapseSystemMessages } from '@hybridclaw/shared/provider-wire/chat-completions';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,
@@ -30,11 +30,6 @@ import {
   readWithIdleTimeout,
   STREAM_IDLE_TIMEOUT_MS,
 } from './stream-utils.js';
-
-interface ServerSentEvent {
-  event: string | null;
-  data: string;
-}
 
 interface AnthropicTextStreamBlock {
   type: 'text';
@@ -755,29 +750,6 @@ function adaptAnthropicResponse(
   };
 }
 
-function parseServerSentEventBlock(block: string): ServerSentEvent | null {
-  const lines = block.split(/\r?\n/);
-  const dataLines: string[] = [];
-  let event: string | null = null;
-
-  for (const rawLine of lines) {
-    if (!rawLine || rawLine.startsWith(':')) continue;
-    if (rawLine.startsWith('event:')) {
-      event = rawLine.slice('event:'.length).trim() || null;
-      continue;
-    }
-    if (rawLine.startsWith('data:')) {
-      dataLines.push(rawLine.slice('data:'.length).trimStart());
-    }
-  }
-
-  if (dataLines.length === 0) return null;
-  return {
-    event,
-    data: dataLines.join('\n'),
-  };
-}
-
 function parseJsonObject(value: string): Record<string, unknown> {
   const trimmed = String(value || '').trim();
   if (!trimmed) return {};
@@ -958,188 +930,172 @@ export async function callAnthropicProviderStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const blocks = new Map<number, AnthropicStreamBlock>();
   let usage: ChatCompletionResponse['usage'] | undefined;
   let usageFields: Record<string, unknown> = {};
   let responseId = 'message';
   let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
-  let buffer = '';
 
-  while (true) {
-    const { done, value } = await readWithIdleTimeout(
-      reader,
-      STREAM_IDLE_TIMEOUT_MS,
-    );
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+  for await (const sse of readServerSentEvents(() =>
+    readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+  )) {
+    if (!sse.data || sse.data === '[DONE]') continue;
+    emitRawSsePayloadDebug(args, sse.data);
 
-    while (true) {
-      const boundary = buffer.indexOf('\n\n');
-      if (boundary === -1) break;
-      const rawBlock = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
+    const event = JSON.parse(sse.data) as Record<string, unknown>;
+    args.onActivity?.();
 
-      const sse = parseServerSentEventBlock(rawBlock);
-      if (!sse || !sse.data || sse.data === '[DONE]') continue;
-      emitRawSsePayloadDebug(args, sse.data);
-
-      const event = JSON.parse(sse.data) as Record<string, unknown>;
-      args.onActivity?.();
-
-      if (event.type === 'error') {
-        const status = isRecord(event.error)
-          ? TRANSIENT_STREAM_ERROR_STATUS.get(String(event.error.type))
-          : undefined;
-        if (status) throw new ProviderRequestError(status, sse.data);
-        const error =
-          isRecord(event.error) && typeof event.error.message === 'string'
-            ? event.error.message
-            : sse.data;
-        throw new Error(error);
-      }
-
-      if (event.type === 'message_start' && isRecord(event.message)) {
-        if (typeof event.message.id === 'string' && event.message.id) {
-          responseId = event.message.id;
-        }
-        if (typeof event.message.model === 'string' && event.message.model) {
-          responseModel = event.message.model;
-        }
-        usageFields = mergeUsageFields(usageFields, event.message.usage);
-        usage = parseUsage(usageFields) || usage;
-        continue;
-      }
-
-      if (event.type === 'content_block_start') {
-        const index = typeof event.index === 'number' ? event.index : -1;
-        if (!isRecord(event.content_block)) continue;
-        if (event.content_block.type === 'text') {
-          const text =
-            typeof event.content_block.text === 'string'
-              ? event.content_block.text
-              : '';
-          blocks.set(index, {
-            type: 'text',
-            index,
-            text,
-          });
-          if (text) args.onTextDelta(text);
-          continue;
-        }
-        if (event.content_block.type === 'thinking') {
-          const thinking =
-            typeof event.content_block.thinking === 'string'
-              ? event.content_block.thinking
-              : '';
-          blocks.set(index, {
-            type: 'thinking',
-            index,
-            thinking,
-            signature:
-              typeof event.content_block.signature === 'string'
-                ? event.content_block.signature
-                : '',
-          });
-          if (thinking) args.onThinkingDelta?.(thinking);
-          continue;
-        }
-        if (event.content_block.type === 'redacted_thinking') {
-          blocks.set(index, {
-            type: 'redacted_thinking',
-            index,
-            data:
-              typeof event.content_block.data === 'string'
-                ? event.content_block.data
-                : '',
-          });
-          continue;
-        }
-        if (event.content_block.type === 'tool_use') {
-          const input =
-            isRecord(event.content_block.input) &&
-            Object.keys(event.content_block.input).length > 0
-              ? JSON.stringify(event.content_block.input)
-              : '';
-          blocks.set(index, {
-            type: 'tool_use',
-            index,
-            id:
-              typeof event.content_block.id === 'string'
-                ? event.content_block.id
-                : '',
-            name:
-              typeof event.content_block.name === 'string'
-                ? event.content_block.name
-                : '',
-            inputJson: input,
-          });
-        }
-        continue;
-      }
-
-      if (event.type === 'content_block_delta') {
-        const index = typeof event.index === 'number' ? event.index : -1;
-        const block = blocks.get(index);
-        if (!block || !isRecord(event.delta)) continue;
-
-        if (
-          block.type === 'thinking' &&
-          event.delta.type === 'thinking_delta' &&
-          typeof event.delta.thinking === 'string'
-        ) {
-          block.thinking += event.delta.thinking;
-          if (event.delta.thinking) {
-            args.onThinkingDelta?.(event.delta.thinking);
-          }
-          continue;
-        }
-
-        if (
-          block.type === 'thinking' &&
-          event.delta.type === 'signature_delta' &&
-          typeof event.delta.signature === 'string'
-        ) {
-          block.signature += event.delta.signature;
-          continue;
-        }
-
-        if (
-          block.type === 'text' &&
-          event.delta.type === 'text_delta' &&
-          typeof event.delta.text === 'string'
-        ) {
-          block.text += event.delta.text;
-          if (event.delta.text) {
-            args.onTextDelta(event.delta.text);
-          }
-          continue;
-        }
-
-        if (
-          block.type === 'tool_use' &&
-          event.delta.type === 'input_json_delta' &&
-          typeof event.delta.partial_json === 'string'
-        ) {
-          block.inputJson += event.delta.partial_json;
-        }
-        continue;
-      }
-
-      if (event.type === 'message_delta') {
-        usageFields = mergeUsageFields(usageFields, event.usage);
-        usage = parseUsage(usageFields) || usage;
-        if (
-          isRecord(event.delta) &&
-          typeof event.delta.stop_reason === 'string' &&
-          event.delta.stop_reason
-        ) {
-          finishReason = event.delta.stop_reason;
-        }
-      }
+    if (event.type === 'error') {
+      const status = isRecord(event.error)
+        ? TRANSIENT_STREAM_ERROR_STATUS.get(String(event.error.type))
+        : undefined;
+      if (status) throw new ProviderRequestError(status, sse.data);
+      const error =
+        isRecord(event.error) && typeof event.error.message === 'string'
+          ? event.error.message
+          : sse.data;
+      throw new Error(error);
     }
 
-    if (done) break;
+    if (event.type === 'message_start' && isRecord(event.message)) {
+      if (typeof event.message.id === 'string' && event.message.id) {
+        responseId = event.message.id;
+      }
+      if (typeof event.message.model === 'string' && event.message.model) {
+        responseModel = event.message.model;
+      }
+      usageFields = mergeUsageFields(usageFields, event.message.usage);
+      usage = parseUsage(usageFields) || usage;
+      continue;
+    }
+
+    if (event.type === 'content_block_start') {
+      const index = typeof event.index === 'number' ? event.index : -1;
+      if (!isRecord(event.content_block)) continue;
+      if (event.content_block.type === 'text') {
+        const text =
+          typeof event.content_block.text === 'string'
+            ? event.content_block.text
+            : '';
+        blocks.set(index, {
+          type: 'text',
+          index,
+          text,
+        });
+        if (text) args.onTextDelta(text);
+        continue;
+      }
+      if (event.content_block.type === 'thinking') {
+        const thinking =
+          typeof event.content_block.thinking === 'string'
+            ? event.content_block.thinking
+            : '';
+        blocks.set(index, {
+          type: 'thinking',
+          index,
+          thinking,
+          signature:
+            typeof event.content_block.signature === 'string'
+              ? event.content_block.signature
+              : '',
+        });
+        if (thinking) args.onThinkingDelta?.(thinking);
+        continue;
+      }
+      if (event.content_block.type === 'redacted_thinking') {
+        blocks.set(index, {
+          type: 'redacted_thinking',
+          index,
+          data:
+            typeof event.content_block.data === 'string'
+              ? event.content_block.data
+              : '',
+        });
+        continue;
+      }
+      if (event.content_block.type === 'tool_use') {
+        const input =
+          isRecord(event.content_block.input) &&
+          Object.keys(event.content_block.input).length > 0
+            ? JSON.stringify(event.content_block.input)
+            : '';
+        blocks.set(index, {
+          type: 'tool_use',
+          index,
+          id:
+            typeof event.content_block.id === 'string'
+              ? event.content_block.id
+              : '',
+          name:
+            typeof event.content_block.name === 'string'
+              ? event.content_block.name
+              : '',
+          inputJson: input,
+        });
+      }
+      continue;
+    }
+
+    if (event.type === 'content_block_delta') {
+      const index = typeof event.index === 'number' ? event.index : -1;
+      const block = blocks.get(index);
+      if (!block || !isRecord(event.delta)) continue;
+
+      if (
+        block.type === 'thinking' &&
+        event.delta.type === 'thinking_delta' &&
+        typeof event.delta.thinking === 'string'
+      ) {
+        block.thinking += event.delta.thinking;
+        if (event.delta.thinking) {
+          args.onThinkingDelta?.(event.delta.thinking);
+        }
+        continue;
+      }
+
+      if (
+        block.type === 'thinking' &&
+        event.delta.type === 'signature_delta' &&
+        typeof event.delta.signature === 'string'
+      ) {
+        block.signature += event.delta.signature;
+        continue;
+      }
+
+      if (
+        block.type === 'text' &&
+        event.delta.type === 'text_delta' &&
+        typeof event.delta.text === 'string'
+      ) {
+        block.text += event.delta.text;
+        if (event.delta.text) {
+          args.onTextDelta(event.delta.text);
+        }
+        continue;
+      }
+
+      if (
+        block.type === 'tool_use' &&
+        event.delta.type === 'input_json_delta' &&
+        typeof event.delta.partial_json === 'string'
+      ) {
+        block.inputJson += event.delta.partial_json;
+      }
+      continue;
+    }
+
+    if (event.type === 'message_delta') {
+      usageFields = mergeUsageFields(usageFields, event.usage);
+      usage = parseUsage(usageFields) || usage;
+      if (
+        isRecord(event.delta) &&
+        typeof event.delta.stop_reason === 'string' &&
+        event.delta.stop_reason
+      ) {
+        finishReason = event.delta.stop_reason;
+      }
+    }
   }
 
   return buildStreamResponse({

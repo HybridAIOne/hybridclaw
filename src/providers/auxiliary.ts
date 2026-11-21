@@ -1,8 +1,4 @@
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
-import {
-  normalizeOpenAICompatModelName,
-  stripProviderPrefix,
-} from '@hybridclaw/shared/model-names';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
@@ -19,14 +15,15 @@ import {
 } from '@hybridclaw/shared/provider-wire/codex-responses';
 import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
 import {
+  normalizeOpenAICompatModelName,
+  stripProviderPrefix,
+} from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
 } from '@hybridclaw/shared/request-max-tokens';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
-import {
-  drainServerSentEventBlocks,
-  parseServerSentEventBlock,
-} from '@hybridclaw/shared/server-sent-events';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
@@ -1255,32 +1252,12 @@ async function callCodexTextModel(
       throw new Error('Auxiliary provider returned no response body.');
     }
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
     const state = createResponsesStreamState(context.model);
     const handlers = { onTextDelta: () => undefined };
-    let buffer = '';
-    let done = false;
-    while (!done) {
-      const next = await reader.read();
-      if (next.done) break;
-      buffer += decoder.decode(next.value, { stream: true });
-      const drained = drainServerSentEventBlocks(buffer);
-      buffer = drained.remainder;
-      for (const block of drained.blocks) {
-        const event = parseServerSentEventBlock(block);
-        if (!event) continue;
-        done = consumeResponsesStreamEvent(
-          event.data,
-          event.event,
-          state,
-          handlers,
-        );
-        if (done) break;
-      }
+    for await (const event of readServerSentEvents(() => reader.read())) {
+      if (consumeResponsesStreamEvent(event.data, event.event, state, handlers))
+        break;
     }
-    const tail = done ? null : parseServerSentEventBlock(buffer);
-    if (tail)
-      consumeResponsesStreamEvent(tail.data, tail.event, state, handlers);
     completion = buildResponsesStreamResponse(state, context.model);
   }
 

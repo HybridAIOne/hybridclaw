@@ -4,6 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import { detectMacHardware } from './local-model-catalog.js';
 import { mlxCredentials, mlxHealth } from './mlx-runtime.js';
 
@@ -38,46 +39,39 @@ export async function benchmarkMlx(home: string) {
   });
   if (!response.ok || !response.body)
     throw new Error(`Local streaming check failed (HTTP ${response.status}).`);
-  let buffer = '';
   let firstTokenMs: number | null = null;
   let completionTokens = 0;
   let promptTokens = 0;
   let completed = false;
   let visibleOutput = false;
-  const decoder = new TextDecoder();
-  for await (const chunk of response.body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      if (line === 'data: [DONE]') {
-        completed = true;
-        continue;
-      }
-      const event = JSON.parse(line.slice(6)) as {
-        error?: unknown;
-        choices?: Array<{
-          delta?: {
-            content?: string;
-            reasoning?: string;
-            reasoning_content?: string;
-          };
-        }>;
-        usage?: { completion_tokens: number; prompt_tokens: number };
-      };
-      if (event.error) throw new Error('Local streaming generation failed.');
-      const delta = event.choices?.[0]?.delta;
-      if (delta?.content) visibleOutput = true;
-      if (
-        (delta?.content || delta?.reasoning || delta?.reasoning_content) &&
-        firstTokenMs === null
-      )
-        firstTokenMs = performance.now() - start;
-      if (event.usage) {
-        completionTokens = event.usage.completion_tokens;
-        promptTokens = event.usage.prompt_tokens;
-      }
+  const reader = response.body.getReader();
+  for await (const { data } of readServerSentEvents(() => reader.read())) {
+    if (data === '[DONE]') {
+      completed = true;
+      continue;
+    }
+    const event = JSON.parse(data) as {
+      error?: unknown;
+      choices?: Array<{
+        delta?: {
+          content?: string;
+          reasoning?: string;
+          reasoning_content?: string;
+        };
+      }>;
+      usage?: { completion_tokens: number; prompt_tokens: number };
+    };
+    if (event.error) throw new Error('Local streaming generation failed.');
+    const delta = event.choices?.[0]?.delta;
+    if (delta?.content) visibleOutput = true;
+    if (
+      (delta?.content || delta?.reasoning || delta?.reasoning_content) &&
+      firstTokenMs === null
+    )
+      firstTokenMs = performance.now() - start;
+    if (event.usage) {
+      completionTokens = event.usage.completion_tokens;
+      promptTokens = event.usage.prompt_tokens;
     }
   }
   const elapsedMs = performance.now() - start;
