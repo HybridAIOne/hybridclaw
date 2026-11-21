@@ -1,6 +1,14 @@
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import {
+  normalizeOpenAICompatModelName,
+  stripProviderPrefix,
+} from '@hybridclaw/shared/model-names';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
+import {
+  buildChatCompletionsBody,
+  collapseSystemMessages,
+} from '@hybridclaw/shared/provider-wire/chat-completions';
 import {
   adaptResponsesPayload,
   buildResponsesRequestBody,
@@ -43,7 +51,6 @@ import {
   getLocalModelInfo,
 } from './local-discovery.js';
 import { localBackendsProbe } from './local-health.js';
-import { stripProviderPrefix } from './model-names.js';
 import {
   inferProviderFromModelPrefix,
   isLocalBackendType,
@@ -955,39 +962,6 @@ function createTimeoutSignal(
   return timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
-function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = model.trim();
-  const prefix = 'openrouter/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  const upstreamModel = trimmed.slice(prefix.length).trim();
-  if (!upstreamModel) return trimmed;
-  // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
-  // keep their namespace. Vendor-scoped ids use the upstream path.
-  return upstreamModel.includes('/') ? upstreamModel : trimmed;
-}
-
-function normalizeOpenAICompatModelName(
-  provider: RuntimeProvider,
-  model: string,
-): string {
-  const trimmed = model.trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  if (provider === 'huggingface') {
-    const prefix = 'huggingface/';
-    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-    return trimmed.slice(prefix.length) || trimmed;
-  }
-  const prefix = `${provider}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
-}
-
-function normalizeOllamaModelName(model: string): string {
-  return stripProviderPrefix(model, 'ollama');
-}
-
 function normalizeOllamaBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/g, '').replace(/\/v1$/i, '');
 }
@@ -1002,33 +976,6 @@ function contentToText(content: ChatMessage['content']): string {
     chunks.push(part.text);
   }
   return chunks.join('\n');
-}
-
-function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push({ ...message });
-      continue;
-    }
-
-    const text = contentToText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-
-  return [
-    {
-      role: 'system',
-      content: systemBlocks.join('\n\n'),
-    },
-    ...remaining,
-  ];
 }
 
 async function parseError(response: Response): Promise<never> {
@@ -1127,14 +1074,12 @@ async function callOpenAICompatTextModel(
 ): Promise<AuxiliaryTextResponse> {
   const maxTokens = openAICompatRequestMaxTokens(context);
   const body = withCoreRequestBody(
-    {
+    buildChatCompletionsBody({
       model: normalizeOpenAICompatModelName(context.provider, context.model),
       messages: collapseSystemMessages(messages),
-      ...(options.tools.length > 0
-        ? { tools: options.tools, tool_choice: 'auto' }
-        : {}),
-      ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    },
+      tools: options.tools,
+      maxTokens,
+    }),
     options,
   );
 
@@ -1357,7 +1302,7 @@ async function callOllamaTextModel(
 
   const body: Record<string, unknown> = {
     ...extraBody,
-    model: normalizeOllamaModelName(context.model),
+    model: stripProviderPrefix(context.model, 'ollama'),
     messages: messages.map((message) => ({
       role: message.role,
       content: contentToText(message.content),

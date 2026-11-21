@@ -15,15 +15,10 @@ import type {
 } from '@hybridclaw/contracts/agent-io';
 import { stripProviderPrefix } from '../model-names.ts';
 import { isRecord } from '../primitive-values.ts';
+import type { ChatCompletionsToolChoice } from './chat-completions.ts';
 
 const CODEX_DEFAULT_INSTRUCTIONS = 'You are Codex, a coding assistant.';
 const OPENAI_DEFAULT_INSTRUCTIONS = 'You are a helpful assistant.';
-
-export type ResponsesToolChoice =
-  | 'auto'
-  | 'none'
-  | 'required'
-  | { type: 'function'; function: { name: string } };
 
 export interface ResponsesToolInput {
   function: {
@@ -39,7 +34,7 @@ export interface ResponsesRequestParams {
   model: string;
   messages: ChatMessage[];
   tools: ResponsesToolInput[];
-  toolChoice?: ResponsesToolChoice;
+  toolChoice?: ChatCompletionsToolChoice;
   promptCacheKey?: string;
   maxTokens?: number;
 }
@@ -142,7 +137,7 @@ export function convertToolsToResponsesTools(
 }
 
 function convertToolChoice(
-  choice: ResponsesToolChoice | undefined,
+  choice: ChatCompletionsToolChoice | undefined,
 ): string | Record<string, unknown> {
   if (!choice) return 'auto';
   if (typeof choice === 'string') return choice;

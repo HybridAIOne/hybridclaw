@@ -4,6 +4,7 @@
  * the agent loop decides how to handle an empty or truncated answer.
  */
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
+import { stripProviderPrefix } from '@hybridclaw/shared/model-names';
 import {
   finalizeParsedToolCalls,
   INCOMPLETE_RESPONSE,
@@ -64,12 +65,6 @@ function normalizeBaseUrl(baseUrl: string): string {
     .trim()
     .replace(/\/+$/g, '')
     .replace(/\/v1$/i, '');
-}
-
-function normalizeOllamaModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  if (!trimmed.toLowerCase().startsWith('ollama/')) return trimmed;
-  return trimmed.slice('ollama/'.length) || trimmed;
 }
 
 function normalizeMessageText(content: ChatMessage['content']): string {
@@ -144,7 +139,7 @@ function buildRequestBody(
 ): Record<string, unknown> {
   const names = new Map<string, string>();
   const request: Record<string, unknown> = {
-    model: normalizeOllamaModelName(args.model),
+    model: stripProviderPrefix(args.model, 'ollama'),
     messages: args.messages.map((message) => {
       if (message.role === 'assistant')
         for (const call of message.tool_calls || [])
