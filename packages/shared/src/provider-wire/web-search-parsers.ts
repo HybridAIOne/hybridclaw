@@ -106,7 +106,7 @@ export function validateHttpUrl(value: string): string | null {
   }
 }
 
-export function normalizeResultUrl(value: unknown): string | null {
+function normalizeResultUrl(value: unknown): string | null {
   const normalized = String(value || '').trim();
   if (!normalized) return null;
   return validateHttpUrl(normalized);

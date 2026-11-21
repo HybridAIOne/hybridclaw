@@ -12,6 +12,7 @@ import net from 'node:net';
 import { isPrivateNetworkAddress } from '@hybridclaw/shared/private-network';
 import {
   decodeEntities,
+  normalizeWhitespace,
   stripTags,
 } from '@hybridclaw/shared/provider-wire/web-search-parsers';
 import {
@@ -185,15 +186,6 @@ function removeNonContentHtml(value: string): string {
     cursor = closeEnd + 1;
   }
   return output + value.slice(cursor);
-}
-
-function normalizeWhitespace(value: string): string {
-  return value
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 function htmlToMarkdown(
