@@ -10,7 +10,10 @@
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
 import { isPrivateNetworkAddress } from '@hybridclaw/shared/private-network';
-import { decodeEntities, stripTags } from './search-utils.js';
+import {
+  decodeEntities,
+  stripTags,
+} from '@hybridclaw/shared/provider-wire/web-search-parsers';
 import {
   type FetchText,
   readYouTubeVideo,

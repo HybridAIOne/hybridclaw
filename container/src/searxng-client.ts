@@ -1,14 +1,8 @@
+import { parsePositiveInteger } from '@hybridclaw/shared/primitive-values';
 import {
-  isRecord,
-  parsePositiveInteger,
-} from '@hybridclaw/shared/primitive-values';
-import {
-  dedupeResults,
-  normalizeResultUrl,
   normalizeWhitespace,
-  stripTags,
   validateHttpUrl,
-} from './search-utils.js';
+} from '@hybridclaw/shared/provider-wire/web-search-parsers';
 
 const DEFAULT_SEARXNG_PAGE = 1;
 const DEFAULT_SEARXNG_SAFE_SEARCH = 1;
@@ -26,20 +20,6 @@ export interface SearxngSearchOptions {
   count?: number;
   safeSearch?: SearxngSafeSearch;
   timeRange?: SearxngTimeRange;
-}
-
-export interface SearxngSearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-  age?: string;
-  category?: string;
-  engine?: string;
-  thumbnail?: string;
-}
-
-function normalizeText(value: unknown): string {
-  return normalizeWhitespace(stripTags(String(value || '')));
 }
 
 function normalizeSearxngPath(pathname: string): string {
@@ -108,42 +88,4 @@ export function buildSearxngSearchUrl(options: SearxngSearchOptions): string {
   }
 
   return url.toString();
-}
-
-export function parseSearxngSearchResponse(
-  payload: unknown,
-): SearxngSearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid SearXNG search response');
-  if (!Array.isArray(payload.results)) return [];
-
-  const results: SearxngSearchResult[] = [];
-  for (const entry of payload.results) {
-    if (!isRecord(entry)) continue;
-
-    const title = normalizeText(entry.title);
-    const url = normalizeResultUrl(entry.url);
-    if (!title || !url) continue;
-
-    const snippet = normalizeText(
-      entry.content ?? entry.snippet ?? entry.description,
-    );
-    const age =
-      normalizeText(entry.publishedDate ?? entry.published_date ?? entry.age) ||
-      undefined;
-    const category = normalizeText(entry.category) || undefined;
-    const engine = normalizeText(entry.engine) || undefined;
-    const thumbnail = normalizeResultUrl(entry.thumbnail ?? entry.img_src);
-
-    results.push({
-      title,
-      url,
-      snippet,
-      ...(age ? { age } : {}),
-      ...(category ? { category } : {}),
-      ...(engine ? { engine } : {}),
-      ...(thumbnail ? { thumbnail } : {}),
-    });
-  }
-
-  return dedupeResults(results);
 }

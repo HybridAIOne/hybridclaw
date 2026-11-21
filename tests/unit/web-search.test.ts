@@ -1,16 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  buildSearxngSearchUrl,
-  parseSearxngSearchResponse,
-} from '../../container/src/searxng-client.js';
+import { buildSearxngSearchUrl } from '../../container/src/searxng-client.js';
 import {
   buildProviderChain,
   clearWebSearchCache,
   getWebSearchConfigFromEnv,
   mapFreshnessForProvider,
   normalizeSearchParams,
-  parseBraveSearchResponse,
-  parseDuckDuckGoHtml,
   searchWeb,
   type WebSearchConfig,
   type WebSearchParams,
@@ -127,64 +122,7 @@ describe('provider chain', () => {
   });
 });
 
-describe('provider parsers', () => {
-  it('parses Brave JSON results', () => {
-    const results = parseBraveSearchResponse({
-      web: {
-        results: [
-          {
-            title: 'Brave Result',
-            url: 'https://example.com/brave',
-            description: 'Brave snippet',
-            age: '2 days ago',
-          },
-        ],
-      },
-    });
-
-    expect(results).toEqual([
-      {
-        title: 'Brave Result',
-        url: 'https://example.com/brave',
-        snippet: 'Brave snippet',
-        age: '2 days ago',
-      },
-    ]);
-  });
-
-  it('returns an empty list for Brave responses without results', () => {
-    expect(parseBraveSearchResponse({ web: {} })).toEqual([]);
-  });
-
-  it('rejects malformed Brave responses', () => {
-    expect(() => parseBraveSearchResponse('bad-payload')).toThrow(
-      'Invalid Brave search response',
-    );
-  });
-
-  it('parses DuckDuckGo HTML and unwraps uddg redirects', () => {
-    const results = parseDuckDuckGoHtml(DUCKDUCKGO_HTML);
-
-    expect(results).toEqual([
-      {
-        title: 'Alpha Result',
-        url: 'https://example.com/alpha',
-        snippet: 'Alpha snippet',
-      },
-      {
-        title: 'Beta Result',
-        url: 'https://example.com/beta',
-        snippet: 'Beta snippet',
-      },
-    ]);
-  });
-
-  it('returns an empty list for DuckDuckGo HTML without result rows', () => {
-    expect(parseDuckDuckGoHtml('<html><body>No hits</body></html>')).toEqual(
-      [],
-    );
-  });
-
+describe('SearXNG request URLs', () => {
   it('builds SearXNG JSON search URLs with query options', () => {
     const url = new URL(
       buildSearxngSearchUrl({
@@ -239,49 +177,6 @@ describe('provider parsers', () => {
         query: '   ',
       }),
     ).toThrow('SearXNG query is required');
-  });
-
-  it('parses and normalizes SearXNG JSON results', () => {
-    const results = parseSearxngSearchResponse({
-      results: [
-        {
-          title: '<b>SearXNG Result</b>',
-          url: 'https://example.com/search',
-          content: 'Sovereign &amp; private',
-          publishedDate: '2026-05-01',
-          category: 'general',
-          engine: 'brave',
-          thumbnail: 'https://example.com/thumb.jpg',
-        },
-        {
-          title: 'Duplicate Result',
-          url: 'https://example.com/search',
-          content: 'Duplicate URL should be dropped',
-        },
-        {
-          title: 'Missing URL',
-          content: 'ignored',
-        },
-      ],
-    });
-
-    expect(results).toEqual([
-      {
-        title: 'SearXNG Result',
-        url: 'https://example.com/search',
-        snippet: 'Sovereign & private',
-        age: '2026-05-01',
-        category: 'general',
-        engine: 'brave',
-        thumbnail: 'https://example.com/thumb.jpg',
-      },
-    ]);
-  });
-
-  it('rejects malformed SearXNG responses', () => {
-    expect(() => parseSearxngSearchResponse('bad-payload')).toThrow(
-      'Invalid SearXNG search response',
-    );
   });
 });
 
