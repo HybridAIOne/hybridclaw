@@ -9,6 +9,7 @@ import {
   createResponsesStreamState,
   type ResponsesCompletion,
 } from '@hybridclaw/shared/provider-wire/codex-responses';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
 import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
@@ -42,10 +43,7 @@ import {
   getLocalModelInfo,
 } from './local-discovery.js';
 import { localBackendsProbe } from './local-health.js';
-import {
-  stripHybridAIModelPrefix,
-  stripProviderPrefix,
-} from './model-names.js';
+import { stripProviderPrefix } from './model-names.js';
 import {
   inferProviderFromModelPrefix,
   isLocalBackendType,
@@ -1057,18 +1055,14 @@ async function callHybridAITextModel(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const body = withCoreRequestBody(
-    {
-      model: stripHybridAIModelPrefix(context.model),
+    buildHybridAIRequestBody({
+      model: context.model,
       messages,
-      // The bot is optional, and RAG searches the bot's knowledge.
-      ...(context.chatbotId
-        ? { chatbot_id: context.chatbotId, enable_rag: context.enableRag }
-        : {}),
-      ...(options.tools.length > 0
-        ? { tools: options.tools, tool_choice: 'auto' }
-        : {}),
-      ...(context.maxTokens ? { max_tokens: context.maxTokens } : {}),
-    },
+      chatbotId: context.chatbotId,
+      enableRag: context.enableRag,
+      tools: options.tools,
+      maxTokens: context.maxTokens,
+    }),
     options,
   );
 
