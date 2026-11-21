@@ -4,6 +4,7 @@ import {
   writeFileAtomic,
   writeFileAtomicAsync,
 } from '@hybridclaw/shared/atomic-write';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 
 import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -37,7 +38,6 @@ const CV_STATE_FILE = '.CV.state.json';
 const MAX_NARRATION_SOURCE_CHARS = 1_200;
 const DEFAULT_CV_NARRATION_MAX_TOKENS = 1_200;
 const DEFAULT_CV_NARRATION_TIMEOUT_MS = 45_000;
-const APPROX_CHARS_PER_TOKEN = 4;
 
 interface AgentCvEntry {
   run_id: string;
@@ -535,10 +535,6 @@ function parseNarrations(
   }
 }
 
-function estimateTokenCount(text: string): number {
-  return Math.max(1, Math.ceil(text.length / APPROX_CHARS_PER_TOKEN));
-}
-
 function estimateNarrationCostUsd(input: {
   model: string;
   systemPrompt: string;
@@ -550,8 +546,8 @@ function estimateNarrationCostUsd(input: {
   const inputPrice = pricing.input ?? pricing.output ?? 0;
   const outputPrice = pricing.output ?? pricing.input ?? 0;
   return (
-    estimateTokenCount(input.systemPrompt) * inputPrice +
-    estimateTokenCount(input.userPrompt) * inputPrice +
+    estimateTextTokens(input.systemPrompt) * inputPrice +
+    estimateTextTokens(input.userPrompt) * inputPrice +
     input.maxOutputTokens * outputPrice
   );
 }

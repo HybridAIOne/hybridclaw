@@ -9,7 +9,7 @@ import {
 import {
   createTokenEstimateCache,
   estimateMessageTokens,
-} from '../container/src/token-usage.js';
+} from '@hybridclaw/shared/token-estimate';
 import type { ChatMessage } from '../container/src/types.js';
 
 afterEach(() => setVisualMediaAllowed(false));

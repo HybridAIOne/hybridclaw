@@ -1,4 +1,5 @@
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
@@ -10,6 +11,7 @@ import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '@hybridclaw/shared/server-sent-events';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
@@ -990,45 +992,6 @@ function normalizeOllamaBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/g, '').replace(/\/v1$/i, '');
 }
 
-function contentToText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text' || !part.text) continue;
-    chunks.push(part.text);
-  }
-  return chunks.join('\n');
-}
-
-function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push({ ...message });
-      continue;
-    }
-
-    const text = contentToText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-
-  return [
-    {
-      role: 'system',
-      content: systemBlocks.join('\n\n'),
-    },
-    ...remaining,
-  ];
-}
-
 async function parseError(response: Response): Promise<never> {
   throw new Error(
     `Auxiliary provider call failed with ${response.status}: ${await response.text()}`,
@@ -1199,7 +1162,7 @@ function buildAnthropicMessages(messages: ChatMessage[]): {
   }> = [];
 
   for (const message of messages) {
-    const content = contentToText(message.content).trim();
+    const content = chatContentText(message.content).trim();
     if (!content) continue;
     if (message.role === 'system') {
       system.push(content);
@@ -1277,7 +1240,7 @@ function convertMessageToCodexInput(
     items.push({
       type: 'function_call_output',
       call_id: message.tool_call_id || '',
-      output: contentToText(message.content),
+      output: chatContentText(message.content),
     });
     return items;
   }
@@ -1293,7 +1256,7 @@ function convertMessageToCodexInput(
     }
   }
 
-  const text = contentToText(message.content);
+  const text = chatContentText(message.content);
   if (text.trim()) {
     items.push({
       role: message.role,
@@ -1321,7 +1284,7 @@ async function callCodexTextModel(
 ): Promise<AuxiliaryTextResponse> {
   const instructions = messages
     .filter((message) => message.role === 'system')
-    .map((message) => contentToText(message.content).trim())
+    .map((message) => chatContentText(message.content).trim())
     .filter((message) => message.length > 0)
     .join('\n\n');
   const body: Record<string, unknown> = {
@@ -1484,7 +1447,7 @@ async function callOllamaTextModel(
     model: normalizeOllamaModelName(context.model),
     messages: messages.map((message) => ({
       role: message.role,
-      content: contentToText(message.content),
+      content: chatContentText(message.content),
     })),
     stream: false,
   };

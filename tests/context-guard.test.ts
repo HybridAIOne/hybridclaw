@@ -4,7 +4,7 @@ import { applyContextGuard } from '../container/src/context-guard.js';
 import {
   createTokenEstimateCache,
   estimateMessageTokens,
-} from '../container/src/token-usage.js';
+} from '@hybridclaw/shared/token-estimate';
 import type { ChatMessage } from '../container/src/types.js';
 
 function buildHistory(): ChatMessage[] {

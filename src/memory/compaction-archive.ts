@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { DATA_DIR } from '../config/config.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ArchiveEntry } from '../types/memory.js';
 import type { StoredMessage } from '../types/session.js';
@@ -63,7 +62,7 @@ export function archiveTranscript(params: {
   const sessionDir = path.join(archiveRoot, safeFilePart(params.sessionId));
   const stamp = archivedAt.replace(/[:.]/g, '-');
   const filePath = path.join(sessionDir, `${stamp}.json`);
-  const estimatedTokens = estimateTokenCountFromMessages(
+  const estimatedTokens = estimateMessageTokens(
     params.messages.map(toChatMessage),
   );
 

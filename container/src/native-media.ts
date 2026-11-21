@@ -1,14 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
 import {
   isAudioMediaItem,
   isImageMediaItem,
 } from '@hybridclaw/shared/media-kind';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 
 import { inferArtifactMimeType } from './artifacts.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
-import { normalizeMessageContentToText } from './ralph.js';
 import { resolveMediaPath, resolveWorkspacePath } from './runtime-paths.js';
 import type {
   ChatContentPart,
@@ -210,7 +209,7 @@ function appendNativePartsToLatestUserMessage(params: {
 
   const cloned = params.messages.map((message) => ({ ...message }));
   const existingContent = cloned[latestUserIndex].content;
-  const existingText = normalizeMessageContentToText(existingContent);
+  const existingText = chatContentText(existingContent).trim();
   const existingNonTextParts = Array.isArray(existingContent)
     ? existingContent.filter((part) => part.type !== 'text')
     : [];

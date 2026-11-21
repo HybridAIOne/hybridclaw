@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { estimateRoutedPromptOverheadTokens } from '../container/src/providers/router.js';
-import { estimateTextTokens } from '../container/src/token-usage.js';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 import type { ToolDefinition } from '../container/src/types.js';
 
 test.each(['openrouter', 'anthropic', 'openai', 'hybridai', 'ollama'] as const)(
