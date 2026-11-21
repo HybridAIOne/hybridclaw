@@ -125,7 +125,7 @@ export function convertMessageToResponsesInput(
   return items;
 }
 
-export function convertToolsToResponsesTools(
+function convertToolsToResponsesTools(
   tools: ResponsesToolInput[],
 ): Array<Record<string, unknown>> {
   return tools.map((tool) => ({
