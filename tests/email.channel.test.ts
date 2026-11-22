@@ -1040,6 +1040,19 @@ describe('email runtime', () => {
     );
 
     expect(from).toBe('agent@example.com');
+    // The prompt names the same fallback mailbox the runtime sent from.
+    const { resolveAgentSenderEmailAddress } = await import(
+      '../src/channels/email/agent-account.js'
+    );
+    const { getRuntimeConfig } = await import(
+      '../src/config/runtime-config.js'
+    );
+    expect(
+      resolveAgentSenderEmailAddress(
+        { email: BASE_EMAIL_CONFIG, agents: getRuntimeConfig().agents },
+        'research',
+      ),
+    ).toEqual({ address: from, own: false });
     expect(sendMail).toHaveBeenCalledTimes(1);
     expect(sendMail.mock.calls[0]?.[0]?.from).toEqual({
       name: 'assist',

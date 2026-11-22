@@ -3592,6 +3592,7 @@ async function handleApiChat(
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
+    ...(body.questionCards === true ? { questionCards: true } : {}),
     ...(body.appNotice === true ? { appNotice: true } : {}),
   };
   if (!rejoin && approval && platformApprovalId(approval.approvalId)) {

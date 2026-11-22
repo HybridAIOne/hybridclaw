@@ -106,6 +106,7 @@ import {
 } from '../providers/model-routing.js';
 import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
+import { getLinkedConnectorDirectory } from '../scopes/scope-connectors.js';
 import {
   isScopeRunError,
   resolveScopeRun,
@@ -472,20 +473,21 @@ function errorTurnToolSummary(
  * `estimate_cost` and `show_dashboard` need a client that draws them: a card
  * of slide pictures to pick from, a live widget under the reply, a transfer
  * card with a GiroCode, a card of questions, a cost estimate card, or a
- * dashboard. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent
- * answers in words.
+ * dashboard. Only the Hy app (`client: "mobile"`) draws them all; the web
+ * console draws question cards (`questionCards`). Elsewhere the agent answers
+ * in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
-  client: GatewayChatRequest['client'],
+  req: Pick<GatewayChatRequest, 'client' | 'questionCards'>,
 ): string[] | undefined {
-  if (client === 'mobile') return blockedTools;
+  if (req.client === 'mobile') return blockedTools;
   return [
     ...(blockedTools ?? []),
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
-    ASK_QUESTIONS_TOOL,
+    ...(req.questionCards ? [] : [ASK_QUESTIONS_TOOL]),
     'estimate_cost',
     SHOW_DASHBOARD_TOOL,
   ];
@@ -1245,6 +1247,8 @@ async function handleGatewayMessageInner(
   }
   // A scoped chat runs in its scope's workspace with its connector limits,
   // and never reaches memory kept for the user as a whole.
+  // Which mail accounts the agent may send from; read beside the rest.
+  const mailConnectors = getLinkedConnectorDirectory();
   let scopeRun: Awaited<ReturnType<typeof resolveScopeRun>>;
   try {
     scopeRun = await resolveScopeRun(
@@ -1939,7 +1943,7 @@ async function handleGatewayMessageInner(
       req.userId,
       req.client === 'mobile',
     ),
-    req.client,
+    req,
   );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
@@ -1994,6 +1998,7 @@ async function handleGatewayMessageInner(
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools,
+    mailConnectors: await mailConnectors,
   });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
