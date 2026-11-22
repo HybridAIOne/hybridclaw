@@ -3,7 +3,7 @@
  * Explicit reasoning choices bypass the cumulative default allowance.
  * Existing history remains authoritative; no actions or permissions are replayed.
  */
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 
 // Runtime policy (Codex engineering decision, 2026-11-09): preserve an initial
 // 8K generation allocation across calls, then finish default local turns without
