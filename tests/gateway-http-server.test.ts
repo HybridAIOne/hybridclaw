@@ -5302,20 +5302,27 @@ describe('gateway HTTP server', () => {
     expect(res.getHeader('x-hybridclaw-delegation-id')).toBe(payload.id);
   });
 
-  test('reuses the OpenAI executor session across turns of one conversation, not across conversations', async () => {
+  test('reuses the OpenAI executor session within one conversation, not across conversations', async () => {
     const state = await importFreshHealth();
     const system = { role: 'system', content: 'You are concise.' };
-    const bodies = [
-      [system, { role: 'user', content: 'Task: fix the bug.' }],
-      [
-        system,
-        { role: 'user', content: 'Task: fix the bug.' },
-        { role: 'assistant', content: 'I will inspect it.' },
-        { role: 'user', content: 'Step 2' },
-      ],
-      [system, { role: 'user', content: 'Task: write the docs.' }],
+    const user = (content: string) => ({ role: 'user', content });
+    const assistant = (content: string) => ({ role: 'assistant', content });
+    const second = [
+      system,
+      user('Task: fix the bug.'),
+      assistant('I will inspect it.'),
+      user('Step 2'),
     ];
-    for (const messages of bodies) {
+    const conversations = {
+      second,
+      third: [...second, assistant('Step 2 done.'), user('Step 3')],
+      fix: [system, user('Task: fix the bug.')],
+      docs: [system, user('Task: write the docs.')],
+      greetA: [system, user('hi'), assistant('Hello!'), user('Clean up build/.')],
+      greetB: [system, user('hi'), assistant('Hey there.'), user('Write docs.')],
+    };
+    const ids: Record<string, string> = {};
+    for (const [name, messages] of Object.entries(conversations)) {
       const res = makeResponse();
       state.handler(
         makeRequest({
@@ -5326,17 +5333,15 @@ describe('gateway HTTP server', () => {
         res as never,
       );
       await waitForResponse(res, (next) => next.writableEnded);
+      const call = state.handleGatewayMessage.mock.calls.at(-1)?.[0];
+      expect(call?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
+      expect(call?.executionSessionId).toMatch(OPENAI_EXECUTION_SESSION_ID_RE);
+      ids[name] = String(call?.executionSessionId);
     }
 
-    const [first, second, other] = state.handleGatewayMessage.mock.calls.map(
-      (call) => call[0],
-    );
-    expect(first?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
-    expect(first?.sessionId).not.toBe(second?.sessionId);
-    expect(first?.executionSessionId).toMatch(OPENAI_EXECUTION_SESSION_ID_RE);
-    expect(second?.executionSessionId).toBe(first?.executionSessionId);
-    expect(other?.executionSessionId).toMatch(OPENAI_EXECUTION_SESSION_ID_RE);
-    expect(other?.executionSessionId).not.toBe(first?.executionSessionId);
+    expect(ids.third).toBe(ids.second);
+    expect(ids.docs).not.toBe(ids.fix);
+    expect(ids.greetB).not.toBe(ids.greetA);
     expect(state.stopSessionExecution).not.toHaveBeenCalled();
   });
 
