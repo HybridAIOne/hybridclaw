@@ -438,6 +438,8 @@ export function useChatStream(
             username: 'web',
             content,
             stream: true,
+            // The web chat draws `ask_questions` (questions-card.tsx).
+            questionCards: true,
             ...(media.length > 0 ? { media } : {}),
             ...(opts?.appBuild ? { appBuild: true } : {}),
             ...(opts?.appCategory ? { appCategory: opts.appCategory } : {}),
