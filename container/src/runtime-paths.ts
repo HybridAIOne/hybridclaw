@@ -401,24 +401,30 @@ export function toWorkspaceDisplayPath(resolvedPath: string): string {
 
 const escapeRegExp = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-// A path that starts at the display root, up to the next shell word boundary.
+// A path that starts at the display root, up to the next shell word boundary
+// or backslash escape. A `:` does not start a path (`host:/workspace`).
 const DISPLAY_ROOT_COMMAND_PATH_RE = new RegExp(
-  `(?<=^|[\\s'"\`=:;,(|&<>])${escapeRegExp(WORKSPACE_ROOT_DISPLAY)}(?=$|[/\\s'"\`:;,)|&<>])[^\\s'"\`:;,()|&<>$]*`,
+  `(?<=^|[\\s'"\`=;,(|&<>@{])${escapeRegExp(WORKSPACE_ROOT_DISPLAY)}(?=$|[/\\s'"\`;,)|&<>}\\\\])[^\\s'"\`:;,()|&<>{}$\\\\]*`,
   'gm',
 );
+const SHELL_LITERAL_PATH_RE = /^[\w./-]+$/;
 
 /**
  * A host shell sees the real filesystem, where the display root is absent or
- * another directory. Resolve its paths in a command the way the file tools do,
- * so `cat /workspace/x` reads the file `read /workspace/x` returns.
+ * another directory. Where the file tools read `/workspace/x` from the
+ * workspace, the command gets the same path; only that prefix changes.
  */
 export function resolveDisplayRootInCommand(command: string): string {
-  if (path.resolve(WORKSPACE_ROOT_DISPLAY) === WORKSPACE_ROOT) return command;
+  if (
+    path.resolve(WORKSPACE_ROOT_DISPLAY) === WORKSPACE_ROOT ||
+    !SHELL_LITERAL_PATH_RE.test(WORKSPACE_ROOT)
+  ) {
+    return command;
+  }
   return command.replace(DISPLAY_ROOT_COMMAND_PATH_RE, (token) => {
-    const resolved = resolveWorkspacePath(token);
-    if (!resolved) return token;
-    return token.endsWith('/') && !resolved.endsWith('/')
-      ? `${resolved}/`
-      : resolved;
+    const aliased = `${WORKSPACE_ROOT}${token.slice(WORKSPACE_ROOT_DISPLAY.length)}`;
+    return resolveWorkspacePath(token) === path.resolve(aliased)
+      ? aliased
+      : token;
   });
 }
