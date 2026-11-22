@@ -1,3 +1,15 @@
+import type { SearchProviderName } from '@hybridclaw/contracts/web-search-config';
+import {
+  BRAVE_SEARCH_ENDPOINT,
+  DUCKDUCKGO_SEARCH_ENDPOINT,
+  dedupeResults,
+  parseBraveSearchResponse,
+  parseDuckDuckGoHtml,
+  parseTavilySearchResponse,
+  type SearchResult,
+  stripTags,
+  TAVILY_SEARCH_ENDPOINT,
+} from '@hybridclaw/shared/provider-wire/web-search-parsers';
 import {
   BRAVE_API_KEY,
   TAVILY_API_KEY,
@@ -5,16 +17,15 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import { isRecord } from '../utils/type-guards.js';
 
-export type SecondOpinionWebSearchProvider = 'brave' | 'tavily' | 'duckduckgo';
+export type SecondOpinionWebSearchProvider = Extract<
+  SearchProviderName,
+  'brave' | 'tavily' | 'duckduckgo'
+>;
 
-export interface SecondOpinionWebSearchResult {
-  title: string;
-  url: string;
-  snippet: string;
+export type SecondOpinionWebSearchResult = Omit<SearchResult, 'rawContent'> & {
   fetchedExcerpt?: string;
-}
+};
 
 export interface SecondOpinionWebSearchEvidence {
   provider: SecondOpinionWebSearchProvider;
@@ -22,72 +33,12 @@ export interface SecondOpinionWebSearchEvidence {
   results: SecondOpinionWebSearchResult[];
 }
 
-const BRAVE_SEARCH_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
-const TAVILY_SEARCH_ENDPOINT = 'https://api.tavily.com/search';
-const DUCKDUCKGO_SEARCH_ENDPOINT = 'https://html.duckduckgo.com/html/';
 const SECOND_OPINION_SEARCH_TIMEOUT_MS = 30_000;
 const SECOND_OPINION_FETCH_TIMEOUT_MS = 10_000;
 const SECOND_OPINION_SEARCH_RESULT_LIMIT = 10;
 const SECOND_OPINION_FETCH_EXCERPT_LIMIT = 1200;
 const SECOND_OPINION_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-function decodeEntities(value: string): string {
-  return value.replace(
-    /&(nbsp|amp|quot|#39|lt|gt|#x([0-9a-f]+)|#(\d+));/gi,
-    (
-      entity,
-      name: string,
-      hex: string | undefined,
-      dec: string | undefined,
-    ) => {
-      if (hex) return String.fromCharCode(Number.parseInt(hex, 16));
-      if (dec) return String.fromCharCode(Number.parseInt(dec, 10));
-      switch (name.toLowerCase()) {
-        case 'nbsp':
-          return ' ';
-        case 'amp':
-          return '&';
-        case 'quot':
-          return '"';
-        case '#39':
-          return "'";
-        case 'lt':
-          return '<';
-        case 'gt':
-          return '>';
-        default:
-          return entity;
-      }
-    },
-  );
-}
-
-function stripTags(value: string): string {
-  let output = '';
-  let inTag = false;
-  let quote = '';
-  for (const character of value) {
-    if (!inTag) {
-      if (character === '<') {
-        inTag = true;
-      } else {
-        output += character;
-      }
-      continue;
-    }
-    if (quote) {
-      if (character === quote) quote = '';
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === '>') {
-      inTag = false;
-    }
-  }
-  return decodeEntities(output);
-}
 
 function findHtmlTagEnd(value: string, start: number): number {
   let quote = '';
@@ -148,129 +99,8 @@ function removeRawHtmlElements(value: string): string {
   return removeRawHtmlElement(removeRawHtmlElement(value, 'script'), 'style');
 }
 
-function normalizeWhitespace(value: string): string {
-  return value.replace(/\r/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeUrl(value: unknown): string {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
-    parsed.hash = '';
-    return parsed.toString();
-  } catch {
-    return '';
-  }
-}
-
-function extractArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function normalizeSearchResultEntry(params: {
-  title: unknown;
-  url: unknown;
-  snippet: unknown;
-  fetchedExcerpt?: unknown;
-}): SecondOpinionWebSearchResult | null {
-  const title = normalizeWhitespace(String(params.title || ''));
-  const url = normalizeUrl(params.url);
-  if (!title || !url) return null;
-  const snippet = normalizeWhitespace(String(params.snippet || ''));
-  const fetchedExcerpt = normalizeWhitespace(
-    String(params.fetchedExcerpt || ''),
-  );
-  return {
-    title,
-    url,
-    snippet,
-    ...(fetchedExcerpt
-      ? {
-          fetchedExcerpt: fetchedExcerpt.slice(
-            0,
-            SECOND_OPINION_FETCH_EXCERPT_LIMIT,
-          ),
-        }
-      : {}),
-  };
-}
-
-function normalizeBraveResult(
-  entry: unknown,
-): SecondOpinionWebSearchResult | null {
-  if (!isRecord(entry)) return null;
-  return normalizeSearchResultEntry({
-    title: entry.title,
-    url: entry.url,
-    snippet: entry.description ?? entry.snippet,
-  });
-}
-
-function normalizeTavilyResult(
-  entry: unknown,
-): SecondOpinionWebSearchResult | null {
-  if (!isRecord(entry)) return null;
-  return normalizeSearchResultEntry({
-    title: entry.title,
-    url: entry.url,
-    snippet: entry.content ?? entry.snippet,
-    fetchedExcerpt: entry.raw_content,
-  });
-}
-
-function unwrapDuckDuckGoUrl(href: string): string {
-  const decodedHref = decodeEntities(href).trim();
-  if (!decodedHref) return '';
-  const absoluteHref = decodedHref.startsWith('//')
-    ? `https:${decodedHref}`
-    : decodedHref.startsWith('/')
-      ? new URL(decodedHref, 'https://duckduckgo.com').toString()
-      : decodedHref;
-
-  try {
-    const parsed = new URL(absoluteHref);
-    const redirectTarget = parsed.searchParams.get('uddg');
-    if (
-      redirectTarget &&
-      (parsed.hostname === 'duckduckgo.com' ||
-        parsed.hostname === 'html.duckduckgo.com')
-    ) {
-      return normalizeUrl(redirectTarget);
-    }
-  } catch {
-    return normalizeUrl(absoluteHref);
-  }
-
-  return normalizeUrl(absoluteHref);
-}
-
-function parseDuckDuckGoHtml(html: string): SecondOpinionWebSearchResult[] {
-  const results: SecondOpinionWebSearchResult[] = [];
-  const linkRe =
-    /<a[^>]*class=["'][^"']*\bresult__a\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  const links = Array.from(html.matchAll(linkRe));
-
-  for (let index = 0; index < links.length; index += 1) {
-    const link = links[index];
-    const start = link.index ?? 0;
-    const end = links[index + 1]?.index ?? html.length;
-    const segment = html.slice(start, end);
-    const url = unwrapDuckDuckGoUrl(link[1] || '');
-    const title = normalizeWhitespace(stripTags(link[2] || ''));
-    if (!url || !title) continue;
-
-    const snippetMatch = segment.match(
-      /class=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div|span)>/i,
-    );
-    results.push({
-      title,
-      url,
-      snippet: normalizeWhitespace(stripTags(snippetMatch?.[1] || '')),
-    });
-  }
-  return dedupeResults(results);
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function buildTavilyBody(query: string): Record<string, unknown> {
@@ -301,20 +131,6 @@ async function fetchWithTimeout(
   }
 }
 
-function dedupeResults(
-  results: SecondOpinionWebSearchResult[],
-): SecondOpinionWebSearchResult[] {
-  const seenUrls = new Set<string>();
-  const deduped: SecondOpinionWebSearchResult[] = [];
-  for (const result of results) {
-    const key = result.url.toLowerCase();
-    if (seenUrls.has(key)) continue;
-    seenUrls.add(key);
-    deduped.push(result);
-  }
-  return deduped;
-}
-
 async function searchBrave(
   query: string,
 ): Promise<SecondOpinionWebSearchResult[]> {
@@ -337,13 +153,7 @@ async function searchBrave(
   if (!response.ok) {
     throw new Error(`Brave search failed with HTTP ${response.status}.`);
   }
-  const payload = (await response.json()) as { web?: { results?: unknown[] } };
-  const rawResults = isRecord(payload.web)
-    ? extractArray(payload.web.results)
-    : [];
-  return rawResults
-    .map(normalizeBraveResult)
-    .filter((entry): entry is SecondOpinionWebSearchResult => entry !== null);
+  return parseBraveSearchResponse(await response.json());
 }
 
 async function searchTavily(
@@ -365,10 +175,18 @@ async function searchTavily(
   if (!response.ok) {
     throw new Error(`Tavily search failed with HTTP ${response.status}.`);
   }
-  const payload = (await response.json()) as { results?: unknown[] };
-  return (Array.isArray(payload.results) ? payload.results : [])
-    .map(normalizeTavilyResult)
-    .filter((entry): entry is SecondOpinionWebSearchResult => entry !== null);
+  return parseTavilySearchResponse(await response.json()).map(
+    ({ rawContent, ...result }) =>
+      rawContent
+        ? {
+            ...result,
+            fetchedExcerpt: collapseWhitespace(rawContent).slice(
+              0,
+              SECOND_OPINION_FETCH_EXCERPT_LIMIT,
+            ),
+          }
+        : result,
+  );
 }
 
 async function searchDuckDuckGo(
@@ -450,7 +268,7 @@ function buildProviderChain(): SecondOpinionWebSearchProvider[] {
 
 function htmlToExcerpt(value: string): string {
   const withoutScripts = removeRawHtmlElements(value);
-  return normalizeWhitespace(stripTags(withoutScripts)).slice(
+  return collapseWhitespace(stripTags(withoutScripts)).slice(
     0,
     SECOND_OPINION_FETCH_EXCERPT_LIMIT,
   );
@@ -497,7 +315,7 @@ export async function runSecondOpinionWebSearch(params: {
   queries: string[];
 }): Promise<SecondOpinionWebSearchEvidence> {
   const queries = params.queries
-    .map((query) => normalizeWhitespace(query).slice(0, 500))
+    .map((query) => collapseWhitespace(query).slice(0, 500))
     .filter(Boolean)
     .slice(0, 5);
   if (queries.length === 0) {
