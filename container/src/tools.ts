@@ -23,6 +23,7 @@ import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
 } from '@hybridclaw/shared/msteams-session-ids';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -42,7 +43,9 @@ import {
 import { bashToolDefinition } from './bash-tool-definition.js';
 import {
   currentBrowserPage,
+  hideTypedSecrets,
   pauseBrowserFramesUntilNavigation,
+  recordTypedSecret,
 } from './browser-checkout.js';
 import {
   BROWSER_EVALUATE_TOOL,
@@ -50,7 +53,7 @@ import {
 } from './browser-evaluate.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
-  emitBrowserSignInRequest,
+  emitBrowserUserRequest,
   executeBrowserTool,
   setBrowserGatewayContext,
   usesGatewayManagedBrowser,
@@ -928,16 +931,9 @@ function withAutomaticGatewayAuth(
   return { ...args, headers };
 }
 
-function resolveGatewaySecretInjectUrl(): string | null {
+function resolveGatewayUrl(path: string): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
-  if (!base) return null;
-  return `${base}/api/secret/inject`;
-}
-
-function resolveGatewayBrowserSignInUrl(): string | null {
-  const base = gatewayBaseUrl.replace(/\/+$/, '');
-  if (!base) return null;
-  return `${base}/api/browser/sign-in`;
+  return base ? `${base}${path}` : null;
 }
 
 async function callGatewayMessageAction(
@@ -1369,7 +1365,7 @@ async function callGatewayHttpRequest(
 async function callGatewaySecretInject(
   args: Record<string, unknown>,
 ): Promise<ContainerSecretHandle> {
-  const url = resolveGatewaySecretInjectUrl();
+  const url = resolveGatewayUrl('/api/secret/inject');
   if (!url) {
     return failTool(
       'Error: browser_secret_type is unavailable because gatewayBaseUrl is not configured.',
@@ -1493,14 +1489,19 @@ type SavedBrowserSignIn = {
   passwordSecret: string;
 };
 
-/** Which store names hold the host's sign-in; never the values. */
-async function lookupBrowserSignIn(
+/**
+ * Ask the gateway which secret names hold what the user gave for `host`
+ * (`/api/browser/sign-in`, `/api/browser/payment-card`); never the values.
+ */
+async function lookupBrowserSecretNames(
+  toolName: string,
+  path: string,
   host: string,
-): Promise<SavedBrowserSignIn | null> {
-  const url = resolveGatewayBrowserSignInUrl();
+): Promise<Record<string, unknown> | null> {
+  const url = resolveGatewayUrl(path);
   if (!url) {
     return failTool(
-      'Error: browser_sign_in is unavailable because gatewayBaseUrl is not configured.',
+      `Error: ${toolName} is unavailable because gatewayBaseUrl is not configured.`,
     );
   }
   const headers: Record<string, string> = {
@@ -1527,12 +1528,22 @@ async function lookupBrowserSignIn(
     }
   } catch (err) {
     return failTool(
-      `Error: sign-in lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Error: ${toolName} lookup failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (parsed?.saved !== true || typeof parsed.passwordSecret !== 'string') {
-    return null;
-  }
+  return parsed?.saved === true ? parsed : null;
+}
+
+/** Which store names hold the host's sign-in; never the values. */
+async function lookupBrowserSignIn(
+  host: string,
+): Promise<SavedBrowserSignIn | null> {
+  const parsed = await lookupBrowserSecretNames(
+    'browser_sign_in',
+    '/api/browser/sign-in',
+    host,
+  );
+  if (typeof parsed?.passwordSecret !== 'string') return null;
   return {
     ...(typeof parsed.usernameSecret === 'string'
       ? { usernameSecret: parsed.usernameSecret }
@@ -1588,7 +1599,7 @@ async function executeBrowserSignIn(
   const replace = args.replace === true;
   const signIn = replace ? null : await lookupBrowserSignIn(page.host);
   if (!signIn) {
-    emitBrowserSignInRequest(page, page.host);
+    emitBrowserUserRequest(page, 'signIn', page.host);
     return JSON.stringify(
       {
         success: true,
@@ -1640,11 +1651,91 @@ async function executeBrowserSignIn(
   );
 }
 
+// What `browser_fill_payment` types into each field it is given a ref for.
+const PAYMENT_FIELD_ARGS = [
+  ['number_ref', 'number'],
+  ['expiry_ref', 'expiry'],
+  ['expiry_month_ref', 'expiry_month'],
+  ['expiry_year_ref', 'expiry_year'],
+  ['cvc_ref', 'cvc'],
+] as const;
+
+/**
+ * Fill a payment form with the card the user entered for the page's site, or
+ * ask them for one. The ask is a `paymentCard` frame line: the Hy app turns it
+ * into a card sheet that hands the details to `/api/payment-cards`, which
+ * holds them in gateway memory for ten minutes.
+ */
+async function executeBrowserFillPayment(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const page = await resolveCurrentBrowserPage();
+  if (!page.host) {
+    return failTool(
+      'Error: browser_fill_payment needs an open page with the payment form.',
+    );
+  }
+  const fields = PAYMENT_FIELD_ARGS.flatMap(([arg, field]) => {
+    const ref = String(args[arg] || '').trim();
+    return ref ? [{ ref, field }] : [];
+  });
+  if (fields.length === 0 && args.replace !== true) {
+    return failTool(
+      'Error: name the card fields to fill, for example number_ref, expiry_ref and cvc_ref.',
+    );
+  }
+  const card =
+    args.replace === true
+      ? null
+      : asRecord(
+          (
+            await lookupBrowserSecretNames(
+              'browser_fill_payment',
+              '/api/browser/payment-card',
+              page.host,
+            )
+          )?.secrets,
+        );
+  if (!card) {
+    emitBrowserUserRequest(page, 'paymentCard', page.host);
+    return JSON.stringify(
+      {
+        success: true,
+        host: page.host,
+        card_requested: true,
+        next: `No card is ready for ${page.host}. The user's chat now shows a card for ${page.host} where they enter their card details, which reach the page without you seeing them. Stop here and tell the user in one short sentence that you need their card details for ${page.host} to continue. Never ask for a card number, expiry date or security code in chat. When the user says they entered it, call browser_fill_payment again.`,
+      },
+      null,
+      2,
+    );
+  }
+  const yearField =
+    args.expiry_year_format === 'YYYY' ? 'expiry_year' : 'expiry_year_short';
+  for (const { ref, field } of fields) {
+    const secretName = card[field === 'expiry_year' ? yearField : field];
+    if (typeof secretName !== 'string') {
+      return failTool(`Error: the card has no ${field}.`);
+    }
+    await typeSavedSecret(secretName, { ref }, args.frame);
+  }
+  return JSON.stringify(
+    {
+      success: true,
+      host: page.host,
+      filled: fields.map(({ field }) => field),
+      next: 'Fill the rest of the form, check the order, then place it with its button; that click asks the user first. If the site rejects the card, call browser_fill_payment with replace: true.',
+    },
+    null,
+    2,
+  );
+}
+
 async function injectIntoElement(
   handle: ContainerSecretHandle,
   locator: { ref?: string; selector?: string; frame?: string },
 ): Promise<string> {
   try {
+    recordTypedSecret(handle.unsafeReadStringForInjection());
     const output = await executeBrowserTool(
       'browser_type',
       {
@@ -3803,6 +3894,7 @@ async function executeToolInternal(
     case 'browser_type':
     case 'browser_secret_type':
     case 'browser_sign_in':
+    case 'browser_fill_payment':
     case 'browser_upload':
     case 'browser_press':
     case 'browser_scroll':
@@ -3817,13 +3909,15 @@ async function executeToolInternal(
       const output =
         name === 'browser_sign_in'
           ? await executeBrowserSignIn(args)
-          : name === 'browser_secret_type' && !usesGatewayManagedBrowser()
-            ? await executeBrowserSecretType(args)
-            : await executeBrowserTool(
-                name,
-                args,
-                currentSessionId || 'default',
-              );
+          : name === 'browser_fill_payment'
+            ? await executeBrowserFillPayment(args)
+            : name === 'browser_secret_type' && !usesGatewayManagedBrowser()
+              ? await executeBrowserSecretType(args)
+              : await executeBrowserTool(
+                  name,
+                  args,
+                  currentSessionId || 'default',
+                );
       const structured = parseStructuredToolOutput(output);
       if (structured?.success === false) {
         return failTool(output);
@@ -4095,7 +4189,10 @@ export async function executeToolWithMetadata(
       typeof result === 'string' ? { output: result, isError: false } : result;
     return {
       ...metadata,
-      output: appendFileReferenceReceipt(metadata.output, sentFiles),
+      output: appendFileReferenceReceipt(
+        hideTypedSecrets(metadata.output),
+        sentFiles,
+      ),
     };
   } catch (err) {
     const errorCode = thrownToolErrorCode(err);
@@ -4104,13 +4201,15 @@ export async function executeToolWithMetadata(
       err instanceof IncompleteVisionAnalysisError
     ) {
       return {
-        output: err.output,
+        output: hideTypedSecrets(err.output),
         isError: true,
         ...(errorCode ? { errorCode } : {}),
       };
     }
     return {
-      output: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+      output: hideTypedSecrets(
+        `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       isError: true,
       ...(errorCode ? { errorCode } : {}),
     };
