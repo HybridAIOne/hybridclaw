@@ -13,8 +13,8 @@ export const WIDGET_MIME_TYPE = 'application/vnd.hybridai.widget+html';
 export const DRAFT_TRANSFER_TOOL = 'draft_transfer';
 /**
  * `ask_questions` (container/src/tools/questions.ts): questions the app shows
- * as one card with choices to tap. The app and the web console draw it, and
- * only a user in the chat can answer it.
+ * as one card with choices to tap. Only the app draws it, and only a user in
+ * the chat can answer it.
  */
 export const ASK_QUESTIONS_TOOL = 'ask_questions';
 /**

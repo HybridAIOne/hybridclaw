@@ -298,12 +298,6 @@ export interface GatewayChatRequestBody {
    */
   toolStatus?: boolean;
   /**
-   * The client draws an `ask_questions` file as a card of choices to tap and
-   * sends the answers as the user's next message, as the web console does.
-   * The app (`client: "mobile"`) draws one without saying so.
-   */
-  questionCards?: boolean;
-  /**
    * Answers a pending approval, as its card's button does. The gateway sends
    * the agent the reply text for it in place of `content`, and history leaves
    * the answer out instead of showing it as a message from the user.
@@ -332,7 +326,6 @@ export interface GatewayChatRequest
   appKind?: 'web' | 'live';
   client?: GatewayChatRequestBody['client'];
   toolStatus?: GatewayChatRequestBody['toolStatus'];
-  questionCards?: GatewayChatRequestBody['questionCards'];
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

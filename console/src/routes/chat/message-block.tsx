@@ -3,7 +3,6 @@ import {
   normalizeEmailDraft,
 } from '@hybridclaw/shared/email-draft';
 import { EmailDraftCard } from './email-draft-card';
-import { isQuestionsArtifact, QuestionsCard } from './questions-card';
 import { RoutingTags } from './routing-tags';
 /**
  * Chat message presentation — renders persisted/streaming turns and explicit
@@ -449,9 +448,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
   /** Set on the trace whose turn ended asking for this site's sign-in. */
   signInHost?: string;
   onSignInSaved?: (host: string) => Promise<boolean>;
-  /** Set on the latest reply: its question card may still be answered. */
-  questionsAnswerable?: boolean;
-  onAnswerQuestions?: (message: string) => Promise<boolean>;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -688,21 +684,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
         <RoutingTags trace={msg.routingTrace} />
       ) : null}
 
-      {artifactEntries.map(({ artifact, key }) =>
-        isQuestionsArtifact(artifact) && props.onAnswerQuestions ? (
-          <QuestionsCard
-            key={key}
-            artifact={artifact}
-            token={token}
-            answerable={
-              Boolean(props.questionsAnswerable) && !props.isStreaming
-            }
-            onAnswer={props.onAnswerQuestions}
-          />
-        ) : (
-          <ArtifactCard key={key} artifact={artifact} token={token} />
-        ),
-      )}
+      {artifactEntries.map(({ artifact, key }) => (
+        <ArtifactCard key={key} artifact={artifact} token={token} />
+      ))}
 
       {!props.isStreaming && !isA2ADeliveryStatus ? (
         <div className={css.messageActions}>

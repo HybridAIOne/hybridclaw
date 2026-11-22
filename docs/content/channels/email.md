@@ -101,9 +101,9 @@ fields act as shared defaults; each additional mailbox row can override them.
 When an agent can send from more than one account (its mailbox here plus the
 user's Google or Microsoft 365 account connected through HybridAI), it asks
 which one before it sends, unless the user named the account or the request
-settles it, such as a reply in an existing thread. The Hy app and the web chat
-show the question as a card with one button per account; other channels ask
-in words. A connected account shows as `Gmail` or `Outlook` when the platform
+settles it, such as a reply in an existing thread. The Hy app shows the
+question as a card with one button per account; other clients ask in
+words. A connected account shows as `Gmail` or `Outlook` when the platform
 does not report its address.
 When HybridAI credentials are configured, **Fetch HybridAI mailbox** on an
 additional mailbox row loads the preconfigured HybridAI postbox for that row's

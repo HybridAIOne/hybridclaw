@@ -473,21 +473,20 @@ function errorTurnToolSummary(
  * `estimate_cost` and `show_dashboard` need a client that draws them: a card
  * of slide pictures to pick from, a live widget under the reply, a transfer
  * card with a GiroCode, a card of questions, a cost estimate card, or a
- * dashboard. Only the Hy app (`client: "mobile"`) draws them all; the web
- * console draws question cards (`questionCards`). Elsewhere the agent answers
- * in words.
+ * dashboard. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent
+ * answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
-  req: Pick<GatewayChatRequest, 'client' | 'questionCards'>,
+  client: GatewayChatRequest['client'],
 ): string[] | undefined {
-  if (req.client === 'mobile') return blockedTools;
+  if (client === 'mobile') return blockedTools;
   return [
     ...(blockedTools ?? []),
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
-    ...(req.questionCards ? [] : [ASK_QUESTIONS_TOOL]),
+    ASK_QUESTIONS_TOOL,
     'estimate_cost',
     SHOW_DASHBOARD_TOOL,
   ];
@@ -1943,7 +1942,7 @@ async function handleGatewayMessageInner(
       req.userId,
       req.client === 'mobile',
     ),
-    req,
+    req.client,
   );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({

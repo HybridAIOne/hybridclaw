@@ -1558,14 +1558,6 @@ export function ChatPage() {
                     onSignInSaved={(host) =>
                       stream.sendMessage(signInSavedMessage(host), [])
                     }
-                    questionsAnswerable={
-                      msg.id === visibleMessages.at(-1)?.id &&
-                      msg.sessionId === sessionId &&
-                      !stream.isStreaming
-                    }
-                    onAnswerQuestions={(message) =>
-                      stream.sendMessage(message, [])
-                    }
                   />
                 ),
               )}
