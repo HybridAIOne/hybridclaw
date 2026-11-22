@@ -96,14 +96,18 @@ function buildOpenAIExecutionSeed(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
 }): string {
-  const rootMessages =
-    params.input.priorMessages.length > 0
-      ? params.input.priorMessages.slice(0, 4)
-      : [{ role: 'user' as const, content: params.input.prompt }];
-  const conversationRoot = rootMessages.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  // A conversation is its opening through the first user message: the same on
+  // every turn, and distinct for conversations that share a system prompt.
+  const messages = [
+    ...params.input.priorMessages,
+    { role: 'user' as const, content: params.input.prompt },
+  ];
+  const conversationRoot = messages
+    .slice(0, messages.findIndex((message) => message.role === 'user') + 1)
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim(),
+    }));
   return JSON.stringify({
     user: params.input.user,
     agentId: params.prepared.requestAgentId,
