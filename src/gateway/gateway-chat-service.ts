@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -106,6 +107,7 @@ import {
 } from '../providers/model-routing.js';
 import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
+import { getLinkedConnectorDirectory } from '../scopes/scope-connectors.js';
 import {
   isScopeRunError,
   resolveScopeRun,
@@ -116,7 +118,6 @@ import {
   chatTypeFromSessionKey,
 } from '../session/session-context.js';
 import { startSessionTitle } from '../session/session-title.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
   expandResolvedSkillInvocation,
@@ -1245,6 +1246,8 @@ async function handleGatewayMessageInner(
   }
   // A scoped chat runs in its scope's workspace with its connector limits,
   // and never reaches memory kept for the user as a whole.
+  // Which mail accounts the agent may send from; read beside the rest.
+  const mailConnectors = getLinkedConnectorDirectory();
   let scopeRun: Awaited<ReturnType<typeof resolveScopeRun>>;
   try {
     scopeRun = await resolveScopeRun(
@@ -1994,6 +1997,7 @@ async function handleGatewayMessageInner(
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools,
+    mailConnectors: await mailConnectors,
   });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
@@ -2012,7 +2016,7 @@ async function handleGatewayMessageInner(
       historyBudgetTokens: historyStats.budgetTokens,
       historyTruncated,
       promptOverheadTokens,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
+      historyEstimatedTokens: estimateMessageTokens(
         messages.slice(historyStart),
       ),
       canonicalSummaryIncluded:

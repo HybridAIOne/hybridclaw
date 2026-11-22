@@ -11,8 +11,6 @@
  */
 import type {
   AnthropicContentBlock,
-  ChatMessage,
-  ChatMessageContent,
   ToolCall,
 } from '@hybridclaw/contracts/agent-io';
 import { isRecord } from '../primitive-values.ts';
@@ -22,32 +20,6 @@ export type ChatCompletionsToolChoice =
   | 'none'
   | 'required'
   | { type: 'function'; function: { name: string } };
-
-function contentText(content: ChatMessageContent): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .flatMap((part) => (part.type === 'text' && part.text ? [part.text] : []))
-    .join('\n');
-}
-
-/** One leading system message, for servers that reject several. */
-export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-  const systemBlocks: string[] = [];
-  const remaining: ChatMessage[] = [];
-  for (const message of messages) {
-    if (message.role !== 'system') {
-      remaining.push({ ...message });
-      continue;
-    }
-    const text = contentText(message.content).trim();
-    if (text) systemBlocks.push(text);
-  }
-  if (systemBlocks.length === 0) {
-    return messages.map((message) => ({ ...message }));
-  }
-  return [{ role: 'system', content: systemBlocks.join('\n\n') }, ...remaining];
-}
 
 export interface ChatCompletionsRequestParams {
   model: string;

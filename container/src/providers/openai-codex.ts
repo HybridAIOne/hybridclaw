@@ -3,6 +3,7 @@
  * Keeps opaque reasoning items with tool calls for replay; unlike Chat
  * Completions adapters, it never folds provider state into visible text.
  */
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import {
   adaptResponsesPayload,
   buildResponsesRequestBody,
@@ -10,7 +11,6 @@ import {
   consumeResponsesStreamEvent,
   createResponsesStreamState,
   normalizeCodexModelName,
-  responsesContentText,
 } from '@hybridclaw/shared/provider-wire/codex-responses';
 import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import type { ChatCompletionResponse } from '../types.js';
@@ -51,7 +51,7 @@ function isCodexEmptyVisibleCompletion(
   const choice = response.choices[0];
   if (!choice) return true;
   if ((choice.message.tool_calls || []).length > 0) return false;
-  return !responsesContentText(choice.message.content);
+  return !chatContentText(choice.message.content);
 }
 
 function assertNonEmptyCodexResponse(

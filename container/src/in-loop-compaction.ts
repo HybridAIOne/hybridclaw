@@ -5,10 +5,10 @@
  * Under pressure, older batches compact while the newest whole exchange stays live.
  */
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
 import { isContextWindowExceededError } from './model-retry.js';
 import { ProviderRequestError } from './providers/shared.js';
-import { estimateMessageTokens } from './token-usage.js';
 import type { ChatCompletionResponse, ChatMessage } from './types.js';
 
 const PROTECT_HEAD_MESSAGES = 4;

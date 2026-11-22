@@ -1,10 +1,8 @@
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
-import {
-  buildChatCompletionsBody,
-  collapseSystemMessages,
-} from '@hybridclaw/shared/provider-wire/chat-completions';
+import { buildChatCompletionsBody } from '@hybridclaw/shared/provider-wire/chat-completions';
 import {
   adaptResponsesPayload,
   buildResponsesRequestBody,
@@ -24,6 +22,7 @@ import {
   resolveProviderRequestMaxTokens,
 } from '@hybridclaw/shared/request-max-tokens';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
@@ -965,18 +964,6 @@ function normalizeOllamaBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/g, '').replace(/\/v1$/i, '');
 }
 
-function contentToText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text' || !part.text) continue;
-    chunks.push(part.text);
-  }
-  return chunks.join('\n');
-}
-
 async function parseError(response: Response): Promise<never> {
   throw new Error(
     `Auxiliary provider call failed with ${response.status}: ${await response.text()}`,
@@ -1143,7 +1130,7 @@ function buildAnthropicMessages(messages: ChatMessage[]): {
   }> = [];
 
   for (const message of messages) {
-    const content = contentToText(message.content).trim();
+    const content = chatContentText(message.content).trim();
     if (!content) continue;
     if (message.role === 'system') {
       system.push(content);
@@ -1294,7 +1281,7 @@ async function callOllamaTextModel(
     model: stripProviderPrefix(context.model, 'ollama'),
     messages: messages.map((message) => ({
       role: message.role,
-      content: contentToText(message.content),
+      content: chatContentText(message.content),
     })),
     stream: false,
   };

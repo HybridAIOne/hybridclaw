@@ -4,11 +4,13 @@
  * The model chooses search queries and page selections through read; user wording
  * never selects document content here.
  */
+
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { VisualAttachment } from '@hybridclaw/contracts/visual-snapshots';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import {
   PDF_PREVIEW_MAX_CHARS,
   readPdfPages,
@@ -16,11 +18,7 @@ import {
 import { containerDependencyRepairHint } from '../infra/host-runtime-setup.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
-import type {
-  ChatContentPart,
-  ChatMessage,
-  ChatMessageContent,
-} from '../types/api.js';
+import type { ChatContentPart, ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import { createMediaHostPathResolver } from './media-host-path.js';
 
@@ -57,20 +55,6 @@ const QUOTED_PDF_PATH_RE =
 const BARE_PDF_PATH_RE =
   /(?:^|[\s([{'"])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^"'`\s)\]}<>,;]*?\.pdf)(?=$|[\s)\]}<>,;:!?'"])/gi;
 const QUOTED_BARE_PDF_FILENAME_RE = /(["'`])([^"'`\n/\\]+\.pdf)\1/gi;
-
-function normalizeMessageContentToText(content: ChatMessageContent): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part): part is Extract<ChatContentPart, { type: 'text' }> => {
-      return (
-        Boolean(part) && part.type === 'text' && typeof part.text === 'string'
-      );
-    })
-    .map((part) => part.text)
-    .join('\n')
-    .trim();
-}
 
 function cleanCandidate(value: string): string {
   return value
@@ -134,7 +118,7 @@ export async function injectPdfContextMessages(params: {
   while (latestUserIndex >= 0 && messages[latestUserIndex].role !== 'user')
     latestUserIndex -= 1;
   if (latestUserIndex < 0) return messages;
-  const text = normalizeMessageContentToText(messages[latestUserIndex].content);
+  const text = chatContentText(messages[latestUserIndex].content);
   const references = [
     ...(params.media || [])
       .filter(

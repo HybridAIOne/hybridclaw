@@ -1,3 +1,4 @@
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -72,21 +73,12 @@ export interface MiddlewareOutcome {
 
 const EVENT_TEXT_LIMIT = 500;
 
-export function getMessageTextContent(message: ChatMessage): string {
-  if (typeof message.content === 'string') return message.content;
-  if (!Array.isArray(message.content)) return '';
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .filter(Boolean)
-    .join('\n');
-}
-
 export function getLatestUserTextContent(
   messages: readonly ChatMessage[],
 ): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.role === 'user') return getMessageTextContent(message);
+    if (message?.role === 'user') return chatContentText(message.content);
   }
   return '';
 }

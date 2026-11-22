@@ -5,9 +5,10 @@ import {
   stripAnthropicModelPrefix,
 } from '@hybridclaw/shared/anthropic-utils';
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
-import { collapseSystemMessages } from '@hybridclaw/shared/provider-wire/chat-completions';
 import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,
@@ -162,17 +163,8 @@ function buildHeaders(args: {
   };
 }
 
-function normalizeMessageText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n');
-}
-
 function summarizeMessageForClaudeCli(message: ChatMessage): string {
-  const text = normalizeMessageText(message.content).trim();
+  const text = chatContentText(message.content).trim();
   const imageCount = Array.isArray(message.content)
     ? message.content.filter((part) => part.type === 'image_url').length
     : 0;
@@ -393,7 +385,7 @@ function convertMessageContent(
   message: ChatMessage,
 ): string | Array<Record<string, unknown>> | null {
   if (!Array.isArray(message.content)) {
-    const text = normalizeMessageText(message.content).trim();
+    const text = chatContentText(message.content).trim();
     return text || null;
   }
 
@@ -429,7 +421,7 @@ function convertMessages(
           {
             type: 'tool_result',
             tool_use_id: message.tool_call_id || '',
-            content: normalizeMessageText(message.content),
+            content: chatContentText(message.content),
             ...(message.is_error ? { is_error: true } : {}),
           },
         ],
@@ -494,7 +486,7 @@ function convertMessages(
 function extractSystemPromptBlocks(messages: ChatMessage[]): string[] {
   const blocks = messages
     .filter((message) => message.role === 'system')
-    .map((message) => normalizeMessageText(message.content).trim())
+    .map((message) => chatContentText(message.content).trim())
     .filter(Boolean);
   if (blocks.length <= 3) return blocks;
   return [blocks[0], blocks[1], blocks.slice(2).join('\n\n')];

@@ -13,6 +13,7 @@ import {
   DYNAMIC_CONTEXT_MESSAGE_PREFIX,
   isDynamicContextMessageText,
 } from '@hybridclaw/shared/dynamic-context';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -31,7 +32,6 @@ import {
   type SessionContext,
 } from '../session/session-context.js';
 import {
-  estimateTokenCountFromMessages,
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
@@ -347,6 +347,7 @@ export function buildConversationContext(params: {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
+  mailConnectors?: PromptHookContext['mailConnectors'];
   currentUserContent?: ChatMessage['content'];
 }): ConversationContext {
   const {
@@ -412,6 +413,7 @@ export function buildConversationContext(params: {
     runtimeInfo,
     allowedTools: mergedAllowedTools,
     blockedTools: mergedBlockedTools,
+    mailConnectors: params.mailConnectors,
   };
   const systemPromptBlocks = buildSystemPromptBlocksFromHooks(hookContext);
   const todoToolOffered =
@@ -471,10 +473,7 @@ export function buildConversationContext(params: {
   // last copy leaves the history window.
   const promptOverheadTokens =
     systemPromptBlocks.length > 0
-      ? estimateTokenCountFromMessages([
-          ...messages,
-          buildDynamicContext(null, []),
-        ])
+      ? estimateMessageTokens([...messages, buildDynamicContext(null, [])])
       : 0;
 
   const historyMessages = [...history].reverse().flatMap(expandStoredMessage);

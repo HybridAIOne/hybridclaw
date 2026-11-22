@@ -3,13 +3,11 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
-
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import {
   applyChatCompletionsChunk,
   buildChatCompletionsBody,
   type ChatCompletionsToolChoice,
-  collapseSystemMessages,
   createChatCompletionsStreamState,
 } from '@hybridclaw/shared/provider-wire/chat-completions';
 import {
@@ -24,6 +22,7 @@ import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybri
 import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
 import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import { isOpenAICompatProviderId } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';

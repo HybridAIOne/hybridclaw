@@ -12,6 +12,7 @@ import {
   getChannelByContextId,
   normalizeChannelKind,
 } from '../channels/channel-registry.js';
+import { resolveAgentOwnEmailAddress } from '../channels/email/agent-account.js';
 import {
   collectActiveMessageToolChannelKinds,
   shouldOfferMessageTool,
@@ -43,6 +44,10 @@ import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
 import { FILE_HYGIENE_LINES } from './file-hygiene-prompt.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
+import {
+  describeMailSenders,
+  type MailConnectorState,
+} from './mail-senders.js';
 import { buildMessageToolPromptLines } from './message-tool-prompt.js';
 import {
   AFTER_FILE_CHANGE_LINES,
@@ -133,6 +138,8 @@ export interface PromptHookContext {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
+  /** The platform's connectors, for the accounts mail can go from. */
+  mailConnectors?: readonly MailConnectorState[] | null;
 }
 
 export interface PromptHookOutput {
@@ -574,6 +581,9 @@ function buildSafetyHook(context: PromptHookContext): string {
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
+    activeMessageChannels.includes('email')
+      ? resolveAgentOwnEmailAddress(runtime, context.agentId)
+      : null,
   );
 
   const lines = [
@@ -615,6 +625,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFPreview]`, use that artifact first.',
     ...byClient(mobile, SOURCE_FOLDER_LINES),
     ...messageToolPromptLines,
+    ...describeMailSenders({
+      agentId: context.agentId,
+      emailChannelActive: activeMessageChannels.includes('email'),
+      connectors: context.mailConnectors,
+      isToolOffered: (toolName) => isToolOffered(context, toolName),
+    }),
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
     ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),

@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { SchedulerDispatchRequest } from '../src/scheduler/scheduler.js';
 import { runScheduledTask } from '../src/gateway/gateway-scheduled-dispatch.js';
+import { resetOutOfCreditNotices } from '../src/scheduler/out-of-credit.js';
 import { useCleanMocks } from './test-utils.js';
 
 const mocks = vi.hoisted(() => ({ run: vi.fn(), deliverWeb: vi.fn() }));
@@ -10,6 +11,7 @@ vi.mock('../src/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), err
 useCleanMocks();
 beforeEach(() => {
   vi.clearAllMocks();
+  resetOutOfCreditNotices();
   mocks.deliverWeb.mockReturnValue({ status: 'delivered' });
   mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, onResult) => {
     await onResult({ workId: 'work-1', text: 'Reminder', artifacts: [], storedMessage: { sessionId: 'session-a', id: 42 } });
@@ -67,4 +69,21 @@ test('a failed run tells its delivery target in one line and still fails', async
   const job = { ...request(), source: 'scheduler-job' as const, jobId: 'daily-report', delivery: { kind: 'channel' as const, channelId: 'discord_webhook:default' } };
   await expect(runScheduledTask(job, deps)).rejects.toThrow('Rate limit exceeded');
   expect(deps.deliverProactiveMessage).toHaveBeenCalledWith('discord_webhook:default', '⚠️ Scheduled run daily-report failed: Provider API error 429: Rate limit exceeded.', 'schedule-job:daily-report:failure');
+});
+
+test('runs refused for lack of credit tell each chat once, with the way to add credit', async () => {
+  mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, _onResult, onError) => {
+    onError(new Error('Provider API error 429: Free usage limit reached; add credits or try again after 2026-11-28 05:00 UTC.'));
+  });
+  const job = { ...request(), source: 'scheduler-job' as const, taskId: undefined, jobId: 'daily' };
+  await expect(runScheduledTask(job, dependencies())).rejects.toThrow('Free usage limit');
+  await expect(runScheduledTask({ ...job, jobId: 'weekly' }, dependencies())).rejects.toThrow('Free usage limit');
+  expect(mocks.deliverWeb).toHaveBeenCalledTimes(1);
+  expect(mocks.deliverWeb).toHaveBeenCalledWith(
+    'session-a',
+    "Hy's free use is used up until Sat, Nov 28, 05:00 UTC, so your routines wait until then. [Add credit](https://hybridai.one/app/admin/account) to keep them going now.",
+    'schedule-job:daily:failure',
+  );
+  await expect(runScheduledTask({ ...job, sessionId: 'session-b' }, dependencies())).rejects.toThrow('Free usage limit');
+  expect(mocks.deliverWeb).toHaveBeenCalledTimes(2);
 });

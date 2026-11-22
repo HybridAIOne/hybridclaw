@@ -121,3 +121,63 @@ test('second-opinion web search falls back to DuckDuckGo with no search API keys
     },
   ]);
 });
+
+test('second-opinion web search uses Tavily raw content as the fetched excerpt', async () => {
+  mockWebSearchConfig({ tavilyApiKey: 'tavily-key', provider: 'tavily' });
+  const fetchMock = vi.fn(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url === 'https://api.tavily.com/search') {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          query: 'tavily query',
+          include_raw_content: true,
+        });
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                title: 'Tavily Source',
+                url: 'https://example.com/tavily',
+                content: 'Tavily snippet',
+                raw_content: 'Raw\n\nTavily   evidence body.',
+              },
+              {
+                title: 'Long Tavily Source',
+                url: 'https://example.com/tavily-long',
+                content: 'Long snippet',
+                raw_content: `Long\n\n${'x'.repeat(3000)}`,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { runSecondOpinionWebSearch } = await import(
+    '../src/commands/second-opinion-web-search.ts'
+  );
+  const evidence = await runSecondOpinionWebSearch({
+    queries: ['tavily query'],
+  });
+
+  expect(evidence.provider).toBe('tavily');
+  expect(evidence.results).toEqual([
+    {
+      title: 'Tavily Source',
+      url: 'https://example.com/tavily',
+      snippet: 'Tavily snippet',
+      fetchedExcerpt: 'Raw Tavily evidence body.',
+    },
+    {
+      title: 'Long Tavily Source',
+      url: 'https://example.com/tavily-long',
+      snippet: 'Long snippet',
+      fetchedExcerpt: `Long ${'x'.repeat(1195)}`,
+    },
+  ]);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

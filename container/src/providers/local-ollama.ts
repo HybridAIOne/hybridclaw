@@ -3,6 +3,7 @@
  * Reasoning is streamed separately and never becomes a completion claim;
  * the agent loop decides how to handle an empty or truncated answer.
  */
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import { stripProviderPrefix } from '@hybridclaw/shared/provider-wire/model-names';
 import {
@@ -67,15 +68,6 @@ function normalizeBaseUrl(baseUrl: string): string {
     .replace(/\/v1$/i, '');
 }
 
-function normalizeMessageText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n');
-}
-
 function extractDataUriImagePayload(url: string): string | null {
   const match = String(url || '').match(
     /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
@@ -102,7 +94,7 @@ function convertMessage(
 ): OllamaChatMessage {
   const converted: OllamaChatMessage = {
     role: message.role,
-    content: normalizeMessageText(message.content),
+    content: chatContentText(message.content),
   };
   if (message.role === 'tool' && message.tool_call_id)
     converted.tool_name = names.get(message.tool_call_id);

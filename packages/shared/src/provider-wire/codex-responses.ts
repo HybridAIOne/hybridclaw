@@ -13,6 +13,7 @@ import type {
   ChatMessageContent,
   ToolCall,
 } from '@hybridclaw/contracts/agent-io';
+import { chatContentText } from '../message-text.ts';
 import { isRecord } from '../primitive-values.ts';
 import type { ChatCompletionsToolChoice } from './chat-completions.ts';
 import { stripProviderPrefix } from './model-names.ts';
@@ -63,15 +64,6 @@ export function normalizeCodexModelName(model: string): string {
   return trimmed;
 }
 
-export function responsesContentText(content: ChatMessageContent): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n');
-}
-
 function convertContentPart(
   part: ChatContentPart,
 ): Record<string, unknown> | null {
@@ -93,7 +85,7 @@ export function convertMessageToResponsesInput(
     items.push({
       type: 'function_call_output',
       call_id: message.tool_call_id || '',
-      output: responsesContentText(message.content),
+      output: chatContentText(message.content),
     });
     return items;
   }
@@ -116,7 +108,7 @@ export function convertMessageToResponsesInput(
     ? message.content
         .map(convertContentPart)
         .filter((part): part is Record<string, unknown> => part !== null)
-    : responsesContentText(message.content);
+    : chatContentText(message.content);
   const hasContent =
     typeof content === 'string'
       ? content.trim().length > 0
@@ -147,7 +139,7 @@ function convertToolChoice(
 function extractInstructions(messages: ChatMessage[], fallback: string) {
   const instructions = messages
     .filter((message) => message.role === 'system')
-    .map((message) => responsesContentText(message.content).trim())
+    .map((message) => chatContentText(message.content).trim())
     .filter((message) => message.length > 0)
     .join('\n\n');
   return instructions || fallback;

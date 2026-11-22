@@ -189,7 +189,11 @@ test('tool dispatch advertises the contract and returns failures as errors acros
   const restarted = await import('../container/src/tools.js');
   expect(
     await restarted.executeToolWithMetadata('write', JSON.stringify(call)),
-  ).toMatchObject({ isError: true });
+  ).toMatchObject({
+    isError: true,
+    errorCode: 'ALREADY_EXISTS',
+    output: expect.stringMatching(/^Tool error: File already exists/),
+  });
   expect(
     await restarted.executeToolWithMetadata(
       'write',
@@ -200,7 +204,7 @@ test('tool dispatch advertises the contract and returns failures as errors acros
         expected_content: 'stale',
       }),
     ),
-  ).toMatchObject({ isError: true });
+  ).toMatchObject({ isError: true, errorCode: 'FAILED_PRECONDITION' });
   expect(
     await restarted.executeToolWithMetadata(
       'write',
@@ -224,10 +228,10 @@ test('tool dispatch advertises the contract and returns failures as errors acros
   expect(definition?.function.parameters.properties).toHaveProperty(
     'expected_content',
   );
-  expect(
-    await restarted.executeToolWithMetadata(
-      'write',
-      JSON.stringify({ path: '../escape.txt', contents: 'bad' }),
-    ),
-  ).toMatchObject({ isError: true });
+  const escaped = await restarted.executeToolWithMetadata(
+    'write',
+    JSON.stringify({ path: '../escape.txt', contents: 'bad' }),
+  );
+  expect(escaped.isError).toBe(true);
+  expect(escaped).not.toHaveProperty('errorCode');
 });

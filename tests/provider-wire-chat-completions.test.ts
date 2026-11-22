@@ -3,9 +3,9 @@ import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire
 import {
   applyChatCompletionsChunk,
   buildChatCompletionsBody,
-  collapseSystemMessages,
   createChatCompletionsStreamState,
 } from '@hybridclaw/shared/provider-wire/chat-completions';
+import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import { describe, expect, it } from 'vitest';
 
 function reduce(chunks: Array<Record<string, unknown>>) {
