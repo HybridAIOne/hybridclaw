@@ -29,6 +29,8 @@ export interface ActivityTraceToolStep {
   durationMs?: number;
   /** `browser_sign_in` asked the user for this site's sign-in. */
   signIn?: { host: string };
+  /** `browser_fill_payment` asked the user for a card for this site. */
+  paymentCard?: { host: string };
 }
 
 export type ActivityTraceStep =
@@ -92,8 +94,14 @@ export class ActivityTraceBuilder {
     durationMs?: number,
     resultPreview?: string,
     toolCallId?: string,
-    signIn?: { host: string },
+    ask?: { signIn?: { host: string }; paymentCard?: { host: string } },
   ): void {
+    const asks = {
+      ...(ask?.signIn ? { signIn: { host: ask.signIn.host } } : {}),
+      ...(ask?.paymentCard
+        ? { paymentCard: { host: ask.paymentCard.host } }
+        : {}),
+    };
     for (let i = this.steps.length - 1; i >= 0; i--) {
       const step = this.steps[i];
       if (
@@ -105,7 +113,7 @@ export class ActivityTraceBuilder {
         step.status = 'done';
         if (durationMs !== undefined) step.durationMs = durationMs;
         if (resultPreview) step.resultPreview = resultPreview;
-        if (signIn) step.signIn = { host: signIn.host };
+        Object.assign(step, asks);
         return;
       }
     }
@@ -115,7 +123,7 @@ export class ActivityTraceBuilder {
       status: 'done',
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(resultPreview ? { resultPreview } : {}),
-      ...(signIn ? { signIn: { host: signIn.host } } : {}),
+      ...asks,
     });
   }
 
@@ -196,6 +204,8 @@ export function parseActivityTrace(
       }
       const signInHost = readString(asRecord(source.signIn) ?? {}, 'host');
       if (signInHost) step.signIn = { host: signInHost };
+      const cardHost = readString(asRecord(source.paymentCard) ?? {}, 'host');
+      if (cardHost) step.paymentCard = { host: cardHost };
       steps.push(step);
     }
   }

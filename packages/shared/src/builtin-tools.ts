@@ -37,6 +37,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   { name: 'browser_type', group: 'Browser' },
   { name: 'browser_secret_type', group: 'Browser' },
   { name: 'browser_sign_in', group: 'Browser' },
+  { name: 'browser_fill_payment', group: 'Browser' },
   { name: 'browser_take_over', group: 'Browser' },
   { name: 'browser_await_two_factor', group: 'Browser' },
   { name: 'browser_resume_interaction', group: 'Browser' },

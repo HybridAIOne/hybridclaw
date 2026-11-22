@@ -320,9 +320,13 @@ import {
   revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
 import {
+  BROWSER_PAYMENT_CARD_LOOKUP_PATH,
   BROWSER_SIGN_IN_LOOKUP_PATH,
+  handleApiBrowserPaymentCardLookup,
   handleApiBrowserSignInLookup,
+  handleApiPaymentCards,
   handleApiSignIns,
+  PAYMENT_CARDS_PATH,
   SIGN_INS_PATH,
 } from './gateway-browser-sign-ins.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
@@ -4014,10 +4018,17 @@ async function handleApiChatStream(
     streamedTextBeforeNextTool = '';
   };
 
-  // The last browser frame says whether the turn ends waiting for a sign-in.
-  let waitingForSignIn = false;
+  // The last browser frame says whether the turn ends waiting for a sign-in
+  // or a card.
+  let waitingFor: 'sign_in' | 'payment_card' | undefined;
   const onToolProgress = (event: ToolProgressEvent): void => {
-    if (event.browser) waitingForSignIn = Boolean(event.browser.signIn);
+    if (event.browser) {
+      waitingFor = event.browser.signIn
+        ? 'sign_in'
+        : event.browser.paymentCard
+          ? 'payment_card'
+          : undefined;
+    }
     if (event.phase === 'start') {
       pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
@@ -4027,7 +4038,7 @@ async function handleApiChatStream(
         event.durationMs,
         event.preview,
         event.toolCallId,
-        event.browser?.signIn,
+        event.browser,
       );
     }
     sendEvent({
@@ -4150,7 +4161,7 @@ async function handleApiChatStream(
       chatRequest,
       filteredResult,
       streamedApprovalId,
-      waitingForSignIn,
+      waitingFor,
     );
     sendEvent({
       type: 'result',
@@ -11344,6 +11355,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             );
             return;
           }
+          if (pathname === PAYMENT_CARDS_PATH) {
+            await handleApiPaymentCards(
+              req,
+              res,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
           if (
             pathname === SIGN_INS_PATH ||
             pathname.startsWith(`${SIGN_INS_PATH}/`)
@@ -11631,7 +11650,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiTakeOverRuntime(req, res, pathname);
             return;
           }
-          if (pathname === BROWSER_SIGN_IN_LOOKUP_PATH && method === 'POST') {
+          if (
+            (pathname === BROWSER_SIGN_IN_LOOKUP_PATH ||
+              pathname === BROWSER_PAYMENT_CARD_LOOKUP_PATH) &&
+            method === 'POST'
+          ) {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {
                 error:
@@ -11639,7 +11662,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               });
               return;
             }
-            await handleApiBrowserSignInLookup(req, res);
+            await (pathname === BROWSER_SIGN_IN_LOOKUP_PATH
+              ? handleApiBrowserSignInLookup(req, res)
+              : handleApiBrowserPaymentCardLookup(req, res));
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {

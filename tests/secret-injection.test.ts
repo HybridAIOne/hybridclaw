@@ -825,6 +825,39 @@ describe('gateway secret injection', () => {
     fs.rmSync(workspacePath, { recursive: true, force: true });
   });
 
+  test('types a held payment card only into its own site and audits it without the value', async () => {
+    const recordAuditEvent = vi.fn();
+    vi.doMock('../src/audit/audit-events.js', () => ({
+      makeAuditRunId: () => 'run-secret',
+      recordAuditEvent,
+    }));
+    mockRuntimeSecrets(() => null);
+    const cards = await import('../src/security/browser-payment-cards.js');
+    const { resolveStoredSecretForInjection } = await import(
+      '../src/gateway/gateway-secret-injection.js'
+    );
+    cards.saveBrowserPaymentCard({
+      host: 'shop.example',
+      number: '4242424242424242',
+      expiry: '04/40',
+      cvc: '123',
+    });
+    const secretName =
+      cards.findBrowserPaymentCard('shop.example')?.secrets.number ?? '';
+    const inject = (host: string) =>
+      resolveStoredSecretForInjection({
+        secretName,
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        sinkKind: 'dom',
+        host,
+      });
+
+    expect(inject('shop.example')).toBe('4242424242424242');
+    expect(() => inject('evil.example')).toThrow('only for shop.example');
+    expect(JSON.stringify(recordAuditEvent.mock.calls)).not.toContain('4242');
+    cards.clearBrowserPaymentCards();
+  });
+
   test('reports missing stored secrets instead of policy blocks', async () => {
     const workspacePath = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-secret-policy-missing-'),

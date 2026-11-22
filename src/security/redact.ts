@@ -55,7 +55,7 @@ function shannonEntropy(text: string): number {
   return entropy;
 }
 
-function luhnCheck(value: string): boolean {
+export function luhnCheck(value: string): boolean {
   const digits = value.replace(/\D/g, '');
   if (digits.length < 13 || digits.length > 19) return false;
 

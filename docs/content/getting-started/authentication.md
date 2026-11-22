@@ -269,6 +269,30 @@ token scopes. Pair again to obtain `sign_ins.manage` if the app cannot save a
 sign-in. Update the gateway and agent image together to provide both the
 sign-in API and `browser_sign_in` tool.
 
+## Payment Cards
+
+When a checkout page asks for a card, the agent calls `browser_fill_payment`
+with the card fields it sees. If the user entered a card for that page's host
+in the last ten minutes, the gateway types the number, expiry and security code
+into those fields the same way as a sign-in, and the model sees none of them.
+Otherwise the tool asks the user's client: the web chat and the Hy app show a
+card for the host whose fields go with `POST /api/payment-cards` straight to
+the gateway. Placing the order still asks the user first, like every purchase
+click.
+
+- a card is held in gateway memory only, never in the store or on disk, and is
+  forgotten ten minutes after it was entered, when a new card for the same
+  host replaces it, or when the gateway restarts
+- each card gets fresh `PAYCARD_*` names, which resolve only for exactly the
+  host it was entered for; workspace secret policy rules cannot widen this
+- `POST /api/payment-cards` takes `{host, number, expiry, cvc}`, checks the
+  number, the expiry date and the code, and never returns them. It needs
+  `sign_ins.manage`, so paired phones can use it; it is audited as
+  `browser.payment_card_entered`, without values
+- the cardholder's name is typed by the agent like any other field; dropdowns
+  for the expiry are not filled, so the agent hands the page over with
+  `browser_take_over` for those
+
 ## GitHub Through Your HybridAI Account
 
 When HybridClaw signs in to HybridAI with an API key and that HybridAI account

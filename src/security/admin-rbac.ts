@@ -623,6 +623,11 @@ export function resolveAdminRbacAction(
   if (pathname.startsWith('/api/sign-ins/') && method === 'DELETE') {
     return 'sign_ins.manage';
   }
+  // A payment card for the agent's browser goes in the same way and never
+  // comes out; see `browser-payment-cards.ts`.
+  if (pathname === '/api/payment-cards' && method === 'POST') {
+    return 'sign_ins.manage';
+  }
   // The user drives the agent's browser; see `browser-take-over.ts`.
   if (
     (pathname === '/api/browser/take-over/connect' ||
