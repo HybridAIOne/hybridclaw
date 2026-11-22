@@ -5,8 +5,8 @@ export interface WebNotification {
   sessionId: string;
   agentId: string | null;
   kind: WebNotificationKind;
-  /** An `approval` that asks the user to sign in to a website, not to approve. */
-  waitingFor?: 'sign_in';
+  /** An `approval` that asks the user to sign in to a website or enter a card, not to approve. */
+  waitingFor?: 'sign_in' | 'payment_card';
   title: string;
   createdAt: number;
 }

@@ -30,8 +30,8 @@ files are preserved; use another path or a checked `write`/`edit` to replace one
 A save failure can follow page effects, so inspect the page before retrying. On a
 checkout or cancellation page the call needs approval like an unnamed click.
 It is refused on private hosts unless `browser.allowPrivateNetwork` is set,
-while a secret typed with `browser_secret_type` or `browser_sign_in` is still
-on the page, and with `mac-cua`, which drives a browser without a DOM. Browser
+while a secret typed with `browser_secret_type`, `browser_sign_in` or
+`browser_fill_payment` is still on the page, and with `mac-cua`, which drives a browser without a DOM. Browser
 providers that run in the gateway evaluate in the main document only (no
 `frame`).
 
@@ -50,6 +50,14 @@ For login pages, `browser_sign_in` fills credentials saved for that exact host
 without revealing them to the model. See
 [Website sign-ins](../../getting-started/authentication.md#website-sign-ins)
 for storage, device permissions, and the client sign-in flow.
+
+For payment forms, `browser_fill_payment` types the card the user entered for
+that exact host into the fields the agent names, or asks the user's client for
+one. See
+[Payment cards](../../getting-started/authentication.md#payment-cards). Until
+the page changes, tool results show `[typed secret]` wherever they would repeat
+a value typed from the secret store (snapshots show text fields' values), and
+screenshots, PDFs and `browser_vision` of the page are refused.
 
 `browser_take_over` hands the open page to the owner, who drives it from the
 Hy app, and waits up to 10 minutes. The gateway relays agent-browser's stream

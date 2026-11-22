@@ -396,6 +396,7 @@ export function useChatStream(
             started.resultPreview = event.preview || undefined;
             started.browser = event.browser;
             started.signIn = event.browser?.signIn;
+            started.paymentCard = event.browser?.paymentCard;
             started.slideSamples = event.slideSamples;
           } else {
             req.trace.push({
@@ -406,6 +407,7 @@ export function useChatStream(
               resultPreview: event.preview || undefined,
               browser: event.browser,
               signIn: event.browser?.signIn,
+              paymentCard: event.browser?.paymentCard,
               slideSamples: event.slideSamples,
             });
           }

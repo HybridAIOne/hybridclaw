@@ -2581,19 +2581,21 @@ function emitBrowserFrame(url: string, frame: string | null): void {
 }
 
 /**
- * Ask the user's client for a website sign-in: a frame line without a picture
- * whose `signIn` names the host, so the user's chat shows a Sign in card for it.
+ * Ask the user's client for a website sign-in or a payment card: a frame line
+ * without a picture whose `signIn` or `paymentCard` names the host, so the
+ * user's chat shows a card for it that takes the details without the model.
  * Sent with live frames off too, since it carries no image.
  */
-export function emitBrowserSignInRequest(
+export function emitBrowserUserRequest(
   page: { url: string; title: string },
+  ask: 'signIn' | 'paymentCard',
   host: string,
 ): void {
   console.error(
     `${BROWSER_FRAME_LOG_PREFIX}${JSON.stringify({
       url: displayPageUrl(page.url) || `https://${host}/`,
       title: page.title.slice(0, 200),
-      signIn: { host },
+      [ask]: { host },
     })}`,
   );
 }
@@ -2683,6 +2685,13 @@ const BROWSER_PAGE_RESULT_TOOLS = new Set([
   'browser_click',
 ]);
 
+// Calls that hand the model a picture or a PDF of the page.
+const PAGE_PICTURE_TOOLS = new Set([
+  'browser_screenshot',
+  'browser_pdf',
+  'browser_vision',
+]);
+
 // Many pages fill themselves in after they load: a cart, search results, a
 // product. A snapshot taken at once shows them empty, and the model acts on
 // that. Wait for the page's requests to settle, but not for long: a page that
@@ -2735,6 +2744,12 @@ export async function executeBrowserTool(
   // A gateway browser types the secret itself; no live frame or page script
   // until the page changes.
   if (name === 'browser_secret_type') pauseBrowserFramesUntilNavigation();
+  // A picture or a PDF of the page would show what was typed into it.
+  if (PAGE_PICTURE_TOOLS.has(name) && currentBrowserPage().framesPaused) {
+    return failure(
+      'A secret was typed into this page, so pictures of it are off until the browser leaves it. Use browser_snapshot here.',
+    );
+  }
   let output = await runBrowserTool(name, args, sessionId);
   const result = asRecord(safeJsonParse(output));
   const sessionKey = normalizeSessionKey(sessionId || 'default');
@@ -4074,6 +4089,57 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'Set true when the site rejected the saved sign-in, to ask the user for a new one.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_fill_payment',
+      description:
+        "Fill a payment form on the current page with the card the user entered for this site. The gateway types the details into the fields you name; you never see them. Name each card field this page shows, then check the order and place it yourself. If no card is held for the site, or replace is true, the user sees a card in their chat that takes the details, and you stop and tell them. Never ask for card details in chat. Type the cardholder's name with browser_type. Dropdowns are not filled; for those, use browser_take_over so the user picks them.",
+      parameters: {
+        type: 'object',
+        properties: {
+          number_ref: {
+            type: 'string',
+            description: 'Card number field reference from browser_snapshot.',
+          },
+          expiry_ref: {
+            type: 'string',
+            description:
+              'Reference of a single expiry field (MM/YY) from browser_snapshot.',
+          },
+          expiry_month_ref: {
+            type: 'string',
+            description: 'Expiry month text field (MM), when it is separate.',
+          },
+          expiry_year_ref: {
+            type: 'string',
+            description: 'Expiry year text field, when it is separate.',
+          },
+          expiry_year_format: {
+            type: 'string',
+            enum: ['YY', 'YYYY'],
+            description:
+              'What the separate year field takes, from its placeholder or label. Default YY.',
+          },
+          cvc_ref: {
+            type: 'string',
+            description: 'Security code (CVC/CVV) field reference.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector for card fields inside a payment iframe. Use "main" to target the main document again.',
+          },
+          replace: {
+            type: 'boolean',
+            description:
+              'Set true when the site rejected the card, or the user wants another one, to ask the user again.',
           },
         },
         required: [],

@@ -34,6 +34,8 @@ export interface TraceToolStep
   durationMs?: number;
   /** `browser_sign_in` asked for this site's sign-in; persisted with the trace. */
   signIn?: { host: string };
+  /** `browser_fill_payment` asked for a card for this site; persisted with the trace. */
+  paymentCard?: { host: string };
 }
 
 export type TraceStep = TraceThinkingStep | TraceDraftStep | TraceToolStep;

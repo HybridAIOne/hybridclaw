@@ -70,6 +70,7 @@ export interface ChatActivityTraceToolStep {
   resultPreview?: string;
   durationMs?: number;
   signIn?: { host: string };
+  paymentCard?: { host: string };
 }
 
 export type ChatActivityTraceStep =

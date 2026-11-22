@@ -461,6 +461,7 @@ const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
   'browser_type',
   'browser_secret_type',
   'browser_sign_in',
+  'browser_fill_payment',
   'browser_upload',
 ]);
 const NO_IMPLICIT_DELAY_TOOLS = new Set([

@@ -9,10 +9,19 @@
  * `/api/sign-ins` is the user's: a client lists sites, saves one (the Hy app's
  * sign-in sheet), or forgets one. It takes cleartext in and never gives any
  * back. Every save and delete is audited without values.
+ *
+ * Payment cards work the same way (`security/browser-payment-cards.ts`):
+ * `/api/browser/payment-card` is the agent's lookup for `browser_fill_payment`,
+ * and `/api/payment-cards` is where the user's card sheet hands a card over.
+ * A card is held in memory for minutes, so there is no list or delete.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import {
+  findBrowserPaymentCard,
+  saveBrowserPaymentCard,
+} from '../security/browser-payment-cards.js';
 import {
   deleteBrowserSignIn,
   findBrowserSignIn,
@@ -25,6 +34,8 @@ import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export const BROWSER_SIGN_IN_LOOKUP_PATH = '/api/browser/sign-in';
 export const SIGN_INS_PATH = '/api/sign-ins';
+export const BROWSER_PAYMENT_CARD_LOOKUP_PATH = '/api/browser/payment-card';
+export const PAYMENT_CARDS_PATH = '/api/payment-cards';
 
 export interface SignInAuditContext {
   actor?: string | null;
@@ -40,7 +51,10 @@ function requireHost(raw: unknown): string {
 }
 
 function recordSignInAudit(params: {
-  type: 'browser.sign_in_saved' | 'browser.sign_in_removed';
+  type:
+    | 'browser.sign_in_saved'
+    | 'browser.sign_in_removed'
+    | 'browser.payment_card_entered';
   host: string;
   audit: SignInAuditContext;
   username?: boolean;
@@ -124,4 +138,45 @@ export async function handleApiSignIns(
     return;
   }
   throw new GatewayRequestError(405, 'Method not allowed.');
+}
+
+export async function handleApiBrowserPaymentCardLookup(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const host = requireHost(asRecord(await readJsonBody(req))?.host);
+  const card = findBrowserPaymentCard(host);
+  sendJson(res, 200, card ? { saved: true, ...card } : { saved: false, host });
+}
+
+export async function handleApiPaymentCards(
+  req: IncomingMessage,
+  res: ServerResponse,
+  audit: SignInAuditContext,
+): Promise<void> {
+  res.setHeader('Cache-Control', 'no-store');
+  if ((req.method || 'GET').toUpperCase() !== 'POST') {
+    throw new GatewayRequestError(405, 'Method not allowed.');
+  }
+  const body = asRecord(await readJsonBody(req)) ?? {};
+  const host = requireHost(body.host);
+  let saved: ReturnType<typeof saveBrowserPaymentCard>;
+  try {
+    saved = saveBrowserPaymentCard({
+      host,
+      number: body.number,
+      expiry: body.expiry,
+      cvc: body.cvc,
+    });
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : 'The card was not taken.',
+    );
+  }
+  recordSignInAudit({ type: 'browser.payment_card_entered', host, audit });
+  sendJson(res, 200, {
+    host,
+    expiresAt: new Date(saved.expiresAt).toISOString(),
+  });
 }

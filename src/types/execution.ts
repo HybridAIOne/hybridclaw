@@ -42,6 +42,8 @@ export interface BrowserFrame {
   frame?: string;
   /** Set by `browser_sign_in` when nothing is saved for this host: ask the user. */
   signIn?: { host: string };
+  /** Set by `browser_fill_payment` when no card is held for this host: ask the user. */
+  paymentCard?: { host: string };
 }
 
 /** Set by `show_slide_samples`: sample slides to pick a new deck's look from. */

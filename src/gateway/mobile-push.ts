@@ -481,6 +481,7 @@ const REPLY_BODIES: Partial<Record<string, string>> = {
   turn: 'Done. Your reply is ready.',
   approval: 'Waiting for your approval to go on.',
   sign_in: 'Waiting for you to sign in.',
+  payment_card: 'Waiting for your card details.',
 };
 
 /**
