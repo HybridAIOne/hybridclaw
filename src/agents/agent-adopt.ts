@@ -122,6 +122,27 @@ function ownedBy(agentId: string): { where: string; params: string[] } {
     : { where: 'agent_id = ?', params: [agentId] };
 }
 
+/** Whether any session the agent owns holds a message from the user. */
+export function agentHasUserMessages(agentId: string): boolean {
+  const owner = ownedBy(agentId);
+  return withMemoryDatabase((db) =>
+    Boolean(
+      db
+        .prepare(
+          `SELECT 1 FROM messages WHERE role = 'user' AND session_id IN (
+             SELECT id FROM sessions WHERE ${owner.where}
+           ) LIMIT 1`,
+        )
+        .get(...owner.params),
+    ),
+  );
+}
+
+/** Whether the agent took over another agent's user (`adoptAgent`). */
+export function isAdoptedAgent(agentId: string): boolean {
+  return readMarkerFrom(agentWorkspaceDir(agentId)) !== null;
+}
+
 function hasUserFiles(dir: string, relative = ''): boolean {
   if (!fs.existsSync(dir)) return false;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -541,21 +562,10 @@ export async function adoptAgent(params: {
     );
   }
 
-  const owner = ownedBy(from);
-  const hasUserMessages = withMemoryDatabase((db) =>
-    Boolean(
-      db
-        .prepare(
-          `SELECT 1 FROM messages WHERE role = 'user' AND session_id IN (
-             SELECT id FROM sessions WHERE ${owner.where}
-           ) LIMIT 1`,
-        )
-        .get(...owner.params),
-    ),
-  );
-  if (!hasUserMessages && !hasUserFiles(fromWs)) {
+  if (!agentHasUserMessages(from) && !hasUserFiles(fromWs)) {
     return { status: 'nothing', from, to };
   }
+  const owner = ownedBy(from);
 
   // Everything after the flush runs synchronously, so no turn or audit
   // append can start halfway through.

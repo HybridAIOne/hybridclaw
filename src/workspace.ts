@@ -12,7 +12,6 @@ import {
   truncateDailyMemoryText,
 } from '@hybridclaw/shared/daily-memory';
 import { readTextFileHeadTail } from '@hybridclaw/shared/read-text-file';
-import { escapeRegExp } from '@hybridclaw/shared/regex';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -32,6 +31,12 @@ import {
   WORKSPACE_TEMPLATES_DIR as TEMPLATES_DIR,
   WORKSPACE_BOOTSTRAP_FILES,
 } from './workspace-templates.js';
+import {
+  cleanMarkdownInline,
+  markdownFieldPattern,
+  readMarkdownField,
+  writeWelcomeMessage,
+} from './workspace-user-markdown.js';
 
 export { WORKSPACE_BOOTSTRAP_FILES } from './workspace-templates.js';
 
@@ -213,7 +218,7 @@ function writeWorkspaceOnboardingState(
   writeFileAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-function onboardingTurnedOff(agentId: string): boolean {
+export function onboardingTurnedOff(agentId: string): boolean {
   return resolveAgentConfig(agentId).onboarding === false;
 }
 
@@ -453,108 +458,11 @@ export function readUserMarkdown(wsDir: string): string | null {
   }
 }
 
-function replaceMarkdownSection(
-  content: string,
-  title: string,
-  nextBody: string[],
-): string {
-  const lines = content.split(/\r?\n/);
-  const nextLines: string[] = [];
-  let inSection = false;
-  let replaced = false;
-
-  for (const line of lines) {
-    if (/^##\s+/.test(line)) {
-      if (inSection) {
-        nextLines.push(...nextBody, '', line);
-        inSection = false;
-        replaced = true;
-        continue;
-      }
-      inSection = line.trim().toLowerCase() === `## ${title.toLowerCase()}`;
-    }
-
-    if (!inSection) {
-      nextLines.push(line);
-    } else if (/^##\s+/.test(line)) {
-      nextLines.push(line);
-    }
-  }
-
-  if (inSection) {
-    nextLines.push(...nextBody, '');
-    replaced = true;
-  }
-
-  if (!replaced) {
-    nextLines.push('', `## ${title}`, '', ...nextBody, '');
-  }
-
-  return `${nextLines
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd()}\n`;
-}
-
-function replaceMarkdownField(
-  content: string,
-  fieldName: string,
-  nextValue: string,
-  options: { onlyIfMissing?: boolean } = {},
-): string {
-  const escaped = escapeRegExp(fieldName);
-  const fieldPattern = new RegExp(
-    `^(\\s*-\\s*\\*\\*${escaped}:\\*\\*[ \\t]*)([^\\r\\n]*)$`,
-    'im',
-  );
-  const existing = content.match(fieldPattern)?.[2]?.trim() || '';
-  if (
-    options.onlyIfMissing &&
-    existing &&
-    !/\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(existing)
-  ) {
-    return content;
-  }
-  if (fieldPattern.test(content)) {
-    return content.replace(
-      fieldPattern,
-      (_match, prefix: string) =>
-        `${prefix}${/[ \t]$/.test(prefix) ? '' : ' '}${nextValue}`,
-    );
-  }
-  return content.replace(
-    /^(-\s+\*\*What to call them:\*\*.*)$/im,
-    `$1\n- **${fieldName}:** ${nextValue}`,
-  );
-}
-
 const HATCHING_NO_MESSAGE_TURN_LIMIT = 3;
-
-function cleanMarkdownInline(value: string | undefined): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .replace(/[<>]/g, '')
-    .trim();
-}
 
 const PREFERRED_NAME_FIELD = 'What to call them';
 const TIMEZONE_FIELD = 'Timezone';
 export const MAX_USER_NAME_LENGTH = 80;
-
-function markdownFieldPattern(fieldName: string): RegExp {
-  return new RegExp(
-    `^([ \\t]*)-[ \\t]*\\*\\*${escapeRegExp(fieldName)}:\\*\\*[ \\t]*([^\\r\\n]*)$`,
-    'im',
-  );
-}
-
-export function readMarkdownField(content: string, fieldName: string): string {
-  const value = cleanMarkdownInline(
-    content.match(markdownFieldPattern(fieldName))?.[2],
-  );
-  // The template's hints, such as `_(optional)_`, are not values.
-  return /^_\(.*\)_$/.test(value) ? '' : value;
-}
 
 /**
  * The user's names in the agent's USER.md: what they want to be called
@@ -731,19 +639,12 @@ export function completeHatchingAfterMessageSend(params: {
 
   let updated = false;
   if (originalUser && recipientIsEmail) {
-    const handledAt =
-      cleanMarkdownInline(params.handledAt) || new Date().toISOString();
-    const subject = cleanMarkdownInline(params.subject) || 'Welcome';
-    let nextUser = replaceMarkdownField(originalUser, 'Email', recipient, {
-      onlyIfMissing: true,
+    const nextUser = writeWelcomeMessage(originalUser, {
+      status: 'sent',
+      recipient,
+      subject: params.subject,
+      handledAt: params.handledAt,
     });
-    nextUser = replaceMarkdownSection(nextUser, 'Welcome Message', [
-      '- **Status:** sent',
-      `- **Recipient:** ${recipient}`,
-      `- **Subject:** ${subject}`,
-      `- **Delivery:** email`,
-      `- **Last handled:** ${handledAt}`,
-    ]);
     if (nextUser !== originalUser) {
       fs.writeFileSync(userPath, nextUser, 'utf-8');
       updated = true;

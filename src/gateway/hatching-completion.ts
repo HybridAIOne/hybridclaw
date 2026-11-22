@@ -9,7 +9,7 @@ import {
   type WorkspaceOnboardingTransition,
 } from '../workspace.js';
 
-type MessageSend = {
+export type MessageSend = {
   recipient?: string;
   subject?: string;
   transport?: string;
@@ -341,7 +341,7 @@ function firstPathCandidate(...values: unknown[]): string {
   return '';
 }
 
-function readSuccessfulMessageSend(
+export function readSuccessfulMessageSend(
   execution: ToolExecution,
 ): MessageSend | null {
   if (execution.name !== 'message') return null;

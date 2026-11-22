@@ -197,6 +197,7 @@ import {
   storeEmailDraft,
   turnEmailDraft,
 } from './email-draft.js';
+import { prepareFirstTurnWelcomeMail } from './first-turn-welcome-mail.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -2061,6 +2062,14 @@ async function handleGatewayMessageInner(
       model,
     })}\n\nUser message:\n${agentUserContent}`;
   }
+  const welcomeMail = prepareFirstTurnWelcomeMail({
+    agentId,
+    source,
+    bootstrapFile: startupBootstrapFile,
+    dryRun: req.dryRun,
+    userContent: agentUserContent,
+  });
+  agentUserContent = welcomeMail.userContent;
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
       sessionId: req.sessionId,
@@ -2452,6 +2461,7 @@ async function handleGatewayMessageInner(
       toolExecutions,
       turnSucceeded: output.status === 'success',
     });
+    welcomeMail.record(toolExecutions, output.status === 'success');
     if (hatchingCompletion) {
       logger.info(
         {

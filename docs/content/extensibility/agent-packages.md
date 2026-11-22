@@ -195,9 +195,13 @@ allowlist, or RAG setting. Passing an empty value for a supported agent field
 clears that field.
 
 `"onboarding": false` keeps the agent out of first-run onboarding for good: no
-`BOOTSTRAP.md`, no hatching turn and no welcome email, also after its
-workspace is wiped or the agent is reset from defaults that carry the flag.
-Setting it removes an existing `BOOTSTRAP.md`; `null` restores the default.
+`BOOTSTRAP.md` and no hatching turn, also after its workspace is wiped or the
+agent is reset from defaults that carry the flag. Setting it removes an
+existing `BOOTSTRAP.md`; `null` restores the default. Such an agent still
+welcomes a new user once: when `USER.md` has their email and an email channel
+is active, its first chat turn also sends one short welcome email, recorded
+under `Welcome Message` in `USER.md`. A user who already chatted with the agent,
+or an agent that adopted another, gets none.
 
 `emptyChatHeader` sets the heading shown when the agent is selected in an empty
 chat. When `imageAsset` is an `http`/`https` URL or a local file path, `agent
