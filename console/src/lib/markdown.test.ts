@@ -8,6 +8,44 @@ describe('renderMarkdown', () => {
     );
   });
 
+  it('renders an external Markdown image as a link and preserves its query', () => {
+    const url = 'https://example.com/photo?rule=$_59.AUTO&size=large';
+    const html = renderMarkdown(`### DX7\n![Yamaha <DX7>](${url})`);
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const link = template.content.querySelector('a');
+
+    expect(link?.getAttribute('href')).toBe(url);
+    expect(link?.textContent).toBe('Yamaha <DX7>');
+    expect(link?.rel).toBe('noopener noreferrer');
+    expect(link?.target).toBe('_blank');
+    expect(template.content.querySelector('img')).toBeNull();
+  });
+
+  it('gives images without alt text a link label', () => {
+    expect(renderMarkdown('![](https://example.com/photo)')).toContain(
+      '>Open image</a>',
+    );
+  });
+
+  it('keeps the existing destination when an image is already linked', () => {
+    expect(
+      renderMarkdown(
+        '[**![DX7](https://example.com/photo)**](https://example.com/listing)',
+      ),
+    ).toBe(
+      '<p><a href="https://example.com/listing" rel="noopener noreferrer" target="_blank"><strong>DX7</strong></a></p>',
+    );
+  });
+
+  it.each([
+    'javascript:alert(1)',
+    'data:image/png;base64,AAAA',
+    '//example.com/photo',
+  ])('keeps the image label as text for unsupported URL %s', (url) => {
+    expect(renderMarkdown(`![Photo](${url})`)).toBe('<p>Photo</p>');
+  });
+
   it('sanitizes common xss payloads', () => {
     const html = renderMarkdown(`
 <script>alert("pwned")</script>
