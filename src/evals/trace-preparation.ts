@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  CHARS_PER_TOKEN,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
+import {
   type RuntimeConfigChangeMeta,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
@@ -18,7 +22,6 @@ import {
   isConfidentialRedactionEnabled,
 } from '../security/confidential-runtime.js';
 import { redactSecrets } from '../security/redact.js';
-import { estimateTokenCountFromText } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -368,7 +371,7 @@ function fitTraceToTokenBudget(
 } {
   let candidate = trace;
   let traceText = serializeTracePreparationInput(candidate);
-  let estimatedTraceTokens = estimateTokenCountFromText(traceText);
+  let estimatedTraceTokens = estimateTextTokens(traceText);
   if (estimatedTraceTokens <= maxTraceTokens) {
     const match = findToolArray(candidate);
     return {
@@ -399,8 +402,7 @@ function fitTraceToTokenBudget(
       const included = match.items.slice(-keepCount);
       const nextCandidate = replaceAtPath(candidate, match.path, included);
       const nextTraceText = serializeTracePreparationInput(nextCandidate);
-      const nextEstimatedTraceTokens =
-        estimateTokenCountFromText(nextTraceText);
+      const nextEstimatedTraceTokens = estimateTextTokens(nextTraceText);
 
       if (nextEstimatedTraceTokens <= maxTraceTokens) {
         best = {
@@ -424,7 +426,7 @@ function fitTraceToTokenBudget(
       const included = match.items.slice(-1);
       candidate = replaceAtPath(candidate, match.path, included);
       traceText = serializeTracePreparationInput(candidate);
-      estimatedTraceTokens = estimateTokenCountFromText(traceText);
+      estimatedTraceTokens = estimateTextTokens(traceText);
       includedToolCallCount = included.length;
     }
     tokenDroppedToolCalls = match.items.length - includedToolCallCount;
@@ -432,8 +434,8 @@ function fitTraceToTokenBudget(
 
   let truncatedSerializedTrace = false;
   if (estimatedTraceTokens > maxTraceTokens) {
-    traceText = truncateTailText(traceText, maxTraceTokens * 4);
-    estimatedTraceTokens = estimateTokenCountFromText(traceText);
+    traceText = truncateTailText(traceText, maxTraceTokens * CHARS_PER_TOKEN);
+    estimatedTraceTokens = estimateTextTokens(traceText);
     truncatedSerializedTrace = true;
   }
 

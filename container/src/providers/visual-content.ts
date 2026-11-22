@@ -4,17 +4,18 @@
  * Text-only routes retain the existing durable-reference handoff; estimates
  * charge that text while pixel-capable routes retain conservative image budgets.
  */
+
+import {
+  estimateChatMessageTokens,
+  estimateMessageTokens,
+  type TokenEstimateCache,
+} from '@hybridclaw/shared/token-estimate';
 import {
   loadVisualSnapshot,
   VISUAL_SNAPSHOT_MAX_BYTES,
   validateVisualAttachments,
 } from '@hybridclaw/shared/visual-snapshots';
 import { WORKSPACE_STATE_ROOT } from '../runtime-paths.js';
-import {
-  estimateChatMessageTokens,
-  estimateMessageTokens,
-  type TokenEstimateCache,
-} from '../token-usage.js';
 import type { ChatContentPart, ChatMessage, ToolDefinition } from '../types.js';
 import { type NormalizedCallArgs, ProviderRequestError } from './shared.js';
 

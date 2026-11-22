@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
-import { compactConversation } from '../src/memory/compaction.js';
+import {
+  compactConversation,
+  summarizeWithFallback,
+} from '../src/memory/compaction.js';
 import type { Session, StoredMessage } from '../src/types/session.js';
 
 function makeSession(partial?: Partial<Session>): Session {
@@ -318,5 +321,37 @@ describe('memory compaction', () => {
     expect(result.stages.some((stage) => stage.kind === 'merge')).toBe(true);
     expect(stageKinds.some((stage) => stage.startsWith('part:'))).toBe(true);
     expect(stageKinds.some((stage) => stage.startsWith('merge:'))).toBe(true);
+  });
+});
+
+describe('compaction summary limit', () => {
+  test.each([
+    ['ascii', 'a'.repeat(200)],
+    ['surrogate pairs at the cut', '🏠'.repeat(200)],
+  ])('keeps the truncation marker inside maxSummaryChars (%s)', async (_label, raw) => {
+    const maxSummaryChars = 41;
+    const summary = await summarizeWithFallback({
+      session: makeSession(),
+      promptRunner: { run: async () => raw },
+      messages: [makeMessage(1, 'user', 'hello')],
+      targetTokens: 10_000,
+      stageKind: 'single',
+      stageIndex: 0,
+      stageTotal: 1,
+      config: {
+        keepRecentMessages: 3,
+        compactRatio: 0.7,
+        baseChunkRatio: 0.4,
+        minChunkRatio: 0.15,
+        safetyMargin: 1.2,
+        maxSingleStageTokens: 50_000,
+        minSummaryTokens: 1,
+        maxSummaryTokens: 10_000,
+        maxSummaryChars,
+      },
+    });
+    expect(summary.length).toBeLessThanOrEqual(maxSummaryChars);
+    expect(summary.endsWith('...[truncated]')).toBe(true);
+    expect(summary).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u);
   });
 });

@@ -8,6 +8,10 @@ import path from 'node:path';
 
 import { DAILY_MEMORY_MAX_CHARS } from '@hybridclaw/shared/daily-memory';
 import {
+  estimateMessageTokens,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
+import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
 } from '@hybridclaw/shared/workspace-time';
@@ -44,10 +48,6 @@ import type { CompactionResult } from '../types/memory.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { resolveHistoryBudgetTokens } from './context-budget.js';
 import { memoryFlushExcerpts, verifiedMemoryFlush } from './memory-flush.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from './token-efficiency.js';
 import { expandStoredMessage } from './tool-history.js';
 
 // Half the history budget stays verbatim after compaction (owner call,
@@ -56,7 +56,7 @@ import { expandStoredMessage } from './tool-history.js';
 const RETAINED_HISTORY_SHARE = 0.5;
 
 function estimateStoredMessageTokens(message: StoredMessage): number {
-  return estimateTokenCountFromMessages(expandStoredMessage(message));
+  return estimateMessageTokens(expandStoredMessage(message));
 }
 
 /**
@@ -358,8 +358,8 @@ function planCompaction(
   );
   const promptOverheadTokens =
     params.promptOverheadTokens ??
-    estimateTokenCountFromText(session.session_summary) +
-      estimateTokenCountFromText(
+    estimateTextTokens(session.session_summary) +
+      estimateTextTokens(
         buildSystemPrompt(
           params.agentId,
           session.session_summary,

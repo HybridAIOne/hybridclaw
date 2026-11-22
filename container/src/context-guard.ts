@@ -7,8 +7,8 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '@hybridclaw/shared/context-guard-config';
+import type { TokenEstimateCache } from '@hybridclaw/shared/token-estimate';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
-import type { TokenEstimateCache } from './token-usage.js';
 import type {
   ChatMessage,
   ContextGuardConfig,

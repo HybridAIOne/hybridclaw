@@ -14,9 +14,9 @@ import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 import { requireCompleteModelResponse } from '../model-response-completion.js';
 import { observeModelUsage } from '../model-usage.js';
-import { estimateTextTokens } from '../token-usage.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,

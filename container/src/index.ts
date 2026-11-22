@@ -16,8 +16,14 @@ import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
 import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
+import {
+  collapseSystemMessages,
+  mergeSystemMessage,
+} from '@hybridclaw/shared/system-messages';
+import { createTokenEstimateCache } from '@hybridclaw/shared/token-estimate';
 import { compileToolPatterns } from '@hybridclaw/shared/tool-patterns';
 import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
@@ -105,7 +111,7 @@ import {
   withHybridAICorrelationHeaders,
 } from './providers/shared.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
-import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
+import { buildRalphPrompt } from './ralph.js';
 import type { ProcessRequestParams } from './request-context.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
@@ -132,11 +138,6 @@ import {
   steerBeforeFinishing,
 } from './steer-inbox.js';
 import {
-  collapseSystemMessages,
-  mergeSystemMessage,
-} from './system-messages.js';
-import {
-  createTokenEstimateCache,
   estimateResponseTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -423,9 +424,7 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
     messages.some(
       (message) =>
         message.role === 'system' &&
-        normalizeMessageContentToText(message.content).includes(
-          '[SkillSelectionCache]',
-        ),
+        chatContentText(message.content).includes('[SkillSelectionCache]'),
     )
   ) {
     return messages;

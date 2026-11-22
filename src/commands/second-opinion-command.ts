@@ -2,6 +2,8 @@
  * Second opinions retain their own usage entry and the invoking user's attribution.
  * They compare an answer without resuming the main agent or altering its history.
  */
+
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -30,7 +32,6 @@ import {
   createConfidentialRuntimeContext,
   type DehydrateMessageContent,
 } from '../security/confidential-runtime.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
@@ -457,7 +458,7 @@ function validateSecondOpinionModelMetadata(params: {
   messages: ChatMessage[];
   maxOutputTokens: number;
 }): SecondOpinionModelMetadataCheck {
-  const estimatedInputTokens = estimateTokenCountFromMessages(params.messages);
+  const estimatedInputTokens = estimateMessageTokens(params.messages);
   const requestedMaxOutputTokens = params.maxOutputTokens;
   const estimatedTotalTokens = estimatedInputTokens + requestedMaxOutputTokens;
   const contextWindow = getModelCatalogMetadata(params.model).contextWindow;

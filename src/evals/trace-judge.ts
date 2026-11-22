@@ -1,4 +1,8 @@
 import {
+  estimateMessageTokens,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
+import {
   type AuxiliaryModelUsage,
   callAuxiliaryModel,
 } from '../providers/auxiliary.js';
@@ -9,10 +13,6 @@ import {
   selectModelsByCapabilityAndCost,
 } from '../providers/model-catalog.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import { estimateModelUsageCostUsd } from '../usage/model-cost.js';
 import {
@@ -201,10 +201,9 @@ function estimateJudgeUsage(params: {
   const usage = params.usage;
   const inputTokens =
     readUsageNumber(usage?.inputTokens) ??
-    estimateTokenCountFromMessages(params.messages);
+    estimateMessageTokens(params.messages);
   const outputTokens =
-    readUsageNumber(usage?.outputTokens) ??
-    estimateTokenCountFromText(params.content);
+    readUsageNumber(usage?.outputTokens) ?? estimateTextTokens(params.content);
   const totalTokens =
     readUsageNumber(usage?.totalTokens) ?? inputTokens + outputTokens;
   const costUsd = readUsageNumber(usage?.costUsd);

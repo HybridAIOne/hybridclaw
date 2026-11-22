@@ -1,16 +1,10 @@
-import type { ChatMessage, ChatMessageContent } from './types.js';
-
-function contentToText(content: ChatMessageContent): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text' || !part.text) continue;
-    chunks.push(part.text);
-  }
-  return chunks.join('\n');
-}
+/**
+ * System-message shaping for providers that accept one system block: collapse
+ * every system message into the first slot, or merge an instruction into an
+ * existing one. Always returns shallow copies; inputs are never mutated.
+ */
+import type { ChatMessage } from '@hybridclaw/contracts/agent-io';
+import { chatContentText } from './message-text.ts';
 
 export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
   const systemBlocks: string[] = [];
@@ -22,7 +16,7 @@ export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
       continue;
     }
 
-    const text = contentToText(message.content).trim();
+    const text = chatContentText(message.content).trim();
     if (text) systemBlocks.push(text);
   }
 
@@ -59,7 +53,7 @@ export function mergeSystemMessage(
     }
   }
   if (systemIndex >= 0) {
-    const existing = contentToText(merged[systemIndex].content).trim();
+    const existing = chatContentText(merged[systemIndex].content).trim();
     if (existing.includes(normalizedInstruction)) return merged;
     merged[systemIndex] = {
       role: 'system',
