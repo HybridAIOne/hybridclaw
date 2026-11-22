@@ -33,7 +33,7 @@ test('rationale is immutable, persists across database reopen and is scoped to t
     { reference: 'calendar:event-42', summary: 'The invitation asks for the launch decision.' },
   ] };
   expect(tool.runWorkTool(body)).toMatchObject({ ok: true });
-  expect(tool.runWorkTool({ ...body, rationale: 'rewritten' }).ok).toBe(false);
+  expect(tool.runWorkTool({ ...body, rationale: 'rewritten' })).toMatchObject({ ok: false, errorCode: 'ALREADY_EXISTS' });
   endWork(); endUser();
   expect(tool.runWorkTool(body).ok).toBe(false);
   const endBob = turn.beginTurnUser('chat', 'bob');

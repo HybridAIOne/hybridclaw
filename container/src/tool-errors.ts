@@ -65,5 +65,6 @@ export function thrownToolErrorCode(err: unknown): ToolErrorCode | undefined {
   if (err instanceof StreamableHTTPError || err instanceof SseError) {
     return httpStatusErrorCode(err.code);
   }
-  return undefined;
+  // A wrapper that adds recovery hints keeps the code of what it wraps.
+  return err instanceof Error ? thrownToolErrorCode(err.cause) : undefined;
 }

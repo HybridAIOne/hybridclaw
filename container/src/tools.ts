@@ -3424,12 +3424,12 @@ async function executeToolInternal(
     }
 
     case 'work': {
-      const { ok, text } = await runWorkTool(args, {
+      const { ok, text, errorCode } = await runWorkTool(args, {
         baseUrl: gatewayBaseUrl,
         apiToken: gatewayApiToken,
         sessionId: currentSessionId,
       });
-      return ok ? text : failTool(text);
+      return ok ? text : failTool(text, errorCode);
     }
     case 'draft_email': {
       const { ok, text } = await runTrackedDraftEmailTool(args, {

@@ -3,6 +3,7 @@
  * Retrieval requires the verified turn user and agent, never a model-supplied owner.
  * Models cannot write completion, delivery, or seen receipts.
  */
+import type { ToolErrorCode } from '@hybridclaw/contracts/tool-error-code';
 import { getSessionById } from '../memory/db.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -36,6 +37,7 @@ export function runWorkTool(body: unknown): {
   ok: boolean;
   result?: string;
   error?: string;
+  errorCode?: ToolErrorCode;
 } {
   try {
     if (!isRecord(body) || typeof body.sessionId !== 'string')
@@ -96,7 +98,11 @@ export function runWorkTool(body: unknown): {
     const evidence = body.evidence as { reference: string; summary: string }[];
     // The first reason is immutable; later calls cannot rewrite why this run acted.
     if (current.rationale !== null)
-      throw new Error('The reason is already recorded. Retrieve it with get.');
+      return {
+        ok: false,
+        error: 'The reason is already recorded. Retrieve it with get.',
+        errorCode: 'ALREADY_EXISTS',
+      };
     updateWork(current.id, (work) => {
       work.rationale = rationale;
       work.evidence = evidence.map(({ reference, summary }) => ({

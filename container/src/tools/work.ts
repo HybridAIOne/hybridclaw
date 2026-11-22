@@ -45,6 +45,6 @@ export const WORK_TOOL_DEFINITION: ToolDefinition = {
 export async function runWorkTool(
   args: Record<string, unknown>,
   gateway: GatewayToolTarget,
-): Promise<{ ok: boolean; text: string }> {
+): ReturnType<typeof postGatewayTool> {
   return postGatewayTool('/api/work', 'work records', args, gateway);
 }
