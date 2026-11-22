@@ -50,7 +50,8 @@ test.each(['write', 'edit'])(
           case 1:
             return tool === 'write'
               ? call('replace', 'write', {
-                  path: 'report.md',
+                  // The reviewer sees the path as the lock message names it.
+                  path: './report.md',
                   contents: 'Release notes',
                   overwrite: true,
                   expected_content: original,

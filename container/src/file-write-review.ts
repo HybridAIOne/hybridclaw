@@ -16,6 +16,7 @@ import {
   extractResponseTextContent,
   type RoutedModelContext,
 } from './providers/router.js';
+import { toWorkspaceToolPath } from './runtime-paths.js';
 import { parseToolArgsJson } from './tool-args.js';
 
 export const FILE_WRITE_REVIEW_ACTION_PREFIX = 'file-preservation-review:';
@@ -103,7 +104,7 @@ export async function reviewFileWriteIntent(params: {
             role: 'user',
             content: JSON.stringify({
               user_request: userPrompt,
-              path: args.path,
+              path: toWorkspaceToolPath(conflict),
               existing_content: existing,
               proposed_content: proposed,
             }),
