@@ -1,20 +1,17 @@
 /**
- * Worker estimates and provider-response counters reuse the shared snapshot
- * schema. Unlike snapshot validation, this module interprets provider payloads;
- * it does not price requests or infer charges for unfinished calls.
+ * Provider-response counters and the completion estimate reuse the shared
+ * snapshot schema. Unlike snapshot validation, this module interprets provider
+ * payloads; it does not price requests or infer charges for unfinished calls.
+ * Prompt estimates live in `@hybridclaw/shared/token-estimate`.
  */
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 import type {
   ChatCompletionResponse,
-  ChatMessage,
   ModelCallPerformanceSample,
   TokenUsageStats,
 } from './types.js';
-
-export const CHARS_PER_TOKEN = 4;
-export const TOOL_RESULT_CHARS_PER_TOKEN = 2;
-export type TokenEstimateCache = WeakMap<ChatMessage, number>;
 
 function parseUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -39,94 +36,21 @@ export {
   finalizeTokenUsage,
 } from '@hybridclaw/shared/token-usage';
 
-export function createTokenEstimateCache(): TokenEstimateCache {
-  return new WeakMap<ChatMessage, number>();
-}
-
-export function estimateTextTokens(text: unknown): number {
-  return estimateTextTokensWithRatio(text, CHARS_PER_TOKEN);
-}
-
-export function estimateToolResultTokens(text: unknown): number {
-  return estimateTextTokensWithRatio(text, TOOL_RESULT_CHARS_PER_TOKEN);
-}
-
-function estimateTextTokensWithRatio(
-  text: unknown,
-  charsPerToken: number,
+export function estimateResponseTokens(
+  response: ChatCompletionResponse,
 ): number {
-  const normalized = typeof text === 'string' ? text : '';
-  if (!normalized) return 0;
-  return Math.max(1, Math.ceil(normalized.length / charsPerToken));
-}
-
-export function normalizeContentText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part?.type === 'text' && typeof part.text === 'string') {
-      chunks.push(part.text);
-      continue;
-    }
-    if (part?.type === 'image_url' && part.image_url?.url) {
-      chunks.push('[image]');
-      continue;
-    }
-    if (part?.type === 'audio_url' && part.audio_url?.url) {
-      chunks.push('[audio]');
-    }
-  }
-  return chunks.join('\n');
-}
-
-export function estimateChatMessageTokens(
-  message: ChatMessage,
-  cache?: TokenEstimateCache,
-): number {
-  if (cache) {
-    const cached = cache.get(message);
-    if (cached !== undefined) return cached;
-  }
-
-  // Agent decision, 2026-09-29: reserve 4k tokens per selected page for pixels
-  // and native PDF text; exact usage remains provider-reported.
-  let total =
-    4 +
-    (message.visualAttachments?.reduce(
-      (sum, ref) => sum + (ref.pages.length || 1) * 4_000,
-      0,
-    ) ?? 0);
-  total += estimateTextTokens(message.role);
-  total +=
-    message.role === 'tool'
-      ? estimateToolResultTokens(normalizeContentText(message.content))
-      : estimateTextTokens(normalizeContentText(message.content));
-  if (message.tool_calls) {
-    total += estimateTextTokens(JSON.stringify(message.tool_calls));
-  }
-  if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
-
-  cache?.set(message, total);
-  return total;
-}
-
-export function estimateMessageTokens(
-  messages: ChatMessage[],
-  cache?: TokenEstimateCache,
-): number {
-  if (!Array.isArray(messages) || messages.length === 0) return 0;
-
-  let total = 2;
-  for (const message of messages) {
-    total += estimateChatMessageTokens(message, cache);
-  }
-  return total;
+  const message = response.choices[0]?.message;
+  return (
+    estimateTextTokens(message?.content) +
+    (message?.tool_calls?.length
+      ? estimateTextTokens(JSON.stringify(message.tool_calls))
+      : 0)
+  );
 }
 
 export function accumulateApiUsage(
   stats: TokenUsageStats,
-  response: ChatCompletionResponse,
+  response: Pick<ChatCompletionResponse, 'usage'>,
 ): void {
   const usage = response.usage;
   if (!usage) return;

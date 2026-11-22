@@ -13,12 +13,19 @@ export interface EvalProfile {
   ablateSystemPrompt: boolean;
   includePromptParts: PromptPartName[];
   omitPromptParts: PromptPartName[];
+  /** Leave no trace: tools only read, and the turn's session is discarded. */
+  dryRun: boolean;
   agentId?: string;
 }
 
 export const EVAL_MODEL_PROFILE_MARKER = '__hc_eval=';
 
-const KNOWN_FLAGS = new Set(['current-agent', 'fresh-agent', 'ablate-system']);
+const KNOWN_FLAGS = new Set([
+  'current-agent',
+  'fresh-agent',
+  'ablate-system',
+  'dry-run',
+]);
 const KNOWN_PROMPT_PARTS = new Set<PromptPartName>(PROMPT_PART_NAMES);
 
 function normalizeAgentId(agentId: string | null | undefined): string {
@@ -32,6 +39,7 @@ export function buildDefaultEvalProfile(agentId?: string | null): EvalProfile {
     ablateSystemPrompt: false,
     includePromptParts: [],
     omitPromptParts: [],
+    dryRun: false,
     ...(normalizedAgentId && normalizedAgentId !== DEFAULT_AGENT_ID
       ? { agentId: normalizedAgentId }
       : {}),
@@ -44,6 +52,7 @@ export function isDefaultEvalProfile(profile: EvalProfile): boolean {
     !profile.ablateSystemPrompt &&
     profile.includePromptParts.length === 0 &&
     profile.omitPromptParts.length === 0 &&
+    !profile.dryRun &&
     normalizeAgentId(profile.agentId) === ''
   );
 }
@@ -97,6 +106,9 @@ export function encodeEvalProfileModel(
   }
   if (profile.ablateSystemPrompt) {
     flags.push('ablate-system');
+  }
+  if (profile.dryRun) {
+    flags.push('dry-run');
   }
   if (profile.includePromptParts.length > 0) {
     flags.push(`include=${encodePromptPartList(profile.includePromptParts)}`);
@@ -172,6 +184,9 @@ export function parseEvalProfileModel(model: string): {
         break;
       case 'ablate-system':
         profile.ablateSystemPrompt = true;
+        break;
+      case 'dry-run':
+        profile.dryRun = true;
         break;
     }
   }

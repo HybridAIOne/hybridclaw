@@ -2,9 +2,8 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import { logger } from './logger.js';
-import { normalizeMimeType } from './media/mime-utils.js';
 
 const CLIPBOARD_COMMAND_TIMEOUT_MS = 8_000;
 const CLIPBOARD_COMMAND_MAX_BUFFER_BYTES = 32 * 1024 * 1024;

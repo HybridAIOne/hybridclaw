@@ -4,7 +4,7 @@
  * constraints and layout. Other roles and non-text blocks are never user intent;
  * this selector neither interprets instructions nor grants tool permission.
  */
-import { normalizeMessageContentToText } from './ralph.js';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import type { ChatMessage } from './types.js';
 
 export function latestUserRequestText(
@@ -12,7 +12,7 @@ export function latestUserRequestText(
 ): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role !== 'user') continue;
-    const text = normalizeMessageContentToText(messages[i].content).trim();
+    const text = chatContentText(messages[i].content).trim();
     if (text) return text;
   }
   return '';

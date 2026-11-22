@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { mergeSystemMessage } from '../container/src/system-messages.js';
+import { mergeSystemMessage } from '@hybridclaw/shared/system-messages';
 
 test('merges volatile instructions into the last system block', () => {
   const messages = mergeSystemMessage(

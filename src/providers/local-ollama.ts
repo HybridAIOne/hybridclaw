@@ -1,11 +1,11 @@
 import {
+  normalizeModelBehavior,
+  resolveModelBehavior,
+} from '@hybridclaw/shared/model-behavior';
+import {
   LOCAL_OLLAMA_BASE_URL,
   LOCAL_OLLAMA_MODEL_BEHAVIOR,
 } from '../config/config.js';
-import {
-  normalizeModelBehavior,
-  resolveModelBehavior,
-} from '../types/model-behavior.js';
 import {
   defaultOllamaContextWindow,
   getLocalModelInfo,

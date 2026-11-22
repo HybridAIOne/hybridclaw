@@ -7,6 +7,8 @@ import {
   type TypedRoutingEvaluation,
 } from '../routing/evaluator-contract.js';
 export interface RoutingTraceAttempt {
+  /** Worker helper usage is queued by its owning run, outside chat collection. */
+  usageSource?: 'worker';
   id: number;
   kind: 'execution' | 'auxiliary';
   model: string;
@@ -66,6 +68,8 @@ export function parseRoutingTrace(raw: string | null): RoutingTrace | null {
         !Number.isSafeInteger(attempt.id) ||
         attempt.id < 1 ||
         !['execution', 'auxiliary'].includes(attempt.kind) ||
+        (attempt.usageSource !== undefined &&
+          attempt.usageSource !== 'worker') ||
         typeof attempt.model !== 'string' ||
         typeof attempt.zone !== 'string' ||
         typeof attempt.reason !== 'string' ||

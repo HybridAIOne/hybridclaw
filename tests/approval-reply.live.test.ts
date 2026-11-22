@@ -38,7 +38,7 @@ live.each([
   const argsJson = JSON.stringify({ to: 'pat@example.com', subject: 'Friday', body: 'See you then.' });
   const pending = runtime.evaluateToolCall({ toolName: 'mail__send', argsJson, latestUserPrompt: 'Send the draft to Pat.' });
   const result = await resolveApprovalReply(runtime, text, [{ role: 'assistant', content: 'May I send the draft email to Pat with the subject Friday?' }]);
-  expect(result?.interpretation?.decision, JSON.stringify(result?.modelResponse?.choices)).toBe(decision);
+  expect(result?.interpretation?.decision).toBe(decision);
   if (decision === 'approve') {
     expect(result?.approvedRequestId).toBe(pending.requestId);
     expect(result?.approvedToolCall?.argsJson).toBe(argsJson);

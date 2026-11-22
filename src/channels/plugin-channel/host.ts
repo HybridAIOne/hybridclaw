@@ -5,12 +5,13 @@
  * kind's live config section. Loaded lazily by the runtime so classifying a
  * target never pulls media or session helpers into the startup graph.
  */
+
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { APP_VERSION, getConfigSnapshot } from '../../config/config.js';
 import { renderQrSvg } from '../../gateway/qr-svg.js';
 import { logger } from '../../logger.js';
 import { resolveManagedTempMediaDir } from '../../media/managed-temp-media.js';
-import { normalizeMimeType } from '../../media/mime-utils.js';
 import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { buildSessionKey } from '../../session/session-key.js';

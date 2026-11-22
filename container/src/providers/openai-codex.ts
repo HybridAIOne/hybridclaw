@@ -3,6 +3,7 @@
  * Keeps opaque reasoning items with tool calls for replay; unlike Chat
  * Completions adapters, it never folds provider state into visible text.
  */
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
   drainServerSentEventBlocks,
@@ -77,15 +78,6 @@ function normalizeCodexModelName(model: string): string {
   return trimmed;
 }
 
-function normalizeMessageText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n');
-}
-
 function providerTransportLabel(
   provider: NormalizedCallArgs['provider'],
 ): 'codex' | 'openai' {
@@ -123,7 +115,7 @@ function convertMessageToResponsesInput(
     items.push({
       type: 'function_call_output',
       call_id: message.tool_call_id || '',
-      output: normalizeMessageText(message.content),
+      output: chatContentText(message.content),
     });
     return items;
   }
@@ -146,7 +138,7 @@ function convertMessageToResponsesInput(
     ? message.content
         .map(convertContentPart)
         .filter((part): part is Record<string, unknown> => part !== null)
-    : normalizeMessageText(message.content);
+    : chatContentText(message.content);
   const hasContent =
     typeof content === 'string'
       ? content.trim().length > 0
@@ -178,7 +170,7 @@ function extractCodexInstructions(
 ): string {
   const instructions = messages
     .filter((message) => message.role === 'system')
-    .map((message) => normalizeMessageText(message.content).trim())
+    .map((message) => chatContentText(message.content).trim())
     .filter((message) => message.length > 0)
     .join('\n\n');
 
@@ -362,7 +354,7 @@ function isCodexEmptyVisibleCompletion(
   const choice = response.choices[0];
   if (!choice) return true;
   if ((choice.message.tool_calls || []).length > 0) return false;
-  return !normalizeMessageText(choice.message.content);
+  return !chatContentText(choice.message.content);
 }
 
 function assertNonEmptyCodexResponse(

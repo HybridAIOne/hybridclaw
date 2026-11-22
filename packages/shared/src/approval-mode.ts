@@ -1,14 +1,13 @@
 /**
- * Approval mode — how eager a session is to act without asking.
- *
- * `ask` prompts for every side effect, `auto` lets the traffic-light pipeline
- * decide, `full` auto-approves yellow and eligible red. `learning` records prompts
- * and notices while allowing them, including pinned approvals; unconditional
- * denials remain enforced. NOT `/approve`, which answers one prompt.
+ * Approval mode runtime: the product default, the labels clients show, and
+ * the normalizer that fails closed on an unknown mode. The mode list itself
+ * is wire data (`@hybridclaw/contracts/approval-mode`). NOT `/approve`, which
+ * answers one prompt.
  */
-export const APPROVAL_MODES = ['ask', 'auto', 'full', 'learning'] as const;
-
-export type ApprovalMode = (typeof APPROVAL_MODES)[number];
+import {
+  APPROVAL_MODES,
+  type ApprovalMode,
+} from '@hybridclaw/contracts/approval-mode';
 
 export const DEFAULT_APPROVAL_MODE: ApprovalMode = 'auto';
 
@@ -38,14 +37,6 @@ export const APPROVAL_MODE_PRESENTATION: Readonly<
 
 export function isApprovalMode(value: unknown): value is ApprovalMode {
   return (APPROVAL_MODES as readonly unknown[]).includes(value);
-}
-
-/** The normal auto-mode decision observed without asking or granting trust. */
-export interface ApprovalObservation {
-  decision: 'required' | 'implicit';
-  tier: 'green' | 'yellow' | 'red';
-  pinned: boolean;
-  reason: string;
 }
 
 /** Missing configuration preserves the product default; invalid modes fail closed. */

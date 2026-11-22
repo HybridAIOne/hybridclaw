@@ -5,6 +5,7 @@
  */
 
 import type {
+  WebChatUpdate,
   WebNotificationPreferences,
   WebNotificationState,
 } from '@hybridclaw/shared/web-notifications';
@@ -30,6 +31,7 @@ export function useChatNotifications(options: {
     token: string;
     value: WebNotificationState;
   } | null>(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const state = received?.token === options.token ? received.value : null;
   const [browserEnabled, setBrowserEnabled] = useState(() => {
     try {
@@ -71,6 +73,7 @@ export function useChatNotifications(options: {
     const controller = new AbortController();
     const seen = new Set<string>();
     let initialized = false;
+    let connected = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const connect = async () => {
       try {
@@ -80,6 +83,11 @@ export function useChatNotifications(options: {
         });
         if (!response.ok || !response.body)
           throw new Error('Notification stream unavailable');
+        if (connected && current.current.sessionId) {
+          deferredRefresh.current.add(current.current.sessionId);
+          setHistoryRevision((revision) => revision + 1);
+        }
+        connected = true;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -94,7 +102,17 @@ export function useChatNotifications(options: {
             const data = frame
               .split('\n')
               .find((line) => line.startsWith('data: '));
-            if (data) {
+            const event = frame
+              .split('\n')
+              .find((line) => line.startsWith('event: '))
+              ?.slice(7);
+            if (data && event === 'chat-updated') {
+              const update = JSON.parse(data.slice(6)) as WebChatUpdate;
+              if (typeof update.sessionId === 'string' && update.sessionId) {
+                deferredRefresh.current.add(update.sessionId);
+                setHistoryRevision((revision) => revision + 1);
+              }
+            } else if (data && event === 'notifications') {
               const snapshot = JSON.parse(
                 data.slice(6),
               ) as WebNotificationState;
@@ -150,7 +168,7 @@ export function useChatNotifications(options: {
   }, [options.enabled, options.token, supported, acknowledgeVisible]);
 
   useEffect(() => {
-    if (!state) return;
+    if (!state && historyRevision === 0) return;
     // A history refetch must not replace a streaming placeholder before the
     // final response reconciles it with the stored assistant message.
     for (const session of deferredRefresh.current) {
@@ -158,7 +176,7 @@ export function useChatNotifications(options: {
       deferredRefresh.current.delete(session);
       current.current.onMessage(session);
     }
-  }, [state, options.streamingSessionId]);
+  }, [state, historyRevision, options.streamingSessionId]);
 
   useEffect(() => {
     if (!state || !options.sessionId) return;

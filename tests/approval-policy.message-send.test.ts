@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import {
   approvalReviewArguments,

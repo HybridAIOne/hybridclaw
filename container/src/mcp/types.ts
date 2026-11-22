@@ -4,13 +4,13 @@
  * reads eligible for direct schemas, without granting execution permission.
  */
 
-import type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
+import type { McpServerConfig } from '@hybridclaw/contracts/mcp-server-config';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolKind } from './tool-classifier.js';
 
-export type { McpServerConfig } from '@hybridclaw/shared/mcp-server-config';
+export type { McpServerConfig } from '@hybridclaw/contracts/mcp-server-config';
 
 export interface McpToolDefinition {
   serverName: string;
@@ -43,6 +43,9 @@ export const DEFER_LOADING_META = 'hybridai/deferLoading';
 export const BOOST_OFFERS_META = 'hybridai/boostOffers';
 export const BOOST_OFFER_META = 'hybridai/boostOffer';
 export const BOOST_META = 'hybridai/boost';
+
+/** MCP result `_meta` key with a failed call's google.rpc.Code name. */
+export const ERROR_CODE_META = 'hybridai/errorCode';
 
 /** Approval metadata plus an independent, operator-trusted scheduling decision. */
 export type McpToolBehavior = Pick<

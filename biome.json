@@ -44,6 +44,32 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["packages/contracts/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@hybridclaw/shared",
+                      "@hybridclaw/shared/**",
+                      "**/shared/src/**"
+                    ],
+                    "message": "@hybridclaw/contracts is the bottom layer: @hybridclaw/shared imports from it, never the reverse."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single"

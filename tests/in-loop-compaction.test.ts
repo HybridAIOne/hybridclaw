@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
 import { ProviderRequestError } from '../container/src/providers/shared.js';
-import { estimateMessageTokens } from '../container/src/token-usage.js';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import type {
   ChatCompletionResponse,
   ChatMessage,

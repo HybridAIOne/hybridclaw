@@ -3,12 +3,15 @@
  * that agent, its password kept under a per-agent secret. The top-level
  * mailbox belongs to the email channel's agent (`agents.channels.email`).
  *
- * NOT the runtime (`runtime.ts` resolves and polls the accounts); this only
- * names the secret and writes the entry.
+ * NOT the runtime (`runtime.ts` resolves and polls the accounts, and sends
+ * for an agent without a mailbox from the default one); this only names the
+ * secret, writes the entry and says whether an agent has a mailbox.
  */
-import type {
-  RuntimeEmailAccountConfig,
-  RuntimeEmailConfig,
+import {
+  type RuntimeConfig,
+  type RuntimeEmailAccountConfig,
+  type RuntimeEmailConfig,
+  resolveChannelAgentId,
 } from '../../config/runtime-config.js';
 
 export function agentEmailPasswordSecretId(agentId: string): string {
@@ -38,4 +41,36 @@ export function upsertAgentEmailAccount(
   );
   if (index >= 0) email.accounts[index] = account;
   else email.accounts.push(account);
+}
+
+function sameAddress(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * The address of the agent's own mailbox, or null when it has none and the
+ * runtime sends and reads its mail through the default mailbox.
+ */
+export function resolveAgentOwnEmailAddress(
+  config: Pick<RuntimeConfig, 'email' | 'agents'>,
+  agentId: string,
+): string | null {
+  const { email } = config;
+  if (!email.enabled) return null;
+  const channelAgentId = resolveChannelAgentId('email', config);
+  const own = email.accounts.find(
+    (account) =>
+      (account.agentId.trim() || channelAgentId) === agentId &&
+      account.address.trim(),
+  );
+  if (own) return own.address.trim();
+  const topLevel = email.address.trim();
+  if (
+    agentId === channelAgentId &&
+    topLevel &&
+    !email.accounts.some((account) => sameAddress(account.address, topLevel))
+  ) {
+    return topLevel;
+  }
+  return null;
 }

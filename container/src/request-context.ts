@@ -5,6 +5,7 @@
  */
 import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
 import type { ApprovalPrelude } from './tool-approval.js';
+import type { TurnToolHistory } from './turn-tool-history.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -13,6 +14,7 @@ import type {
 } from './types.js';
 
 export interface ProcessRequestParams extends ExecutionDeadline {
+  turnToolHistory: TurnToolHistory;
   sessionId: string;
   messages: ChatMessage[];
   apiKey: string;

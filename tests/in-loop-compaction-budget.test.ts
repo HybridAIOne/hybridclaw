@@ -72,8 +72,6 @@ async function compact(
     sessionId: 'session_a',
     history: messages,
     tools: [],
-    tokenUsage: usage,
-    checkpointUsage: vi.fn(),
     fallbackContext: context,
     taskModels:
       options.configuredMax === undefined

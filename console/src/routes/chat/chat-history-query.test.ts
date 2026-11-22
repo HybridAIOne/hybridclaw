@@ -3,6 +3,34 @@ import type { ChatHistoryResponse } from '../../api/chat-types';
 import { buildChatHistoryUiData } from './chat-history-query';
 
 describe('buildChatHistoryUiData', () => {
+  it('preserves the trace identity when background activity updates', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 42,
+          role: 'assistant',
+          content: 'Running research',
+          activityTrace: {
+            running: true,
+            steps: [
+              { kind: 'tool', toolName: 'web_search', status: 'running' },
+            ],
+          },
+        },
+      ],
+    };
+    const first = buildChatHistoryUiData(raw, 'session-a').messages[0];
+    raw.history[0]?.activityTrace?.steps.push({
+      kind: 'tool',
+      toolName: 'web_fetch',
+    });
+    const updated = buildChatHistoryUiData(raw, 'session-a').messages[0];
+    expect(updated?.id).toBe(first?.id);
+    expect(updated?.messageId).toBe(42);
+    expect(updated?.role === 'trace' && updated.done).toBe(false);
+    expect(updated?.role === 'trace' && updated.steps).toHaveLength(2);
+  });
   it('pairs assistant messages with the prior user content for replay', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',
@@ -592,4 +620,84 @@ it('preserves structured draft and result fields and restores pending approval r
     messageId: 42,
   });
   expect(ui.messages[1]).toMatchObject({ role: 'approval', pendingApproval });
+});
+
+it.each([undefined, 'allowed', 'denied'] as const)(
+  'restores a stored approval as one card with decision %s',
+  (decision) => {
+    const approval = {
+      approvalId: 'approval-1',
+      prompt: 'Review this action.',
+      intent: 'Run a command',
+      reason: 'Review required',
+      allowSession: true,
+      allowAgent: true,
+      allowAll: true,
+      approvalTier: 'red' as const,
+      expiresAt: Date.now() + 60_000,
+      decision,
+    };
+    const ui = buildChatHistoryUiData(
+      {
+        history: [
+          {
+            role: 'assistant',
+            id: 42,
+            content: 'Unrelated fallback text.',
+            approval,
+          },
+        ],
+        pendingApproval: decision ? null : { ...approval, type: 'approval' },
+      },
+      'session-1',
+    );
+
+    expect(ui.messages).toHaveLength(1);
+    expect(ui.messages[0]).toMatchObject({
+      role: 'approval',
+      messageId: 42,
+      pendingApproval: { ...approval, type: 'approval' },
+      approvalDecision: decision,
+    });
+  },
+);
+
+it('preserves ordinary text and a different pending approval alongside a stored card', () => {
+  const ui = buildChatHistoryUiData(
+    {
+      history: [
+        {
+          role: 'assistant',
+          content: 'Approval ID: approval-2',
+        },
+        {
+          role: 'assistant',
+          content: 'Fallback',
+          approval: {
+            approvalId: 'approval-1',
+            prompt: 'First action',
+            intent: 'Run a command',
+            reason: 'Review required',
+            allowSession: true,
+            allowAgent: true,
+            allowAll: true,
+            expiresAt: null,
+            decision: 'allowed',
+          },
+        },
+      ],
+      pendingApproval: {
+        type: 'approval',
+        approvalId: 'approval-2',
+        prompt: 'Second action',
+      },
+    },
+    'session-1',
+  );
+  expect(ui.messages.map((message) => message.role)).toEqual([
+    'assistant',
+    'approval',
+    'approval',
+  ]);
+  expect(ui.messages[0]?.content).toBe('Approval ID: approval-2');
 });

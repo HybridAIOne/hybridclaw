@@ -45,6 +45,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { sleep } from '../utils/sleep.js';
 import {
   getActiveDelegationChildContext,
@@ -72,7 +73,8 @@ import { firstNumber } from './gateway-utils.js';
 // outlive a one-shot child, and the 2FA/resume/take-over tools wait on a user
 // the child cannot reach; so does a call to the user (2026-10-10). Todos added 2026-09-30, goals 2026-10-01. An email
 // draft or a transfer is shown to the user, whom a child does not answer
-// (2026-10-08), and so is a cost estimate (2026-10-09).
+// (2026-10-08), and so is a cost estimate (2026-10-09). Questions are for the
+// user to answer, too (2026-11-10).
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
   'trigger',
@@ -80,6 +82,7 @@ const SUBAGENT_BLOCKED_TOOLS = [
   'draft_email',
   'estimate_cost',
   'draft_transfer',
+  'ask_questions',
   'inbox_cleanup',
   'track',
   'memory',
@@ -139,6 +142,12 @@ async function persistDelegationAttempt(params: {
         usage: usagePayload,
       }),
       auditRunId: runId,
+    });
+    await recordWorkerAuxiliaryUsage({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      auditRunId: runId,
+      usages: [params.output.tokenUsage],
     });
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: params.sessionId,
@@ -360,6 +369,7 @@ export async function runDelegationTaskWithRetry(
           model: task.model,
           runtimeScope: scopeParams.runtimeScope,
           workspaceOverrides,
+          onToolProgress,
         },
         () =>
           runAgent({

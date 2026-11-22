@@ -1,5 +1,8 @@
 import path from 'node:path';
-
+import {
+  isAudioMediaItem,
+  normalizeMimeType,
+} from '@hybridclaw/shared/media-kind';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -8,7 +11,6 @@ import {
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
 import { createMediaHostPathResolver } from './media-host-path.js';
-import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
 
 export interface AudioTranscriptItem {
   filename: string;
@@ -20,12 +22,6 @@ export interface AudioTranscriptItem {
 export interface AudioTranscriptionPrelude {
   content: string;
   transcripts: AudioTranscriptItem[];
-}
-
-export function isAudioMediaItem(item: MediaContextItem): boolean {
-  const mimeType = normalizeMimeType(item.mimeType);
-  if (mimeType?.startsWith('audio/')) return true;
-  return AUDIO_FILE_EXTENSION_RE.test(item.filename || '');
 }
 
 function clampText(value: string, maxChars: number): string {

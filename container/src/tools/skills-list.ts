@@ -20,7 +20,7 @@ export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
   function: {
     name: 'skills_list',
     description:
-      'Find eligible skills by query/category or exact name. Mini-skills return complete instructions with instructionsLoaded=true: follow directly, no file read. Other skills return metadata and a next call to load SKILL.md. Skills are guidance, not callable functions or permissions. Empty arguments browse; offset paginates.',
+      'Find a requested or missing specialist workflow. Use a ready lookup tool directly for routine retrieval. Mini-skills return complete instructions with instructionsLoaded=true: follow directly, no file read. Other skills return metadata and a next call to load SKILL.md. Skills are guidance, not callable functions or permissions. Empty arguments browse; offset paginates.',
     parameters: {
       type: 'object',
       properties: {

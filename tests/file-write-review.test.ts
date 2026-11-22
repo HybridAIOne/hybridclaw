@@ -69,7 +69,6 @@ async function setup(conflicted = true) {
       model: 'example/model',
       chatbotId: '',
     },
-    onModelResponse: vi.fn(),
   };
   return { input, reviewFileWriteIntent, state };
 }
@@ -85,7 +84,7 @@ test('rejects an unrelated checked write without granting consent or clearing it
   });
   expect(result.requestId).toBeUndefined();
   expect(state.getFileWriteConflict('session-a', 'report.md')).toBeTruthy();
-  expect(input.onModelResponse).toHaveBeenCalledOnce();
+  expect(model.call).toHaveBeenCalledOnce();
   expect(model.call.mock.calls[0][0]).toMatchObject({
     ...input.fallbackContext,
     tools: [],
@@ -213,7 +212,7 @@ test.each([
     expect(await reviewFileWriteIntent(input)).toMatchObject({
       decision: 'denied',
     });
-    expect(input.onModelResponse).toHaveBeenCalledOnce();
+    expect(model.call).toHaveBeenCalledOnce();
   },
 );
 
@@ -223,7 +222,7 @@ test('a model outage cannot approve a protected mutation', async () => {
   expect(await reviewFileWriteIntent(input)).toMatchObject({
     decision: 'denied',
   });
-  expect(input.onModelResponse).not.toHaveBeenCalled();
+  expect(model.call).toHaveBeenCalledOnce();
 });
 
 test('a worker restart reloads shared conflicts and isolates unrelated sessions', async () => {

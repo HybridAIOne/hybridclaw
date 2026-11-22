@@ -89,8 +89,8 @@ async function importFreshMessageToolActions(
       },
     };
   });
-  const sendEmailAttachmentTo = vi.fn(async () => {});
-  const sendToEmail = vi.fn(async () => {});
+  const sendEmailAttachmentTo = vi.fn(async () => 'agent@example.com');
+  const sendToEmail = vi.fn(async () => 'agent@example.com');
   const sendToSignalChat = vi.fn(async () => {});
   const sendToSlackWebhookTarget = vi.fn(async () => {});
   const sendToDiscordWebhookTarget = vi.fn(async () => {});
@@ -919,6 +919,7 @@ test('send action routes email targets through email transport', async () => {
     action: 'send',
     channelId: 'ops@example.com',
     transport: 'email',
+    from: 'agent@example.com',
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
@@ -981,6 +982,7 @@ test('send action routes email attachments through email delivery', async () => 
     action: 'send',
     channelId: 'ops@example.com',
     transport: 'email',
+    from: 'agent@example.com',
     attachmentCount: 1,
     subject: 'Quarterly update',
     cc: ['finance@example.com'],

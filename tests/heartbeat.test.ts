@@ -5,8 +5,8 @@ const mocks = vi.hoisted(() => ({
   appendSessionTranscript: vi.fn(),
   buildConversationContext: vi.fn(() => ({ messages: [] })),
   emitToolExecutionAuditEvents: vi.fn(),
-  estimateTokenCountFromMessages: vi.fn(() => 1),
-  estimateTokenCountFromText: vi.fn(() => 1),
+  estimateMessageTokens: vi.fn(() => 1),
+  estimateTextTokens: vi.fn(() => 1),
   getAllJobs: vi.fn(() => []),
   isWithinActiveHours: vi.fn(() => true),
   logger: {
@@ -117,9 +117,9 @@ vi.mock('../src/session/session-transcripts.js', () => ({
   appendSessionTranscript: mocks.appendSessionTranscript,
 }));
 
-vi.mock('../src/session/token-efficiency.js', () => ({
-  estimateTokenCountFromMessages: mocks.estimateTokenCountFromMessages,
-  estimateTokenCountFromText: mocks.estimateTokenCountFromText,
+vi.mock('@hybridclaw/shared/token-estimate', () => ({
+  estimateMessageTokens: mocks.estimateMessageTokens,
+  estimateTextTokens: mocks.estimateTextTokens,
 }));
 
 vi.mock('../src/workspace.js', () => ({

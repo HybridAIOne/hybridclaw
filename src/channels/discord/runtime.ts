@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { MessageActionRequest } from '@hybridclaw/contracts/message-action';
 import {
   AttachmentBuilder,
   Client,
@@ -142,7 +143,6 @@ import {
 import {
   type CachedDiscordPresence,
   createDiscordToolActionRunner,
-  type DiscordToolActionRequest,
 } from './tool-actions.js';
 import { attachDiscordTransportErrorHandlers } from './transport-errors.js';
 import { createTypingController, type LifecyclePhase } from './typing.js';
@@ -590,7 +590,7 @@ function resolveDiscordToolSessionWorkspaceRoot(
 }
 
 async function resolveDiscordToolSendAttachments(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Promise<AttachmentBuilder[]> {
   const rawPath = String(request.filePath || '').trim();
   if (!rawPath) return [];
@@ -639,7 +639,7 @@ const runDiscordToolActionInternal = createDiscordToolActionRunner({
 });
 
 export async function runDiscordToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Promise<Record<string, unknown>> {
   return await runDiscordToolActionInternal(request);
 }

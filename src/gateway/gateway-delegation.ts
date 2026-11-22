@@ -6,6 +6,7 @@
  * parent with a hidden results turn, unless that session was reset meanwhile.
  * Worker aliases are resolved through the active request's conversation owner.
  * Each child keeps its model, callback identity and trusted execution deadline.
+ * Child tool activity stays in the parent's stream or durable web progress message.
  * File-preservation intent comes from that owner, never model-authored task fields.
  *
  * NOT A2A: peer-agent delegation across instances lives in `src/a2a/`.
@@ -32,7 +33,10 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import type {
+  ArtifactMetadata,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -58,6 +62,7 @@ import {
   renderDelegationTaskTitle,
 } from './delegation-plan.js';
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
+import { createDelegationWebProgress } from './delegation-web-progress.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 import { resolveGatewayRequestContext } from './gateway-request-runtime.js';
@@ -65,7 +70,10 @@ import type {
   GatewayChatApprovalEvent,
   GatewayChatResult,
 } from './gateway-types.js';
-import { notifyWebSession } from './web-notifications.js';
+import {
+  broadcastWebChatUpdate,
+  notifyWebSession,
+} from './web-notifications.js';
 
 const MAX_QUEUED_DELEGATION_MESSAGES = 500;
 const DELEGATION_STREAM_DELTA_FLUSH_CHARS = 96;
@@ -282,6 +290,7 @@ async function runDelegationPlans(params: {
   context: DelegationRunContext;
   statusEntriesByPlan: DelegationStatusEntry[][];
   publishStatus?: () => Promise<void>;
+  onToolProgress?: (event: ToolProgressEvent, title: string) => void;
 }): Promise<DelegationCompletionEntry[]> {
   const { plans, context, statusEntriesByPlan } = params;
   const publishStatus = params.publishStatus ?? (async () => {});
@@ -300,6 +309,7 @@ async function runDelegationPlans(params: {
       mode: plan.mode,
       task: prompt ? { ...task, prompt } : task,
       onToolProgress: (event) => {
+        params.onToolProgress?.(event, statusEntry.title);
         if (event.phase === 'finish') {
           statusEntry.toolUses += 1;
           statusEntry.lastTool = statusEntry.currentTool ?? event.toolName;
@@ -471,6 +481,14 @@ export function enqueueDelegationBatchFromSideEffects(
     enableRag,
     agentId,
   };
+  const webProgress =
+    channelId === 'web'
+      ? createDelegationWebProgress({
+          jobId: publicId,
+          sessionId: parentSessionId,
+          agentId,
+        })
+      : null;
 
   const accepted = enqueueDelegation({
     id: jobId,
@@ -495,14 +513,27 @@ export function enqueueDelegationBatchFromSideEffects(
           },
           onProactiveMessage,
         });
-        await publishDelegationLifecycleMessage(statusMessage());
+        const publishMessage = async (
+          message: ReturnType<typeof statusMessage>,
+        ) => {
+          if (webProgress)
+            webProgress.update(
+              message.text,
+              message.delegationStatus.entries.some(
+                (entry) =>
+                  entry.status === 'queued' || entry.status === 'running',
+              ),
+            );
+          else await publishDelegationLifecycleMessage(message);
+        };
+        await publishMessage(statusMessage());
 
         let statusPublishChain = Promise.resolve();
         const publishStatus = (): Promise<void> => {
           const message = statusMessage();
           statusPublishChain = statusPublishChain
             .catch(() => undefined)
-            .then(() => publishDelegationLifecycleMessage(message));
+            .then(() => publishMessage(message));
           return statusPublishChain;
         };
 
@@ -511,6 +542,8 @@ export function enqueueDelegationBatchFromSideEffects(
           context,
           statusEntriesByPlan,
           publishStatus,
+          onToolProgress: (event, title) =>
+            webProgress?.recordTool(event, title),
         });
 
         if (entries.length === 0) {
@@ -616,12 +649,22 @@ export function enqueueDelegationBatchFromSideEffects(
         if (row?.status === 'queued' || row?.status === 'in_progress') {
           failDelegationJob(publicId, 'unknown_termination');
         }
+        if (webProgress) broadcastWebChatUpdate(parentSessionId);
       }
     },
   });
   if (!accepted) {
     failDelegationJob(publicId, 'delegation_disabled');
     return null;
+  }
+  if (webProgress && getDelegationJob(publicId)?.status === 'queued') {
+    webProgress.update(
+      formatDelegationStatus({
+        label: batchLabel,
+        entries: statusEntries,
+        parentModel,
+      }),
+    );
   }
   return { publicId };
 }
@@ -693,10 +736,20 @@ export async function runDelegationNow(
     abortSignal,
   };
   const startedAt = Date.now();
+  const onToolProgress = request?.onToolProgress ?? parent.onToolProgress;
   const entries = await runDelegationPlans({
     plans,
     context,
     statusEntriesByPlan: buildStatusEntries(plans),
+    onToolProgress: (event) =>
+      onToolProgress?.({
+        ...event,
+        sessionId,
+        toolCallId: JSON.stringify([
+          event.sessionId,
+          event.toolCallId ?? event.toolName,
+        ]),
+      }),
   });
   return {
     result: formatDelegationCompletion({

@@ -4,11 +4,9 @@
  * consent nor changes approval policy, unlike the worker's approval runtime.
  */
 
-import type { ApprovalReplyInterpretation } from '@hybridclaw/shared/approval-reply';
-import {
-  type ApprovalPauseCause,
-  parseApprovalRule,
-} from '@hybridclaw/shared/approval-rules';
+import type { ApprovalReplyInterpretation } from '@hybridclaw/contracts/agent-io';
+import type { ApprovalPauseCause } from '@hybridclaw/contracts/approval-rules';
+import { parseApprovalRule } from '@hybridclaw/shared/approval-rules';
 import type { PendingApproval } from '../../types/execution.js';
 
 const PAUSE_EXPLANATIONS: Record<ApprovalPauseCause, string> = {

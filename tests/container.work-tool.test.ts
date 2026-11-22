@@ -13,3 +13,10 @@ test('the work tool sends the real session and preserves a gateway refusal', asy
   const init = fetch.mock.calls[0]?.[1] as RequestInit;
   expect(JSON.parse(String(init.body))).toMatchObject({ sessionId: 'current', action: 'get', id: 'run-1' });
 });
+test('the work tool keeps the code of a gateway refusal', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'Already recorded.', errorCode: 'ALREADY_EXISTS' }))));
+  const target = { baseUrl: 'http://gateway', apiToken: 'test-key', sessionId: 'current' };
+  expect(await runWorkTool({ action: 'record' }, target)).toEqual({ ok: false, text: 'Error: Already recorded.', errorCode: 'ALREADY_EXISTS' });
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'No.', errorCode: 'NOT_A_CODE' }))));
+  expect(await runWorkTool({ action: 'record' }, target)).toEqual({ ok: false, text: 'Error: No.' });
+});

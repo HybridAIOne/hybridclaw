@@ -3,7 +3,12 @@
  * Reasoning is streamed separately and never becomes a completion claim;
  * the agent loop decides how to handle an empty or truncated answer.
  */
-import { resolveModelBehavior } from '../model-behavior.js';
+import { chatContentText } from '@hybridclaw/shared/message-text';
+import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
+import {
+  finalizeParsedToolCalls,
+  INCOMPLETE_RESPONSE,
+} from '../model-response-completion.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -32,6 +37,7 @@ interface OllamaChatMessage {
   role: string;
   content: string;
   images?: string[];
+  tool_name?: string;
   tool_calls?: Array<{
     function: {
       name: string;
@@ -67,15 +73,6 @@ function normalizeOllamaModelName(model: string): string {
   return trimmed.slice('ollama/'.length) || trimmed;
 }
 
-function normalizeMessageText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n');
-}
-
 function extractDataUriImagePayload(url: string): string | null {
   const match = String(url || '').match(
     /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
@@ -96,11 +93,16 @@ function convertToolCallArguments(
   }
 }
 
-function convertMessage(message: ChatMessage): OllamaChatMessage {
+function convertMessage(
+  message: ChatMessage,
+  names: ReadonlyMap<string, string>,
+): OllamaChatMessage {
   const converted: OllamaChatMessage = {
     role: message.role,
-    content: normalizeMessageText(message.content),
+    content: chatContentText(message.content),
   };
+  if (message.role === 'tool' && message.tool_call_id)
+    converted.tool_name = names.get(message.tool_call_id);
 
   if (Array.isArray(message.content)) {
     const images = message.content
@@ -132,9 +134,15 @@ function buildRequestBody(
   args: NormalizedCallArgs,
   stream: boolean,
 ): Record<string, unknown> {
+  const names = new Map<string, string>();
   const request: Record<string, unknown> = {
     model: normalizeOllamaModelName(args.model),
-    messages: args.messages.map(convertMessage),
+    messages: args.messages.map((message) => {
+      if (message.role === 'assistant')
+        for (const call of message.tool_calls || [])
+          names.set(call.id, call.function.name);
+      return convertMessage(message, names);
+    }),
     stream,
   };
   if (args.tools.length > 0) {
@@ -206,11 +214,9 @@ function adaptOllamaPayload(
   modelBehavior: NormalizedCallArgs['modelBehavior'],
 ): ChatCompletionResponse {
   const content = extractThinkingBlocks(rawContent).content;
-  const normalized = finalizeToolCalls(
-    rawToolCalls,
-    content,
-    payload.model,
-    modelBehavior,
+  const normalized = finalizeParsedToolCalls(
+    finalizeToolCalls(rawToolCalls, content, payload.model, modelBehavior),
+    payload.done === false ? INCOMPLETE_RESPONSE : payload.done_reason,
   );
   const usage = buildUsage(payload);
   return {
@@ -225,9 +231,7 @@ function adaptOllamaPayload(
             ? { tool_calls: normalized.toolCalls }
             : {}),
         },
-        finish_reason:
-          payload.done_reason ||
-          (normalized.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+        finish_reason: normalized.finishReason,
       },
     ],
     ...(usage ? { usage } : {}),
@@ -441,9 +445,8 @@ export async function callOllamaProviderStream(
     decoder.decode();
   }
 
-  if (!sawPayload) {
-    throw new Error('Streaming response ended without payload');
-  }
+  if (!sawPayload) throw new Error('Streaming response ended without payload');
+  if (!latestPayload.done) latestPayload = { ...latestPayload, done: false };
 
   streamEmitter.close();
 

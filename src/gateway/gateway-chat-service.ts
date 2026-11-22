@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -104,7 +105,7 @@ import {
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
-import { recordRoutingLatency } from '../routing/latency.js';
+import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import {
   isScopeRunError,
@@ -116,7 +117,6 @@ import {
   chatTypeFromSessionKey,
 } from '../session/session-context.js';
 import { startSessionTitle } from '../session/session-title.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
   expandResolvedSkillInvocation,
@@ -154,6 +154,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { recordWorkerAuxiliaryUsage } from '../usage/worker-model-usage.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
@@ -166,6 +167,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import {
+  ASK_QUESTIONS_TOOL,
   DRAFT_TRANSFER_TOOL,
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
@@ -466,11 +468,12 @@ function errorTurnToolSummary(
 }
 
 /**
- * `show_slide_samples`, `show_widget`, `draft_transfer`, `estimate_cost` and
- * `show_dashboard` need a client that draws them: a card of slide pictures to
- * pick from, a live widget under the reply, a transfer card with a GiroCode, a
- * cost estimate card, or a dashboard. Only the Hy app (`client: "mobile"`)
- * does. Elsewhere the agent answers in words.
+ * `show_slide_samples`, `show_widget`, `draft_transfer`, `ask_questions`,
+ * `estimate_cost` and `show_dashboard` need a client that draws them: a card
+ * of slide pictures to pick from, a live widget under the reply, a transfer
+ * card with a GiroCode, a card of questions, a cost estimate card, or a
+ * dashboard. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent
+ * answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
@@ -482,6 +485,7 @@ function blockAppOnlyToolsUnlessApp(
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
+    ASK_QUESTIONS_TOOL,
     'estimate_cost',
     SHOW_DASHBOARD_TOOL,
   ];
@@ -841,11 +845,13 @@ async function handleGatewayMessageInner(
   ) {
     return agentScopeError(session.agent_id);
   }
-  const addressed = resolveAgentAddressing({
-    content: req.content,
-    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
-    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
-  });
+  const addressed = req.dryRun
+    ? ({ kind: 'none', content: req.content } as const)
+    : resolveAgentAddressing({
+        content: req.content,
+        currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+        fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+      });
   if (allowedAgentIds) {
     if (addressed.kind === 'fanout') {
       return agentScopeError(`@${addressed.alias}`);
@@ -1085,6 +1091,7 @@ async function handleGatewayMessageInner(
     maxWallClockMs: req.maxWallClockMs,
     abortSignal: req.abortSignal,
     steerInbox,
+    onToolProgress: (event) => emitGatewayToolProgress(event),
   });
   const resolvedRequest = resolveAgentForRequest({
     agentId: req.agentId,
@@ -1386,7 +1393,7 @@ async function handleGatewayMessageInner(
     });
   }
   const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
+  if (turnIndex === 1 && !req.dryRun) {
     if (pluginManager) {
       await pluginManager.notifySessionStart({
         sessionId: req.sessionId,
@@ -1411,7 +1418,7 @@ async function handleGatewayMessageInner(
       chatbotId,
       model,
       userContent,
-      isFirstTurn: turnIndex === 1 && !session.title,
+      isFirstTurn: turnIndex === 1 && !session.title && !req.dryRun,
     });
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
@@ -1491,6 +1498,7 @@ async function handleGatewayMessageInner(
         toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       startTitle(routingUserContent)?.persist();
       const result: GatewayChatResult = {
@@ -1748,10 +1756,11 @@ async function handleGatewayMessageInner(
       username: req.username,
       mediaCount: media.length,
       source,
+      ...(req.dryRun ? { dryRun: true } : {}),
     },
   });
   const onboardingAuditContext =
-    startupBootstrapFile === 'BOOTSTRAP.md'
+    startupBootstrapFile === 'BOOTSTRAP.md' && !req.dryRun
       ? {
           sessionId: req.sessionId,
           runId,
@@ -2003,7 +2012,7 @@ async function handleGatewayMessageInner(
       historyBudgetTokens: historyStats.budgetTokens,
       historyTruncated,
       promptOverheadTokens,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
+      historyEstimatedTokens: estimateMessageTokens(
         messages.slice(historyStart),
       ),
       canonicalSummaryIncluded:
@@ -2110,6 +2119,7 @@ async function handleGatewayMessageInner(
         toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       const result: GatewayChatResult = {
         status: 'success',
@@ -2307,6 +2317,7 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        dryRun: req.dryRun,
         ...approvalReplyContext(req, userTurnContent),
         approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
@@ -2437,7 +2448,7 @@ async function handleGatewayMessageInner(
     const toolExecutions = output.toolExecutions || [];
     hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
-      bootstrapFile: startupBootstrapFile,
+      bootstrapFile: req.dryRun ? null : startupBootstrapFile,
       toolExecutions,
       turnSucceeded: output.status === 'success',
     });
@@ -2514,8 +2525,7 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
-      if (output.status === 'success' && toolExecutions.length === 0)
-        recordRoutingLatency(model, executionDurationMs);
+      recordWorkerRoutingLatency(model, executionDurationMs, output);
       finishRoutingTraceAttempt({
         model,
         status: output.status === 'success' ? 'success' : 'error',
@@ -2523,16 +2533,11 @@ async function handleGatewayMessageInner(
         inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
         outputTokens: firstNumber([usagePayload.completionTokens]) ?? undefined,
         totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-        cacheReadTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheReadTokens
-          : undefined,
-        cacheWriteTokens: output.tokenUsage?.apiCacheUsageAvailable
-          ? output.tokenUsage.apiCacheWriteTokens
-          : undefined,
+        ...readCacheTokenUsage(output.tokenUsage),
         tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
         costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
         costSource: explicitUsageCostSource(output.tokenUsage),
-        modelCalls: output.tokenUsage?.modelCalls,
+        modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
       });
       enqueueTokenUsage({
         ...usageAttribution,
@@ -2551,11 +2556,11 @@ async function handleGatewayMessageInner(
       for (let index = 0; index < routingAttempts.length; index += 1) {
         const attempt = routingAttempts[index];
         const attemptToolExecutions = attempt.output.toolExecutions || [];
-        if (
-          attempt.output.status === 'success' &&
-          attemptToolExecutions.length === 0
-        )
-          recordRoutingLatency(attempt.model, attempt.durationMs);
+        recordWorkerRoutingLatency(
+          attempt.model,
+          attempt.durationMs,
+          attempt.output,
+        );
         const usagePayload = buildTokenUsageAuditPayload(
           messages,
           attempt.output.result,
@@ -2594,17 +2599,12 @@ async function handleGatewayMessageInner(
           outputTokens:
             firstNumber([usagePayload.completionTokens]) ?? undefined,
           totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
-          cacheReadTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheReadTokens
-            : undefined,
-          cacheWriteTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
-            ? attempt.output.tokenUsage.apiCacheWriteTokens
-            : undefined,
+          ...readCacheTokenUsage(attempt.output.tokenUsage),
           tokensEstimated: !attempt.output.tokenUsage?.apiUsageAvailable,
           costUsd:
             extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
           costSource: explicitUsageCostSource(attempt.output.tokenUsage),
-          modelCalls: attempt.output.tokenUsage?.modelCalls,
+          modelCalls: firstNumber([usagePayload.modelCalls]) ?? undefined,
         });
         enqueueTokenUsage({
           ...usageAttribution,
@@ -2625,6 +2625,15 @@ async function handleGatewayMessageInner(
         });
       }
     }
+    await recordWorkerAuxiliaryUsage({
+      ...usageAttribution,
+      sessionId: req.sessionId,
+      agentId,
+      auditRunId: runId,
+      usages: (routingAttempts ?? [{ output }]).map(
+        (attempt) => attempt.output.tokenUsage,
+      ),
+    });
     tail.mark('usageAccounting');
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: req.sessionId,
@@ -2634,7 +2643,7 @@ async function handleGatewayMessageInner(
     })) {
       enqueueTokenUsage({ ...event, ...usageAttribution });
     }
-    if (observedSkillName) {
+    if (observedSkillName && !req.dryRun) {
       try {
         recordSkillExecution({
           skillName: observedSkillName,
@@ -2672,6 +2681,8 @@ async function handleGatewayMessageInner(
       ReturnType<typeof normalizeDelegationEffect>['plan']
     >[] = [];
     const sideEffectNotices: string[] = [];
+    // Delegate runs are ordinary turns, so a dry run starts none.
+    if (req.dryRun) delete output.sideEffects;
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -2836,6 +2847,7 @@ async function handleGatewayMessageInner(
             : observedToolCalls,
         delegationAcknowledgement,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       turnPersisted = true;
       recordAuditEvent({
@@ -3043,10 +3055,11 @@ async function handleGatewayMessageInner(
       toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      dryRun: req.dryRun,
       promptOverheadTokens,
     });
     turnPersisted = true;
-    if (shown.emailDraft) {
+    if (shown.emailDraft && !req.dryRun) {
       storeEmailDraft(
         req.sessionId,
         storedTurn.assistantMessageId,
@@ -3071,7 +3084,7 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
     });
-    if (memoryPluginManager) {
+    if (memoryPluginManager && !req.dryRun) {
       await memoryPluginManager.notifyMemoryWrites({
         sessionId: req.sessionId,
         agentId,
@@ -3093,7 +3106,7 @@ async function handleGatewayMessageInner(
           );
         });
     }
-    if (pluginManager) {
+    if (pluginManager && !req.dryRun) {
       void pluginManager
         .notifyAgentEnd({
           sessionId: req.sessionId,
@@ -3238,6 +3251,7 @@ async function handleGatewayMessageInner(
           tools: observedToolCalls,
           delegationAcknowledgement,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+          dryRun: req.dryRun,
         });
       } catch (storeErr) {
         logger.error(

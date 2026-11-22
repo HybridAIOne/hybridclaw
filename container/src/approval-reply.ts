@@ -3,12 +3,16 @@
  * language. The policy runtime owns grants and exact-call replay; this module
  * cannot edit tool arguments, grant an unknown scope, or execute a tool.
  */
+
+import type {
+  ApprovalReplyDecision,
+  ApprovalReplyInterpretation,
+} from '@hybridclaw/contracts/agent-io';
 import {
   APPROVAL_REPLY_INSTRUCTIONS,
-  type ApprovalReplyDecision,
-  type ApprovalReplyInterpretation,
   parseApprovalReplyDecision,
 } from '@hybridclaw/shared/approval-reply';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { parseApprovalDirective } from './approval-directive.js';
 import type {
   ApprovalPrelude,
@@ -18,17 +22,9 @@ import { approvalReviewArguments } from './approval-review.js';
 import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import type { PendingApproval } from './pending-approval-store.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import {
-  accumulateApiUsage,
-  createTokenUsageStats,
-  finalizeTokenUsage,
-  normalizeContentText,
-} from './token-usage.js';
-import type {
-  ChatCompletionResponse,
-  ChatMessage,
-  ContainerOutput,
-} from './types.js';
+import { finalizeTokenUsage } from './token-usage.js';
+import type { TurnToolHistory } from './turn-tool-history.js';
+import type { ChatMessage, ContainerOutput } from './types.js';
 
 function waiting(pending: PendingApproval[], reply: string): ApprovalPrelude {
   const target = pending.length === 1 ? pending[0] : null;
@@ -77,7 +73,6 @@ export async function resolveApprovalReply(
     pending.some((item) => item.id === directive.requestId)
   )
     return runtime.resolveApprovalResponse(directive);
-  let modelResponse: ChatCompletionResponse | undefined;
   try {
     if (hostDecision?.decision === 'error')
       throw new Error('Host interpretation unavailable');
@@ -110,7 +105,7 @@ export async function resolveApprovalReply(
                   originalRequest: item.originalPrompt,
                   reason: item.reason,
                 })),
-                lastAssistantMessage: normalizeContentText(
+                lastAssistantMessage: chatContentText(
                   [...messages]
                     .reverse()
                     .find((message) => message.role === 'assistant')?.content ??
@@ -121,7 +116,6 @@ export async function resolveApprovalReply(
             },
           ],
         });
-    modelResponse = result.response;
     const decision = parseApprovalReplyDecision(result.content, pending);
     const interpretation: ApprovalReplyInterpretation = {
       decision: decision.decision,
@@ -139,18 +133,15 @@ export async function resolveApprovalReply(
         immediateMessage:
           'That approval is no longer pending. Please request the action again.',
         interpretation,
-        modelResponse: result.response,
       };
     }
     if (decision.decision === 'error')
       throw new Error('Invalid approval decision');
-    if (decision.decision === 'unrelated')
-      return { interpretation, modelResponse: result.response };
+    if (decision.decision === 'unrelated') return { interpretation };
     if (decision.decision === 'unclear')
       return {
         ...waiting(live, decision.reply),
         interpretation,
-        modelResponse: result.response,
       };
     const resolved = runtime.resolveApprovalResponse({
       requestId: decision.approvalId || '',
@@ -167,7 +158,6 @@ export async function resolveApprovalReply(
             }
           : {}),
       interpretation,
-      modelResponse: result.response,
       ...(decision.decision === 'deny'
         ? { immediateMessage: decision.reply }
         : {}),
@@ -179,7 +169,6 @@ export async function resolveApprovalReply(
         runtime.getPendingApprovals(),
         'I could not interpret that approval. Please answer again or use the approval buttons.',
       ),
-      modelResponse,
       interpretation: { decision: 'error', approvalId: null, scope: null },
     };
   }
@@ -188,12 +177,10 @@ export async function resolveApprovalReply(
 export function withApprovalReplyUsage(
   output: ContainerOutput,
   prelude: ApprovalPrelude | null,
+  history: TurnToolHistory,
 ): ContainerOutput {
   if (prelude?.interpretation)
     output = { ...output, approvalReply: prelude.interpretation };
-  if (!prelude?.modelResponse) return output;
-  const usage = output.tokenUsage || createTokenUsageStats();
-  usage.modelCalls += 1;
-  accumulateApiUsage(usage, prelude.modelResponse);
-  return { ...output, tokenUsage: finalizeTokenUsage(usage) };
+  if (history.recovered) return output;
+  return { ...output, tokenUsage: finalizeTokenUsage(history.tokenUsage) };
 }

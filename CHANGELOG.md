@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.43.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.2) - 2026-11-17
+
+### Added
+
+- Scroll up or select **Load older messages** to browse the full stored history
+  in web chat (#2285).
+- Add `dry-run` to an agent's OpenAI-compatible eval profile to ask a question
+  using its workspace and read-only tools. The gateway discards the temporary
+  session and records usage and audit events (#2073).
+- Compatible mobile apps can show questions with tappable answers when the
+  assistant needs more information (#2288).
+
+### Changed
+
+- Session compaction follows the model's context window by default. Upgrading
+  clears the old 100,000-token default. To retain that limit, set
+  `sessionCompaction.tokenBudget` to `100000` after upgrading (#2266).
+- Chat shows delegated workers' progress and tool activity, including background
+  jobs and history after reload. Agents delegate fewer routine tasks (#2286).
+
+### Fixed
+
+- Web chat displays each approval card once, keeps decisions across reloads,
+  and marks red-tier requests in red. Receipts distinguish saved approvals
+  from automatic policy decisions (#2284, #2295).
+- Local models can complete tool calls that omit IDs. An unfinished response
+  cannot execute a partial batch. Usage includes helper calls and retries at
+  the rate for each model, including after interruption (#2242, #2245).
+- Full daily memory notes report the space available and how to recover.
+  Repeating the same failed write requires a change to the note or the
+  proposed text (#2290).
+
 ## [0.43.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.1) - 2026-11-12
 
 ### Added

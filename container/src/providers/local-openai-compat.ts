@@ -4,14 +4,21 @@
  * MLX streams keep thought observable; context budgets remain caller-owned.
  * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
+
 import { createHash } from 'node:crypto';
+import { chatContentText } from '@hybridclaw/shared/message-text';
+import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
-import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
-import { resolveModelBehavior } from '../model-behavior.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
-} from '../system-messages.js';
+} from '@hybridclaw/shared/system-messages';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
+import { replaceUnpairedSurrogates } from '@hybridclaw/shared/unicode-utils';
+import {
+  finalizeParsedToolCalls,
+  INCOMPLETE_RESPONSE,
+} from '../model-response-completion.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -183,8 +190,7 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
 }
 
 function estimatePromptToolInstructionTokens(instruction: string): number {
-  if (!instruction) return 0;
-  return Math.max(1, Math.ceil(instruction.length / 4) + 16);
+  return instruction ? estimateTextTokens(instruction) + 16 : 0;
 }
 
 export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
@@ -434,20 +440,6 @@ function mergeToolCallDelta(
   }
 }
 
-function normalizeContentToText(
-  content: ChatMessage['content'],
-): string | null {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return null;
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part.type !== 'text' || !part.text) continue;
-    chunks.push(part.text);
-  }
-  const text = chunks.join('\n');
-  return text || null;
-}
-
 function extractStructuredReasoning(value: unknown): string | null {
   if (!isRecord(value)) return null;
   const candidates = [value.reasoning_content, value.reasoning];
@@ -461,7 +453,7 @@ function combineReasoningAndContent(
   content: ChatMessage['content'],
   reasoning: string | null,
 ): string | null {
-  const visibleContent = normalizeContentToText(content) || null;
+  const visibleContent = chatContentText(content) || null;
   if (!reasoning) return visibleContent;
   return visibleContent
     ? `<think>${reasoning}</think>${visibleContent}`
@@ -514,11 +506,9 @@ function adaptLocalOpenAICompatResponse(
   const normalizationOptions = buildToolCallNormalizationOptions(params);
   const hasStructuredToolCalls =
     Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
-  const normalizedContentInput =
-    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content;
   let normalized = normalizeToolCalls(
     message?.tool_calls,
-    normalizedContentInput,
+    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content,
     normalizationOptions,
   );
   if (
@@ -537,6 +527,10 @@ function adaptLocalOpenAICompatResponse(
       normalized = { content: null, toolCalls: thinkingToolCalls.toolCalls };
     }
   }
+  const { content, toolCalls, finishReason } = finalizeParsedToolCalls(
+    normalized,
+    choice?.finish_reason,
+  );
   return {
     ...payload,
     choices: [
@@ -544,17 +538,10 @@ function adaptLocalOpenAICompatResponse(
         ...choice,
         message: {
           role: message?.role || 'assistant',
-          content: normalized.content,
-          ...(normalized.toolCalls.length > 0
-            ? { tool_calls: normalized.toolCalls }
-            : {}),
+          content,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
-        finish_reason:
-          choice?.finish_reason === 'length'
-            ? 'length'
-            : normalized.toolCalls.length > 0
-              ? 'tool_calls'
-              : choice?.finish_reason || 'stop',
+        finish_reason: finishReason,
       },
     ],
   };
@@ -1014,9 +1001,8 @@ export async function callLocalOpenAICompatProviderStream(
     decoder.decode();
   }
 
-  if (!sawPayload) {
-    throw new Error('Streaming response ended without payload');
-  }
+  if (!sawPayload) throw new Error('Streaming response ended without payload');
+  if (!streamDone && !finishReason) finishReason = INCOMPLETE_RESPONSE;
 
   visibleToolFilter?.close();
   reasoningToolFilter?.close();

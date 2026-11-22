@@ -12,14 +12,13 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from '../media/audio-transcription-backends.js';
-import { normalizeMimeType } from '../media/mime-utils.js';
 
 const DICTATION_EXTENSION_BY_MIME_TYPE: Readonly<Record<string, string>> = {
   'audio/aac': '.aac',

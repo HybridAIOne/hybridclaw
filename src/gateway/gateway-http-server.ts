@@ -11,7 +11,13 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import {
+  MESSAGE_TOOL_ACTIONS,
+  type MessageActionRequest,
+  MessageActionRequestSchema,
+} from '@hybridclaw/contracts/message-action';
 import { platformApprovalId } from '@hybridclaw/shared/connector-approval';
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { SHELL_RUNTIME_ENV_PATH } from '@hybridclaw/shared/shell-runtime-env';
 import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '@hybridclaw/shared/two-factor-detection';
@@ -74,10 +80,6 @@ import type {
 } from '../browser/provider.js';
 import { createBrowserProvider } from '../browser/provider-factory.js';
 import { browserSessionConfigSignature } from '../browser/session-config-signature.js';
-import {
-  type DiscordToolActionRequest,
-  normalizeDiscordToolAction,
-} from '../channels/discord/tool-actions.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
@@ -111,7 +113,6 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger, syncLoggerLevelFromRuntimeConfig } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
-import { normalizeMimeType } from '../media/mime-utils.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
@@ -678,7 +679,6 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
-type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiAdminTerminalRequestBody = {
   cols?: number;
   rows?: number;
@@ -1805,71 +1805,28 @@ async function handleApiBrowserTool(
   );
 }
 
-function normalizeStringListInput(value: unknown): string[] | undefined {
-  if (typeof value === 'string') {
-    const normalized = value.trim();
-    return normalized ? [normalized] : undefined;
-  }
-  if (!Array.isArray(value)) return undefined;
-  const normalized = value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter((entry) => entry.length > 0);
-  return normalized.length > 0 ? normalized : undefined;
+function trimmedStringList(
+  values: readonly string[] | undefined,
+): string[] | undefined {
+  const trimmed = (values ?? [])
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function parseEmailRecipientListInput(
-  value: unknown,
+function parseEmailRecipientList(
+  values: readonly string[] | undefined,
   label: 'cc' | 'bcc',
 ): string[] | undefined {
-  const normalized = normalizeStringListInput(value);
-  if (!normalized) return undefined;
-
-  const recipients: string[] = [];
-  for (const entry of normalized) {
+  const entries = trimmedStringList(values);
+  if (!entries) return undefined;
+  return entries.map((entry) => {
     const address = normalizeEmailAddress(entry);
     if (!address) {
       throw new Error(`Invalid \`${label}\` email address: ${entry}`);
     }
-    recipients.push(address);
-  }
-  return recipients.length > 0 ? recipients : undefined;
-}
-
-function parseOptionalStringInput(
-  value: unknown,
-  label: 'inReplyTo',
-): string | undefined {
-  if (value == null) return undefined;
-  if (typeof value !== 'string') {
-    throw new Error(`\`${label}\` must be a string.`);
-  }
-  const normalized = value.trim();
-  return normalized || undefined;
-}
-
-function parseThreadReferenceListInput(value: unknown): string[] | undefined {
-  if (value == null) return undefined;
-  if (typeof value === 'string') {
-    const normalized = value.trim();
-    return normalized ? [normalized] : undefined;
-  }
-
-  if (!Array.isArray(value)) {
-    throw new Error('`references` must be a string or array of strings.');
-  }
-
-  const normalized: string[] = [];
-  for (const entry of value) {
-    if (typeof entry !== 'string') {
-      throw new Error('`references` must be a string or array of strings.');
-    }
-    const candidate = entry.trim();
-    if (!candidate) continue;
-    normalized.push(candidate);
-  }
-
-  if (normalized.length === 0) return undefined;
-  return [...new Set(normalized)];
+    return address;
+  });
 }
 
 type ApiPluginToolRequestBody = {
@@ -4303,75 +4260,32 @@ async function handleApiMessageAction(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiMessageActionRequestBody;
-  const action =
-    typeof body.action === 'string'
-      ? normalizeDiscordToolAction(body.action)
-      : null;
-  if (!action) {
+  const body = await readJsonBody(req);
+  if (!MessageActionRequestSchema.check(body)) {
     sendJson(res, 400, {
-      error:
-        'Invalid `action`. Allowed: "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", "thread-reply".',
+      error: `Invalid message action request. \`action\` must be one of ${MESSAGE_TOOL_ACTIONS.map((name) => `"${name}"`).join(', ')}, and every field must have its contract type.`,
     });
     return;
   }
 
   let cc: string[] | undefined;
   let bcc: string[] | undefined;
-  let inReplyTo: string | undefined;
-  let references: string[] | undefined;
   try {
-    cc = parseEmailRecipientListInput(body.cc, 'cc');
-    bcc = parseEmailRecipientListInput(body.bcc, 'bcc');
-    inReplyTo = parseOptionalStringInput(body.inReplyTo, 'inReplyTo');
-    references = parseThreadReferenceListInput(body.references);
+    cc = parseEmailRecipientList(body.cc, 'cc');
+    bcc = parseEmailRecipientList(body.bcc, 'bcc');
   } catch (error) {
     sendJson(res, 400, {
       error: error instanceof Error ? error.message : String(error),
     });
     return;
   }
-
-  const request: DiscordToolActionRequest = {
-    action,
-    sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
-    channelId: typeof body.channelId === 'string' ? body.channelId : undefined,
-    guildId: typeof body.guildId === 'string' ? body.guildId : undefined,
-    userId: typeof body.userId === 'string' ? body.userId : undefined,
-    memberId: typeof body.memberId === 'string' ? body.memberId : undefined,
-    username: typeof body.username === 'string' ? body.username : undefined,
-    user: typeof body.user === 'string' ? body.user : undefined,
-    resolveAmbiguous:
-      body.resolveAmbiguous === 'best' || body.resolveAmbiguous === 'error'
-        ? body.resolveAmbiguous
-        : undefined,
-    limit: typeof body.limit === 'number' ? body.limit : undefined,
-    before: typeof body.before === 'string' ? body.before : undefined,
-    after: typeof body.after === 'string' ? body.after : undefined,
-    around: typeof body.around === 'string' ? body.around : undefined,
-    content: typeof body.content === 'string' ? body.content : undefined,
-    subject: typeof body.subject === 'string' ? body.subject : undefined,
+  const references = trimmedStringList(body.references);
+  const request: MessageActionRequest = {
+    ...body,
     cc,
     bcc,
-    inReplyTo,
-    references,
-    filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
-    components:
-      Array.isArray(body.components) ||
-      (body.components !== null && typeof body.components === 'object')
-        ? body.components
-        : undefined,
-    contextChannelId:
-      typeof body.contextChannelId === 'string'
-        ? body.contextChannelId
-        : undefined,
-    messageId: typeof body.messageId === 'string' ? body.messageId : undefined,
-    emoji: typeof body.emoji === 'string' ? body.emoji : undefined,
-    name: typeof body.name === 'string' ? body.name : undefined,
-    autoArchiveDuration:
-      typeof body.autoArchiveDuration === 'number'
-        ? body.autoArchiveDuration
-        : undefined,
+    inReplyTo: body.inReplyTo?.trim() || undefined,
+    references: references && [...new Set(references)],
   };
 
   const result = await runMessageToolAction(request);

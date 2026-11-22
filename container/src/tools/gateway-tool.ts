@@ -3,6 +3,11 @@
  * to one gateway route on the calling session, and the answer comes back as
  * text. Lists kept there outlive the worker, and apps see the same ones.
  */
+import {
+  TOOL_ERROR_CODES,
+  type ToolErrorCode,
+} from '@hybridclaw/contracts/tool-error-code';
+
 export interface GatewayToolTarget {
   baseUrl: string;
   apiToken: string;
@@ -14,7 +19,7 @@ export async function postGatewayTool(
   what: string,
   args: Record<string, unknown>,
   gateway: GatewayToolTarget,
-): Promise<{ ok: boolean; text: string }> {
+): Promise<{ ok: boolean; text: string; errorCode?: ToolErrorCode }> {
   const base = gateway.baseUrl.replace(/\/+$/, '');
   if (!base) {
     return {
@@ -41,7 +46,12 @@ export async function postGatewayTool(
     };
   }
   const rawText = await response.text();
-  let parsed: { ok?: unknown; result?: unknown; error?: unknown } | null;
+  let parsed: {
+    ok?: unknown;
+    result?: unknown;
+    error?: unknown;
+    errorCode?: unknown;
+  } | null;
   try {
     parsed = JSON.parse(rawText);
   } catch {
@@ -54,5 +64,10 @@ export async function postGatewayTool(
     typeof parsed?.error === 'string' && parsed.error.trim()
       ? parsed.error
       : rawText || `HTTP ${response.status}`;
-  return { ok: false, text: `Error: ${detail}` };
+  const errorCode = TOOL_ERROR_CODES.find((code) => code === parsed?.errorCode);
+  return {
+    ok: false,
+    text: `Error: ${detail}`,
+    ...(errorCode && { errorCode }),
+  };
 }

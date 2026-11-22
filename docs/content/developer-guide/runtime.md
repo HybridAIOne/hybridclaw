@@ -91,8 +91,10 @@ of source checkouts only.
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
-private `@hybridclaw/shared` workspace package (`packages/shared`); the image
-does not ship that package or plain gateway `tsc` output. Source builds, npm
+private `@hybridclaw/contracts` and `@hybridclaw/shared` workspace packages
+(`packages/contracts`, the wire types, below `packages/shared`, the logic that
+uses them); the image does not ship those packages or plain gateway `tsc`
+output. Source builds, npm
 packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
 the build rolls the plugin SDK's declarations, shared types included, into
 the one file `dist/plugin-sdk.d.ts` beside it. A rebuild
@@ -165,6 +167,16 @@ removing bytes. A damaged fragment remains visible to chain verification; a
 new acknowledged record is never merged into that fragment.
 
 ## Worker State
+
+Each worker turn checkpoints model-call metadata before a request starts and
+after a response or error: requested provider/model, helper task, duration,
+reported tokens and any reported charge. Aggregate counters include primary
+and helper calls; pricing projects primary calls separately and records helpers
+at their own model's price. Recovery retains unfinished calls as unknown usage.
+These records contain no prompts, credentials, reasoning or response text.
+Request scopes close when their work finishes, so late callbacks cannot amend a
+completed turn or the next request. Workers reconstruct this state from the
+gateway-owned turn checkpoint after replacement.
 
 Explicit execution bounds belong to the gateway request, not a worker's uptime.
 The absolute `executionDeadlineAtMs` travels in every `ContainerInput`, including
@@ -336,6 +348,25 @@ Recovery returns typed evidence with a per-call `result_recorded`,
 side effects are excluded from recovered evidence. An interruption wins over a
 late success reply. The output carries a recovery marker even when no tool-start
 progress or execution record survived.
+
+Background delegation in web chat keeps one updating progress message per batch
+in the parent conversation. Its status names each task and current tool, and its
+expandable activity trace retains tool argument/result previews and durations after
+completion or a page reload. Credential previews use the existing redactor.
+Progress sends a metadata-only `chat-updated` event on the owning operator's
+notification stream; it creates neither unread alerts nor phone pushes. The
+console defers history refresh while the parent's response is streaming, and
+refreshes after reconnecting. Failed jobs and gateway restart recovery mark the
+progress message interrupted without discarding the recorded calls. Waiting
+delegates forward child tool events into the parent's current stream, including
+nested calls, with call IDs scoped to each child. Both paths honor the session's
+tool visibility setting; released or aborted requests receive no further events.
+
+Risk boundary: progress is display history, never execution or approval state.
+It cannot recreate a deleted or reset parent session. A display failure must not
+fail or retry delegated work. Delegation guidance prefers direct execution for
+ordinary requests, including multi-step research; background mode is reserved
+for user-requested background work or later results.
 
 Retry audit:
 - Whole-run model routing and delegation retries use the shared retry guard.
