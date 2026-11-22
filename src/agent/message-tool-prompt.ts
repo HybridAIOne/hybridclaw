@@ -14,6 +14,7 @@ import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 export function buildMessageToolPromptLines(
   activeChannels: readonly MessageToolChannelKind[],
   channelMessageToolHints: readonly string[],
+  ownEmailAddress: string | null = null,
 ): string[] {
   if (!shouldOfferMessageTool(activeChannels)) {
     return [
@@ -25,7 +26,10 @@ export function buildMessageToolPromptLines(
     'Do not use `message` for ordinary final replies in the current chat. Use the assistant final response instead, including when returning web chat artifacts. Only call `message` when the user asks to send/read/post on a communication channel.',
   ];
 
-  const channelActionLines = describeMessageToolChannelActions(activeChannels);
+  const channelActionLines = describeMessageToolChannelActions(
+    activeChannels,
+    ownEmailAddress,
+  );
   if (channelActionLines.length > 0) {
     lines.push(...channelActionLines);
     lines.push(

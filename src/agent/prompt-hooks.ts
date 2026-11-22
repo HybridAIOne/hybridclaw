@@ -12,6 +12,7 @@ import {
   getChannelByContextId,
   normalizeChannelKind,
 } from '../channels/channel-registry.js';
+import { resolveAgentOwnEmailAddress } from '../channels/email/agent-account.js';
 import {
   collectActiveMessageToolChannelKinds,
   shouldOfferMessageTool,
@@ -574,6 +575,9 @@ function buildSafetyHook(context: PromptHookContext): string {
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
+    activeMessageChannels.includes('email')
+      ? resolveAgentOwnEmailAddress(runtime, context.agentId)
+      : null,
   );
 
   const lines = [

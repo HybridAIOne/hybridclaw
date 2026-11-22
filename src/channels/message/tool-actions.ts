@@ -484,7 +484,7 @@ async function runEmailMessageSendAction(
 
   const email = await emailRuntimeLoader.load();
   if (filePath) {
-    await email.sendEmailAttachmentTo({
+    const from = await email.sendEmailAttachmentTo({
       to: channelId,
       filePath,
       body: content || '',
@@ -495,18 +495,20 @@ async function runEmailMessageSendAction(
       action: 'send',
       channelId,
       transport: 'email',
+      from,
       attachmentCount: 1,
       contentLength: content.length,
       ...emailMeta,
     };
   }
 
-  await email.sendToEmail(channelId, content, emailOptions);
+  const from = await email.sendToEmail(channelId, content, emailOptions);
   return {
     ok: true,
     action: 'send',
     channelId,
     transport: 'email',
+    from,
     contentLength: content.length,
     ...emailMeta,
   };
