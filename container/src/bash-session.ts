@@ -1,6 +1,7 @@
 /**
  * Bash shell state between calls. Every call starts in the workspace root,
- * the directory the file tools resolve from. Exported variables and aliases
+ * the directory the file tools resolve from, and a host command's display-root
+ * paths resolve as the file tools resolve them. Exported variables and aliases
  * are worker state: the snapshot captures the whole environment, gateway token
  * included, so it stays in the worker's temp dir and dies with it, and the
  * first call in a new worker for the same session says so. NOT the command
@@ -17,7 +18,10 @@ import {
   runBashProcess,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import {
+  resolveDisplayRootInCommand,
+  WORKSPACE_ROOT,
+} from './runtime-paths.js';
 import { ensureSessionStateDir, sessionStatePath } from './session-state.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 
@@ -195,10 +199,13 @@ function workerPath(): string {
  * Runs one approved command. `notice` is set on the first call in a worker
  * when an earlier worker already ran bash for the session.
  */
-export async function runBash(params: BashRunParams): Promise<{
+export async function runBash(request: BashRunParams): Promise<{
   result: BashProcessResult;
   notice: string | null;
 }> {
+  const params = TASK_SANDBOX_FS_ENABLED
+    ? request
+    : { ...request, command: resolveDisplayRootInCommand(request.command) };
   if (!persistentBashStateEnabled) {
     await haltIfShuttingDown();
     return {

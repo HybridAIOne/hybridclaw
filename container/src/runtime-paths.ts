@@ -398,3 +398,27 @@ export function toWorkspaceDisplayPath(resolvedPath: string): string {
     ? path.posix.join(WORKSPACE_ROOT_DISPLAY, relative)
     : WORKSPACE_ROOT_DISPLAY;
 }
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A path that starts at the display root, up to the next shell word boundary.
+const DISPLAY_ROOT_COMMAND_PATH_RE = new RegExp(
+  `(?<=^|[\\s'"\`=:;,(|&<>])${escapeRegExp(WORKSPACE_ROOT_DISPLAY)}(?=$|[/\\s'"\`:;,)|&<>])[^\\s'"\`:;,()|&<>$]*`,
+  'gm',
+);
+
+/**
+ * A host shell sees the real filesystem, where the display root is absent or
+ * another directory. Resolve its paths in a command the way the file tools do,
+ * so `cat /workspace/x` reads the file `read /workspace/x` returns.
+ */
+export function resolveDisplayRootInCommand(command: string): string {
+  if (path.resolve(WORKSPACE_ROOT_DISPLAY) === WORKSPACE_ROOT) return command;
+  return command.replace(DISPLAY_ROOT_COMMAND_PATH_RE, (token) => {
+    const resolved = resolveWorkspacePath(token);
+    if (!resolved) return token;
+    return token.endsWith('/') && !resolved.endsWith('/')
+      ? `${resolved}/`
+      : resolved;
+  });
+}
