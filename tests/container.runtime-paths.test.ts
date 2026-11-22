@@ -305,4 +305,38 @@ describe.sequential('container runtime path aliases', () => {
 
     fs.rmSync(uploadedRoot, { recursive: true, force: true });
   });
+
+  describe('display-root paths in a host shell command', () => {
+    const ws = '/workspace/.data/data/agents/main/workspace';
+
+    test.each([
+      ['cat /workspace/notes.md', `cat ${ws}/notes.md`],
+      ['cd /workspace && ls', `cd ${ws} && ls`],
+      ['cat /workspace/my\\ file.txt', `cat ${ws}/my\\ file.txt`],
+      ['echo /workspace/a\;touch x', `echo ${ws}/a\;touch x`],
+      ['cp -r /workspace/src/. dst', `cp -r ${ws}/src/. dst`],
+      ['curl -F f=@/workspace/r.pdf u', `curl -F f=@${ws}/r.pdf u`],
+      ['cat {/workspace/a,/workspace/b}', `cat {${ws}/a,${ws}/b}`],
+      ['ls "/workspace/$NAME"', `ls "${ws}/$NAME"`],
+      ['docker run -v /data:/workspace img', 'docker run -v /data:/workspace img'],
+      ['scp host:/workspace/x .', 'scp host:/workspace/x .'],
+      [`cat ${ws}/notes.md`, `cat ${ws}/notes.md`],
+      ['ls /workspace/.data/home/x', 'ls /workspace/.data/home/x'],
+      ['cat /workspace/../etc/passwd', 'cat /workspace/../etc/passwd'],
+      ['ls /workspaces /workspace.bak', 'ls /workspaces /workspace.bak'],
+    ])('%s', async (command, expected) => {
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', ws);
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+      vi.stubEnv(
+        'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+        JSON.stringify([ws, '/workspace/.data/home']),
+      );
+      vi.resetModules();
+      const { resolveDisplayRootInCommand } = await import(
+        '../container/src/runtime-paths.ts'
+      );
+
+      expect(resolveDisplayRootInCommand(command)).toBe(expected);
+    });
+  });
 });

@@ -142,6 +142,23 @@ describe.sequential('container bash tool persistence', () => {
     expect(result).toBe('.\nsub\n');
   });
 
+  test('resolves display-root paths the way the file tools do when the display root is a real directory', async () => {
+    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-bash-tool-'));
+    const agentRoot = path.join(workspaceRoot, '.data', 'agents', 'main', 'workspace');
+    fs.mkdirSync(agentRoot, { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, 'note.txt'), 'other');
+    fs.writeFileSync(path.join(agentRoot, 'note.txt'), 'agent');
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', agentRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', workspaceRoot);
+    const { executeTool } = await loadTools();
+
+    expect(await executeTool('bash', bashCommand(`cat ${workspaceRoot}/note.txt`))).toBe('agent');
+    expect(await executeTool('bash', bashCommand(`cat "${agentRoot}/note.txt"`))).toBe('agent');
+    await executeTool('bash', bashCommand(`mkdir -p ${workspaceRoot}/out && printf x >${workspaceRoot}/out/a.txt`));
+    expect(await executeTool('read', JSON.stringify({ path: `${workspaceRoot}/out/a.txt` }))).toContain('x');
+    expect(fs.existsSync(path.join(workspaceRoot, 'out'))).toBe(false);
+  });
+
   test('treats shell metacharacters in the environment temp path as literal arguments', async () => {
     const { executeTool } = await createBashTestRuntime();
     const tempRoot = path.join(

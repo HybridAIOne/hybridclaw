@@ -398,3 +398,33 @@ export function toWorkspaceDisplayPath(resolvedPath: string): string {
     ? path.posix.join(WORKSPACE_ROOT_DISPLAY, relative)
     : WORKSPACE_ROOT_DISPLAY;
 }
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A path that starts at the display root, up to the next shell word boundary
+// or backslash escape. A `:` does not start a path (`host:/workspace`).
+const DISPLAY_ROOT_COMMAND_PATH_RE = new RegExp(
+  `(?<=^|[\\s'"\`=;,(|&<>@{])${escapeRegExp(WORKSPACE_ROOT_DISPLAY)}(?=$|[/\\s'"\`;,)|&<>}\\\\])[^\\s'"\`:;,()|&<>{}$\\\\]*`,
+  'gm',
+);
+const SHELL_LITERAL_PATH_RE = /^[\w./-]+$/;
+
+/**
+ * A host shell sees the real filesystem, where the display root is absent or
+ * another directory. Where the file tools read `/workspace/x` from the
+ * workspace, the command gets the same path; only that prefix changes.
+ */
+export function resolveDisplayRootInCommand(command: string): string {
+  if (
+    path.resolve(WORKSPACE_ROOT_DISPLAY) === WORKSPACE_ROOT ||
+    !SHELL_LITERAL_PATH_RE.test(WORKSPACE_ROOT)
+  ) {
+    return command;
+  }
+  return command.replace(DISPLAY_ROOT_COMMAND_PATH_RE, (token) => {
+    const aliased = `${WORKSPACE_ROOT}${token.slice(WORKSPACE_ROOT_DISPLAY.length)}`;
+    return resolveWorkspacePath(token) === path.resolve(aliased)
+      ? aliased
+      : token;
+  });
+}
