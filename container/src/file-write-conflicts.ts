@@ -13,6 +13,7 @@ import {
   isWithinRoot,
   resolveCanonicalPath,
   resolveWorkspacePath,
+  toWorkspaceDisplayPath,
 } from './runtime-paths.js';
 import { SessionStateSet, sessionStatePath } from './session-state.js';
 
@@ -80,7 +81,7 @@ function targetKey(target: string): string {
 }
 
 function recoveryReason(): string {
-  return `a file write was rejected because its replacement preconditions failed; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts])}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`;
+  return `a file write was rejected; alternate mutations require one-time approval. Unresolved paths: ${JSON.stringify([...conflicts].map(toWorkspaceDisplayPath))}. Read each path and use a checked write/edit to resolve it. Writing a separate file is permitted; executing scripts still requires approval until these conflicts are resolved`;
 }
 
 export async function recordFileWriteConflict(
