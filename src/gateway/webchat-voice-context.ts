@@ -89,6 +89,7 @@ export async function loadWebchatVoiceHistory(
       task: 'compression',
       traceReason: 'voice_history_summary',
       agentId,
+      sessionId,
       fallbackModel: model,
       fallbackChatbotId: chatbotId,
       messages: [

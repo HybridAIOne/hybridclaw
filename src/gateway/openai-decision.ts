@@ -55,6 +55,7 @@ export async function handleDecisionCompletion(params: {
       messages: params.messages,
       fallbackModel: HYBRIDAI_MODEL,
       agentId: params.agentId,
+      sessionId: params.sessionId,
       temperature: 0,
       allowFallback: false,
     }).catch((error: unknown) => {

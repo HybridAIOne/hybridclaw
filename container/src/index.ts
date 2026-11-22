@@ -15,6 +15,7 @@ import type { BoostAnswer, BoostOffer } from '@hybridclaw/shared/boost-offer';
 import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
 import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
+import { withHybridAICorrelationHeaders } from '@hybridclaw/shared/hybridai-correlation-headers';
 import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
 import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
@@ -102,7 +103,6 @@ import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
   summarizeHybridAICompletionForDebug,
-  withHybridAICorrelationHeaders,
 } from './providers/shared.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';

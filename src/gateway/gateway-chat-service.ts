@@ -1548,6 +1548,7 @@ async function handleGatewayMessageInner(
     };
     const classifierInput = {
       text: req.content,
+      sessionId: req.sessionId,
       hasPrivateContext: Boolean(
         media.length ||
           contextRefResult.message !== userTurnContent ||

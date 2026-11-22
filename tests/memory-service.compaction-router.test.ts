@@ -127,6 +127,7 @@ test('MemoryService routes compaction prompts through the compression auxiliary 
   expect(callAuxiliaryModel).toHaveBeenCalledWith({
     task: 'compression',
     agentId: 'main',
+    sessionId: 'session:test',
     fallbackModel: 'gpt-5-nano',
     fallbackChatbotId: 'bot-1',
     fallbackEnableRag: true,

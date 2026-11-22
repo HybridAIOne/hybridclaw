@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { withHybridAICorrelationHeaders } from '../container/src/providers/shared.js';
+import { withHybridAICorrelationHeaders } from '@hybridclaw/shared/hybridai-correlation-headers';
 
 const BASE = { 'User-Agent': 'hybridclaw-test' };
 
