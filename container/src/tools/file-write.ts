@@ -15,6 +15,7 @@ import {
   recordFileWriteConflict,
   resolveFileWriteConflict,
 } from '../file-write-conflicts.js';
+import { ToolExecutionFailure } from '../tool-errors.js';
 import type { ToolDefinition } from '../types.js';
 import { fileSyntaxFeedback } from './file-syntax-feedback.js';
 import { assertTextPayload } from './text-payload.js';
@@ -209,14 +210,18 @@ export async function runFileWrite(
           const current = fs.readFileSync(target);
           if (typeof args.expected_sha256 === 'string') {
             if (fileWriteRevision(current) !== args.expected_sha256) {
-              throw new Error(
+              throw new ToolExecutionFailure(
                 'Stale write: expected_sha256 does not match; read the file again.',
+                'FAILED_PRECONDITION',
               );
             }
           } else {
             const expected = Buffer.from(args.expected_content as string);
             if (!current.equals(expected))
-              throw new Error(staleWriteReason(current, expected));
+              throw new ToolExecutionFailure(
+                staleWriteReason(current, expected),
+                'FAILED_PRECONDITION',
+              );
           }
           writeMemoryFileAtomic(target, args.contents);
         } else {
@@ -224,8 +229,9 @@ export async function runFileWrite(
             writeFileAtomicExclusive(target, args.contents);
           } catch (err) {
             if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-            throw new Error(
-              'File already exists; use a separate path for a new deliverable, or intentional overwrite=true with exact expected_content',
+            throw new ToolExecutionFailure(
+              'File already exists; use a separate path for a new deliverable, or intentional overwrite=true with expected_sha256 or exact expected_content',
+              'ALREADY_EXISTS',
             );
           }
         }

@@ -122,7 +122,10 @@ redacted result.
 A failed call's `tool.result` event carries `errorCode`, a google.rpc.Code name
 such as `NOT_FOUND` or `DEADLINE_EXCEEDED`, when its failure path reports one:
 an HTTP status, an MCP JSON-RPC error or `hybridai/errorCode` result metadata,
-the execution deadline, an invalid call, or a policy block. The code never
+the execution deadline, an invalid call, a policy block, or a guard that
+refused the call as given (`write` onto an existing file is `ALREADY_EXISTS`, a
+stale replacement `FAILED_PRECONDITION`, a second `work` record
+`ALREADY_EXISTS`). The code never
 quotes the error text. A `model.usage` event counts `modelRetries`, the provider
 calls that resent a request after the previous call failed.
 
