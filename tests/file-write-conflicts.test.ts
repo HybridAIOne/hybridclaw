@@ -13,8 +13,8 @@ beforeEach(() => {
   fs.writeFileSync(path.join(workspace, 'report.md'), 'Original work\n');
 });
 
-// Lock messages name paths the way the agent's file tools address them.
-const shown = (file: string) => JSON.stringify(`/workspace/${file}`);
+// Lock messages name workspace paths relative, as the file tools take them.
+const shown = (file: string) => JSON.stringify(file);
 
 async function worker(sessionId = 'session-a') {
   const { runFileWrite } = await import('../container/src/tools/file-write.js');

@@ -388,13 +388,13 @@ export function replaceWorkspaceRootInOutput(text: string): string {
     .replaceAll(`${WORKSPACE_ROOT_DISPLAY}/`, '');
 }
 
-/** A resolved path as the agent addresses it: workspace files under the display root. */
-export function toWorkspaceDisplayPath(resolvedPath: string): string {
+/**
+ * A resolved path as the file tools take it back: relative inside the
+ * workspace, since an allowed root may claim the `/workspace/...` form.
+ */
+export function toWorkspaceToolPath(resolvedPath: string): string {
   const root = resolveCanonicalPath(WORKSPACE_ROOT);
   const base = isWithinRoot(resolvedPath, root) ? root : WORKSPACE_ROOT;
   if (!isWithinRoot(resolvedPath, base)) return resolvedPath;
-  const relative = path.relative(base, resolvedPath).replace(/\\/g, '/');
-  return relative
-    ? path.posix.join(WORKSPACE_ROOT_DISPLAY, relative)
-    : WORKSPACE_ROOT_DISPLAY;
+  return path.relative(base, resolvedPath).replace(/\\/g, '/') || '.';
 }
