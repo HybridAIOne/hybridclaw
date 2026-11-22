@@ -132,6 +132,7 @@ function hydrateActivityTrace(
         ? { durationMs: step.durationMs }
         : {}),
       ...(step.signIn ? { signIn: step.signIn } : {}),
+      ...(step.paymentCard ? { paymentCard: step.paymentCard } : {}),
     });
   }
   return {

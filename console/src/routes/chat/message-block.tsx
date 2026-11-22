@@ -48,7 +48,7 @@ import {
   ReadAloudControl,
   textFromRenderedMarkdown,
 } from './read-aloud-control';
-import { SignInCard } from './sign-in-card';
+import { type BrowserAskKind, PaymentCard, SignInCard } from './sign-in-card';
 import { TraceBlock } from './trace-block';
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
@@ -445,9 +445,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
   approvalState?: ApprovalItemState;
   branchInfo: { current: number; total: number } | null;
   onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
-  /** Set on the trace whose turn ended asking for this site's sign-in. */
-  signInHost?: string;
-  onSignInSaved?: (host: string) => Promise<boolean>;
+  /** Set on the trace whose turn ended asking for a sign-in or a card. */
+  browserAsk?: { kind: BrowserAskKind; host: string };
+  onBrowserAskDone?: (kind: BrowserAskKind, host: string) => Promise<boolean>;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -529,14 +529,23 @@ export const MessageBlock = memo(function MessageBlock(props: {
     return (
       <>
         <TraceBlock message={msg} />
-        {props.signInHost && props.onSignInSaved ? (
-          <SignInCard
-            host={props.signInHost}
-            token={token}
-            disabled={props.isStreaming || Boolean(props.draftActionsDisabled)}
-            onSaved={props.onSignInSaved}
-          />
-        ) : null}
+        {props.browserAsk && props.onBrowserAskDone
+          ? (() => {
+              const { kind, host } = props.browserAsk;
+              const onDone = props.onBrowserAskDone;
+              const Card = kind === 'signIn' ? SignInCard : PaymentCard;
+              return (
+                <Card
+                  host={host}
+                  token={token}
+                  disabled={
+                    props.isStreaming || Boolean(props.draftActionsDisabled)
+                  }
+                  onSaved={(savedHost) => onDone(kind, savedHost)}
+                />
+              );
+            })()
+          : null}
       </>
     );
   }
