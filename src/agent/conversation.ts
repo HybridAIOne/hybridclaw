@@ -347,6 +347,7 @@ export function buildConversationContext(params: {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
+  mailConnectors?: PromptHookContext['mailConnectors'];
   currentUserContent?: ChatMessage['content'];
 }): ConversationContext {
   const {
@@ -412,6 +413,7 @@ export function buildConversationContext(params: {
     runtimeInfo,
     allowedTools: mergedAllowedTools,
     blockedTools: mergedBlockedTools,
+    mailConnectors: params.mailConnectors,
   };
   const systemPromptBlocks = buildSystemPromptBlocksFromHooks(hookContext);
   const todoToolOffered =

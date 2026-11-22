@@ -74,3 +74,32 @@ export function resolveAgentOwnEmailAddress(
   }
   return null;
 }
+
+/**
+ * The address the agent's mail goes out from: its own mailbox, else the
+ * default one the runtime falls back to, which is the first account
+ * `resolveRuntimeConfig` in `runtime.ts` lists. The top-level mailbox comes
+ * first unless an account replaces it.
+ */
+export function resolveAgentSenderEmailAddress(
+  config: Pick<RuntimeConfig, 'email' | 'agents'>,
+  agentId: string,
+): { address: string; own: boolean } | null {
+  const own = resolveAgentOwnEmailAddress(config, agentId);
+  if (own) return { address: own, own: true };
+  const { email } = config;
+  if (!email.enabled) return null;
+  const channelAgentId = resolveChannelAgentId('email', config);
+  const topLevel = email.address.trim();
+  const topLevelKept =
+    topLevel &&
+    !email.accounts.some(
+      (account) =>
+        (account.agentId.trim() || channelAgentId) === channelAgentId ||
+        sameAddress(account.address, topLevel),
+    );
+  const address = topLevelKept
+    ? topLevel
+    : email.accounts[0]?.address.trim() || topLevel;
+  return address ? { address, own: false } : null;
+}
