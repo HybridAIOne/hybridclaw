@@ -39,7 +39,8 @@ vi.mock('../src/config/config.js', () => ({
     heartbeat: state.heartbeat,
   }),
 }));
-// Loading plugins is what registers the installed WhatsApp transport.
+// Loading plugins is what registers the installed WhatsApp transport, so the
+// plugin's finding only appears when doctor decides to load them.
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: async () => {
     state.pluginLoads += 1;
@@ -62,7 +63,7 @@ beforeEach(() => {
   unregisterChannelTransport('whatsapp');
   state.pluginLoads = 0;
   state.doctorChecks = vi.fn(async () => [
-    { severity: 'ok', message: 'WhatsApp linked' },
+    { severity: 'warn', message: 'fixture advisory' },
   ]);
 });
 
@@ -76,12 +77,14 @@ it.each([
   async (enabled, channel, lastChannel, deliveryTarget) => {
     Object.assign(state, { heartbeat: { enabled, channel }, lastChannel });
     const { checkChannels } = await import('../src/doctor/checks/channels.js');
-    await checkChannels();
+    const [result] = await checkChannels();
     expect(state.pluginLoads).toBe(1);
     expect(state.doctorChecks).toHaveBeenCalledWith({
       enabled: false,
       deliveryTarget,
     });
+    expect(result.severity).toBe('warn');
+    expect(result.message).toContain('fixture advisory');
   },
 );
 
