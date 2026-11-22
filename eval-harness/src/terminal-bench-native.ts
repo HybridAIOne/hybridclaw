@@ -60,7 +60,7 @@ interface TaskResultSummary {
   category: string;
   reward: number;
   passed: boolean;
-  turnsUsed: number;
+  turnsUsed?: number;
   finishedNaturally: boolean;
   error?: string;
 }
@@ -535,8 +535,11 @@ async function runTask(
       category: String(task.category || 'unknown'),
       reward,
       passed: reward === 1,
-      turnsUsed: 0,
-      finishedNaturally: true,
+      ...(result.tokenUsage && { turnsUsed: result.tokenUsage.modelCalls }),
+      finishedNaturally:
+        result.status === 'success' &&
+        !result.pendingApproval &&
+        result.messageRole !== 'approval',
       ...(result.status === 'error' && result.error
         ? { error: result.error }
         : {}),
@@ -673,7 +676,6 @@ export async function runTerminalBenchNativeCli(argv: string[]): Promise<void> {
             category: String(task.category || 'unknown'),
             reward: 0,
             passed: false,
-            turnsUsed: 0,
             finishedNaturally: false,
             error: message,
           } satisfies TaskResultSummary;
