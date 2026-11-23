@@ -5,6 +5,7 @@
  * execute model-proposed tools or grant permissions.
  */
 import { setTimeout as delay } from 'node:timers/promises';
+import { stripAdaptiveThinkingBehavior } from '@hybridclaw/shared/model-behavior';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
 import {
   DEFAULT_VISION_MAX_TOKENS,
@@ -81,6 +82,7 @@ function cloneAuxiliaryTaskContext(
 ): AuxiliaryTaskContext {
   return {
     ...context,
+    modelBehavior: stripAdaptiveThinkingBehavior(context.modelBehavior),
     requestHeaders: context.requestHeaders
       ? { ...context.requestHeaders }
       : undefined,
@@ -143,7 +145,7 @@ export function resolveAuxiliaryTaskContext(params: {
       : undefined,
     isLocal: taskOverride.isLocal,
     contextWindow: taskOverride.contextWindow,
-    modelBehavior: taskOverride.modelBehavior,
+    modelBehavior: stripAdaptiveThinkingBehavior(taskOverride.modelBehavior),
     thinkingFormat: taskOverride.thinkingFormat,
     debugModelResponses: params.fallbackContext.debugModelResponses,
     maxTokens: taskOverride.maxTokens,

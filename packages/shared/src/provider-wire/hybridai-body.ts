@@ -3,13 +3,14 @@
  * gateway (model client and auxiliary calls) use, so a field the worker sends
  * cannot silently go missing on a gateway path.
  *
- * Optional controls appear only when the caller supplies them; reasoning
- * effort is dropped for models that do not support it, and adaptive thinking
- * is sent only when the caller opts in. Pure: the transport,
- * headers, and HybridAI destination checks stay with each caller.
+ * Optional controls appear only when the caller supplies them; which models
+ * support reasoning effort or adaptive thinking comes from provider discovery,
+ * never a model table here. A reasoning effort wins over adaptive thinking.
+ * Pure: the transport, headers, and HybridAI destination checks stay with each
+ * caller.
  */
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
-import { getSupportedReasoningEfforts } from '../reasoning-effort.ts';
+import { isReasoningEffort } from '../reasoning-effort.ts';
 import {
   buildChatCompletionsBody,
   type ChatCompletionsRequestParams,
@@ -26,9 +27,6 @@ export interface HybridAIRequestParams extends ChatCompletionsRequestParams {
   adaptiveThinking?: boolean;
 }
 
-const ADAPTIVE_THINKING_MODEL =
-  /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/;
-
 export function buildHybridAIRequestBody(
   params: HybridAIRequestParams,
 ): Record<string, unknown> {
@@ -40,21 +38,9 @@ export function buildHybridAIRequestBody(
       ? { chatbot_id: params.chatbotId, enable_rag: params.enableRag }
       : {}),
   };
-  const reasoningEffort =
-    params.reasoningEffort &&
-    getSupportedReasoningEfforts('hybridai', model).includes(
-      params.reasoningEffort,
-    )
-      ? params.reasoningEffort
-      : undefined;
-  if (reasoningEffort) {
-    body.reasoning_effort = reasoningEffort;
-    body.chat_template_kwargs = { enable_thinking: reasoningEffort !== 'none' };
-  }
-  if (
-    params.adaptiveThinking &&
-    ADAPTIVE_THINKING_MODEL.test(model.toLowerCase())
-  ) {
+  if (params.reasoningEffort && isReasoningEffort(params.reasoningEffort)) {
+    body.reasoning_effort = params.reasoningEffort;
+  } else if (params.adaptiveThinking) {
     body.thinking = { type: 'adaptive', display: 'summarized' };
   }
   return body;

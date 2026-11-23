@@ -4,10 +4,12 @@
  * transport and requires server acknowledgement. Neither proves operator claims.
  */
 
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import {
   type HybridAIDestination,
   parseHybridAIDestination,
 } from '@hybridclaw/shared/hybridai-destination';
+import { normalizeReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,
@@ -283,6 +285,8 @@ export interface HybridAIDiscoveryStore {
   ) => { input: number | null; output: number | null } | null;
   getModelFreeTier: (model: string) => boolean;
   getModelLifecycle: (model: string) => ModelLifecycle | null;
+  getModelReasoningEfforts: (model: string) => ReasoningEffort[];
+  getModelAdaptiveThinking: (model: string) => boolean;
 }
 
 interface HybridAIDiscoveryState {
@@ -302,6 +306,10 @@ interface HybridAIDiscoveryState {
   freeTierModelKeyLookup: HybridAIModelKeyLookup;
   legacyModelByName: Map<string, ModelLifecycle>;
   legacyModelKeyLookup: HybridAIModelKeyLookup;
+  reasoningEffortsByModel: Map<string, ReasoningEffort[]>;
+  reasoningEffortsModelKeyLookup: HybridAIModelKeyLookup;
+  adaptiveThinkingByModel: Map<string, boolean>;
+  adaptiveThinkingModelKeyLookup: HybridAIModelKeyLookup;
 }
 
 const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
@@ -321,6 +329,10 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   freeTierModelKeyLookup: buildHybridAIModelKeyLookup([]),
   legacyModelByName: new Map(),
   legacyModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  reasoningEffortsByModel: new Map(),
+  reasoningEffortsModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  adaptiveThinkingByModel: new Map(),
+  adaptiveThinkingModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
 
 // HybridAI lists `pricing` in OpenRouter's shape but in EUR per token, the
@@ -391,6 +403,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const freeTierByModel = new Map<string, boolean>();
     const legacy = new Map<string, ModelLifecycle>();
+    const reasoningEffortsByModel = new Map<string, ReasoningEffort[]>();
+    const adaptiveThinkingByModel = new Map<string, boolean>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
@@ -441,6 +455,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       }
       // The wallet never pays for a free-tier model, whatever its price.
       if (entry.free_tier === true) freeTierByModel.set(normalized, true);
+      const reasoningEfforts = normalizeReasoningEfforts(
+        entry.reasoning_efforts,
+      );
+      if (reasoningEfforts.length > 0) {
+        reasoningEffortsByModel.set(normalized, reasoningEfforts);
+      }
+      if (entry.adaptive_thinking === true) {
+        adaptiveThinkingByModel.set(normalized, true);
+      }
     }
 
     const discoveredKeys = new Map([...discovered].map((name) => [name, name]));
@@ -481,6 +504,14 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       ),
       legacyModelByName: legacy,
       legacyModelKeyLookup: buildHybridAIModelKeyLookup(legacy.keys()),
+      reasoningEffortsByModel,
+      reasoningEffortsModelKeyLookup: buildHybridAIModelKeyLookup(
+        reasoningEffortsByModel.keys(),
+      ),
+      adaptiveThinkingByModel,
+      adaptiveThinkingModelKeyLookup: buildHybridAIModelKeyLookup(
+        adaptiveThinkingByModel.keys(),
+      ),
     };
   }
 
@@ -594,6 +625,24 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.legacyModelByName.get(normalized) ?? null;
     },
+    getModelReasoningEfforts: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.reasoningEffortsByModel,
+        state.reasoningEffortsModelKeyLookup,
+      );
+      return [...(state.reasoningEffortsByModel.get(normalized) ?? [])];
+    },
+    getModelAdaptiveThinking: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.adaptiveThinkingByModel,
+        state.adaptiveThinkingModelKeyLookup,
+      );
+      return state.adaptiveThinkingByModel.get(normalized) === true;
+    },
   };
 }
 
@@ -658,4 +707,16 @@ export function getDiscoveredHybridAIModelDestination(
   model: string,
 ): HybridAIDestination | null {
   return defaultHybridAIDiscoveryStore.getModelDestination(model);
+}
+
+export function getDiscoveredHybridAIModelReasoningEfforts(
+  model: string,
+): ReasoningEffort[] {
+  return defaultHybridAIDiscoveryStore.getModelReasoningEfforts(model);
+}
+
+export function getDiscoveredHybridAIModelAdaptiveThinking(
+  model: string,
+): boolean {
+  return defaultHybridAIDiscoveryStore.getModelAdaptiveThinking(model);
 }

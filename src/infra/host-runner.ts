@@ -62,6 +62,7 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveSupportedReasoningEffort } from '../providers/model-catalog.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -1046,7 +1047,11 @@ async function runHostProcessInner(
     browserProvider: params.browserProvider || BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
-    reasoningEffort: params.reasoningEffort,
+    reasoningEffort: resolveSupportedReasoningEffort(
+      modelRuntime.provider,
+      runtimeModel,
+      params.reasoningEffort,
+    ),
     ralphMaxIterations,
     disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
     approvalMode,

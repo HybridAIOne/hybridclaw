@@ -19,8 +19,10 @@ import css from './chat-page.module.css';
 
 const LABELS: Record<ReasoningEffort, string> = {
   none: 'Off',
+  minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
+  high: 'High',
   xhigh: 'XHigh',
 };
 

@@ -13471,7 +13471,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       method: 'POST',
       url: '/api/chat',
-      body: { content: 'be direct', reasoningEffort: 'high' },
+      body: { content: 'be direct', reasoningEffort: 'max' },
     });
     const res = makeResponse();
 
@@ -13481,7 +13481,8 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
-      error: 'Invalid `reasoningEffort`; expected none, low, medium, or xhigh.',
+      error:
+        'Invalid `reasoningEffort`; expected none, minimal, low, medium, high, or xhigh.',
     });
   });
 

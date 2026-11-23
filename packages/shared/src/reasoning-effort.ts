@@ -1,7 +1,9 @@
 /**
- * Reasoning-effort runtime: the membership guard and which provider/model
- * pairs support the control. The effort list is wire data
- * (`@hybridclaw/contracts/reasoning-effort`).
+ * Reasoning-effort runtime: the membership guard and canonical list normalizer
+ * for provider-advertised efforts. The effort list is wire data
+ * (`@hybridclaw/contracts/reasoning-effort`); per-model support comes from
+ * provider discovery (`src/providers/hybridai-discovery.ts`), never a static
+ * model table here.
  */
 import {
   REASONING_EFFORTS,
@@ -12,19 +14,15 @@ export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return REASONING_EFFORTS.includes(value as ReasoningEffort);
 }
 
-export function getSupportedReasoningEfforts(
-  provider: string | null | undefined,
-  model: string,
-): ReasoningEffort[] {
-  if (String(provider || '').toLowerCase() !== 'hybridai') return [];
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^hybridai\//, '');
-
-  // HybridAI Qwen3.8 27B only (owner call, 2026-09-22): this is the model
-  // verified for the requested control; dynamic provider metadata is deferred.
-  return /^qwen\/qwen3\.8-27b(?:$|[-:.])/.test(normalized)
-    ? [...REASONING_EFFORTS]
-    : [];
+export function normalizeReasoningEfforts(values: unknown): ReasoningEffort[] {
+  if (!Array.isArray(values)) return [];
+  const accepted = new Set<ReasoningEffort>();
+  for (const raw of values) {
+    if (typeof raw !== 'string') continue;
+    const normalized = raw.trim().toLowerCase();
+    if (isReasoningEffort(normalized)) {
+      accepted.add(normalized);
+    }
+  }
+  return REASONING_EFFORTS.filter((effort) => accepted.has(effort));
 }

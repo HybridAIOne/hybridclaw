@@ -4,6 +4,7 @@
  * Known text-only models use fallback. Skills Hub does not control the classifier.
  */
 
+import { stripAdaptiveThinkingBehavior } from '@hybridclaw/shared/model-behavior';
 import {
   DEFAULT_COMPRESSION_MAX_TOKENS,
   DEFAULT_VISION_MAX_TOKENS,
@@ -297,7 +298,9 @@ export async function resolveTaskModelPolicy(
               requestHeaders: { ...resolved.requestHeaders },
               isLocal: resolved.isLocal,
               contextWindow: resolved.contextWindow,
-              modelBehavior: resolved.modelBehavior,
+              modelBehavior: stripAdaptiveThinkingBehavior(
+                resolved.modelBehavior,
+              ),
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
@@ -391,7 +394,7 @@ export async function resolveTaskModelPolicy(
       requestHeaders: { ...resolved.requestHeaders },
       isLocal: resolved.isLocal,
       contextWindow: resolved.contextWindow,
-      modelBehavior: resolved.modelBehavior,
+      modelBehavior: stripAdaptiveThinkingBehavior(resolved.modelBehavior),
       thinkingFormat: resolved.thinkingFormat,
       model: resolved.model || model,
       chatbotId: resolved.chatbotId,

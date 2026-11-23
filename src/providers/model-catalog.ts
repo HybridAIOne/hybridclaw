@@ -3,6 +3,7 @@
  * Explicit provider negatives override inferred metadata. This module describes
  * models; tool permissions and provider credentials remain separate boundaries.
  */
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
@@ -36,6 +37,7 @@ import {
   getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
   getDiscoveredHybridAIModelPricingUsdPerToken,
+  getDiscoveredHybridAIModelReasoningEfforts,
   getDiscoveredHybridAIModelVisionCapability,
   getDiscoveredHybridAIModelZone,
 } from './hybridai-discovery.js';
@@ -298,6 +300,30 @@ function normalizeAvailableCatalogModel(rawModel: string): string | null {
     ? resolveDiscoveredMistralModelCanonicalName(model)
     : model;
   return canonicalModel || null;
+}
+
+export function getSupportedModelReasoningEfforts(
+  provider: string | null | undefined,
+  model: string,
+): ReasoningEffort[] {
+  if (String(provider || '').toLowerCase() !== 'hybridai') return [];
+  return getDiscoveredHybridAIModelReasoningEfforts(model);
+}
+
+export function resolveSupportedReasoningEffort(
+  provider: string | null | undefined,
+  model: string,
+  reasoningEffort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (!reasoningEffort) return undefined;
+  if (String(provider || '').toLowerCase() !== 'hybridai') {
+    return reasoningEffort;
+  }
+  return getDiscoveredHybridAIModelReasoningEfforts(model).includes(
+    reasoningEffort,
+  )
+    ? reasoningEffort
+    : undefined;
 }
 
 /**

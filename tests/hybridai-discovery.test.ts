@@ -8,17 +8,15 @@ async function importFreshDiscovery() {
   vi.doMock('../src/auth/hybridai-auth.js', () => ({
     getHybridAIApiKey: vi.fn(() => 'hai-discovery-test'),
   }));
-  vi.doMock('../src/config/config.js', () => ({
-    HYBRIDAI_BASE_URL: 'https://hybridai.one',
-    MissingRequiredEnvVarError: class MissingRequiredEnvVarError extends Error {
-      envVar: string;
-
-      constructor(envVar: string) {
-        super(`Missing required env var: ${envVar}`);
-        this.envVar = envVar;
-      }
-    },
-  }));
+  vi.doMock('../src/config/config.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/config/config.js')>(
+      '../src/config/config.js',
+    );
+    return {
+      ...actual,
+      HYBRIDAI_BASE_URL: 'https://hybridai.one',
+    };
+  });
   return import('../src/providers/hybridai-discovery.ts');
 }
 
@@ -127,6 +125,145 @@ describe('hybridai discovery', () => {
     ]);
     expect(store.getModelContextWindow('gpt-5-ultra')).toBe(512_000);
     expect(store.getModelContextWindow('hybridai/gpt-5-ultra')).toBe(512_000);
+  });
+
+  test('reads reasoning_efforts and adaptive_thinking from HybridAI /v1/models', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'claude-opus-5-5',
+                  owned_by: 'anthropic',
+                  max_output_tokens: 128_000,
+                  reasoning_efforts: ['xhigh', 'low', 'medium', 'high', 'max'],
+                  adaptive_thinking: true,
+                },
+                {
+                  id: 'gpt-6-luna',
+                  owned_by: 'openai',
+                  reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+                },
+                {
+                  id: 'gpt-4.1',
+                  owned_by: 'openai',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createHybridAIDiscoveryStore();
+    await store.discoverModels({ force: true });
+
+    expect(
+      store.getModelReasoningEfforts('hybridai/anthropic/claude-opus-5-5'),
+    ).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(store.getModelReasoningEfforts('claude-opus-5-5')).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+    expect(
+      store.getModelAdaptiveThinking('hybridai/anthropic/claude-opus-5-5'),
+    ).toBe(true);
+    expect(store.getModelAdaptiveThinking('claude-opus-5-5')).toBe(true);
+    expect(store.getModelMaxTokens('claude-opus-5-5')).toBe(128_000);
+
+    expect(store.getModelReasoningEfforts('hybridai/gpt-6-luna')).toEqual([
+      'none',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+    expect(store.getModelAdaptiveThinking('hybridai/gpt-6-luna')).toBe(false);
+
+    expect(store.getModelReasoningEfforts('hybridai/gpt-4.1')).toEqual([]);
+    expect(store.getModelAdaptiveThinking('hybridai/gpt-4.1')).toBe(false);
+  });
+
+  test('wires discovered adaptive_thinking into HybridAI runtime credentials and gates reasoningEffort', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'claude-opus-5-5',
+                  owned_by: 'anthropic',
+                  max_output_tokens: 128_000,
+                  reasoning_efforts: ['low', 'medium', 'high', 'xhigh'],
+                  adaptive_thinking: true,
+                },
+                {
+                  id: 'gpt-4.1',
+                  owned_by: 'openai',
+                  max_output_tokens: 32_768,
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    await importFreshDiscovery();
+    const { hybridAIProvider } = await import('../src/providers/hybridai.ts');
+    const {
+      getSupportedModelReasoningEfforts,
+      resolveSupportedReasoningEffort,
+    } = await import('../src/providers/model-catalog.ts');
+
+    const opus = await hybridAIProvider.resolveRuntimeCredentials({
+      model: 'hybridai/anthropic/claude-opus-5-5',
+    });
+    expect(opus.modelBehavior).toEqual({ adaptiveThinking: true });
+    expect(opus.maxTokens).toBe(128_000);
+    expect(
+      getSupportedModelReasoningEfforts(
+        'hybridai',
+        'hybridai/anthropic/claude-opus-5-5',
+      ),
+    ).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(
+      resolveSupportedReasoningEffort(
+        'hybridai',
+        'hybridai/anthropic/claude-opus-5-5',
+        'high',
+      ),
+    ).toBe('high');
+    expect(
+      resolveSupportedReasoningEffort(
+        'hybridai',
+        'hybridai/anthropic/claude-opus-5-5',
+        'none',
+      ),
+    ).toBeUndefined();
+
+    const gpt41 = await hybridAIProvider.resolveRuntimeCredentials({
+      model: 'hybridai/gpt-4.1',
+    });
+    expect(gpt41.modelBehavior).toBeUndefined();
+    expect(gpt41.maxTokens).toBe(32_768);
+    expect(
+      resolveSupportedReasoningEffort('hybridai', 'hybridai/gpt-4.1', 'high'),
+    ).toBeUndefined();
   });
 
   test('ignores speculative HybridAI context window fields', async () => {

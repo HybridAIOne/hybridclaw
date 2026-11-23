@@ -62,7 +62,7 @@ describe('HybridAI request body', () => {
       expected: { model: 'gpt-5-nano', messages },
     },
     {
-      label: 'supported reasoning effort',
+      label: 'reasoning effort forwarded without template kwargs',
       params: {
         model: 'qwen/qwen3.8-27b',
         tools: [],
@@ -72,15 +72,14 @@ describe('HybridAI request body', () => {
         model: 'qwen/qwen3.8-27b',
         messages,
         reasoning_effort: 'none',
-        chat_template_kwargs: { enable_thinking: false },
       },
     },
     {
-      label: 'unsupported reasoning effort dropped',
+      label: 'unknown reasoning effort dropped',
       params: {
         model: 'gpt-5-nano',
         tools: [],
-        reasoningEffort: 'high' as const,
+        reasoningEffort: 'extreme' as never,
       },
       expected: { model: 'gpt-5-nano', messages },
     },
@@ -103,9 +102,18 @@ describe('HybridAI request body', () => {
       expected: { model: 'anthropic/claude-sonnet-4-6', messages },
     },
     {
-      label: 'no adaptive thinking for an unsupported model',
-      params: { model: 'gpt-5-nano', tools: [], adaptiveThinking: true },
-      expected: { model: 'gpt-5-nano', messages },
+      label: 'reasoning effort instead of adaptive thinking',
+      params: {
+        model: 'hybridai/anthropic/claude-opus-5-5',
+        tools: [],
+        reasoningEffort: 'low' as const,
+        adaptiveThinking: true,
+      },
+      expected: {
+        model: 'anthropic/claude-opus-5-5',
+        messages,
+        reasoning_effort: 'low',
+      },
     },
   ])('$label', ({ params, expected }) => {
     expect(buildHybridAIRequestBody({ messages, ...params })).toEqual(

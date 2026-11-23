@@ -119,7 +119,7 @@ describe('HybridAI container provider', () => {
     });
   });
 
-  test('sends an explicit thinking override for supported Qwen3.8 models', async () => {
+  test('forwards reasoning_effort without chat_template_kwargs and without adaptive thinking override', async () => {
     let requestBody: Record<string, unknown> | undefined;
     vi.stubGlobal(
       'fetch',
@@ -134,18 +134,20 @@ describe('HybridAI container provider', () => {
 
     await callHybridAIProviderStream({
       ...baseStreamArgs,
-      model: 'hybridai/qwen/qwen3.8-27b',
-      reasoningEffort: 'none',
+      model: 'hybridai/anthropic/claude-opus-5-5',
+      modelBehavior: { adaptiveThinking: true },
+      reasoningEffort: 'low',
       onTextDelta: vi.fn(),
     });
 
     expect(requestBody).toMatchObject({
-      reasoning_effort: 'none',
-      chat_template_kwargs: { enable_thinking: false },
+      reasoning_effort: 'low',
     });
+    expect(requestBody).not.toHaveProperty('chat_template_kwargs');
+    expect(requestBody).not.toHaveProperty('thinking');
   });
 
-  test('does not send thinking fields to unsupported models', async () => {
+  test('does not send thinking or reasoning_effort when neither is enabled', async () => {
     let requestBody: Record<string, unknown> | undefined;
     vi.stubGlobal(
       'fetch',
@@ -160,12 +162,13 @@ describe('HybridAI container provider', () => {
 
     await callHybridAIProviderStream({
       ...baseStreamArgs,
-      reasoningEffort: 'none',
+      model: 'hybridai/anthropic/claude-sonnet-5',
       onTextDelta: vi.fn(),
     });
 
     expect(requestBody).not.toHaveProperty('reasoning_effort');
     expect(requestBody).not.toHaveProperty('chat_template_kwargs');
+    expect(requestBody).not.toHaveProperty('thinking');
   });
 
   test('keeps delta-only streams unchanged, including repeated text', async () => {
@@ -336,6 +339,7 @@ describe('HybridAI container provider', () => {
     const result = await callHybridAIProviderStream({
       ...baseStreamArgs,
       model: 'hybridai/anthropic/claude-sonnet-5',
+      modelBehavior: { adaptiveThinking: true },
       onTextDelta: (delta) => textDeltas.push(delta),
       onThinkingDelta: (delta) => thinkingDeltas.push(delta),
     });

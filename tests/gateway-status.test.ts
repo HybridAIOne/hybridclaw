@@ -914,8 +914,14 @@ test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without 
       getAvailableModelList: vi.fn(() => [
         'hybridai/o1-preview',
         'hybridai/o3-mini',
-        'hybridai/Qwen/Qwen3.8-27B',
+        'hybridai/gpt-6-luna',
       ]),
+      getSupportedModelReasoningEfforts: vi.fn(
+        (provider: string, id: string) =>
+          provider === 'hybridai' && id === 'hybridai/gpt-6-luna'
+            ? ['none', 'low', 'medium', 'high', 'xhigh']
+            : [],
+      ),
     };
   });
 
@@ -931,9 +937,9 @@ test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without 
   expect(byId['hybridai/o1-preview']).toBe('hybridai');
   expect(byId['hybridai/o3-mini']).toBe('hybridai');
   expect(
-    result.models.find((model) => model.id === 'hybridai/Qwen/Qwen3.8-27B')
+    result.models.find((model) => model.id === 'hybridai/gpt-6-luna')
       ?.supportedReasoningEfforts,
-  ).toEqual(['none', 'low', 'medium', 'xhigh']);
+  ).toEqual(['none', 'low', 'medium', 'high', 'xhigh']);
   expect(
     result.models.find((model) => model.id === 'hybridai/o1-preview')
       ?.supportedReasoningEfforts,
