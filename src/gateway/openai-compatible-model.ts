@@ -3,17 +3,27 @@
  * Unlike provider selection, this module owns request/response wire-shape compatibility.
  * It does not persist usage or decide how token costs are presented.
  */
-import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import {
+  applyChatCompletionsChunk,
+  buildChatCompletionsBody,
+  type ChatCompletionsToolChoice,
+  createChatCompletionsStreamState,
+} from '@hybridclaw/shared/provider-wire/chat-completions';
+import {
+  adaptResponsesPayload,
+  buildResponsesRequestBody,
+  buildResponsesStreamResponse,
+  consumeResponsesStreamEvent,
+  createResponsesStreamState,
+  type ResponsesCompletion,
+} from '@hybridclaw/shared/provider-wire/codex-responses';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
-import {
-  stripHybridAIModelPrefix,
-  stripProviderPrefix,
-} from '../providers/model-names.js';
-import {
-  isOpenAICompatProviderId,
-  type RuntimeProviderId,
-} from '../providers/provider-ids.js';
+import { isOpenAICompatProviderId } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -27,17 +37,6 @@ export interface OpenAICompatibleToolDefinition {
     parameters?: Record<string, unknown>;
   };
 }
-
-export type OpenAICompatibleToolChoice =
-  | 'auto'
-  | 'none'
-  | 'required'
-  | {
-      type: 'function';
-      function: {
-        name: string;
-      };
-    };
 
 // Upstream usage payload. Cache fields are optional and spelled differently
 // per provider family (OpenAI-style prompt_tokens_details.cached_tokens vs
@@ -77,7 +76,8 @@ interface OpenAICompatibleModelCallParams {
   model: string;
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
-  toolChoice?: OpenAICompatibleToolChoice;
+  toolChoice?: ChatCompletionsToolChoice;
+  promptCacheKey?: string;
 }
 
 interface OpenAICompatibleModelStreamParams
@@ -106,38 +106,6 @@ function normalizeBaseUrl(baseUrl: string): string {
     .replace(/\/+$/g, '');
 }
 
-function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = 'openrouter/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  const upstreamModel = trimmed.slice(prefix.length).trim();
-  return upstreamModel.includes('/') ? upstreamModel : trimmed;
-}
-
-function normalizeOpenAICompatModelName(
-  provider: RuntimeProviderId,
-  model: string,
-): string {
-  const trimmed = String(model || '').trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  if (provider === 'huggingface') {
-    const prefix = 'huggingface/';
-    return trimmed.toLowerCase().startsWith(prefix)
-      ? trimmed.slice(prefix.length) || trimmed
-      : trimmed;
-  }
-  const prefix = `${provider}/`;
-  return trimmed.toLowerCase().startsWith(prefix)
-    ? trimmed.slice(prefix.length) || trimmed
-    : trimmed;
-}
-
-function normalizeCodexModelName(model: string): string {
-  return stripProviderPrefix(model, 'openai-codex');
-}
-
 function parseErrorText(body: string): string {
   const trimmed = String(body || '').trim();
   if (!trimmed) return 'Unknown provider error';
@@ -162,42 +130,18 @@ function createProviderError(status: number, body: string): Error {
   );
 }
 
-function buildHybridAIRequestBody(
-  params: OpenAICompatibleModelCallParams,
-): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: stripHybridAIModelPrefix(params.model),
-    messages: params.messages,
-    // The bot is optional, and RAG searches the bot's knowledge.
-    ...(params.runtime.chatbotId
-      ? {
-          chatbot_id: params.runtime.chatbotId,
-          enable_rag: params.runtime.enableRag,
-        }
-      : {}),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools;
-    body.tool_choice = params.toolChoice || 'auto';
-  }
-  return body;
-}
-
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+  return buildChatCompletionsBody({
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
       params.runtime.model || params.model,
     ),
     messages: collapseSystemMessages(params.messages),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools;
-    body.tool_choice = params.toolChoice || 'auto';
-  }
-  return body;
+    tools: params.tools,
+    toolChoice: params.toolChoice,
+  });
 }
 
 function buildChatCompletionsUrl(
@@ -216,150 +160,73 @@ function buildChatCompletionsUrl(
 function buildChatCompletionsRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  return params.runtime.provider === 'hybridai'
-    ? buildHybridAIRequestBody(params)
-    : buildOpenAICompatRequestBody(params);
+  if (params.runtime.provider !== 'hybridai') {
+    return buildOpenAICompatRequestBody(params);
+  }
+  return buildHybridAIRequestBody({
+    model: params.model,
+    messages: params.messages,
+    chatbotId: params.runtime.chatbotId,
+    enableRag: params.runtime.enableRag,
+    tools: params.tools,
+    toolChoice: params.toolChoice,
+    maxTokens: resolveProviderRequestMaxTokens({
+      model: params.model,
+      discoveredMaxTokens: params.runtime.maxTokens,
+    }),
+  });
 }
 
-function convertMessageToResponsesInput(
-  message: ChatMessage,
-): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  if (message.role === 'system') return items;
-  if (message.role === 'tool') {
-    items.push({
-      type: 'function_call_output',
-      call_id: message.tool_call_id || '',
-      output: chatContentText(message.content),
-    });
-    return items;
-  }
-  if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-    for (const toolCall of message.tool_calls) {
-      items.push({
-        type: 'function_call',
-        call_id: toolCall.id,
-        name: toolCall.function.name,
-        arguments: toolCall.function.arguments,
-      });
-    }
-  }
-  if (typeof message.content === 'string') {
-    if (message.content.trim()) {
-      items.push({ role: message.role, content: message.content });
-    }
-    return items;
-  }
-  if (Array.isArray(message.content) && message.content.length > 0) {
-    const content: Array<Record<string, unknown>> = [];
-    for (const part of message.content) {
-      if (part.type === 'text') {
-        content.push({ type: 'input_text', text: part.text });
-        continue;
-      }
-      if (part.type === 'image_url') {
-        content.push({ type: 'input_image', image_url: part.image_url.url });
-      }
-    }
-    if (content.length > 0) {
-      items.push({ role: message.role, content });
-    }
-  }
-  return items;
-}
-
-function buildCodexRequestBody(
+function buildCodexRequest(
   params: OpenAICompatibleModelCallParams,
-): Record<string, unknown> {
-  const instructions = params.messages
-    .filter((message) => message.role === 'system')
-    .map((message) => chatContentText(message.content).trim())
-    .filter(Boolean)
-    .join('\n\n');
-  const body: Record<string, unknown> = {
-    model: normalizeCodexModelName(params.model),
-    store: false,
-    instructions: instructions || 'You are Codex, a coding assistant.',
-    input: params.messages.flatMap(convertMessageToResponsesInput),
-  };
-  if (params.tools.length > 0) {
-    body.tools = params.tools.map((tool) => ({
-      type: 'function',
-      name: tool.function.name,
-      description: tool.function.description,
-      parameters: tool.function.parameters,
-    }));
-    body.tool_choice = params.toolChoice || 'auto';
-    body.parallel_tool_calls = true;
-  }
-  return body;
+  stream: boolean,
+): string {
+  return JSON.stringify({
+    ...buildResponsesRequestBody({
+      provider: params.runtime.provider,
+      model: params.model,
+      messages: params.messages,
+      tools: params.tools,
+      toolChoice: params.toolChoice,
+      promptCacheKey: params.promptCacheKey,
+    }),
+    ...(stream ? { stream: true } : {}),
+  });
 }
 
-function adaptCodexResponse(
-  payload: unknown,
-  fallbackModel: string,
+function toModelResponse(
+  completion: ResponsesCompletion<OpenAICompatibleUsagePayload>,
 ): OpenAICompatibleModelResponse {
-  const record = isRecord(payload) ? payload : {};
-  const output = Array.isArray(record.output) ? record.output : [];
-  const toolCalls: ToolCall[] = [];
-  const textChunks: string[] = [];
-
-  for (const entry of output) {
-    if (!isRecord(entry)) continue;
-    const type = typeof entry.type === 'string' ? entry.type : '';
-    if (type === 'message' && Array.isArray(entry.content)) {
-      for (const part of entry.content) {
-        if (!isRecord(part)) continue;
-        const text =
-          typeof part.text === 'string'
-            ? part.text
-            : typeof part.output_text === 'string'
-              ? part.output_text
-              : '';
-        if (text) textChunks.push(text);
-      }
-      continue;
-    }
-    if (type === 'function_call') {
-      toolCalls.push({
-        id:
-          (typeof entry.call_id === 'string' && entry.call_id) ||
-          (typeof entry.id === 'string' && entry.id) ||
-          '',
-        type: 'function',
-        function: {
-          name: typeof entry.name === 'string' ? entry.name : '',
-          arguments:
-            typeof entry.arguments === 'string'
-              ? entry.arguments
-              : JSON.stringify(entry.arguments || {}),
-        },
-      });
-    }
-  }
-
+  const message = completion.choices[0]?.message;
+  const content = Array.isArray(message?.content)
+    ? message.content
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('') || null
+    : (message?.content ?? null);
   return {
-    id: typeof record.id === 'string' ? record.id : 'response',
-    model:
-      typeof record.model === 'string' && record.model
-        ? record.model
-        : normalizeCodexModelName(fallbackModel),
+    id: completion.id,
+    model: completion.model,
     choices: [
       {
         message: {
           role: 'assistant',
-          content: textChunks.join('') || null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          content,
+          ...(message?.tool_calls ? { tool_calls: message.tool_calls } : {}),
         },
-        finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+        finish_reason: completion.choices[0]?.finish_reason || 'stop',
       },
     ],
-    ...(isRecord(record.usage)
-      ? {
-          usage: record.usage as OpenAICompatibleModelResponse['usage'],
-        }
-      : {}),
+    ...(completion.usage ? { usage: completion.usage } : {}),
   };
+}
+
+function adaptCodexResponse(
+  payload: unknown,
+  model: string,
+): OpenAICompatibleModelResponse {
+  return toModelResponse(
+    adaptResponsesPayload<OpenAICompatibleUsagePayload>(payload, model),
+  );
 }
 
 export async function callOpenAICompatibleModel(
@@ -374,7 +241,7 @@ export async function callOpenAICompatibleModel(
           apiKey: params.runtime.apiKey,
           requestHeaders: params.runtime.requestHeaders,
         }),
-        body: JSON.stringify(buildCodexRequestBody(params)),
+        body: buildCodexRequest(params, false),
       },
     );
     if (!response.ok) {
@@ -412,10 +279,7 @@ export async function callOpenAICompatibleModelStream(
           requestHeaders: params.runtime.requestHeaders,
           accept: 'text/event-stream, application/json',
         }),
-        body: JSON.stringify({
-          ...buildCodexRequestBody(params),
-          stream: true,
-        }),
+        body: buildCodexRequest(params, true),
       },
     );
     if (!response.ok) {
@@ -438,70 +302,24 @@ export async function callOpenAICompatibleModelStream(
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let text = '';
-    let done = false;
-    let completedPayload: unknown = null;
+    const state = createResponsesStreamState(params.model);
+    const handlers = { onTextDelta: params.onTextDelta };
     try {
-      while (!done) {
-        const next = await reader.read();
-        if (next.done) break;
-        buffer += decoder.decode(next.value, { stream: true });
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() || '';
-        for (const block of blocks) {
-          const dataLines = block
-            .split(/\r?\n/)
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trim());
-          const payloadText = dataLines.join('\n').trim();
-          if (!payloadText) continue;
-          if (payloadText === '[DONE]') {
-            done = true;
-            break;
-          }
-          let payload: unknown;
-          try {
-            payload = JSON.parse(payloadText) as unknown;
-          } catch {
-            continue;
-          }
-          if (!isRecord(payload)) continue;
-          if (payload.type === 'response.output_text.delta') {
-            const delta =
-              typeof payload.delta === 'string' ? payload.delta : '';
-            if (delta) {
-              text += delta;
-              params.onTextDelta(delta);
-            }
-          }
-          if (
-            payload.type === 'response.completed' &&
-            isRecord(payload.response)
-          ) {
-            completedPayload = payload.response;
-            done = true;
-            break;
-          }
-        }
+      for await (const event of readServerSentEvents(() => reader.read())) {
+        if (
+          consumeResponsesStreamEvent(event.data, event.event, state, handlers)
+        )
+          break;
       }
     } finally {
       reader.releaseLock();
-      decoder.decode();
     }
-    return completedPayload
-      ? adaptCodexResponse(completedPayload, params.model)
-      : {
-          id: 'response',
-          model: normalizeCodexModelName(params.model),
-          choices: [
-            {
-              message: { role: 'assistant', content: text || null },
-              finish_reason: 'stop',
-            },
-          ],
-        };
+    return toModelResponse(
+      buildResponsesStreamResponse<OpenAICompatibleUsagePayload>(
+        state,
+        params.model,
+      ),
+    );
   }
 
   const url = buildChatCompletionsUrl(params.runtime);
@@ -544,115 +362,50 @@ export async function callOpenAICompatibleModelStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let streamId = '';
-  let streamModel = params.model;
-  let text = '';
-  let usage: OpenAICompatibleModelResponse['usage'] | undefined;
-  const toolCalls: ToolCall[] = [];
-  let finishReason = 'stop';
-
-  const ensureToolCall = (index: number): ToolCall => {
-    while (toolCalls.length <= index) {
-      toolCalls.push({
-        id: '',
-        type: 'function',
-        function: { name: '', arguments: '' },
-      });
-    }
-    return toolCalls[index] as ToolCall;
-  };
-
+  const state = createChatCompletionsStreamState<OpenAICompatibleUsagePayload>(
+    params.model,
+  );
   try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      buffer += decoder.decode(next.value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const rawLine of lines) {
-        const trimmed = rawLine.trim();
-        if (!trimmed?.startsWith('data:')) continue;
-        const payloadText = trimmed.slice(5).trim();
-        if (!payloadText || payloadText === '[DONE]') continue;
-        let payload: unknown;
-        try {
-          payload = JSON.parse(payloadText) as unknown;
-        } catch {
-          continue;
-        }
-        if (!isRecord(payload)) continue;
-        if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
-        if (typeof payload.model === 'string' && payload.model) {
-          streamModel = payload.model;
-        }
-        if (isRecord(payload.usage)) {
-          usage = payload.usage as OpenAICompatibleModelResponse['usage'];
-        }
-        const choice = Array.isArray(payload.choices)
-          ? payload.choices[0]
-          : undefined;
-        if (!isRecord(choice)) continue;
-        if (isRecord(choice.delta)) {
-          const delta = choice.delta;
-          if (typeof delta.content === 'string' && delta.content) {
-            text += delta.content;
-            params.onTextDelta(delta.content);
-          }
-          if (Array.isArray(delta.tool_calls)) {
-            for (const rawToolCall of delta.tool_calls) {
-              if (!isRecord(rawToolCall)) continue;
-              const index =
-                typeof rawToolCall.index === 'number' && rawToolCall.index >= 0
-                  ? rawToolCall.index
-                  : 0;
-              const target = ensureToolCall(index);
-              if (typeof rawToolCall.id === 'string' && rawToolCall.id) {
-                target.id += rawToolCall.id;
-              }
-              if (isRecord(rawToolCall.function)) {
-                if (
-                  typeof rawToolCall.function.name === 'string' &&
-                  rawToolCall.function.name
-                ) {
-                  target.function.name += rawToolCall.function.name;
-                }
-                if (
-                  typeof rawToolCall.function.arguments === 'string' &&
-                  rawToolCall.function.arguments
-                ) {
-                  target.function.arguments += rawToolCall.function.arguments;
-                }
-              }
-            }
-          }
-        }
-        if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
+    for await (const event of readServerSentEvents(() => reader.read())) {
+      const payloadText = event.data.trim();
+      if (payloadText === '[DONE]') break;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(payloadText) as unknown;
+      } catch {
+        continue;
       }
+      if (!isRecord(payload)) continue;
+      if (payload.error != null) {
+        throw new Error(
+          `OpenAI-compatible model stream failed: ${parseErrorText(payloadText)}`,
+        );
+      }
+      const added = applyChatCompletionsChunk(state, payload);
+      if (added.content) params.onTextDelta(added.content);
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
 
   return {
-    id: streamId || 'stream',
-    model: streamModel,
+    id: state.id || 'stream',
+    model: state.model,
     choices: [
       {
         message: {
           role: 'assistant',
-          content: text || null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          content: state.content || null,
+          ...(state.toolCalls.length > 0
+            ? { tool_calls: state.toolCalls }
+            : {}),
         },
         finish_reason:
-          finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+          state.finishReason ||
+          (state.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
       },
     ],
-    ...(usage ? { usage } : {}),
+    ...(state.usage ? { usage: state.usage } : {}),
   };
 }
 

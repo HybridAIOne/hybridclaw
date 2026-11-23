@@ -1,3 +1,5 @@
+import type { ChatCompletionResponse } from '../types.js';
+
 /**
  * Maximum silence on a streaming request, both while waiting for the response
  * headers and between body chunks, before treating the connection as stale.
@@ -79,5 +81,21 @@ export async function readJsonWithIdleTimeout(
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+/** Replays a non-streamed completion's text through a streaming callback. */
+export function emitResponseTextDeltas(
+  response: ChatCompletionResponse,
+  onTextDelta: (delta: string) => void,
+): void {
+  const content = response.choices[0]?.message?.content;
+  if (typeof content === 'string') {
+    if (content) onTextDelta(content);
+    return;
+  }
+  if (!Array.isArray(content)) return;
+  for (const part of content) {
+    if (part.type === 'text' && part.text) onTextDelta(part.text);
   }
 }

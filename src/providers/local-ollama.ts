@@ -24,14 +24,10 @@ import type {
 
 const OLLAMA_MODEL_PREFIX = providerModelPrefix('ollama');
 
-function normalizeOllamaModelName(model: string): string {
-  return stripProviderPrefix(model, 'ollama');
-}
-
 async function resolveOllamaRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
-  const modelName = normalizeOllamaModelName(params.model);
+  const modelName = stripProviderPrefix(params.model, 'ollama');
   const modelInfo =
     getLocalModelInfo(params.model) || getLocalModelInfo(modelName);
   const explicitBehavior = normalizeModelBehavior(

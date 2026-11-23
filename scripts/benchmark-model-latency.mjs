@@ -250,7 +250,7 @@ function stripTrailingV1(url) {
 
 // Which upstream vendor serves this model directly, and under what name.
 // HybridAI serves Anthropic models prefixed (`anthropic/claude-...`) and
-// OpenAI models bare (`gpt-...`) — see packages/shared/src/model-names.ts.
+// OpenAI models bare (`gpt-...`) — see packages/shared/src/provider-wire/model-names.ts.
 function resolveVendor(haiModel, options) {
   const bare = haiModel.replace(/^[a-z0-9-]+\//i, '');
   const model = options.vendorModel || bare;

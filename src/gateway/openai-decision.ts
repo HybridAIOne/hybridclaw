@@ -33,6 +33,7 @@ export async function handleDecisionCompletion(params: {
   sessionId: string;
   agentId: string;
   messages: ChatMessage[];
+  promptCacheKey?: string;
   wantsStream: boolean;
   completionId: string;
   created: number;
@@ -80,6 +81,7 @@ export async function handleDecisionCompletion(params: {
       messages: params.messages,
       tools: [],
       toolChoice: 'none',
+      promptCacheKey: params.promptCacheKey,
     });
     await recordOpenAICompatibleUsage({
       sessionId: params.sessionId,

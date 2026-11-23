@@ -244,16 +244,6 @@ export function emitRawSsePayloadDebug(
   emitModelResponseDebugFileText(`data: ${payloadText}\n\n`);
 }
 
-export function emitRawSseLineDebug(
-  args: NormalizedCallArgs,
-  rawLine: string,
-): void {
-  if (!args.debugModelResponses) return;
-  const normalized = rawLine.replace(/\r$/, '');
-  if (!normalized.trimStart().startsWith('data:')) return;
-  emitModelResponseDebugFileText(`${normalized}\n\n`);
-}
-
 export function emitRawNdjsonLineDebug(
   args: NormalizedCallArgs,
   rawLine: string,
@@ -313,15 +303,4 @@ export function buildRequestHeaders(
     Authorization: `Bearer ${apiKey}`,
     ...(requestHeaders || {}),
   };
-}
-
-export function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = 'openrouter/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  const upstreamModel = trimmed.slice(prefix.length).trim();
-  if (!upstreamModel) return trimmed;
-  // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
-  // keep their namespace. Vendor-scoped ids use the upstream path.
-  return upstreamModel.includes('/') ? upstreamModel : trimmed;
 }

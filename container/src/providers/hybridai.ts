@@ -4,17 +4,20 @@
  * error events reject the call even after visible deltas were delivered.
  */
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
-import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
-import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
-import type {
-  AnthropicContentBlock,
-  ChatCompletionResponse,
-  ToolCall,
-} from '../types.js';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
+import {
+  applyChatCompletionsChunk,
+  createChatCompletionsStreamState,
+} from '@hybridclaw/shared/provider-wire/chat-completions';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import { stripHybridAIModelPrefix } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import type { ChatCompletionResponse } from '../types.js';
 import { HYBRIDCLAW_USER_AGENT } from '../user-agent.js';
 import {
   buildRequestHeaders,
-  emitRawSseLineDebug,
+  emitRawNdjsonLineDebug,
+  emitRawSsePayloadDebug,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
@@ -29,88 +32,17 @@ import {
   STREAM_IDLE_TIMEOUT_MS,
 } from './stream-utils.js';
 
-interface StreamToolCallDelta {
-  index?: number;
-  id?: string;
-  type?: 'function';
-  function?: {
-    name?: string;
-    arguments?: string;
-  };
-}
-
-interface StreamChoiceChunk {
-  delta?: {
-    role?: string;
-    content?: string | null;
-    reasoning_content?: string | null;
-    reasoning?: string | null;
-    anthropic_content?: AnthropicContentBlock[];
-    tool_calls?: StreamToolCallDelta[];
-  };
-  message?: {
-    role?: string;
-    content?: string | null;
-    reasoning_content?: string | null;
-    reasoning?: string | null;
-    anthropic_content?: AnthropicContentBlock[];
-    tool_calls?: ToolCall[];
-  };
-  finish_reason?: string | null;
-}
-
-interface StreamChunkPayload {
-  id?: string;
-  model?: string;
-  usage?: ChatCompletionResponse['usage'];
-  choices?: StreamChoiceChunk[];
-  error?: unknown;
-}
-
-function buildHybridAIRequestBody(
-  args: NormalizedCallArgs,
-): Record<string, unknown> {
-  const model = stripHybridAIModelPrefix(args.model);
-  const request: Record<string, unknown> = {
-    model,
+function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+  return buildHybridAIRequestBody({
+    model: args.model,
     messages: args.messages,
-    // The bot is optional, and RAG searches the bot's knowledge.
-    ...(args.chatbotId
-      ? { chatbot_id: args.chatbotId, enable_rag: args.enableRag }
-      : {}),
-  };
-  if (args.tools.length > 0) {
-    request.tools = args.tools;
-    request.tool_choice = 'auto';
-  }
-  if (
-    typeof args.maxTokens === 'number' &&
-    Number.isFinite(args.maxTokens) &&
-    args.maxTokens > 0
-  ) {
-    request.max_tokens = Math.floor(args.maxTokens);
-  }
-  const reasoningEffort =
-    args.reasoningEffort &&
-    getSupportedReasoningEfforts('hybridai', model).includes(
-      args.reasoningEffort,
-    )
-      ? args.reasoningEffort
-      : undefined;
-  if (reasoningEffort) {
-    request.reasoning_effort = reasoningEffort;
-    request.chat_template_kwargs = {
-      enable_thinking: reasoningEffort !== 'none',
-    };
-  }
-  if (
-    /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
-      model.toLowerCase(),
-    )
-  ) {
-    request.thinking = { type: 'adaptive', display: 'summarized' };
-  }
-  return request;
+    chatbotId: args.chatbotId,
+    enableRag: args.enableRag,
+    tools: args.tools,
+    maxTokens: args.maxTokens,
+    reasoningEffort: args.reasoningEffort,
+    adaptiveThinking: true,
+  });
 }
 
 function buildHybridAIRequestHeaders(
@@ -126,69 +58,31 @@ function buildHybridAIRequestHeaders(
   };
 }
 
-function parseStreamPayloadLine(rawLine: string): string | null {
-  const trimmed = rawLine.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith(':')) return null;
-  if (trimmed.startsWith('event:')) return null;
-  if (trimmed.startsWith('id:')) return null;
-  if (trimmed.startsWith('data:')) {
-    return trimmed.slice(5).trim();
+async function* readStreamPayloads(
+  read: () => Promise<{ done: boolean; value?: Uint8Array }>,
+  ndjson: boolean,
+): AsyncGenerator<string> {
+  if (!ndjson) {
+    for await (const event of readServerSentEvents(read)) yield event.data;
+    return;
   }
-  return trimmed;
-}
-
-function ensureToolCall(toolCalls: ToolCall[], index: number): ToolCall {
-  while (toolCalls.length <= index) {
-    toolCalls.push({
-      id: '',
-      type: 'function',
-      function: {
-        name: '',
-        arguments: '',
-      },
-    });
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    yield* lines;
+    if (done) break;
   }
-  return toolCalls[index];
-}
-
-function mergeToolCallDelta(
-  target: ToolCall,
-  delta: StreamToolCallDelta,
-): void {
-  if (typeof delta.id === 'string' && delta.id) {
-    target.id = target.id ? `${target.id}${delta.id}` : delta.id;
-  }
-  if (typeof delta.type === 'string') {
-    target.type = delta.type;
-  }
-  if (!delta.function) return;
-  if (typeof delta.function.name === 'string' && delta.function.name) {
-    target.function.name = target.function.name
-      ? `${target.function.name}${delta.function.name}`
-      : delta.function.name;
-  }
-  if (
-    typeof delta.function.arguments === 'string' &&
-    delta.function.arguments
-  ) {
-    target.function.arguments += delta.function.arguments;
-  }
-}
-
-function extractStructuredReasoning(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  for (const candidate of [record.reasoning_content, record.reasoning]) {
-    if (typeof candidate === 'string' && candidate) return candidate;
-  }
-  return null;
+  yield buffer;
 }
 
 export async function callHybridAIProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const body = buildHybridAIRequestBody(args);
+  const body = buildRequestBody(args);
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -237,7 +131,7 @@ export async function callHybridAIProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
   const body = {
-    ...buildHybridAIRequestBody(args),
+    ...buildRequestBody(args),
     stream: true,
     stream_options: {
       include_usage: true,
@@ -305,164 +199,53 @@ export async function callHybridAIProviderStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  let buffer = '';
-  let streamId = '';
-  let streamModel = stripHybridAIModelPrefix(args.model);
-  let finishReason: string | null = null;
-  let usage: ChatCompletionResponse['usage'] | undefined;
-  let role = 'assistant';
-  let textContent = '';
-  let reasoningContent = '';
-  let anthropicContent: AnthropicContentBlock[] = [];
-  const toolCalls: ToolCall[] = [];
+  const ndjson = contentType.includes('ndjson');
+  const state = createChatCompletionsStreamState<
+    ChatCompletionResponse['usage']
+  >(stripHybridAIModelPrefix(args.model));
   let sawPayload = false;
   let streamDone = false;
 
   const consumePayload = (payloadText: string): void => {
-    if (!payloadText || payloadText === '[DONE]') {
-      if (payloadText === '[DONE]') streamDone = true;
+    if (payloadText === '[DONE]') {
+      streamDone = true;
       return;
     }
-
-    let payload: StreamChunkPayload;
+    let payload: unknown;
     try {
-      payload = JSON.parse(payloadText) as StreamChunkPayload;
+      payload = JSON.parse(payloadText) as unknown;
     } catch {
       return;
     }
-
-    if (payload.error != null)
+    if (!isRecord(payload)) return;
+    if (payload.error != null) {
       throw new Error('HybridAI stream reported a provider error');
+    }
     args.onActivity?.();
     sawPayload = true;
-    if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
-    if (typeof payload.model === 'string' && payload.model) {
-      streamModel = payload.model;
-    }
-    if (payload.usage && typeof payload.usage === 'object') {
-      usage = payload.usage;
-    }
-
-    const choice = Array.isArray(payload.choices)
-      ? payload.choices[0]
-      : undefined;
-    if (!choice) return;
-
-    let usedMessageContent = false;
-    let usedMessageReasoning = false;
-    if (choice.message) {
-      const message = choice.message;
-      if (typeof message.role === 'string' && message.role) role = message.role;
-      if (typeof message.content === 'string' && message.content) {
-        const nextContent = message.content;
-        usedMessageContent = true;
-        const messageDelta = nextContent.startsWith(textContent)
-          ? nextContent.slice(textContent.length)
-          : nextContent;
-        textContent = nextContent;
-        if (messageDelta) {
-          args.onTextDelta(messageDelta);
-        }
-      }
-      const messageReasoning = extractStructuredReasoning(message);
-      if (messageReasoning) {
-        const reasoningDelta = messageReasoning.startsWith(reasoningContent)
-          ? messageReasoning.slice(reasoningContent.length)
-          : messageReasoning;
-        reasoningContent = messageReasoning;
-        if (reasoningDelta) {
-          usedMessageReasoning = true;
-          args.onThinkingDelta?.(reasoningDelta);
-        }
-      }
-      if (Array.isArray(message.anthropic_content)) {
-        anthropicContent = message.anthropic_content;
-      }
-      if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-        toolCalls.length = 0;
-        for (const call of message.tool_calls) {
-          toolCalls.push({
-            id: call.id || '',
-            type: call.type || 'function',
-            function: {
-              name: call.function?.name || '',
-              arguments: call.function?.arguments || '',
-            },
-          });
-        }
-      }
-    }
-
-    if (choice.delta) {
-      const delta = choice.delta;
-      if (typeof delta.role === 'string' && delta.role) role = delta.role;
-      if (
-        !usedMessageContent &&
-        typeof delta.content === 'string' &&
-        delta.content
-      ) {
-        textContent += delta.content;
-        args.onTextDelta(delta.content);
-      }
-      const deltaReasoning = extractStructuredReasoning(delta);
-      if (!usedMessageReasoning && deltaReasoning) {
-        reasoningContent += deltaReasoning;
-        args.onThinkingDelta?.(deltaReasoning);
-      }
-      if (Array.isArray(delta.anthropic_content)) {
-        anthropicContent = delta.anthropic_content;
-      }
-      if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-        for (const callDelta of delta.tool_calls) {
-          const index =
-            typeof callDelta.index === 'number' && callDelta.index >= 0
-              ? callDelta.index
-              : 0;
-          mergeToolCallDelta(ensureToolCall(toolCalls, index), callDelta);
-        }
-      }
-    }
-
-    if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
-      finishReason = choice.finish_reason;
-    }
+    const added = applyChatCompletionsChunk(state, payload);
+    if (added.content) args.onTextDelta(added.content);
+    if (added.reasoning) args.onThinkingDelta?.(added.reasoning);
   };
 
   try {
-    while (!streamDone) {
-      const { done, value } = await readWithIdleTimeout(
-        reader,
-        STREAM_IDLE_TIMEOUT_MS,
-      );
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const rawLine of lines) {
-        emitRawSseLineDebug(args, rawLine);
-        const payloadText = parseStreamPayloadLine(rawLine);
-        if (!payloadText) continue;
-        consumePayload(payloadText);
-        if (streamDone) break;
-      }
-    }
-
-    if (!streamDone && buffer.trim()) {
-      emitRawSseLineDebug(args, buffer);
-      const payloadText = parseStreamPayloadLine(buffer);
-      if (payloadText) consumePayload(payloadText);
+    for await (const raw of readStreamPayloads(
+      () => readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+      ndjson,
+    )) {
+      const payloadText = raw.trim();
+      if (!payloadText) continue;
+      if (ndjson) emitRawNdjsonLineDebug(args, payloadText);
+      else emitRawSsePayloadDebug(args, payloadText);
+      consumePayload(payloadText);
+      if (streamDone) break;
     }
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
-    decoder.decode();
   }
 
-  if (!streamDone && !finishReason)
+  if (!streamDone && !state.finishReason)
     throw new Error('HybridAI stream ended without a completion marker');
 
   if (!sawPayload) {
@@ -470,23 +253,26 @@ export async function callHybridAIProviderStream(
   }
 
   return {
-    id: streamId || 'stream',
-    model: streamModel,
+    id: state.id || 'stream',
+    model: state.model,
     choices: [
       {
         message: {
-          role,
-          content: textContent || null,
-          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
-          ...(anthropicContent.length > 0
-            ? { anthropic_content: anthropicContent }
+          role: state.role,
+          content: state.content || null,
+          ...(state.reasoning ? { reasoning_content: state.reasoning } : {}),
+          ...(state.anthropicContent.length > 0
+            ? { anthropic_content: state.anthropicContent }
             : {}),
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          ...(state.toolCalls.length > 0
+            ? { tool_calls: state.toolCalls }
+            : {}),
         },
         finish_reason:
-          finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+          state.finishReason ||
+          (state.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
       },
     ],
-    ...(usage ? { usage } : {}),
+    ...(state.usage ? { usage: state.usage } : {}),
   };
 }

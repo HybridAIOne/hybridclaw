@@ -2,15 +2,26 @@ import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destinatio
 import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
 import { getProviderContextError } from '@hybridclaw/shared/provider-context';
+import { buildChatCompletionsBody } from '@hybridclaw/shared/provider-wire/chat-completions';
+import {
+  adaptResponsesPayload,
+  buildResponsesRequestBody,
+  buildResponsesStreamResponse,
+  consumeResponsesStreamEvent,
+  createResponsesStreamState,
+  type ResponsesCompletion,
+} from '@hybridclaw/shared/provider-wire/codex-responses';
+import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
+import {
+  normalizeOpenAICompatModelName,
+  stripProviderPrefix,
+} from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
 import {
   isAnthropicProviderModel,
   resolveProviderRequestMaxTokens,
 } from '@hybridclaw/shared/request-max-tokens';
 import { extractResponseTextContent } from '@hybridclaw/shared/response-text';
-import {
-  drainServerSentEventBlocks,
-  parseServerSentEventBlock,
-} from '@hybridclaw/shared/server-sent-events';
 import { collapseSystemMessages } from '@hybridclaw/shared/system-messages';
 import { toGatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
@@ -36,10 +47,6 @@ import {
   getLocalModelInfo,
 } from './local-discovery.js';
 import { localBackendsProbe } from './local-health.js';
-import {
-  stripHybridAIModelPrefix,
-  stripProviderPrefix,
-} from './model-names.js';
 import {
   inferProviderFromModelPrefix,
   isLocalBackendType,
@@ -126,6 +133,7 @@ interface AuxiliaryToolDefinition {
 }
 
 interface AuxiliaryRequestOptions {
+  task: AuxiliaryTextTask;
   tools: AuxiliaryToolDefinition[];
   temperature?: number;
   timeoutMs?: number;
@@ -188,6 +196,7 @@ function buildRequestOptions(
   params: AuxiliaryModelCallParams,
 ): AuxiliaryRequestOptions {
   return {
+    task: params.task,
     tools: Array.isArray(params.tools) ? params.tools : [],
     temperature: normalizeTemperature(params.temperature),
     timeoutMs: normalizeTimeoutMs(params.timeoutMs),
@@ -951,43 +960,6 @@ function createTimeoutSignal(
   return timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
-function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = model.trim();
-  const prefix = 'openrouter/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  const upstreamModel = trimmed.slice(prefix.length).trim();
-  if (!upstreamModel) return trimmed;
-  // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
-  // keep their namespace. Vendor-scoped ids use the upstream path.
-  return upstreamModel.includes('/') ? upstreamModel : trimmed;
-}
-
-function normalizeOpenAICompatModelName(
-  provider: RuntimeProvider,
-  model: string,
-): string {
-  const trimmed = model.trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  if (provider === 'huggingface') {
-    const prefix = 'huggingface/';
-    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-    return trimmed.slice(prefix.length) || trimmed;
-  }
-  const prefix = `${provider}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
-}
-
-function normalizeCodexModelName(model: string): string {
-  return stripProviderPrefix(model, 'openai-codex');
-}
-
-function normalizeOllamaModelName(model: string): string {
-  return stripProviderPrefix(model, 'ollama');
-}
-
 function normalizeOllamaBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/g, '').replace(/\/v1$/i, '');
 }
@@ -1016,18 +988,14 @@ async function callHybridAITextModel(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const body = withCoreRequestBody(
-    {
-      model: stripHybridAIModelPrefix(context.model),
+    buildHybridAIRequestBody({
+      model: context.model,
       messages,
-      // The bot is optional, and RAG searches the bot's knowledge.
-      ...(context.chatbotId
-        ? { chatbot_id: context.chatbotId, enable_rag: context.enableRag }
-        : {}),
-      ...(options.tools.length > 0
-        ? { tools: options.tools, tool_choice: 'auto' }
-        : {}),
-      ...(context.maxTokens ? { max_tokens: context.maxTokens } : {}),
-    },
+      chatbotId: context.chatbotId,
+      enableRag: context.enableRag,
+      tools: options.tools,
+      maxTokens: context.maxTokens,
+    }),
     options,
   );
 
@@ -1092,14 +1060,12 @@ async function callOpenAICompatTextModel(
 ): Promise<AuxiliaryTextResponse> {
   const maxTokens = openAICompatRequestMaxTokens(context);
   const body = withCoreRequestBody(
-    {
+    buildChatCompletionsBody({
       model: normalizeOpenAICompatModelName(context.provider, context.model),
       messages: collapseSystemMessages(messages),
-      ...(options.tools.length > 0
-        ? { tools: options.tools, tool_choice: 'auto' }
-        : {}),
-      ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    },
+      tools: options.tools,
+      maxTokens,
+    }),
     options,
   );
 
@@ -1231,75 +1197,23 @@ async function callAnthropicTextModel(
   };
 }
 
-function convertMessageToCodexInput(
-  message: ChatMessage,
-): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  if (message.role === 'system') return items;
-  if (message.role === 'tool') {
-    items.push({
-      type: 'function_call_output',
-      call_id: message.tool_call_id || '',
-      output: chatContentText(message.content),
-    });
-    return items;
-  }
-
-  if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-    for (const toolCall of message.tool_calls) {
-      items.push({
-        type: 'function_call',
-        call_id: toolCall.id,
-        name: toolCall.function.name,
-        arguments: toolCall.function.arguments,
-      });
-    }
-  }
-
-  const text = chatContentText(message.content);
-  if (text.trim()) {
-    items.push({
-      role: message.role,
-      content: text,
-    });
-  }
-  return items;
-}
-
-function convertToolsToCodexTools(
-  tools: AuxiliaryToolDefinition[],
-): Array<Record<string, unknown>> {
-  return tools.map((tool) => ({
-    type: 'function',
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: tool.function.parameters,
-  }));
-}
-
 async function callCodexTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
-  const instructions = messages
-    .filter((message) => message.role === 'system')
-    .map((message) => chatContentText(message.content).trim())
-    .filter((message) => message.length > 0)
-    .join('\n\n');
   const body: Record<string, unknown> = {
     ...(options.extraBody || {}),
-    model: normalizeCodexModelName(context.model),
-    store: false,
+    ...buildResponsesRequestBody({
+      provider: context.provider,
+      model: context.model,
+      messages,
+      tools: options.tools,
+      // Each task's instructions are the shared prefix, across sessions.
+      promptCacheKey: `hybridclaw-aux-${options.task}`,
+    }),
     stream: true,
-    instructions: instructions || 'You are Codex, a coding assistant.',
-    input: messages.flatMap(convertMessageToCodexInput),
   };
-  if (options.tools.length > 0) {
-    body.tools = convertToolsToCodexTools(options.tools);
-    body.tool_choice = 'auto';
-    body.parallel_tool_calls = true;
-  }
 
   const response = await fetch(`${context.baseUrl}/responses`, {
     method: 'POST',
@@ -1318,117 +1232,35 @@ async function callCodexTextModel(
   const contentType = (
     response.headers.get('content-type') || ''
   ).toLowerCase();
+  let completion: ResponsesCompletion;
   if (
     contentType.includes('application/json') &&
     !contentType.includes('event-stream')
   ) {
-    const payload = (await response.json()) as {
-      output?: Array<{
-        type?: string;
-        content?: Array<{
-          text?: string;
-          output_text?: string;
-        }>;
-      }>;
-      usage?: unknown;
-    };
-    const chunks: string[] = [];
-    for (const entry of payload.output || []) {
-      if (entry.type !== 'message' || !Array.isArray(entry.content)) continue;
-      for (const part of entry.content) {
-        const text =
-          typeof part.text === 'string'
-            ? part.text
-            : typeof part.output_text === 'string'
-              ? part.output_text
-              : '';
-        if (text.trim()) chunks.push(text.trim());
+    completion = adaptResponsesPayload(await response.json(), context.model);
+  } else {
+    if (!response.body) {
+      throw new Error('Auxiliary provider returned no response body.');
+    }
+    const reader = response.body.getReader();
+    const state = createResponsesStreamState(context.model);
+    const handlers = { onTextDelta: () => undefined };
+    try {
+      for await (const event of readServerSentEvents(() => reader.read())) {
+        if (
+          consumeResponsesStreamEvent(event.data, event.event, state, handlers)
+        )
+          break;
       }
+    } finally {
+      await reader.cancel().catch(() => {});
     }
-    return {
-      content: chunks.join('\n').trim(),
-      usage: readAuxiliaryModelUsage(payload.usage),
-    };
-  }
-
-  if (!response.body) {
-    throw new Error('Auxiliary provider returned no response body.');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let text = '';
-  let usage: AuxiliaryModelUsage | undefined;
-
-  const applyCodexEvent = (payload: Record<string, unknown>): void => {
-    const type = typeof payload.type === 'string' ? payload.type : '';
-    if (type === 'response.output_text.delta') {
-      const delta =
-        typeof payload.delta === 'string'
-          ? payload.delta
-          : typeof payload.text === 'string'
-            ? payload.text
-            : '';
-      if (delta) text += delta;
-      return;
-    }
-    if (type === 'response.output_text.done') {
-      const finalText =
-        typeof payload.text === 'string'
-          ? payload.text
-          : typeof payload.output_text === 'string'
-            ? payload.output_text
-            : '';
-      if (finalText && finalText.length >= text.length) {
-        text = finalText;
-      }
-      return;
-    }
-    if (type !== 'response.completed') return;
-    const responsePayload = payload.response;
-    if (!isRecord(responsePayload)) {
-      return;
-    }
-    usage = readAuxiliaryModelUsage(responsePayload.usage) ?? usage;
-    if (!Array.isArray(responsePayload.output)) return;
-    const completedText = extractResponseTextContent(
-      (
-        responsePayload as { output: Array<{ content?: unknown }> }
-      ).output.flatMap((entry) => entry.content ?? []),
-    );
-    if (completedText && completedText.length >= text.length) {
-      text = completedText;
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-
-    const drained = drainServerSentEventBlocks(buffer);
-    buffer = drained.remainder;
-    for (const block of drained.blocks) {
-      const event = parseServerSentEventBlock(block);
-      if (!event || !event.data || event.data === '[DONE]') continue;
-      const payload = JSON.parse(event.data) as Record<string, unknown>;
-      applyCodexEvent(payload);
-    }
-
-    if (done) break;
-  }
-
-  if (buffer.trim()) {
-    const event = parseServerSentEventBlock(buffer);
-    if (event?.data && event.data !== '[DONE]') {
-      const payload = JSON.parse(event.data) as Record<string, unknown>;
-      applyCodexEvent(payload);
-    }
+    completion = buildResponsesStreamResponse(state, context.model);
   }
 
   return {
-    content: text.trim(),
-    usage,
+    content: extractResponseTextContent(completion.choices[0]?.message.content),
+    usage: readAuxiliaryModelUsage(completion.usage),
   };
 }
 
@@ -1444,7 +1276,7 @@ async function callOllamaTextModel(
 
   const body: Record<string, unknown> = {
     ...extraBody,
-    model: normalizeOllamaModelName(context.model),
+    model: stripProviderPrefix(context.model, 'ollama'),
     messages: messages.map((message) => ({
       role: message.role,
       content: chatContentText(message.content),

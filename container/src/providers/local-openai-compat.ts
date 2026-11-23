@@ -10,6 +10,14 @@ import { chatContentText } from '@hybridclaw/shared/message-text';
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
+  applyChatCompletionsChunk,
+  buildChatCompletionsBody,
+  createChatCompletionsStreamState,
+  extractStructuredReasoning,
+} from '@hybridclaw/shared/provider-wire/chat-completions';
+import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
+import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import {
   collapseSystemMessages,
   mergeSystemMessage,
 } from '@hybridclaw/shared/system-messages';
@@ -22,21 +30,20 @@ import {
 import type {
   ChatCompletionResponse,
   ChatMessage,
-  ToolCall,
   ToolDefinition,
 } from '../types.js';
 import { fetchMlx } from './mlx-transport.js';
 import {
-  emitRawSseLineDebug,
+  emitRawSsePayloadDebug,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
-  normalizeOpenRouterRuntimeModelName,
   ProviderRequestError,
   readRetryAfterMs,
 } from './shared.js';
 import {
+  emitResponseTextDeltas,
   fetchWithHeaderTimeout,
   readJsonWithIdleTimeout,
   readWithIdleTimeout,
@@ -50,48 +57,6 @@ import {
   normalizeToolCalls,
   resolveToolCallTextParser,
 } from './tool-call-normalizer.js';
-
-interface StreamToolCallDelta {
-  index?: number;
-  id?: string;
-  type?: 'function';
-  function?: {
-    name?: string;
-    arguments?: string;
-  };
-}
-
-interface StreamChoiceChunk {
-  delta?: {
-    role?: string;
-    content?: string | null;
-    reasoning_content?: string | null;
-    reasoning?: string | null;
-    tool_calls?: StreamToolCallDelta[];
-  };
-  message?: {
-    role?: string;
-    content?: string | null;
-    reasoning_content?: string | null;
-    reasoning?: string | null;
-    tool_calls?: ToolCall[];
-  };
-  finish_reason?: string | null;
-}
-
-interface StreamChunkPayload {
-  id?: string;
-  model?: string;
-  usage?: ChatCompletionResponse['usage'];
-  choices?: StreamChoiceChunk[];
-  error?:
-    | string
-    | {
-        message?: string;
-        code?: string | number;
-        type?: string;
-      };
-}
 
 function buildHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {
@@ -109,27 +74,6 @@ function normalizeBaseUrl(baseUrl: string): string {
     .replace(/\/+$/g, '');
 }
 
-function normalizeLocalModelName(
-  provider: string | undefined,
-  model: string,
-): string {
-  const trimmed = String(model || '').trim();
-  if (!provider || provider === 'hybridai' || provider === 'openai-codex') {
-    return trimmed;
-  }
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  if (provider === 'huggingface') {
-    const prefix = 'huggingface/';
-    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-    return trimmed.slice(prefix.length) || trimmed;
-  }
-  const prefix = `${provider}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
-}
-
 function isMistralCompatModel(
   provider: string | undefined,
   model: string,
@@ -142,7 +86,7 @@ function isMistralCompatModel(
   ) {
     return false;
   }
-  const normalizedModel = normalizeLocalModelName(provider, model)
+  const normalizedModel = normalizeOpenAICompatModelName(provider, model)
     .trim()
     .toLowerCase();
   return (
@@ -160,7 +104,7 @@ function usesQwenCompat(args: {
 }): boolean {
   const behavior = resolveModelBehavior({
     model: args.model
-      ? normalizeLocalModelName(args.provider, args.model)
+      ? normalizeOpenAICompatModelName(args.provider, args.model)
       : undefined,
     configured: args.modelBehavior,
   });
@@ -175,7 +119,7 @@ function usesLiquidCompat(args: {
 }): boolean {
   return (
     resolveToolCallTextParser(
-      normalizeLocalModelName(args.provider, args.model),
+      normalizeOpenAICompatModelName(args.provider, args.model),
     ) === 'liquid'
   );
 }
@@ -350,14 +294,12 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
-  const request: Record<string, unknown> = {
-    model: normalizeLocalModelName(args.provider, args.model),
+  const request = buildChatCompletionsBody({
+    model: normalizeOpenAICompatModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
-  };
-  if (args.tools.length > 0) {
-    request.tools = args.tools;
-    request.tool_choice = 'auto';
-  }
+    tools: args.tools,
+    maxTokens: args.maxTokens,
+  });
   // Owner experiment, 2026-11-08: explicit non-thinking Qwen calls on vLLM.
   if (
     args.provider === 'vllm' &&
@@ -365,13 +307,6 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     args.reasoningEffort === 'none'
   ) {
     request.chat_template_kwargs = { enable_thinking: false };
-  }
-  if (
-    typeof args.maxTokens === 'number' &&
-    Number.isFinite(args.maxTokens) &&
-    args.maxTokens > 0
-  ) {
-    request.max_tokens = Math.floor(args.maxTokens);
   }
   return request;
 }
@@ -385,68 +320,12 @@ function buildToolCallNormalizationOptions(params: {
     params.modelBehavior?.thinkingFormat === 'qwen'
       ? 'qwen'
       : resolveToolCallTextParser(
-          normalizeLocalModelName(params.provider, params.model),
+          normalizeOpenAICompatModelName(params.provider, params.model),
         );
   return {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
   };
-}
-
-function parseStreamPayloadLine(rawLine: string): string | null {
-  const trimmed = rawLine.trim();
-  if (!trimmed || trimmed.startsWith(':') || trimmed.startsWith('event:')) {
-    return null;
-  }
-  if (trimmed.startsWith('id:')) return null;
-  if (trimmed.startsWith('data:')) {
-    return trimmed.slice(5).trim();
-  }
-  return trimmed;
-}
-
-function ensureToolCall(toolCalls: ToolCall[], index: number): ToolCall {
-  while (toolCalls.length <= index) {
-    toolCalls.push({
-      id: '',
-      type: 'function',
-      function: {
-        name: '',
-        arguments: '',
-      },
-    });
-  }
-  return toolCalls[index];
-}
-
-function mergeToolCallDelta(
-  target: ToolCall,
-  delta: StreamToolCallDelta,
-): void {
-  if (typeof delta.id === 'string' && delta.id) {
-    target.id = target.id ? `${target.id}${delta.id}` : delta.id;
-  }
-  if (!delta.function) return;
-  if (typeof delta.function.name === 'string' && delta.function.name) {
-    target.function.name = target.function.name
-      ? `${target.function.name}${delta.function.name}`
-      : delta.function.name;
-  }
-  if (
-    typeof delta.function.arguments === 'string' &&
-    delta.function.arguments
-  ) {
-    target.function.arguments += delta.function.arguments;
-  }
-}
-
-function extractStructuredReasoning(value: unknown): string | null {
-  if (!isRecord(value)) return null;
-  const candidates = [value.reasoning_content, value.reasoning];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate) return candidate;
-  }
-  return null;
 }
 
 function combineReasoningAndContent(
@@ -545,21 +424,6 @@ function adaptLocalOpenAICompatResponse(
       },
     ],
   };
-}
-
-function emitResponseTextDeltas(
-  response: ChatCompletionResponse,
-  onTextDelta: (delta: string) => void,
-): void {
-  const content = response.choices[0]?.message?.content;
-  if (typeof content === 'string') {
-    if (content) onTextDelta(content);
-    return;
-  }
-  if (!Array.isArray(content)) return;
-  for (const part of content) {
-    if (part.type === 'text' && part.text) onTextDelta(part.text);
-  }
 }
 
 function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
@@ -803,7 +667,6 @@ export async function callLocalOpenAICompatProviderStream(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const normalizationOptions = buildToolCallNormalizationOptions({
     provider: args.provider,
     model: args.model,
@@ -827,182 +690,66 @@ export async function callLocalOpenAICompatProviderStream(
     reasoningToolFilter?.close();
   };
 
-  let buffer = '';
-  let streamId = '';
-  let streamModel = normalizeLocalModelName(args.provider, args.model);
-  let finishReason: string | null = null;
-  let usage: ChatCompletionResponse['usage'] | undefined;
-  let role = 'assistant';
-  let rawTextContent = '';
-  let rawReasoningContent = '';
-  const toolCalls: ToolCall[] = [];
+  const state = createChatCompletionsStreamState<
+    ChatCompletionResponse['usage']
+  >(normalizeOpenAICompatModelName(args.provider, args.model));
   let sawPayload = false;
   let streamDone = false;
 
   const consumePayload = (payloadText: string): void => {
-    if (!payloadText || payloadText === '[DONE]') {
-      if (payloadText === '[DONE]') streamDone = true;
+    if (payloadText === '[DONE]') {
+      streamDone = true;
       return;
     }
-
-    let payload: StreamChunkPayload;
+    let payload: unknown;
     try {
-      payload = JSON.parse(payloadText) as StreamChunkPayload;
+      payload = JSON.parse(payloadText) as unknown;
     } catch {
       return;
     }
+    if (!isRecord(payload)) return;
 
     assertNoProviderError(payload);
     args.onActivity?.();
     sawPayload = true;
-    if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
-    if (typeof payload.model === 'string' && payload.model) {
-      streamModel = payload.model;
-    }
-    if (payload.usage && typeof payload.usage === 'object') {
-      usage = payload.usage;
-    }
-
-    const choice = Array.isArray(payload.choices)
-      ? payload.choices[0]
-      : undefined;
-    if (!choice) return;
-
-    let usedMessageContent = false;
-    if (choice.message) {
-      if (typeof choice.message.role === 'string' && choice.message.role) {
-        role = choice.message.role;
-      }
-      if (typeof choice.message.content === 'string') {
-        const nextRawContent = choice.message.content;
-        const delta = nextRawContent.startsWith(rawTextContent)
-          ? nextRawContent.slice(rawTextContent.length)
-          : nextRawContent;
-        rawTextContent = nextRawContent;
-        if (delta) {
-          usedMessageContent = true;
-          flushReasoningPreview();
-          if (visibleToolFilter) {
-            visibleToolFilter.push(delta);
-          } else if (/[<]\/?think[>]/i.test(delta)) {
-            streamEmitter.pushRaw(delta);
-          } else {
-            streamEmitter.pushVisible(delta);
-          }
-        }
-      }
-      const messageReasoning = extractStructuredReasoning(choice.message);
-      if (messageReasoning) {
-        const reasoningDelta = messageReasoning.startsWith(rawReasoningContent)
-          ? messageReasoning.slice(rawReasoningContent.length)
-          : messageReasoning;
-        rawReasoningContent = messageReasoning;
-        if (reasoningDelta) {
-          if (reasoningToolFilter) {
-            reasoningToolFilter.push(reasoningDelta);
-          } else {
-            streamEmitter.pushThinking(reasoningDelta);
-          }
-        }
-      }
-      if (
-        Array.isArray(choice.message.tool_calls) &&
-        choice.message.tool_calls.length > 0
-      ) {
-        toolCalls.length = 0;
-        for (const call of choice.message.tool_calls) {
-          toolCalls.push({
-            id: call.id || '',
-            type: 'function',
-            function: {
-              name: call.function?.name || '',
-              arguments: call.function?.arguments || '',
-            },
-          });
-        }
+    const added = applyChatCompletionsChunk(state, payload);
+    if (added.content) {
+      flushReasoningPreview();
+      if (visibleToolFilter) {
+        visibleToolFilter.push(added.content);
+      } else if (/[<]\/?think[>]/i.test(added.content)) {
+        streamEmitter.pushRaw(added.content);
+      } else {
+        streamEmitter.pushVisible(added.content);
       }
     }
-
-    if (choice.delta) {
-      if (typeof choice.delta.role === 'string' && choice.delta.role) {
-        role = choice.delta.role;
+    if (added.reasoning) {
+      if (reasoningToolFilter) {
+        reasoningToolFilter.push(added.reasoning);
+      } else {
+        streamEmitter.pushThinking(added.reasoning);
       }
-      if (
-        !usedMessageContent &&
-        typeof choice.delta.content === 'string' &&
-        choice.delta.content
-      ) {
-        rawTextContent += choice.delta.content;
-        flushReasoningPreview();
-        if (visibleToolFilter) {
-          visibleToolFilter.push(choice.delta.content);
-        } else if (/[<]\/?think[>]/i.test(choice.delta.content)) {
-          streamEmitter.pushRaw(choice.delta.content);
-        } else {
-          streamEmitter.pushVisible(choice.delta.content);
-        }
-      }
-      const deltaReasoning = extractStructuredReasoning(choice.delta);
-      if (deltaReasoning) {
-        rawReasoningContent += deltaReasoning;
-        if (reasoningToolFilter) {
-          reasoningToolFilter.push(deltaReasoning);
-        } else {
-          streamEmitter.pushThinking(deltaReasoning);
-        }
-      }
-      if (
-        Array.isArray(choice.delta.tool_calls) &&
-        choice.delta.tool_calls.length > 0
-      ) {
-        for (const callDelta of choice.delta.tool_calls) {
-          const index =
-            typeof callDelta.index === 'number' && callDelta.index >= 0
-              ? callDelta.index
-              : 0;
-          mergeToolCallDelta(ensureToolCall(toolCalls, index), callDelta);
-        }
-      }
-    }
-
-    if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
-      finishReason = choice.finish_reason;
     }
   };
 
   try {
-    while (!streamDone) {
-      const { done, value } = await readWithIdleTimeout(
-        reader,
-        STREAM_IDLE_TIMEOUT_MS,
-      );
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const rawLine of lines) {
-        emitRawSseLineDebug(args, rawLine);
-        const payloadText = parseStreamPayloadLine(rawLine);
-        if (!payloadText) continue;
-        consumePayload(payloadText);
-        if (streamDone) break;
-      }
-    }
-
-    if (!streamDone && buffer.trim()) {
-      emitRawSseLineDebug(args, buffer);
-      const payloadText = parseStreamPayloadLine(buffer);
-      if (payloadText) consumePayload(payloadText);
+    for await (const event of readServerSentEvents(() =>
+      readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS),
+    )) {
+      const payloadText = event.data.trim();
+      if (!payloadText) continue;
+      emitRawSsePayloadDebug(args, payloadText);
+      consumePayload(payloadText);
+      if (streamDone) break;
     }
   } finally {
     reader.releaseLock();
-    decoder.decode();
   }
 
   if (!sawPayload) throw new Error('Streaming response ended without payload');
-  if (!streamDone && !finishReason) finishReason = INCOMPLETE_RESPONSE;
+  if (!streamDone && !state.finishReason) {
+    state.finishReason = INCOMPLETE_RESPONSE;
+  }
 
   visibleToolFilter?.close();
   reasoningToolFilter?.close();
@@ -1010,23 +757,26 @@ export async function callLocalOpenAICompatProviderStream(
 
   return adaptLocalOpenAICompatResponse(
     {
-      id: streamId || 'stream',
-      model: streamModel,
+      id: state.id || 'stream',
+      model: state.model,
       choices: [
         {
           message: {
-            role,
+            role: state.role,
             content: combineReasoningAndContent(
-              rawTextContent || null,
-              rawReasoningContent || null,
+              state.content || null,
+              state.reasoning || null,
             ),
-            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+            ...(state.toolCalls.length > 0
+              ? { tool_calls: state.toolCalls }
+              : {}),
           },
           finish_reason:
-            finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+            state.finishReason ||
+            (state.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
         },
       ],
-      ...(usage ? { usage } : {}),
+      ...(state.usage ? { usage: state.usage } : {}),
     },
     {
       provider: args.provider,
