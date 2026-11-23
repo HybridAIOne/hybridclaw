@@ -75,6 +75,48 @@ test('recovers known usage without tool calls and keeps snapshots separate from 
   ).not.toHaveProperty('tokenUsage');
 });
 
+test('recovers a v0.43 checkpoint without retry counters and replaces it on the next run', () => {
+  const root = temp();
+  new TurnCheckpoint(root, 'usage', 'run-a');
+  const file = turnCheckpointPath(root, 'usage');
+  const data = readTurnCheckpoint(root, 'usage');
+  const { modelRetries: _modelRetries, ...counters } = {
+    ...usage(),
+    modelCalls: 1,
+  };
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      ...data,
+      tokenUsage: {
+        ...counters,
+        modelUsage: [
+          {
+            provider: 'vllm',
+            model: 'vllm/sample',
+            status: 'success',
+            durationMs: 1,
+            usage: counters,
+          },
+        ],
+      },
+    }),
+  );
+
+  expect(checkpointOutput(readTurnCheckpoint(root, 'usage')!).tokenUsage)
+    .toMatchObject({
+      modelRetries: 0,
+      modelUsage: [{ usage: { modelRetries: 0 } }],
+    });
+  const next = new TurnCheckpoint(root, 'usage', 'run-b');
+  expect(next.recovered).toBeNull();
+  next.usage(usage());
+  expect(readTurnCheckpoint(root, 'usage')).toMatchObject({
+    turnId: 'run-b',
+    tokenUsage: { modelRetries: 0 },
+  });
+});
+
 test('graceful shutdown retains a parallel completion before batch assembly and distinguishes unstarted work', async () => {
   const root = temp();
   const turn = new TurnToolHistory('parallel-usage', root, root, 'run-a');
@@ -148,6 +190,7 @@ test.each([
     },
   ],
   ['invalid availability', { apiUsageAvailable: 'true' }],
+  ['invalid retry count', { modelRetries: null }],
   ['invalid samples', { performanceSamples: {} }],
   ['invalid sample', { performanceSamples: [null] }],
   [

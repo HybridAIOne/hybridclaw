@@ -325,6 +325,8 @@ are refused. Denials and rejections may record a terminal receipt without a star
 but that receipt prevents later execution of the call. Failed writes leave the
 writer's last persisted state intact. A recovered journal instance accepts no
 further writes or starts. Usage snapshots are optional in the version 1 journal.
+Version 1 snapshots written before v0.44 did not record retry counts. Recovery
+uses zero for those missing counts. Current worker replies include the counter.
 
 A started call without a saved result has an **unknown outcome**: its side effects
 may already have occurred. Recovery marks it explicitly and asks for external-state
