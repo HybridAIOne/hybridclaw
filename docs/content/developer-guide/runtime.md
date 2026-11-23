@@ -449,8 +449,17 @@ The existing pinned approval-state rules protect this directory.
 
 An automatic checked `write` or `edit` to a conflicted file also receives an
 independent preservation review from the active primary model. It compares the
-user request with the supplied current/replacement text; edits supply their
-matching span, not the entire file. It performs no extra filesystem reads.
+user request with the current and proposed text. An edit supplies the matching
+span. A revision-only replacement reads a snapshot matching its SHA-256 hash.
+The reviewer receives the workspace-relative target and verified aliases,
+including an absolute deployment path when the request already names it. A
+matching path identifies the file. The reviewer still checks whether the user
+requested this change to its content.
+
+File tools resolve paths in their execution filesystem. Host tools honor configured
+mounts and allowed roots. Task-container tools use the task workspace. Search
+results use relative names inside the workspace and absolute names for allowed
+external files. A glob and its parallel execution check use the same search root.
 Requested updates can proceed, while unrelated new deliverables use a separate
 path. Invalid, truncated or unavailable verdicts refuse the mutation and leave
 the fence intact. New files do not receive this additional review. The check adds

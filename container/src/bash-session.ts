@@ -16,10 +16,10 @@ import {
   BASH_DOCKER_CWD,
   type BashProcessResult,
   runBashProcess,
-  TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
 import {
   resolveDisplayRootInCommand,
+  TASK_SANDBOX_FS_ENABLED,
   WORKSPACE_ROOT,
 } from './runtime-paths.js';
 import { ensureSessionStateDir, sessionStatePath } from './session-state.js';

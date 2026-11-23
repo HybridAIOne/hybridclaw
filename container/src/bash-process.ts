@@ -6,16 +6,16 @@
  */
 import { spawn } from 'node:child_process';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import {
+  BASH_DOCKER_CONTAINER,
+  TASK_SANDBOX_FS_ENABLED,
+  WORKSPACE_ROOT,
+} from './runtime-paths.js';
 
 export const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
-export const BASH_DOCKER_CONTAINER = String(
-  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
-).trim();
 export const BASH_DOCKER_CWD = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
 ).trim();
-export const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 
 export type BashProcessResult = {
   status: number | null;

@@ -28,7 +28,7 @@ describe.sequential('container runtime path aliases', () => {
       ]),
     );
 
-    const { resolveWorkspacePath, resolveWorkspaceGlobPattern } = await import(
+    const { resolveWorkspacePath, resolveFileToolGlob } = await import(
       '../container/src/runtime-paths.ts'
     );
 
@@ -39,10 +39,10 @@ describe.sequential('container runtime path aliases', () => {
     ).toBe('/workspace/extra/buchhaltung/Rechnung.pdf');
 
     expect(
-      resolveWorkspaceGlobPattern(
+      resolveFileToolGlob(
         '/Users/example/OneDrive - Example/Buchhaltung/**/*.pdf',
       ),
-    ).toBe('/workspace/extra/buchhaltung/**/*.pdf');
+    ).toEqual({root: '/workspace/extra/buchhaltung', pattern: '**/*.pdf'});
   });
 
   test('allows host-mode absolute paths under configured allowed roots', async () => {
@@ -60,14 +60,14 @@ describe.sequential('container runtime path aliases', () => {
     vi.stubEnv('HYBRIDCLAW_AGENT_ALLOWED_ROOTS', JSON.stringify([projectRoot]));
     vi.resetModules();
 
-    const { resolveWorkspacePath, resolveWorkspaceGlobPattern } = await import(
+    const { resolveWorkspacePath, resolveFileToolGlob } = await import(
       '../container/src/runtime-paths.ts'
     );
 
     expect(resolveWorkspacePath(targetFile)).toBe(path.resolve(targetFile));
     expect(
-      resolveWorkspaceGlobPattern(path.join(projectRoot, 'docs', '*.html')),
-    ).toBe(path.join(projectRoot, 'docs', '*.html'));
+      resolveFileToolGlob(path.join(projectRoot, 'docs', '*.html')),
+    ).toEqual({ root: path.join(projectRoot, 'docs'), pattern: '*.html' });
 
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
     fs.rmSync(projectRoot, { recursive: true, force: true });

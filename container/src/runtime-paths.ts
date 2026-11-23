@@ -10,6 +10,11 @@ import path from 'node:path';
 
 import { isManagedTempMediaDirName } from '@hybridclaw/shared/managed-temp-media';
 
+export const BASH_DOCKER_CONTAINER = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
+).trim();
+export const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
+
 const DEFAULT_WORKSPACE_ROOT_DISPLAY = '/workspace';
 function normalizeDisplayRoot(rawValue: string | undefined): string {
   const trimmed = String(rawValue || '').trim();
@@ -311,27 +316,36 @@ export function resolveTaskSandboxPath(rawPath: string): string | null {
   return path.posix.join(root, clean);
 }
 
-export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
-  const input = expandUserPath(String(rawPattern || ''));
+/** File tools resolve names in the filesystem that will execute the operation. */
+export const resolveFileToolPath = TASK_SANDBOX_FS_ENABLED
+  ? resolveTaskSandboxPath
+  : resolveWorkspacePath;
+
+export function resolveFileToolGlob(
+  rawPattern: string,
+): { root: string; pattern: string } | null {
+  const input = TASK_SANDBOX_FS_ENABLED
+    ? rawPattern.trim()
+    : expandUserPath(rawPattern);
   if (!input) return null;
-
-  const normalized = normalizeSlashes(input);
-  const firstMeta = normalized.search(/[*?[{]/);
-  if (firstMeta === -1) return resolveWorkspacePath(input);
-
-  if (!path.posix.isAbsolute(normalized)) {
-    const clean = path.posix.normalize(normalized);
-    if (clean === '..' || clean.startsWith('../')) return null;
-    return path.resolve(WORKSPACE_ROOT, clean);
+  const normalized = path.posix.normalize(normalizeSlashes(input));
+  const firstMeta = normalized.search(/[*?{]/);
+  if (firstMeta === -1) {
+    const target = resolveFileToolPath(input);
+    return target ? { root: target, pattern: '' } : null;
   }
 
   const prefixEnd = normalized.lastIndexOf('/', firstMeta);
-  if (prefixEnd <= 0) return null;
-  const prefix = normalized.slice(0, prefixEnd);
-  const suffix = normalized.slice(prefixEnd);
-  const resolvedPrefix = resolveWorkspacePath(prefix);
-  if (!resolvedPrefix) return null;
-  return `${resolvedPrefix.replace(/\\/g, '/')}${suffix}`;
+  if (prefixEnd === 0) return null;
+  const prefix = prefixEnd < 0 ? '.' : normalized.slice(0, prefixEnd);
+  const resolved = resolveFileToolPath(
+    path.posix.isAbsolute(prefix) ? prefix : `./${prefix}`,
+  );
+  if (!resolved) return null;
+  return {
+    root: resolved,
+    pattern: normalized.slice(prefixEnd + 1),
+  };
 }
 
 export function resolveMediaPath(rawPath: string): string | null {
@@ -358,34 +372,22 @@ export function toWorkspaceRelativePath(rawPath: string): string | null {
   return path.relative(WORKSPACE_ROOT, resolved).replace(/\\/g, '/');
 }
 
-function stripRootPrefix(value: string, root: string): string {
-  const normalizedValue = normalizeSlashes(value);
-  const normalizedRoot = normalizeSlashes(root).replace(/\/+$/, '');
-  if (normalizedValue === normalizedRoot) return '';
-  if (normalizedValue.startsWith(`${normalizedRoot}/`)) {
-    return normalizedValue.slice(normalizedRoot.length + 1);
-  }
-  return value;
-}
-
-export function stripWorkspaceRootPrefix(rawPath: string): string {
-  const strippedDisplay = stripRootPrefix(rawPath, WORKSPACE_ROOT_DISPLAY);
-  return stripRootPrefix(strippedDisplay, WORKSPACE_ROOT);
-}
-
-const WORKSPACE_ROOT_OUTPUT = WORKSPACE_ROOT.replace(/\\/g, '/');
-// The bare root, as `pwd` prints it there, must not reach the display-root
-// rewrite below: in host mode the display root is its prefix.
-const BARE_WORKSPACE_ROOT_RE = new RegExp(
-  `${WORKSPACE_ROOT_OUTPUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s'"\`:;,)\\]])`,
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Shell output contains paths in its own filesystem. Only abbreviate a root
+// at the start of a path, once, so nested directories and other roots survive.
+const outputRoot = normalizeSlashes(
+  TASK_SANDBOX_FS_ENABLED ? WORKSPACE_ROOT_DISPLAY : WORKSPACE_ROOT,
+);
+const OUTPUT_ROOT_RE = new RegExp(
+  `(?<=^|[\\s'"\`=(\\[])${escapeRegExp(outputRoot)}(?:/|(?=$|[\\s'"\`:;,)\\]]))`,
   'gm',
 );
 
 export function replaceWorkspaceRootInOutput(text: string): string {
-  return text
-    .replaceAll(`${WORKSPACE_ROOT_OUTPUT}/`, '')
-    .replace(BARE_WORKSPACE_ROOT_RE, '.')
-    .replaceAll(`${WORKSPACE_ROOT_DISPLAY}/`, '');
+  return text.replace(OUTPUT_ROOT_RE, (match) =>
+    match.endsWith('/') ? '' : '.',
+  );
 }
 
 /**
@@ -393,14 +395,62 @@ export function replaceWorkspaceRootInOutput(text: string): string {
  * workspace, since an allowed root may claim the `/workspace/...` form.
  */
 export function toWorkspaceToolPath(resolvedPath: string): string {
-  const root = resolveCanonicalPath(WORKSPACE_ROOT);
-  const base = isWithinRoot(resolvedPath, root) ? root : WORKSPACE_ROOT;
+  const base = isWithinRoot(resolvedPath, WORKSPACE_ROOT)
+    ? WORKSPACE_ROOT
+    : resolveCanonicalPath(WORKSPACE_ROOT);
   if (!isWithinRoot(resolvedPath, base)) return resolvedPath;
-  return path.relative(base, resolvedPath).replace(/\\/g, '/') || '.';
+  const relative = normalizeSlashes(path.relative(base, resolvedPath)) || '.';
+  // Preserve a literal top-level directory named "~" during tool re-entry.
+  return relative === '~' || relative.startsWith('~/')
+    ? `./${relative}`
+    : relative;
 }
 
-const escapeRegExp = (value: string) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function toFileToolPath(resolvedPath: string): string {
+  if (!TASK_SANDBOX_FS_ENABLED) return toWorkspaceToolPath(resolvedPath);
+  return isWithinRoot(resolvedPath, WORKSPACE_ROOT_DISPLAY)
+    ? path.posix.relative(WORKSPACE_ROOT_DISPLAY, resolvedPath) || '.'
+    : resolvedPath;
+}
+
+/** A task path denotes a file in the task container, regardless of host symlinks. */
+export function fileToolPathIdentity(resolved: string): string {
+  return TASK_SANDBOX_FS_ENABLED ? resolved : resolveCanonicalPath(resolved);
+}
+
+export function describeFileToolPath(rawPath: string, userRequest: string) {
+  const resolved = resolveFileToolPath(rawPath);
+  if (!resolved) throw new Error('File review path escapes workspace');
+  const identity = fileToolPathIdentity(resolved);
+  const matches = (candidate: string) => {
+    const target = resolveFileToolPath(candidate);
+    return target !== null && fileToolPathIdentity(target) === identity;
+  };
+  const relative = toFileToolPath(identity);
+  const toolPath =
+    !path.isAbsolute(relative) && matches(relative) ? relative : rawPath;
+  const aliases = new Set([rawPath]);
+  // Only repeat internal deployment paths if the request already contains them.
+  const candidates = new Set([resolved, identity]);
+  if (!path.isAbsolute(relative)) {
+    candidates.add(path.posix.join(WORKSPACE_ROOT_DISPLAY, relative));
+  }
+  if (!TASK_SANDBOX_FS_ENABLED) {
+    for (const mount of EXTRA_MOUNT_ALIASES) {
+      if (!isWithinRoot(resolved, mount.containerPath)) continue;
+      const suffix = path.relative(mount.containerPath, resolved);
+      for (const host of mount.hostPaths)
+        candidates.add(path.resolve(host, suffix));
+    }
+  }
+  for (const candidate of candidates) {
+    if (userRequest.includes(candidate) && matches(candidate))
+      aliases.add(candidate);
+  }
+  aliases.delete(toolPath);
+  return { path: toolPath, path_aliases: [...aliases] };
+}
+
 // A path that starts at the display root, up to the next shell word boundary
 // or backslash escape. A `:` does not start a path (`host:/workspace`).
 const DISPLAY_ROOT_COMMAND_PATH_RE = new RegExp(

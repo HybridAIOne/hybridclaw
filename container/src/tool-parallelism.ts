@@ -12,11 +12,13 @@
 
 import { BUILTIN_TOOLS } from '@hybridclaw/shared/builtin-tools';
 import type { McpToolBehavior } from './mcp/types.js';
+import { resolveReadToolPath } from './read-path.js';
 import {
+  fileToolPathIdentity,
   isWithinRoot,
-  resolveMediaPath,
-  resolveWorkspacePath,
-  WORKSPACE_ROOT,
+  resolveFileToolGlob,
+  resolveFileToolPath,
+  TASK_SANDBOX_FS_ENABLED,
 } from './runtime-paths.js';
 import { parseToolArgsJson } from './tool-args.js';
 import type { ToolCall } from './types.js';
@@ -44,18 +46,26 @@ function resolveToolPath(
 ): string | null {
   if (toolName === 'glob') {
     if (typeof args.pattern !== 'string') return null;
-    // A glob reads the fixed directory before its first wildcard segment.
-    const segments = args.pattern.replace(/\\/g, '/').split('/');
-    const wildcard = segments.findIndex((segment) => /[*?[{]/.test(segment));
-    if (wildcard === -1) return resolveWorkspacePath(args.pattern);
-    return resolveWorkspacePath(segments.slice(0, wildcard).join('/') || '.');
+    return resolveFileToolGlob(args.pattern)?.root ?? null;
   }
   if (typeof args.path !== 'string' || !args.path.trim()) {
-    return toolName === 'grep' ? WORKSPACE_ROOT : null;
+    return toolName === 'grep' ? resolveFileToolPath('.') : null;
   }
-  const workspacePath = resolveWorkspacePath(args.path);
-  if (workspacePath || toolName !== 'read') return workspacePath;
-  return resolveMediaPath(args.path);
+  if (toolName === 'read') {
+    try {
+      return resolveReadToolPath(args.path);
+    } catch {
+      return null; // Execution reports invalid artifact references.
+    }
+  }
+  return resolveFileToolPath(args.path);
+}
+
+function claimsForPath(path: string, writes: boolean): PathClaim[] {
+  const identity = fileToolPathIdentity(path);
+  const claims = [{ path, writes }];
+  if (identity !== path) claims.push({ path: identity, writes });
+  return claims;
 }
 
 /** Null when a file tool's paths are unknown; empty for vision inputs without local paths. */
@@ -71,9 +81,11 @@ function claimPaths(call: ToolCall): PathClaim[] | null {
     for (const candidate of [imageRef, fallbackUrl].filter(Boolean)) {
       if (/^https?:\/\//i.test(candidate)) continue;
       try {
+        // Local vision reads worker files, which may be mounted in the task container.
+        if (TASK_SANDBOX_FS_ENABLED) return null;
         const path = normalizeVisionLocalPath(candidate);
         if (!path) return null;
-        claims.push({ path, writes: false });
+        claims.push(...claimsForPath(path, false));
       } catch {
         // Execution reports invalid aliases; scheduling treats them as barriers.
         return null;
@@ -82,7 +94,7 @@ function claimPaths(call: ToolCall): PathClaim[] | null {
     return claims;
   }
   const path = resolveToolPath(toolName, args);
-  return path ? [{ path, writes: PATH_WRITERS.has(toolName) }] : null;
+  return path ? claimsForPath(path, PATH_WRITERS.has(toolName)) : null;
 }
 
 function pathsOverlap(left: string, right: string): boolean {

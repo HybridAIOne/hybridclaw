@@ -7,11 +7,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  BASH_DOCKER_CONTAINER,
-  BASH_EXEC_MAX_BUFFER_BYTES,
-} from './bash-process.js';
-import { replaceWorkspaceRootInOutput } from './runtime-paths.js';
+import { BASH_EXEC_MAX_BUFFER_BYTES } from './bash-process.js';
+import { BASH_DOCKER_CONTAINER, toFileToolPath } from './runtime-paths.js';
 import { failTool } from './tool-errors.js';
 
 export function runTaskSandboxDocker(params: {
@@ -55,9 +52,7 @@ export function copyTaskSandboxFileToTemp(sandboxPath: string): {
     fs.rmSync(tempDir, { recursive: true, force: true });
     const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
     if (/no such file|could not find|not found/i.test(detail)) {
-      failTool(
-        `Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`,
-      );
+      failTool(`Error: File not found: ${toFileToolPath(sandboxPath)}`);
     }
     failTool(
       `Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`,
