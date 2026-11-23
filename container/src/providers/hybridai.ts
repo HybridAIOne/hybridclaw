@@ -5,7 +5,7 @@
  */
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
 import { stripHybridAIModelPrefix } from '@hybridclaw/shared/model-names';
-import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
+import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,
@@ -91,23 +91,12 @@ function buildHybridAIRequestBody(
     request.max_tokens = Math.floor(args.maxTokens);
   }
   const reasoningEffort =
-    args.reasoningEffort &&
-    getSupportedReasoningEfforts('hybridai', model).includes(
-      args.reasoningEffort,
-    )
+    args.reasoningEffort && isReasoningEffort(args.reasoningEffort)
       ? args.reasoningEffort
       : undefined;
   if (reasoningEffort) {
     request.reasoning_effort = reasoningEffort;
-    request.chat_template_kwargs = {
-      enable_thinking: reasoningEffort !== 'none',
-    };
-  }
-  if (
-    /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
-      model.toLowerCase(),
-    )
-  ) {
+  } else if (args.modelBehavior?.adaptiveThinking === true) {
     request.thinking = { type: 'adaptive', display: 'summarized' };
   }
   return request;

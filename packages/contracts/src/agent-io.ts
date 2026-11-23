@@ -104,6 +104,7 @@ export type ModelThinkingFormat = 'qwen';
 
 export interface ModelBehavior {
   thinkingFormat?: ModelThinkingFormat;
+  adaptiveThinking?: boolean;
 }
 
 export interface ToolSchema {

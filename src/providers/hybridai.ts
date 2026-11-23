@@ -4,6 +4,7 @@ import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
 import {
   discoverHybridAIModels,
+  getDiscoveredHybridAIModelAdaptiveThinking,
   getDiscoveredHybridAIModelContextWindow,
   getDiscoveredHybridAIModelDestination,
   getDiscoveredHybridAIModelMaxTokens,
@@ -26,6 +27,9 @@ async function resolveHybridAIRuntimeCredentials(
   const agentId = normalizeChatbotId(params.agentId) || DEFAULT_AGENT_ID;
   const enableRag = params.enableRag ?? HYBRIDAI_ENABLE_RAG;
   await discoverHybridAIModels();
+  const adaptiveThinking = getDiscoveredHybridAIModelAdaptiveThinking(
+    params.model,
+  );
   return {
     provider: 'hybridai',
     model: params.model,
@@ -43,6 +47,7 @@ async function resolveHybridAIRuntimeCredentials(
     contextWindow:
       getDiscoveredHybridAIModelContextWindow(params.model) ?? undefined,
     maxTokens: getDiscoveredHybridAIModelMaxTokens(params.model) ?? undefined,
+    ...(adaptiveThinking ? { modelBehavior: { adaptiveThinking: true } } : {}),
   };
 }
 

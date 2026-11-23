@@ -18,7 +18,6 @@ import {
   isAudioMediaItem,
   isImageMediaItem,
 } from '@hybridclaw/shared/media-kind';
-import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -341,6 +340,7 @@ import {
   getAvailableModelList,
   getModelCatalogMetadata,
   getModelLifecycle,
+  getSupportedModelReasoningEfforts,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
   refreshModelCatalogMetadata,
@@ -6357,7 +6357,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           capabilities: metadata.capabilities,
           metadataSources: metadata.sources,
           isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
-          supportedReasoningEfforts: getSupportedReasoningEfforts(
+          supportedReasoningEfforts: getSupportedModelReasoningEfforts(
             provider,
             modelId,
           ),

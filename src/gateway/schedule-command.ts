@@ -24,10 +24,7 @@
  * scheduler API, which edits every task on an operator's behalf.
  */
 
-import {
-  getSupportedReasoningEfforts,
-  isReasoningEffort,
-} from '@hybridclaw/shared/reasoning-effort';
+import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import { CronExpressionParser } from 'cron-parser';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
@@ -46,7 +43,10 @@ import {
   updateScheduledTask,
 } from '../memory/jobs.js';
 import { resolveModelProvider } from '../providers/factory.js';
-import { getAvailableModelList } from '../providers/model-catalog.js';
+import {
+  getAvailableModelList,
+  getSupportedModelReasoningEfforts,
+} from '../providers/model-catalog.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   createTrigger,
@@ -520,7 +520,7 @@ function taskEditor(session: Session) {
     models: models.map((id) => ({
       id,
       label: formatModelForDisplay(id),
-      efforts: getSupportedReasoningEfforts(resolveModelProvider(id), id),
+      efforts: getSupportedModelReasoningEfforts(resolveModelProvider(id), id),
     })),
   };
 }
@@ -642,7 +642,7 @@ function update(
   if (
     effort !== null &&
     (!isReasoningEffort(effort) ||
-      !getSupportedReasoningEfforts(
+      !getSupportedModelReasoningEfforts(
         resolveModelProvider(effective),
         effective,
       ).includes(effort))

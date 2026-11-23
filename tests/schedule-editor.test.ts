@@ -4,8 +4,14 @@ import { useTempDir } from './test-utils.js';
 const makeHome = useTempDir('hy-schedule-editor-');
 let close: (() => void) | undefined;
 afterEach(() => { close?.(); close = undefined; vi.unstubAllEnvs(); vi.resetModules(); });
-vi.mock('../src/agents/agent-registry.js', () => ({ resolveAgentForRequest: () => ({ model: 'hybridai/qwen/qwen3.8-27b', agentId: 'main', chatbotId: 'test' }) }));
-vi.mock('../src/providers/model-catalog.js', () => ({ getAvailableModelList: () => ['hybridai/qwen/qwen3.8-27b', 'openai/gpt-4o'] }));
+vi.mock('../src/agents/agent-registry.js', () => ({ resolveAgentForRequest: () => ({ model: 'hybridai/gpt-6-luna', agentId: 'main', chatbotId: 'test' }) }));
+vi.mock('../src/providers/model-catalog.js', () => ({
+  getAvailableModelList: () => ['hybridai/gpt-6-luna', 'openai/gpt-4o'],
+  getSupportedModelReasoningEfforts: (_provider: string, id: string) =>
+    id === 'hybridai/gpt-6-luna'
+      ? ['none', 'low', 'medium', 'high', 'xhigh']
+      : [],
+}));
 vi.mock('../src/scheduler/scheduler.js', () => ({ rearmScheduler: vi.fn(), dbTaskLabel: (id: number) => `task:${id}`, cronPromptHead: () => '[scheduled]' }));
 
 async function setup() {
@@ -17,7 +23,7 @@ async function setup() {
   const session = db.getOrCreateSession('chat-a', null, 'web', 'main');
   const id = jobs.createJob({kind: 'scheduled_task', sessionId: session.id, channelId: 'web', cronExpr: '0 * * * *', tz: 'Europe/Berlin', prompt: 'Original', replyOnly: true, alert: 'reminder', ownerUserId: 'user_a'});
   const run = (args: string[], requester = session) => handleScheduleCommand({sessionId: requester.id, guildId: null, channelId: requester.channel_id!, userId: 'user_a', args: ['schedule', ...args]}, requester);
-  const value = {title: 'Availability', prompt: 'Check live\n  --json "quoted" \\n 😀', cron: '0 * * * *', tz: 'Europe/Berlin', run_at: null, every_ms: null, model: 'hybridai/qwen/qwen3.8-27b', effort: 'medium', fresh_session: true, enabled: false};
+  const value = {title: 'Availability', prompt: 'Check live\n  --json "quoted" \\n 😀', cron: '0 * * * *', tz: 'Europe/Berlin', run_at: null, every_ms: null, model: 'hybridai/gpt-6-luna', effort: 'medium', fresh_session: true, enabled: false};
   const update = (data: unknown, requester = session) => run(['update', '--json', String(id), Buffer.from(JSON.stringify({...data as object, revision: JSON.parse(run(['list', '--json']).text).tasks[0].revision})).toString('base64url')], requester);
   return {db, jobs, session, id, run, value, update};
 }
@@ -30,7 +36,7 @@ test('editing preserves identity, ownership, delivery, options and unchanged sch
   const task = jobs.getJob(id, {kind: 'scheduled_task'})!;
   expect(task).toMatchObject({id, prompt: value.prompt, title: value.title, model: value.model, effort: 'medium', fresh_session: true, enabled: 0, owner_user_id: 'user_a', reply_only: true, alert: 'reminder', session_id: before.session_id, channel_id: 'web', last_run: before.last_run});
   expect(jobs.getAllJobs({kind: 'scheduled_task'})).toHaveLength(1);
-  expect(JSON.parse(run(['list', '--json']).text).editor).toMatchObject({version: 1, models: [{id: 'hybridai/qwen/qwen3.8-27b', efforts: ['none', 'low', 'medium', 'xhigh']}, {id: 'openai/gpt-4o', efforts: []}]});
+  expect(JSON.parse(run(['list', '--json']).text).editor).toMatchObject({version: 1, models: [{id: 'hybridai/gpt-6-luna', efforts: ['none', 'low', 'medium', 'high', 'xhigh']}, {id: 'openai/gpt-4o', efforts: []}]});
   expect(update({...value, model: null, effort: null, fresh_session: false}).kind).toBe('plain');
   expect(jobs.getJob(id, {kind: 'scheduled_task'})).toMatchObject({model: undefined, effort: undefined, fresh_session: false});
 });

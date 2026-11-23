@@ -3532,7 +3532,8 @@ async function handleApiChat(
     !isReasoningEffort(body.reasoningEffort)
   ) {
     sendJson(res, 400, {
-      error: 'Invalid `reasoningEffort`; expected none, low, medium, or xhigh.',
+      error:
+        'Invalid `reasoningEffort`; expected none, minimal, low, medium, high, or xhigh.',
     });
     return;
   }
