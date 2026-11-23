@@ -90,6 +90,23 @@ describe('HybridAI request body', () => {
         thinking: { type: 'adaptive', display: 'summarized' },
       },
     },
+    ...[
+      'required',
+      { type: 'function', function: { name: 'shell' } },
+    ].map((toolChoice) => ({
+      label: `adaptive thinking dropped for forced tool choice ${JSON.stringify(toolChoice)}`,
+      params: {
+        model: 'hybridai/anthropic/claude-sonnet-4-6',
+        tools: [tool],
+        toolChoice,
+      },
+      expected: {
+        model: 'anthropic/claude-sonnet-4-6',
+        messages,
+        tools: [tool],
+        tool_choice: toolChoice,
+      },
+    })),
   ])('$label', ({ params, expected }) => {
     expect(buildHybridAIRequestBody({ messages, ...params })).toEqual(
       expected,

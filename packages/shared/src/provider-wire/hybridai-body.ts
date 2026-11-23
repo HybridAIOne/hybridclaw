@@ -46,7 +46,12 @@ export function buildHybridAIRequestBody(
     body.reasoning_effort = reasoningEffort;
     body.chat_template_kwargs = { enable_thinking: reasoningEffort !== 'none' };
   }
-  if (ADAPTIVE_THINKING_MODEL.test(model.toLowerCase())) {
+  // Anthropic rejects thinking when tool_choice forces a tool.
+  const toolChoice = body.tool_choice;
+  if (
+    ADAPTIVE_THINKING_MODEL.test(model.toLowerCase()) &&
+    (toolChoice === undefined || toolChoice === 'auto' || toolChoice === 'none')
+  ) {
     body.thinking = { type: 'adaptive', display: 'summarized' };
   }
   return body;
