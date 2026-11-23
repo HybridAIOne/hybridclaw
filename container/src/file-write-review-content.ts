@@ -5,10 +5,9 @@
  * Unlike the write tool, this never mutates the target or grants permission.
  */
 import fs from 'node:fs';
-import { TASK_SANDBOX_FS_ENABLED } from './bash-process.js';
 import {
-  resolveTaskSandboxPath,
-  resolveWorkspacePath,
+  resolveFileToolPath,
+  TASK_SANDBOX_FS_ENABLED,
 } from './runtime-paths.js';
 import { copyTaskSandboxFileToTemp } from './task-sandbox-files.js';
 import { fileWriteRevision, isFileWriteRevision } from './tools/file-write.js';
@@ -18,9 +17,7 @@ export function readFileWriteReviewContent(
   revision: unknown,
 ): string {
   if (!isFileWriteRevision(revision)) throw new Error('Invalid file revision');
-  const target = (
-    TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath
-  )(userPath);
+  const target = resolveFileToolPath(userPath);
   if (!target) throw new Error('File review path escapes workspace');
   let temporary: string | undefined;
   try {

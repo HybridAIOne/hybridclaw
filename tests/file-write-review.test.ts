@@ -92,6 +92,58 @@ test('rejects an unrelated checked write without granting consent or clearing it
   expect(fs.existsSync(path.join(workspace, 'report.md'))).toBe(false);
 });
 
+test.each([false, true])(
+  'passes only verified aliases to the reviewer when the display root is shadowed: %s',
+  async (shadowed) => {
+    const display = workspace;
+    workspace = path.join(display, '.data', 'agents', 'test', 'workspace');
+    fs.mkdirSync(workspace, { recursive: true });
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', display);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspace);
+    vi.stubEnv(
+      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+      JSON.stringify(shadowed ? [display] : []),
+    );
+    const actual = path.join(workspace, 'report.md');
+    const displayed = path.join(display, 'report.md');
+    fs.writeFileSync(actual, 'Original report');
+    fs.writeFileSync(displayed, 'Another report');
+    const { input, reviewFileWriteIntent } = await setup();
+    const requested = shadowed ? displayed : actual;
+    const spelling = shadowed ? './report.md' : displayed;
+    const latestUserPrompt = `Replace ${requested}`;
+    model.call.mockImplementation(async ({ messages }) => {
+      const review = JSON.parse(messages[1].content);
+      return response(
+        JSON.stringify({
+          decision: review.path_aliases.includes(requested)
+            ? 'allow'
+            : 'reject',
+          reason: 'fixture',
+        }),
+      );
+    });
+    const result = await reviewFileWriteIntent({
+      ...input,
+      latestUserPrompt,
+      argsJson: JSON.stringify({
+        ...JSON.parse(input.argsJson),
+        path: spelling,
+        expected_content: 'Original report',
+      }),
+    });
+    expect(model.call).toHaveBeenCalledOnce();
+    const review = JSON.parse(model.call.mock.calls[0][0].messages[1].content);
+    expect(review.user_request).toBe(latestUserPrompt);
+    expect(review.path).toBe('report.md');
+    expect(review.path_aliases).toContain(spelling);
+    expect(review.path_aliases.includes(requested)).toBe(!shadowed);
+    expect(result.decision).toBe(
+      shadowed ? 'denied' : input.evaluation.decision,
+    );
+  },
+);
+
 test.each(['write', 'edit'])(
   'allows a reviewed %s without changing the original policy decision',
   async (toolName) => {

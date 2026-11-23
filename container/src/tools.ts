@@ -29,11 +29,7 @@ import {
   isValidTimezone,
   readUserTimezoneFile,
 } from '@hybridclaw/shared/workspace-time';
-import {
-  BASH_DOCKER_CONTAINER,
-  type BashProcessResult,
-  TASK_SANDBOX_FS_ENABLED,
-} from './bash-process.js';
+import type { BashProcessResult } from './bash-process.js';
 import { guardCommand } from './bash-safety.js';
 import {
   isPersistentBashStateEnabled,
@@ -87,20 +83,19 @@ import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { IncompleteVisionAnalysisError } from './providers/incomplete-vision-error.js';
 import { setVisualMediaAllowed } from './providers/visual-content.js';
+import { resolveReadToolPath, setReadableMediaPaths } from './read-path.js';
 import {
-  resolveSessionMediaReadPath,
-  resolveSessionMediaSandboxPath,
-  setReadableMediaPaths,
-} from './read-path.js';
-import {
+  BASH_DOCKER_CONTAINER,
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   isWithinRoot,
   replaceWorkspaceRootInOutput,
+  resolveFileToolPath,
   resolveMediaPath,
   resolveTaskSandboxPath,
   resolveWorkspacePath,
-  stripWorkspaceRootPrefix,
+  TASK_SANDBOX_FS_ENABLED,
+  toWorkspaceToolPath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
   WORKSPACE_STATE_ROOT,
@@ -688,7 +683,7 @@ export function setMediaContext(
   primaryModelSupportsVisualMedia = true,
 ): void {
   currentMediaContext = Array.isArray(media) ? media : [];
-  setReadableMediaPaths(readableMediaPaths);
+  setReadableMediaPaths(readableMediaPaths, currentMediaContext);
   setVisualMediaAllowed(visualMediaAllowed, primaryModelSupportsVisualMedia);
 }
 
@@ -2166,7 +2161,7 @@ function safeJoin(userPath: string): string {
 function writeCheckedFile(args: Record<string, unknown>): Promise<string> {
   return runFileWrite(
     args,
-    TASK_SANDBOX_FS_ENABLED ? resolveTaskSandboxPath : resolveWorkspacePath,
+    resolveFileToolPath,
     TASK_SANDBOX_FS_ENABLED
       ? { container: BASH_DOCKER_CONTAINER, run: runTaskSandboxDocker }
       : undefined,
@@ -2281,12 +2276,9 @@ function isTodayDailyMemoryPath(relativePath: string): boolean {
 
 function normalizeMemoryFilePath(rawPath: unknown): string | null {
   if (typeof rawPath !== 'string' || rawPath.trim() === '') return null;
-  const normalized = rawPath.trim().replace(/\\/g, '/');
-  const workspaceRelative = stripWorkspaceRootPrefix(normalized).replace(
-    /^\.?\//,
-    '',
-  );
-  const sanitized = workspaceRelative || normalized;
+  const resolved = resolveWorkspacePath(rawPath);
+  if (!resolved) return null;
+  const sanitized = toWorkspaceToolPath(resolved);
   if (MEMORY_ROOT_FILES.has(sanitized)) return sanitized;
   if (DAILY_MEMORY_FILE_RE.test(sanitized)) return sanitized;
   return null;
@@ -2875,30 +2867,20 @@ async function executeToolInternal(
       }
       let tempDirToCleanup: string | null = null;
       try {
-        let content = '';
+        const target = resolveReadToolPath(args.path);
+        if (!target)
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        let localPath = target;
         if (TASK_SANDBOX_FS_ENABLED) {
-          const sandboxPath =
-            resolveSessionMediaSandboxPath(args.path, currentMediaContext) ||
-            resolveTaskSandboxPath(args.path);
-          if (!sandboxPath) {
-            return failTool(`Error: Path escapes workspace: ${args.path}`);
-          }
-          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          const copied = copyTaskSandboxFileToTemp(target);
           tempDirToCleanup = copied.tempDir;
-          const document = await readDocumentFile(copied.localPath, args);
-          if (document) return document;
-          content = fs.readFileSync(copied.localPath, 'utf-8');
-        } else {
-          const filePath =
-            resolveSessionMediaReadPath(args.path, currentMediaContext) ||
-            resolveHttpArtifactReadPath(args.path) ||
-            safeJoin(args.path);
-          if (!fs.existsSync(filePath))
-            return failTool(`Error: File not found: ${args.path}`);
-          const document = await readDocumentFile(filePath, args);
-          if (document) return document;
-          content = fs.readFileSync(filePath, 'utf-8');
+          localPath = copied.localPath;
+        } else if (!fs.existsSync(target)) {
+          return failTool(`Error: File not found: ${args.path}`);
         }
+        const document = await readDocumentFile(localPath, args);
+        if (document) return document;
+        const content = fs.readFileSync(localPath, 'utf-8');
         const excerpt = readTextExcerpt(content, args);
         if (excerpt !== undefined) return excerpt;
         const lines = content.split('\n');
@@ -3023,21 +3005,18 @@ async function executeToolInternal(
           return failTool('Error: old text is required for edit');
         }
         assertTextPayload(newText, 'new or new_text');
-        let content = '';
+        const target = resolveFileToolPath(args.path);
+        if (!target)
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        let localPath = target;
         if (TASK_SANDBOX_FS_ENABLED) {
-          const sandboxPath = resolveTaskSandboxPath(args.path);
-          if (!sandboxPath) {
-            return failTool(`Error: Path escapes workspace: ${args.path}`);
-          }
-          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          const copied = copyTaskSandboxFileToTemp(target);
           tempDirToCleanup = copied.tempDir;
-          content = fs.readFileSync(copied.localPath, 'utf-8');
-        } else {
-          const filePath = safeJoin(args.path);
-          if (!fs.existsSync(filePath))
-            return failTool(`Error: File not found: ${args.path}`);
-          content = fs.readFileSync(filePath, 'utf-8');
+          localPath = copied.localPath;
+        } else if (!fs.existsSync(target)) {
+          return failTool(`Error: File not found: ${args.path}`);
         }
+        const content = fs.readFileSync(localPath, 'utf-8');
 
         const edited = replaceEditOccurrences(
           content,
@@ -3062,11 +3041,10 @@ async function executeToolInternal(
     }
 
     case 'delete': {
+      const target = resolveFileToolPath(args.path);
+      if (!target)
+        return failTool(`Error: Path escapes workspace: ${args.path}`);
       if (TASK_SANDBOX_FS_ENABLED) {
-        const sandboxPath = resolveTaskSandboxPath(args.path);
-        if (!sandboxPath) {
-          return failTool(`Error: Path escapes workspace: ${args.path}`);
-        }
         ensureTaskSandboxSuccess(
           runTaskSandboxDocker({
             args: [
@@ -3075,16 +3053,15 @@ async function executeToolInternal(
               BASH_DOCKER_CONTAINER,
               'bash',
               '-lc',
-              `rm -f -- ${shellEscape(sandboxPath)}`,
+              `rm -f -- ${shellEscape(target)}`,
             ],
           }),
           'Failed to delete file from task sandbox',
         );
       } else {
-        const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath))
+        if (!fs.existsSync(target))
           return failTool(`Error: File not found: ${args.path}`);
-        fs.unlinkSync(filePath);
+        fs.unlinkSync(target);
       }
       return `Deleted ${args.path}`;
     }

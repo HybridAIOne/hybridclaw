@@ -7,13 +7,18 @@
  * It stores paths, never file contents, and grants no filesystem permissions.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import type { FileWriteGuardContext } from '@hybridclaw/shared/file-write-guard';
 import type { ClassifiedAction } from './approval-policy.js';
 import {
   isWithinRoot,
   resolveCanonicalPath,
+  resolveFileToolPath,
   resolveWorkspacePath,
+  TASK_SANDBOX_FS_ENABLED,
+  toFileToolPath,
   toWorkspaceToolPath,
+  WORKSPACE_ROOT,
 } from './runtime-paths.js';
 import { SessionStateSet, sessionStatePath } from './session-state.js';
 
@@ -76,8 +81,31 @@ function lapsed(owner: string): boolean {
   return changed !== undefined && Date.now() - changed > CONFLICT_LIFETIME_MS;
 }
 
-function targetKey(target: string): string {
-  return resolveCanonicalPath(resolveWorkspacePath(target) ?? target);
+// The shared store uses the owning workspace's coordinates. Map task paths
+// by their relative name: a host allowlist or host symlink cannot rename a
+// file inside a separate task container.
+function targetKey(resolved: string): string {
+  return TASK_SANDBOX_FS_ENABLED
+    ? path.resolve(
+        resolveCanonicalPath(WORKSPACE_ROOT),
+        toFileToolPath(resolved),
+      )
+    : resolveCanonicalPath(resolved);
+}
+
+function conflictKeys(target: string): string[] {
+  const resolved = resolveFileToolPath(target);
+  if (!resolved) return [];
+  const key = targetKey(resolved);
+  if (!TASK_SANDBOX_FS_ENABLED) return [key];
+  // Shared workers may have recorded a host key for either input spelling.
+  // Consult those fences too; a task write clears only its own workspace key.
+  const keys = new Set([key]);
+  for (const spelling of [target, resolved, toFileToolPath(resolved)]) {
+    const host = resolveWorkspacePath(spelling);
+    if (host) keys.add(resolveCanonicalPath(host));
+  }
+  return [...keys];
 }
 
 function recoveryReason(): string {
@@ -92,7 +120,9 @@ export async function recordFileWriteConflict(
   const owner = stateSession(sessionId);
   await conflicts.updateLockedSession(owner, (values) => {
     if (lapsed(owner)) values.clear();
-    values.add(targetKey(target));
+    const resolved = resolveFileToolPath(target);
+    if (!resolved) throw new Error('File conflict path escapes workspace');
+    values.add(targetKey(resolved));
   });
   return recoveryReason();
 }
@@ -102,9 +132,11 @@ export async function resolveFileWriteConflict(
   target: string,
 ): Promise<void> {
   if (!sessionId) return;
-  await conflicts.updateLockedSession(stateSession(sessionId), (values) =>
-    values.delete(targetKey(target)),
-  );
+  const resolved = resolveFileToolPath(target);
+  if (resolved)
+    await conflicts.updateLockedSession(stateSession(sessionId), (values) =>
+      values.delete(targetKey(resolved)),
+    );
 }
 
 function bindConflicts(sessionId: string): boolean {
@@ -123,8 +155,7 @@ export function getFileWriteConflict(
   target: string,
 ): string | null {
   if (!sessionId || !bindConflicts(sessionId)) return null;
-  const key = targetKey(target);
-  return conflicts.has(key) ? key : null;
+  return conflictKeys(target).find((key) => conflicts.has(key)) ?? null;
 }
 
 export function guardFileWriteConflict(
@@ -139,8 +170,8 @@ export function guardFileWriteConflict(
   const conflictedDelete =
     toolName === 'delete' &&
     typeof args.path === 'string' &&
-    [...conflicts].some((target) =>
-      isWithinRoot(target, targetKey(args.path as string)),
+    conflictKeys(args.path).some((key) =>
+      [...conflicts].some((target) => isWithinRoot(target, key)),
     );
   if (!shellMutation && !conflictedDelete) return action;
   return {
