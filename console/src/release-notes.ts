@@ -4,7 +4,7 @@ export const LATEST_RELEASE_NOTES = {
     'Enter checkout details directly in web chat',
     'Choose the sending account for email',
     'Manage German district warnings in Hy',
-    'Review the full command before approving shell access',
+    'See the full command in shell approvals',
   ],
 } as const;
 
