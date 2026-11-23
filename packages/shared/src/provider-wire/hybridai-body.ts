@@ -4,7 +4,8 @@
  * cannot silently go missing on a gateway path.
  *
  * Optional controls appear only when the caller supplies them; reasoning
- * effort is dropped for models that do not support it. Pure: the transport,
+ * effort is dropped for models that do not support it, and adaptive thinking
+ * is sent only when the caller opts in. Pure: the transport,
  * headers, and HybridAI destination checks stay with each caller.
  */
 import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
@@ -19,6 +20,10 @@ export interface HybridAIRequestParams extends ChatCompletionsRequestParams {
   chatbotId?: string;
   enableRag?: boolean;
   reasoningEffort?: ReasoningEffort;
+  // Worker only (owner call, 2026-11-23): gateway paths drop the signed
+  // `anthropic_content` thinking blocks and forward forced tool_choice and
+  // small max_tokens, so they stay thinking-free as they were before.
+  adaptiveThinking?: boolean;
 }
 
 const ADAPTIVE_THINKING_MODEL =
@@ -46,11 +51,9 @@ export function buildHybridAIRequestBody(
     body.reasoning_effort = reasoningEffort;
     body.chat_template_kwargs = { enable_thinking: reasoningEffort !== 'none' };
   }
-  // Anthropic rejects thinking when tool_choice forces a tool.
-  const toolChoice = body.tool_choice;
   if (
-    ADAPTIVE_THINKING_MODEL.test(model.toLowerCase()) &&
-    (toolChoice === undefined || toolChoice === 'auto' || toolChoice === 'none')
+    params.adaptiveThinking &&
+    ADAPTIVE_THINKING_MODEL.test(model.toLowerCase())
   ) {
     body.thinking = { type: 'adaptive', display: 'summarized' };
   }

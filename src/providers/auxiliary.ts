@@ -998,8 +998,6 @@ async function callHybridAITextModel(
     }),
     options,
   );
-  // Anthropic rejects adaptive thinking alongside a caller-set temperature.
-  if (options.temperature !== undefined) delete body.thinking;
 
   const response = await fetchHybridAIDestination(
     `${context.baseUrl}/v1/chat/completions`,

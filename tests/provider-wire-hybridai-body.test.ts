@@ -1,6 +1,9 @@
 import { buildHybridAIRequestBody } from '@hybridclaw/shared/provider-wire/hybridai-body';
 import { describe, expect, it, vi } from 'vitest';
-import { callOpenAICompatibleModel } from '../src/gateway/openai-compatible-model.js';
+import {
+  callOpenAICompatibleModel,
+  callOpenAICompatibleModelStream,
+} from '../src/gateway/openai-compatible-model.js';
 import { useCleanMocks } from './test-utils.js';
 
 const messages = [{ role: 'user', content: 'hi' }];
@@ -82,31 +85,28 @@ describe('HybridAI request body', () => {
       expected: { model: 'gpt-5-nano', messages },
     },
     {
-      label: 'adaptive thinking',
-      params: { model: 'hybridai/anthropic/claude-sonnet-4-6', tools: [] },
+      label: 'adaptive thinking when requested',
+      params: {
+        model: 'hybridai/anthropic/claude-sonnet-4-6',
+        tools: [],
+        adaptiveThinking: true,
+      },
       expected: {
         model: 'anthropic/claude-sonnet-4-6',
         messages,
         thinking: { type: 'adaptive', display: 'summarized' },
       },
     },
-    ...[
-      'required',
-      { type: 'function', function: { name: 'shell' } },
-    ].map((toolChoice) => ({
-      label: `adaptive thinking dropped for forced tool choice ${JSON.stringify(toolChoice)}`,
-      params: {
-        model: 'hybridai/anthropic/claude-sonnet-4-6',
-        tools: [tool],
-        toolChoice,
-      },
-      expected: {
-        model: 'anthropic/claude-sonnet-4-6',
-        messages,
-        tools: [tool],
-        tool_choice: toolChoice,
-      },
-    })),
+    {
+      label: 'no adaptive thinking unless requested',
+      params: { model: 'hybridai/anthropic/claude-sonnet-4-6', tools: [] },
+      expected: { model: 'anthropic/claude-sonnet-4-6', messages },
+    },
+    {
+      label: 'no adaptive thinking for an unsupported model',
+      params: { model: 'gpt-5-nano', tools: [], adaptiveThinking: true },
+      expected: { model: 'gpt-5-nano', messages },
+    },
   ])('$label', ({ params, expected }) => {
     expect(buildHybridAIRequestBody({ messages, ...params })).toEqual(
       expected,
@@ -117,7 +117,7 @@ describe('HybridAI request body', () => {
 describe('gateway HybridAI model client', () => {
   useCleanMocks();
 
-  it('sends max_tokens and adaptive thinking like the worker', async () => {
+  it('sends max_tokens like the worker, without adaptive thinking', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal(
       'fetch',
@@ -158,7 +158,38 @@ describe('gateway HybridAI model client', () => {
     expect(bodies[0]).toMatchObject({
       model: 'anthropic/claude-sonnet-4-6',
       max_tokens: 4096,
-      thinking: { type: 'adaptive', display: 'summarized' },
     });
+    expect(bodies[0]).not.toHaveProperty('thinking');
+  });
+
+  it('rejects a stream that reports a provider error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            'data: {"error":{"message":"upstream overloaded"}}\n\ndata: [DONE]\n\n',
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+      ),
+    );
+
+    await expect(
+      callOpenAICompatibleModelStream({
+        runtime: {
+          provider: 'hybridai',
+          apiKey: 'test-key',
+          baseUrl: 'https://example.com',
+          chatbotId: '',
+          enableRag: false,
+          requestHeaders: {},
+          agentId: 'main',
+        },
+        model: 'hybridai/anthropic/claude-sonnet-4-6',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [],
+        onTextDelta: () => {},
+      }),
+    ).rejects.toThrow('upstream overloaded');
   });
 });

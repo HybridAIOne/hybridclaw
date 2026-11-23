@@ -48,13 +48,10 @@ function mockHybridAIRuntime(): void {
 }
 
 test.each([
-  { temperature: undefined, expectThinking: true },
-  { temperature: 0, expectThinking: false },
-  { temperature: 0.1, expectThinking: false },
-])('auxiliary HybridAI adaptive thinking with temperature $temperature', async ({
-  temperature,
-  expectThinking,
-}) => {
+  undefined,
+  0,
+  0.1,
+])('auxiliary HybridAI calls send no adaptive thinking (temperature %s)', async (temperature) => {
   mockHybridAIRuntime();
   let sentBody: Record<string, unknown> = {};
   vi.stubGlobal(
@@ -79,6 +76,6 @@ test.each([
     temperature,
   });
 
-  expect('thinking' in sentBody).toBe(expectThinking);
+  expect(sentBody).not.toHaveProperty('thinking');
   expect(sentBody.temperature).toBe(temperature);
 });

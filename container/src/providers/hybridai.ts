@@ -41,6 +41,7 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     tools: args.tools,
     maxTokens: args.maxTokens,
     reasoningEffort: args.reasoningEffort,
+    adaptiveThinking: true,
   });
 }
 

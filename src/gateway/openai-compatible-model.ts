@@ -376,6 +376,11 @@ export async function callOpenAICompatibleModelStream(
         continue;
       }
       if (!isRecord(payload)) continue;
+      if (payload.error != null) {
+        throw new Error(
+          `OpenAI-compatible model stream failed: ${parseErrorText(payloadText)}`,
+        );
+      }
       const added = applyChatCompletionsChunk(state, payload);
       if (added.content) params.onTextDelta(added.content);
     }
