@@ -1198,6 +1198,7 @@ async function processRequestInner(
   const availableToolNames = new Set(
     availableTools.map((tool) => tool.function.name),
   );
+  const isBlockedTool = compileToolPatterns(params.blockedTools);
   setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -1678,7 +1679,13 @@ async function processRequestInner(
     }
     let toolCalls = choice.message.tool_calls || [];
     const batchError = validateToolCallBatch(toolCalls, choice.finish_reason);
-    let invalidToolCallError = batchError;
+    const blockedCall =
+      !batchError && tools !== toolCatalog?.tools
+        ? toolCalls.find((call) => isBlockedTool(call.function.name))
+        : undefined;
+    let invalidToolCallError = blockedCall
+      ? `Tool is not available in this request: ${blockedCall.function.name}`
+      : batchError;
     let catalogCorrection: string | null = null;
     let rejectedCallId: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
@@ -1719,6 +1726,9 @@ async function processRequestInner(
     toolCalls = approvalCalls.calls;
     const correction =
       catalogCorrection ??
+      (blockedCall && invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
+        ? `Error: ${invalidToolCallError}. No action was executed. Continue with the available tools or return your final response.`
+        : null) ??
       (batchError && invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
         ? invalidToolCallCorrection(batchError, choice.finish_reason)
         : null);
@@ -2514,6 +2524,7 @@ async function main(): Promise<void> {
       enableRag: firstInput.enableRag,
       requestHeaders: firstRequestHeaders,
       tools: firstTools,
+      blockedTools: firstInput.blockedTools,
       localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
       localDiscoveryDisabled: firstInput.blockedTools?.includes('tool_catalog'),
@@ -2715,6 +2726,7 @@ async function main(): Promise<void> {
       enableRag: input.enableRag,
       requestHeaders,
       tools: requestTools,
+      blockedTools: input.blockedTools,
       localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
       localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
