@@ -165,6 +165,11 @@ and image identities. Dataset names remain labels in `result.json` and each
 task's `summary.json`; punctuation, case differences and repeated names cannot
 make tasks share files or sessions.
 
+Native task summaries use `turnsUsed` for the worker's reported model-call
+count and omit the field when usage is unavailable. `finishedNaturally` tracks
+agent completion. The verifier still decides `passed` and `reward` from the
+workspace, including when execution ends with an error or awaits approval.
+
 Environment and verifier archives use the suite's `.venv` Python, the same
 interpreter used to load the dataset. Extraction requires Python's
 [`tarfile.data_filter`](https://docs.python.org/3/library/tarfile.html#extraction-filters):
