@@ -24,6 +24,7 @@ import { evaluateConfiguredRouting } from './routing-evaluator.js';
 
 export async function classifyRouting(input: {
   text: string;
+  sessionId?: string;
   hasPrivateContext?: boolean;
   signal?: AbortSignal;
   model?: string;
@@ -151,6 +152,7 @@ export async function classifyRouting(input: {
     const result = await callAuxiliaryModel({
       task: 'routing_classifier',
       traceReason: 'routing-classifier',
+      sessionId: input.sessionId,
       model,
       provider: 'auto',
       allowFallback: false,

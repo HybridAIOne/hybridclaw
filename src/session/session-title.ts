@@ -61,6 +61,7 @@ export async function generateSessionTitle(
       callAuxiliaryModel({
         task: 'session_title',
         agentId: params.agentId,
+        sessionId: params.sessionId,
         fallbackModel: params.model,
         fallbackChatbotId: params.chatbotId ?? undefined,
         fallbackEnableRag: false,

@@ -15,7 +15,6 @@ import { isRecord, readString } from '@hybridclaw/shared/primitive-values';
 import type {
   ChatCompletionResponse,
   ChatMessage,
-  ContainerInput,
   ToolDefinition,
 } from '../types.js';
 import type { RuntimeProviderId } from './provider-ids.js';
@@ -258,40 +257,6 @@ export function readStringValue(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
-}
-
-const HYBRIDAI_CORRELATION_HEADERS = {
-  sessionId: 'X-HybridClaw-Session-Id',
-  runId: 'X-HybridClaw-Run-Id',
-  agentId: 'X-HybridClaw-Agent-Id',
-  channelId: 'X-HybridClaw-Channel-Id',
-  client: 'X-HybridClaw-Client',
-} as const;
-
-type HybridAICorrelationKey = keyof typeof HYBRIDAI_CORRELATION_HEADERS;
-
-function normalizeHeaderValue(value: string | undefined): string {
-  return String(value ?? '')
-    .replace(/[^\x20-\x7e]/g, '')
-    .trim()
-    .slice(0, 256);
-}
-
-export function withHybridAICorrelationHeaders(
-  params: Partial<Record<HybridAICorrelationKey, string>> & {
-    provider: ContainerInput['provider'];
-    requestHeaders?: Record<string, string>;
-  },
-): Record<string, string> | undefined {
-  if (params.provider !== 'hybridai') return params.requestHeaders;
-  const headers = { ...(params.requestHeaders || {}) };
-  for (const key of Object.keys(
-    HYBRIDAI_CORRELATION_HEADERS,
-  ) as HybridAICorrelationKey[]) {
-    const value = normalizeHeaderValue(params[key]);
-    if (value) headers[HYBRIDAI_CORRELATION_HEADERS[key]] = value;
-  }
-  return headers;
 }
 
 export function buildRequestHeaders(

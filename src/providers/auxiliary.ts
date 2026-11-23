@@ -1,3 +1,4 @@
+import { withHybridAICorrelationHeaders } from '@hybridclaw/shared/hybridai-correlation-headers';
 import { fetchHybridAIDestination } from '@hybridclaw/shared/hybridai-destination';
 import { chatContentText } from '@hybridclaw/shared/message-text';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
@@ -149,6 +150,8 @@ export interface AuxiliaryModelCallParams {
   fallbackEnableRag?: boolean;
   fallbackMaxTokens?: number;
   agentId?: string;
+  /** The conversation this call serves; HybridAI files the call there. */
+  sessionId?: string;
   provider?: RuntimeProvider | 'auto';
   model?: string;
   tools?: AuxiliaryToolDefinition[];
@@ -1387,7 +1390,15 @@ async function callAuxiliaryTextProviderWithLogging(
 
   try {
     const response = await callAuxiliaryTextProvider(
-      context,
+      {
+        ...context,
+        requestHeaders: withHybridAICorrelationHeaders({
+          provider: context.provider,
+          sessionId: params.sessionId,
+          agentId: params.agentId,
+          requestHeaders: context.requestHeaders,
+        }),
+      },
       messages,
       options,
     );

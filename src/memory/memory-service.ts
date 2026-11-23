@@ -1131,6 +1131,7 @@ export class MemoryService {
     const result = await callAuxiliaryModel({
       task: 'compression',
       agentId,
+      sessionId: params.session.id,
       fallbackModel: model,
       fallbackChatbotId: chatbotId,
       fallbackEnableRag: params.session.enable_rag !== 0,
