@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.43.2',
+  version: '0.44.0',
   highlights: [
-    'Browse older messages in web chat',
-    'Follow delegated work after reloading chat',
-    'Try read-only API turns with dry-run',
-    'Answer question cards on supported mobile apps',
+    'Enter checkout details directly in web chat',
+    'Choose the sending account for email',
+    'Manage German district warnings in Hy',
+    'See the full command in shell approvals',
   ],
 } as const;
 

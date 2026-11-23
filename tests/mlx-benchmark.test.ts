@@ -40,7 +40,7 @@ function stream(visible: boolean, usage: boolean, done: boolean) {
         : []),
       ...(done ? ['data: [DONE]'] : []),
       '',
-    ].join('\n'),
+    ].join('\n\n'),
   );
 }
 

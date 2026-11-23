@@ -40,6 +40,10 @@ Existing linked sessions are preserved. The plugin uses the same
 `~/.hybridclaw/credentials/whatsapp` auth directory as earlier HybridClaw
 versions.
 
+HybridClaw needs WhatsApp plugin 0.2.0 or later. An older plugin fails to load,
+and `hybridclaw doctor` prints the `hybridclaw plugin reinstall` command;
+reinstalling keeps the linked session.
+
 ## Step 2: Make Sure No Other HybridClaw Process Owns The Auth State
 
 Only one running process should use
@@ -149,9 +153,8 @@ This also applies to unregistered phone numbers: acceptance does not prove
 that the recipient exists or received the message.
 
 Results include `sentFrom`, `recipient`, and `messageIds`. Transport-provided
-With WhatsApp plugin v0.1.1 or later, IDs are returned in text-chunk order
-and for attachments. Missing socket IDs are omitted; older plugin versions
-return an empty array. These IDs identify accepted sends, not delivery receipts.
+IDs are returned in text-chunk order and for attachments. Missing socket IDs
+are omitted. These IDs identify accepted sends, not delivery receipts.
 Recipient lookup and receipt tracking are not provided by this plugin.
 
 To update an existing installation, run

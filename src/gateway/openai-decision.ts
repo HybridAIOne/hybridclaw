@@ -33,6 +33,7 @@ export async function handleDecisionCompletion(params: {
   sessionId: string;
   agentId: string;
   messages: ChatMessage[];
+  promptCacheKey?: string;
   wantsStream: boolean;
   completionId: string;
   created: number;
@@ -55,6 +56,7 @@ export async function handleDecisionCompletion(params: {
       messages: params.messages,
       fallbackModel: HYBRIDAI_MODEL,
       agentId: params.agentId,
+      sessionId: params.sessionId,
       temperature: 0,
       allowFallback: false,
     }).catch((error: unknown) => {
@@ -80,6 +82,7 @@ export async function handleDecisionCompletion(params: {
       messages: params.messages,
       tools: [],
       toolChoice: 'none',
+      promptCacheKey: params.promptCacheKey,
     });
     await recordOpenAICompatibleUsage({
       sessionId: params.sessionId,

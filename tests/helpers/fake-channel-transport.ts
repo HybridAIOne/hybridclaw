@@ -27,6 +27,7 @@ export function createFakeTransportInstance(
 
 export function fakeWhatsAppRegistration(
   instance: ChannelTransportInstance = createFakeTransportInstance(),
+  overrides: Partial<ChannelTransportRegistration> = {},
 ) {
   return {
     kind: 'whatsapp',
@@ -35,5 +36,6 @@ export function fakeWhatsAppRegistration(
     normalizeTarget: normalizeWhatsAppTarget,
     getAuthStatus: async () => ({ linked: false, jid: null }),
     resetAuth: vi.fn(async () => '/unused'),
+    ...overrides,
   } satisfies ChannelTransportRegistration;
 }

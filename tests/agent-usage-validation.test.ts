@@ -74,19 +74,6 @@ test('valid worker call records reach the gateway without dropping helper counte
   });
 });
 
-test('a snapshot from a worker that predates retry counts reads as no retries', async () => {
-  const old = usage();
-  delete (old as Partial<TokenUsageStats>).modelRetries;
-  for (const call of old.modelUsage ?? [])
-    delete (call.usage as Partial<TokenUsageStats>).modelRetries;
-  const output = await execute(old);
-  expect(output.tokenUsage).toMatchObject({
-    modelCalls: 1,
-    modelRetries: 0,
-    modelUsage: [{ usage: { modelRetries: 0 } }],
-  });
-});
-
 test.each([null, 0, ''])(
   'an invalid present usage snapshot is rejected (%j)',
   async (invalid) => {
@@ -105,6 +92,13 @@ test.each([
   },
   (value: TokenUsageStats) => {
     value.modelRetries++;
+  },
+  (value: TokenUsageStats) => {
+    delete (value as Partial<TokenUsageStats>).modelRetries;
+  },
+  (value: TokenUsageStats) => {
+    const call = value.modelUsage?.[0];
+    if (call) delete (call.usage as Partial<TokenUsageStats>).modelRetries;
   },
   (value: TokenUsageStats) => {
     Object.assign(value, { modelUsage: 'invalid' });

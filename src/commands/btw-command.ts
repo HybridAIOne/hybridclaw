@@ -50,6 +50,7 @@ export async function runBtwSideQuestion(
     .filter((message): message is ChatMessage => message !== null);
   const result = await callAuxiliaryModel({
     task: 'btw',
+    sessionId: session.id,
     messages: [
       { role: 'system', content: BTW_SYSTEM_PROMPT },
       ...contextMessages,

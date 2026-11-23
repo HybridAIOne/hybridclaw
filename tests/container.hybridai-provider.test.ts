@@ -3,7 +3,10 @@ import { callHybridAIProviderStream } from '../container/src/providers/hybridai.
 import type { NormalizedStreamCallArgs } from '../container/src/providers/shared.js';
 import type { ChatCompletionResponse } from '../container/src/types.js';
 
-function makeEventStreamResponse(chunks: string[]): Response {
+function makeEventStreamResponse(
+  chunks: string[],
+  contentType = 'text/event-stream',
+): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -15,7 +18,7 @@ function makeEventStreamResponse(chunks: string[]): Response {
   });
   return new Response(stream, {
     status: 200,
-    headers: { 'Content-Type': 'text/event-stream' },
+    headers: { 'Content-Type': contentType },
   });
 }
 
@@ -359,5 +362,30 @@ describe('HybridAI container provider', () => {
       },
       { type: 'text', text: 'Answer' },
     ]);
+  });
+
+  test('reads NDJSON lines split across chunks', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse(
+          [
+            '{"choices":[{"delta":{"content":"Hel"}}]}\r\n{"choices":[{"del',
+            'ta":{"content":"lo"},"finish_reason":"stop"}]}\n',
+            '[DONE]\n',
+          ],
+          'application/x-ndjson',
+        ),
+      ),
+    );
+
+    const textDeltas: string[] = [];
+    const result = await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      onTextDelta: (delta) => textDeltas.push(delta),
+    });
+
+    expectStreamText({ textDeltas, result }, ['Hel', 'lo'], 'Hello');
+    expect(result.choices[0]?.finish_reason).toBe('stop');
   });
 });

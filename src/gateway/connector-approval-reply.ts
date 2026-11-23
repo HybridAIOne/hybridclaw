@@ -50,6 +50,7 @@ export async function resolveConnectorApprovalReply(
       task: 'eval_judge',
       fallbackModel: model,
       agentId,
+      sessionId: req.sessionId,
       tools: [],
       maxTokens: 500,
       allowFallback: false,

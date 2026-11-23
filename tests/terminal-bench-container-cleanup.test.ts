@@ -119,6 +119,40 @@ test('a completed task confirms removal before releasing admission', async () =>
   expect(locks()).toHaveLength(0);
 });
 
+test.each([
+  { outcome: { status: 'success' }, finishedNaturally: true },
+  {
+    outcome: { status: 'error', error: 'Model call limit reached' },
+    finishedNaturally: false,
+  },
+  {
+    outcome: { status: 'success', pendingApproval: {} },
+    finishedNaturally: false,
+  },
+  {
+    outcome: { status: 'success', messageRole: 'approval' },
+    finishedNaturally: false,
+  },
+])('records observed calls and completion for $outcome', async ({
+  outcome,
+  finishedNaturally,
+}) => {
+  mocks.handle.mockResolvedValueOnce({ ...outcome, tokenUsage: { modelCalls: 7 } });
+  await run();
+  expect(result().rewards[0]).toMatchObject({
+    reward: 1,
+    passed: true,
+    turnsUsed: 7,
+    finishedNaturally,
+    ...('error' in outcome && { error: outcome.error }),
+  });
+});
+
+test('omits model calls when the worker reports no usage', async () => {
+  await run();
+  expect(result().rewards[0]).not.toHaveProperty('turnsUsed');
+});
+
 test('refuses unregistered container removal without a Docker command', async () => {
   const resources = new BenchmarkResources([root], DEFAULT_BENCHMARK_BUDGET, () => {});
   expect(() => resources.registerContainer('example-task')).toThrow(/admission/);

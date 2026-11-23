@@ -1,4 +1,11 @@
-import { inferProviderFromModelPrefix } from './provider-ids.ts';
+/**
+ * Model-id prefixes on the wire: the one place that turns a HybridClaw model
+ * id (`openrouter/...`, `vllm/...`, `hybridai/...`) into the id a provider
+ * expects, always through `stripProviderPrefix`. NOT display formatting
+ * (`src/providers/model-names.ts`) or prefix → provider inference
+ * (`provider-ids.ts`).
+ */
+import { inferProviderFromModelPrefix } from '../provider-ids.ts';
 
 export const HYBRIDAI_MODEL_PREFIX: 'hybridai/' = 'hybridai/';
 
@@ -49,4 +56,27 @@ export function normalizeHybridAIModelForRuntime(model: string): string {
     return normalized;
   }
   return normalized.slice(HYBRIDAI_MODEL_PREFIX.length).trim();
+}
+
+export function normalizeOpenRouterRuntimeModelName(model: string): string {
+  const trimmed = String(model || '').trim();
+  const upstreamModel = stripProviderPrefix(trimmed, 'openrouter');
+  // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
+  // keep their namespace. Vendor-scoped ids use the upstream path.
+  return upstreamModel.includes('/') ? upstreamModel : trimmed;
+}
+
+/** The upstream model id a chat-completions provider expects on the wire. */
+export function normalizeOpenAICompatModelName(
+  provider: string | undefined,
+  model: string,
+): string {
+  const trimmed = String(model || '').trim();
+  if (!provider || provider === 'hybridai' || provider === 'openai-codex') {
+    return trimmed;
+  }
+  if (provider === 'openrouter') {
+    return normalizeOpenRouterRuntimeModelName(trimmed);
+  }
+  return stripProviderPrefix(trimmed, provider);
 }
