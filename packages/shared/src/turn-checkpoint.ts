@@ -14,6 +14,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { TokenUsageStats } from '@hybridclaw/contracts/token-usage';
 import type { FileBackedToolResult } from '@hybridclaw/contracts/tool-history';
 import { writeFileAtomic } from './atomic-write.ts';
+import { isRecord } from './primitive-values.ts';
 import { validateTokenUsage } from './token-usage.ts';
 import type { FileBackedToolResults, HistoryMessage } from './tool-history.ts';
 import { validateToolHistory } from './tool-history.ts';
@@ -135,6 +136,22 @@ function callKey(messageIndex: number, id: string | undefined): string {
   return JSON.stringify([messageIndex, id]);
 }
 
+// compat: remove after v0.46 once pre-v0.44 checkpoints have been migrated.
+function readVersionOneUsage(value: unknown): TokenUsageStats {
+  if (!isRecord(value)) return validateTokenUsage(value);
+  const usage = { modelRetries: 0, ...value };
+  if (Array.isArray(value.modelUsage)) {
+    Object.assign(usage, {
+      modelUsage: value.modelUsage.map((call: unknown) =>
+        isRecord(call) && isRecord(call.usage)
+          ? { ...call, usage: { modelRetries: 0, ...call.usage } }
+          : call,
+      ),
+    });
+  }
+  return validateTokenUsage(usage);
+}
+
 export function checkpointOutput(
   data: TurnCheckpointData,
 ): TurnRecoveryEvidence {
@@ -232,7 +249,7 @@ export function checkpointOutput(
     ...(spilledIds.size ? { spilledToolCallIds: [...spilledIds] } : {}),
     ...(data.tokenUsage === undefined
       ? {}
-      : { tokenUsage: validateTokenUsage(data.tokenUsage) }),
+      : { tokenUsage: readVersionOneUsage(data.tokenUsage) }),
   };
 }
 

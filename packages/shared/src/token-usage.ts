@@ -104,8 +104,7 @@ function validateCounters(value: unknown): TokenUsageStats {
   const result = createTokenUsageStats();
   for (const [key, initial] of Object.entries(result)) {
     if (key === 'performanceSamples') continue;
-    // compat: remove after v0.44. Checkpoints written before v0.44 lack modelRetries.
-    const actual = key === 'modelRetries' ? (value[key] ?? 0) : value[key];
+    const actual = value[key];
     if (
       typeof initial === 'boolean'
         ? typeof actual !== 'boolean'

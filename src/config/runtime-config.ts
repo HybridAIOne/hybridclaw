@@ -6579,18 +6579,11 @@ function normalizeRuntimeConfig(
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.threshold,
     { min: 20 },
   );
-  const configuredTokenBudget = normalizeInteger(
+  const tokenBudget = normalizeInteger(
     rawSessionCompaction.tokenBudget,
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.tokenBudget,
     { min: 0 },
   );
-  // compat: remove after v0.44. Before v43 every config carried the
-  // then-default cap of 100,000.
-  const tokenBudget =
-    configuredTokenBudget === 100_000 &&
-    (sourceVersion === null || sourceVersion < 43)
-      ? DEFAULT_RUNTIME_CONFIG.sessionCompaction.tokenBudget
-      : configuredTokenBudget;
   const budgetRatio = normalizeNumber(
     rawSessionCompaction.budgetRatio,
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.budgetRatio,

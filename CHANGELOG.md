@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## [0.44.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.44.0) - 2026-11-23
+
+### Added
+
+- Enter payment details in a web chat card when an agent needs to fill a
+  checkout form. The browser fills the fields without exposing the card
+  details to the model (#2312).
+- Choose the sending account when more than one mailbox is available and your
+  request leaves the sender unclear. Compatible Hy apps show account buttons
+  (#2310).
+- Choose German districts and pause or resume public warnings in compatible
+  Hy app settings. Pausing keeps your saved districts (#2298).
+- Audit events include structured tool error codes when available and count
+  provider requests resent after a failure (#2302, #2309).
+
+### Changed
+
+- Shell approval details include the full command and show the agent's
+  description separately (#2299, #2301).
+- Gateway Codex calls forward PDF and file attachments, preserve reasoning
+  between tool calls, and reuse the prompt cache for auxiliary tasks and
+  OpenAI-compatible requests with a stable `user` value (#2305).
+- Mobile turns use a smaller prompt and can go directly to lookup tools for
+  routine retrieval (#2297).
+- The pre-v0.43 migration for the old 100,000-token session cap has expired.
+  If you are upgrading directly from v0.42 or earlier, remove
+  `sessionCompaction.tokenBudget` or set it to `0` to follow the model's context
+  window. Keep `100000` to retain the cap.
+- Upgrade the gateway and agent workers together. Current worker replies
+  require retry counters. Existing on-disk turn checkpoints remain readable.
+- Remove ignore rules for the retired `bundle/` build directory. Delete any
+  leftover `bundle/` output before packaging from a source checkout.
+
+### Fixed
+
+- OpenAI-compatible conversations that share a system prompt get separate agent
+  execution sessions, including separate shell state and file locks (#2315).
+- Host-mode shell commands resolve `/workspace/` paths like the file tools.
+  File-write locks and their reviewers identify files by workspace-relative
+  path (#2313, #2314, #2316).
+- Routines send one out-of-credit notice per chat and retry on their normal
+  schedule after the allowance resets (#2311).
+- Local models get a bounded recovery attempt after output truncation. Scoped
+  recall preserves task constraints and delivery receipts, and scheduled
+  reminders handle time zone offsets on the target date (#2263).
+- Web chat renders external Markdown images as clickable links, including in
+  older messages. Saved website sign-in values stay out of browser tool results
+  (#2312, #2317).
+- Email results identify the sending address, email search respects its filters,
+  and agents that skip onboarding send a one-time welcome email (#2293, #2308).
+- Agents running as host processes can read Slack attachments (#2292).
+- Gateway HybridAI streams report provider errors and apply the configured
+  output-token limit (#2305).
+
 ## [0.43.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.43.2) - 2026-11-17
 
 ### Added

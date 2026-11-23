@@ -166,7 +166,7 @@ describe('runtime config migration logging', () => {
   );
 
   it.each([
-    { version: 42, tokenBudget: 100_000, expected: 0 },
+    { version: 42, tokenBudget: 100_000, expected: 100_000 },
     { version: 42, tokenBudget: 150_000, expected: 150_000 },
     { version: 43, tokenBudget: 100_000, expected: 100_000 },
   ])(
