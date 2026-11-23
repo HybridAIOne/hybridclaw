@@ -5563,6 +5563,7 @@ describe('gateway HTTP server', () => {
       ],
       fallbackModel: expect.any(String),
       agentId: 'main',
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       temperature: 0,
       allowFallback: false,
     });
