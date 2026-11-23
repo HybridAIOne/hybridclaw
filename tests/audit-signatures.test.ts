@@ -28,6 +28,12 @@ const registryUnavailable = {
   stdout: '',
   stderr: 'npm error code E503',
 };
+const malformedAttestationResponse = {
+  status: 1,
+  stdout: '',
+  stderr: `npm error code FETCH_ERROR
+npm error invalid json response body at https://registry.npmjs.org/-/npm/v1/attestations/pkg-a@1.0.0 reason: Unexpected token 'O', "OK" is not valid JSON`,
+};
 const integrityFailure = {
   status: 1,
   stdout: '',
@@ -82,6 +88,20 @@ npm error 404 Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/d
       [
         'a registry outage that persists',
         [registryUnavailable, registryUnavailable, registryUnavailable],
+        1,
+      ],
+      [
+        'a malformed attestation response that clears',
+        [malformedAttestationResponse, success],
+        0,
+      ],
+      [
+        'a malformed attestation response that persists',
+        [
+          malformedAttestationResponse,
+          malformedAttestationResponse,
+          malformedAttestationResponse,
+        ],
         1,
       ],
       ['a missing attestation key', [missingKeyFailure], 1],

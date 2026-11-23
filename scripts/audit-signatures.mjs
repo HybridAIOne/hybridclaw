@@ -52,6 +52,7 @@ const signatureFailurePatterns = [
 
 const transientPatterns = [
   missingAttestationPattern,
+  /invalid json response body at https:\/\/registry\.npmjs\.org\/-\/npm\/v1\/attestations\//iu,
   /E5\d\d/u,
   'ECONNRESET',
   'ECONNREFUSED',
