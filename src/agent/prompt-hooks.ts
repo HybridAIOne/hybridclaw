@@ -550,7 +550,9 @@ function buildSafetyHook(context: PromptHookContext): string {
     model &&
     isLocalBackendType(resolveModelProvider(model)) &&
     resolveLocalToolMode(context.agentId) === 'starred';
-  const activeMessageChannels = collectActiveMessageToolChannelKinds();
+  const activeMessageChannels = isToolOffered(context, 'message')
+    ? collectActiveMessageToolChannelKinds()
+    : [];
   const toolsSummary = compactLocalTools
     ? [
         '## Your Tools',

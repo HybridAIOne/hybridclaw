@@ -31,6 +31,7 @@ export interface ProcessRequestParams extends ExecutionDeadline {
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
   tools: ToolDefinition[];
+  blockedTools?: ContainerInput['blockedTools'];
   localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
   localDiscoveryDisabled?: boolean;

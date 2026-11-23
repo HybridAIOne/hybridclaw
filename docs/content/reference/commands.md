@@ -563,6 +563,10 @@ message about it, at most once a routine a day; a routine paused after
 repeated failures says so at once. Notices that arrive together become one
 message.
 
+A web task returns its report as the final response. The scheduler delivers that
+response to web chat, and the task can read mail through its enabled connectors.
+The built-in `message` tool is unavailable during the run.
+
 A web task replies in its agent's main chat: the web chat the HybridAI apps
 open with a session id starting with `main-` (the most recently active one, if
 there are several). A task created in another web chat of that agent runs

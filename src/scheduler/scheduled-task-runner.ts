@@ -180,6 +180,8 @@ export async function runIsolatedScheduledTask(params: {
     [
       'cron',
       'trigger',
+      // The scheduler delivers the reply to web chat after the run.
+      ...(channelId === 'web' ? ['message'] : []),
       SHOW_WIDGET_TOOL,
       DRAFT_TRANSFER_TOOL,
       ASK_QUESTIONS_TOOL,

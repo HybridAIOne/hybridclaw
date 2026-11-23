@@ -8,7 +8,12 @@ import type http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import type { ChatHistoryResponse } from '../console/src/api/chat-types.js';
 import type { ChatMessage } from '../container/src/types.js';
+import {
+  GATEWAY_PROACTIVE_PATH,
+  type GatewayProactivePullResponse,
+} from '../src/gateway/gateway-types.js';
 import {
   getAvailablePort,
   waitForHealth,
@@ -18,7 +23,7 @@ import {
   type ModelRequestBody,
   startScriptedModelServer,
 } from './helpers/scripted-model-server.js';
-import { cleanupTrackedTempDirs } from './test-utils.js';
+import { cleanupTrackedTempDirs, useTempDir } from './test-utils.js';
 
 /**
  * Host-sandbox agents in the layouts the npm-install journey does not cover:
@@ -113,6 +118,7 @@ async function startGateway(params: {
   preferredPort: number;
   modelPort: number;
   env: NodeJS.ProcessEnv;
+  config?: Record<string, unknown>;
 }): Promise<Gateway> {
   const dataDir = path.join(params.home, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -142,6 +148,7 @@ async function startGateway(params: {
       },
       agents: { defaults: { model: `vllm/${MODEL_ID}` } },
       container: { sandboxMode: 'host' },
+      ...params.config,
     }),
   );
   const proc: ChildProcess = spawn(
@@ -243,6 +250,164 @@ async function skillState(gateway: Gateway, skill: string): Promise<string> {
   const { text } = await skillCommand(gateway, 'list');
   return new RegExp(`^\\s*${skill} \\[([^\\]]+)\\]`, 'm').exec(text)?.[1] ?? '';
 }
+
+describe.runIf(RUN)('host-sandbox scheduled web delivery', () => {
+  const makeTempDir = useTempDir('hybridclaw-scheduled-web-e2e-');
+
+  test(
+    'a rejected TUI send still yields one report in web chat',
+    async () => {
+      const prompt = 'Check email for upcoming deadlines and report them here.';
+      const report = 'Your test account renewal is due Wednesday.';
+      const sendCallId = 'call_scheduled_send';
+      const model = await startScriptedModelServer(
+        (body) => {
+          const last = lastWorkflowMessage(body);
+          if (last?.role === 'tool' && last.tool_call_id === sendCallId) {
+            return { role: 'assistant', content: report };
+          }
+          if (last?.role !== 'user' || !messageText(last).includes(prompt)) {
+            return { role: 'assistant', content: 'Ready.' };
+          }
+          return {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: sendCallId,
+                type: 'function',
+                function: {
+                  name: 'message',
+                  arguments: JSON.stringify({
+                    action: 'send',
+                    channelId: 'tui',
+                    content: report,
+                  }),
+                },
+              },
+            ],
+          };
+        },
+        { model: MODEL_ID },
+      );
+      let gateway: Gateway | undefined;
+      try {
+        const running = await startGateway({
+          home: makeTempDir(),
+          entry: path.join(repoRoot, 'dist', 'cli.js'),
+          preferredPort: 0,
+          modelPort: model.port,
+          env: process.env,
+          config: {
+            tools: { localToolMode: 'full' },
+            // A configured backend exposes the message tool to interactive chat.
+            discordWebhook: {
+              enabled: true,
+              webhooks: {
+                default: {
+                  webhookUrl:
+                    'https://discord.com/api/webhooks/123456789012345678/test-token',
+                },
+              },
+            },
+          },
+        });
+        gateway = running;
+        const sessionId = 'main-scheduled-email-e2e';
+        expect(await chat(running, sessionId, 'Ready for email reports?')).toBe(
+          'Ready.',
+        );
+        expect(
+          model.requests.some((body) =>
+            body.tools?.some((tool) => tool.function.name === 'message'),
+          ),
+        ).toBe(true);
+
+        const scheduled = await post<{ kind: string; text: string }>(
+          running,
+          '/api/command',
+          {
+            sessionId,
+            channelId: 'web',
+            args: [
+              'schedule',
+              'add',
+              '--reply-only',
+              'at',
+              `"${new Date(Date.now() + 1_000).toISOString()}"`,
+              prompt,
+            ],
+          },
+        );
+        expect(scheduled.kind, scheduled.text).toBe('plain');
+
+        const get = async <T>(route: string): Promise<T> => {
+          const response = await fetch(`${running.url}${route}`, {
+            headers: { Authorization: `Bearer ${WEB_API_TOKEN}` },
+            signal: AbortSignal.timeout(5_000),
+          });
+          expect(response.status).toBe(200);
+          return (await response.json()) as T;
+        };
+        const historyUrl = `/api/history?sessionId=${sessionId}`;
+        await expect
+          .poll(
+            async () => {
+              const { history } = await get<ChatHistoryResponse>(historyUrl);
+              return history.filter((message) =>
+                message.source?.startsWith('schedule:'),
+              );
+            },
+            { timeout: 15_000 },
+          )
+          .toMatchObject([{ role: 'assistant', content: report }]);
+
+        const history = await get<ChatHistoryResponse>(historyUrl);
+        expect(history.pendingApproval).toBeUndefined();
+        expect(
+          history.history.filter((message) => message.content === report),
+        ).toHaveLength(1);
+        expect(history.history.some((message) => message.approval)).toBe(false);
+        const queued = await get<GatewayProactivePullResponse>(
+          `${GATEWAY_PROACTIVE_PATH}?channelId=tui`,
+        );
+        expect(queued.messages).toEqual([]);
+
+        const scheduledRequest = model.requests.find((body) =>
+          messageText(lastWorkflowMessage(body)).includes(prompt),
+        );
+        expect(
+          scheduledRequest?.tools?.some(
+            (tool) => tool.function.name === 'message',
+          ),
+        ).toBe(false);
+        expect(
+          scheduledRequest?.messages.some(
+            (message) =>
+              message.role === 'system' &&
+              messageText(message).includes('Message Tool Examples'),
+          ),
+        ).toBe(false);
+        const rejection = model.requests
+          .flatMap((body) => body.messages)
+          .find(
+            (message) =>
+              message.role === 'tool' && message.tool_call_id === sendCallId,
+          );
+        expect(messageText(rejection)).toContain('No action was executed.');
+      } finally {
+        try {
+          await gateway?.stop();
+        } finally {
+          await new Promise<void>((resolve) =>
+            model.server.close(() => resolve()),
+          );
+        }
+      }
+    },
+    STARTUP_TIMEOUT_MS + TURN_TIMEOUT_MS,
+  );
+});
 
 describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', () => {
   const tempDirs: string[] = [];
