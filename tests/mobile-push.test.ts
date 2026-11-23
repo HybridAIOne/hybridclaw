@@ -192,7 +192,7 @@ describe('phone delivery', () => {
     });
     expect(JSON.stringify(relayed().body)).not.toContain('Ben');
     // A turn that ends asking for a website sign-in waits for the user too, without naming the site.
-    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'book it' }, { status: 'success', result: 'Please sign in to example.com first.', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 10 }, null, true);
+    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'book it' }, { status: 'success', result: 'Please sign in to example.com first.', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 10 }, null, 'sign_in');
     await vi.waitFor(() => expect(calls()).toHaveLength(2));
     expect(relayed(1).body.payload).toMatchObject({
       aps: { alert: { title: 'Hy', body: 'Waiting for you to sign in.', 'loc-key': 'Waiting for you to sign in.' } },

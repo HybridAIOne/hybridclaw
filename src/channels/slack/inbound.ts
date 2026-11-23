@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { SLACK_MEDIA_TMP_PREFIX } from '@hybridclaw/shared/managed-temp-media';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type {
   RuntimeSlackConfig,
@@ -13,10 +14,7 @@ import type {
   SlackReplyStyle,
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
-import {
-  resolveManagedTempMediaDir,
-  SLACK_MEDIA_TMP_PREFIX,
-} from '../../media/managed-temp-media.js';
+import { resolveManagedTempMediaDir } from '../../media/managed-temp-media.js';
 import { buildSessionKey, parseSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { normalizeTrimmedString as trimValue } from '../../utils/normalized-strings.js';

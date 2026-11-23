@@ -6,8 +6,8 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import type { ModelCallUsage } from '@hybridclaw/contracts/token-usage';
 import { readReportedUsageCost } from '@hybridclaw/shared/reported-usage-cost';
-import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
 import {
   IncompleteModelResponseError,
   isCompleteToolCallFinish,
@@ -25,6 +25,7 @@ import type { ChatCompletionResponse, ContainerInput } from './types.js';
 const scope = new AsyncLocalStorage<{
   owner: { history: TurnToolHistory; closed: boolean };
   task?: string;
+  retry?: boolean;
 }>();
 
 export function createRequestTurnHistory(
@@ -62,6 +63,15 @@ export function withModelTask<T>(
   return current ? scope.run({ ...current, task }, work) : work();
 }
 
+/** With `retry`, the calls `work` makes resend a request whose last call failed. */
+export function withModelRetry<T>(
+  retry: boolean,
+  work: () => Promise<T>,
+): Promise<T> {
+  const current = scope.getStore();
+  return current && retry ? scope.run({ ...current, retry }, work) : work();
+}
+
 export async function observeModelUsage(
   args: NormalizedCallArgs,
   estimatePrompt: () => number,
@@ -79,11 +89,17 @@ export async function observeModelUsage(
     ...(current.task ? { task: current.task } : {}),
     status: 'running',
     durationMs: 0,
-    usage: { ...createTokenUsageStats(), modelCalls: 1, estimatedPromptTokens },
+    usage: {
+      ...createTokenUsageStats(),
+      modelCalls: 1,
+      modelRetries: current.retry ? 1 : 0,
+      estimatedPromptTokens,
+    },
   };
   stats.modelUsage ??= [];
   stats.modelUsage.push(call);
   stats.modelCalls++;
+  stats.modelRetries += call.usage.modelRetries;
   stats.estimatedPromptTokens += estimatedPromptTokens;
   history.checkpointUsage();
   let response: Pick<ChatCompletionResponse, 'usage'> | undefined;

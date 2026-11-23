@@ -1,10 +1,12 @@
+import {
+  AUDIO_FILE_EXTENSION_RE,
+  IMAGE_FILE_EXTENSION_RE,
+} from '@hybridclaw/shared/media-kind';
 import type {
   Attachment as DiscordAttachment,
   Message as DiscordMessage,
 } from 'discord.js';
-
 import { logger } from '../../logger.js';
-import { AUDIO_FILE_EXTENSION_RE } from '../../media/mime-utils.js';
 import type { MediaContextItem } from '../../types/container.js';
 import {
   fetchDiscordCdnBuffer,
@@ -46,7 +48,7 @@ export function looksLikeTextAttachment(
 
 function looksLikeImageAttachment(name: string, contentType: string): boolean {
   if (contentType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(name);
+  return IMAGE_FILE_EXTENSION_RE.test(name);
 }
 
 function looksLikePdfAttachment(name: string, contentType: string): boolean {

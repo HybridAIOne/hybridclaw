@@ -1,20 +1,24 @@
-import { isRecord } from '@hybridclaw/shared/primitive-values';
 import type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '@hybridclaw/shared/web-search-config';
+} from '@hybridclaw/contracts/web-search-config';
+import { isRecord } from '@hybridclaw/shared/primitive-values';
 import {
-  decodeEntities,
-  dedupeResults,
-  normalizeResultUrl,
-  normalizeWhitespace,
-  stripTags,
-} from './search-utils.js';
+  BRAVE_SEARCH_ENDPOINT,
+  DUCKDUCKGO_SEARCH_ENDPOINT,
+  PERPLEXITY_SEARCH_ENDPOINT,
+  parseBraveSearchResponse,
+  parseDuckDuckGoHtml,
+  parsePerplexitySearchResponse,
+  parseSearxngSearchResponse,
+  parseTavilySearchResponse,
+  type SearchResult,
+  TAVILY_SEARCH_ENDPOINT,
+} from '@hybridclaw/shared/provider-wire/web-search-parsers';
 import {
   buildSearxngSearchUrl,
   normalizeSearxngListParam,
-  parseSearxngSearchResponse,
   type SearxngTimeRange,
 } from './searxng-client.js';
 
@@ -28,11 +32,6 @@ const PERPLEXITY_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-const BRAVE_SEARCH_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
-const PERPLEXITY_SEARCH_ENDPOINT = 'https://api.perplexity.ai/search';
-const TAVILY_SEARCH_ENDPOINT = 'https://api.tavily.com/search';
-const DUCKDUCKGO_SEARCH_ENDPOINT = 'https://html.duckduckgo.com/html/';
 
 const AUTO_PROVIDER_ORDER: SearchProviderName[] = [
   'brave',
@@ -82,7 +81,7 @@ export type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '@hybridclaw/shared/web-search-config';
+} from '@hybridclaw/contracts/web-search-config';
 
 export type SearchFreshness = 'day' | 'week' | 'month' | 'year';
 
@@ -93,16 +92,6 @@ export interface SearchProvider {
     count: number,
     signal: AbortSignal,
   ): Promise<SearchResult[]>;
-}
-
-export interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-  age?: string;
-  category?: string;
-  engine?: string;
-  thumbnail?: string;
 }
 
 export type WebSearchRuntimeConfig = WebSearchConfig;
@@ -407,31 +396,6 @@ export function getWebSearchConfigFromEnv(
   };
 }
 
-function normalizeSearchResults(
-  results: Array<{
-    title?: unknown;
-    url?: unknown;
-    snippet?: unknown;
-    age?: unknown;
-  }>,
-): SearchResult[] {
-  const normalized: SearchResult[] = [];
-  for (const entry of results) {
-    const title = normalizeWhitespace(String(entry.title || ''));
-    const url = normalizeResultUrl(entry.url);
-    if (!title || !url) continue;
-    const snippet = normalizeWhitespace(String(entry.snippet || ''));
-    const age = normalizeWhitespace(String(entry.age || ''));
-    normalized.push({
-      title,
-      url,
-      snippet,
-      ...(age ? { age } : {}),
-    });
-  }
-  return dedupeResults(normalized);
-}
-
 function createTimeoutSignal(
   parentSignal: AbortSignal,
   timeoutMs: number,
@@ -651,120 +615,6 @@ function buildProviderRequestContext(
         ? (searxngTimeRange as SearxngTimeRange)
         : undefined,
   };
-}
-
-function extractArray(
-  value: unknown,
-): Array<Record<string, unknown> | string | number> {
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (entry): entry is Record<string, unknown> | string | number =>
-      isRecord(entry) || typeof entry === 'string' || typeof entry === 'number',
-  );
-}
-
-export function parseBraveSearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid Brave search response');
-  const rawWeb = isRecord(payload.web) ? payload.web : {};
-  const rawResults = extractArray(rawWeb.results);
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title,
-        url: entry.url,
-        snippet: entry.description ?? entry.snippet,
-        age: entry.age ?? entry.page_age ?? entry.pageAge,
-      })),
-  );
-}
-
-function parsePerplexitySearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid Perplexity search response');
-  const rawResults = extractArray(
-    payload.results ?? payload.search_results ?? payload.data,
-  );
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title ?? entry.name,
-        url: entry.url,
-        snippet: entry.snippet ?? entry.content ?? entry.description,
-        age:
-          entry.age ?? entry.date ?? entry.published_date ?? entry.last_updated,
-      })),
-  );
-}
-
-function parseTavilySearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid Tavily search response');
-  const rawResults = extractArray(payload.results);
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title,
-        url: entry.url,
-        snippet: entry.content ?? entry.snippet ?? entry.description,
-        age: entry.published_date,
-      })),
-  );
-}
-
-function unwrapDuckDuckGoUrl(href: string): string | null {
-  const decodedHref = decodeEntities(href).trim();
-  if (!decodedHref) return null;
-
-  const absoluteHref = decodedHref.startsWith('//')
-    ? `https:${decodedHref}`
-    : decodedHref.startsWith('/')
-      ? new URL(decodedHref, 'https://duckduckgo.com').toString()
-      : decodedHref;
-
-  try {
-    const parsed = new URL(absoluteHref);
-    const redirectTarget = parsed.searchParams.get('uddg');
-    if (
-      redirectTarget &&
-      (parsed.hostname === 'duckduckgo.com' ||
-        parsed.hostname === 'html.duckduckgo.com')
-    ) {
-      return normalizeResultUrl(redirectTarget);
-    }
-  } catch {
-    return normalizeResultUrl(absoluteHref);
-  }
-
-  return normalizeResultUrl(absoluteHref);
-}
-
-export function parseDuckDuckGoHtml(html: string): SearchResult[] {
-  const results: SearchResult[] = [];
-  const linkRe =
-    /<a[^>]*class=["'][^"']*\bresult__a\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  const links = Array.from(html.matchAll(linkRe));
-
-  for (let i = 0; i < links.length; i += 1) {
-    const link = links[i];
-    const start = link.index ?? 0;
-    const end = links[i + 1]?.index ?? html.length;
-    const segment = html.slice(start, end);
-    const url = unwrapDuckDuckGoUrl(link[1] || '');
-    if (!url) continue;
-
-    const title = normalizeWhitespace(stripTags(link[2] || ''));
-    if (!title) continue;
-
-    const snippetMatch = segment.match(
-      /class=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div|span)>/i,
-    );
-    const snippet = normalizeWhitespace(stripTags(snippetMatch?.[1] || ''));
-
-    results.push({ title, url, snippet });
-  }
-
-  return dedupeResults(results);
 }
 
 function createBraveProvider(

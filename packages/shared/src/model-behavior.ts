@@ -1,9 +1,10 @@
-import type { ModelBehavior } from '@hybridclaw/contracts/agent-io';
+/**
+ * Model behavior flags for local backends (today only the qwen thinking
+ * format), normalized the same way by the gateway's discovery and the agent's
+ * provider adapters. Unknown flags are dropped, never passed through.
+ */
 
-export type {
-  ModelBehavior,
-  ModelThinkingFormat,
-} from '@hybridclaw/contracts/agent-io';
+import type { ModelBehavior } from '@hybridclaw/contracts/agent-io';
 
 export function normalizeModelBehavior(
   behavior: ModelBehavior | undefined,

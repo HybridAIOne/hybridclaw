@@ -1,5 +1,5 @@
 import type { OutputPresentationMetadata } from '@hybridclaw/contracts/agent-io';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
 import type { StructuredReply } from '../../../src/gateway/structured-reply';
 import type { MessageApproval } from '../../../src/memory/message-approval';
@@ -70,6 +70,7 @@ export interface ChatActivityTraceToolStep {
   resultPreview?: string;
   durationMs?: number;
   signIn?: { host: string };
+  paymentCard?: { host: string };
 }
 
 export type ChatActivityTraceStep =
@@ -78,9 +79,12 @@ export type ChatActivityTraceStep =
   | ChatActivityTraceToolStep;
 
 /** Persisted per-message activity trace replayed from chat history. */
-export interface ChatActivityTrace {
+export interface ChatActivityTrace
+  extends Pick<
+    import('../../../src/types/activity-trace').ActivityTrace,
+    'running' | 'elapsedMs'
+  > {
   steps: ChatActivityTraceStep[];
-  elapsedMs?: number;
 }
 
 export interface ChatHistoryMessage extends StructuredReply {

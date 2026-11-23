@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { MessageActionRequest } from '@hybridclaw/contracts/message-action';
 import { isA2ALocalModeEnabled } from '../../a2a/local-mode.js';
 import {
   getAgentById,
@@ -24,7 +25,6 @@ import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   resolveDiscordLocalFileForSend,
 } from '../discord/send-files.js';
-import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { sendToDiscordWebhookTarget } from '../discord-webhook/runtime.js';
 import { normalizeDiscordWebhookChannelTarget } from '../discord-webhook/target.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
@@ -93,7 +93,7 @@ function resolveMessageToolSessionWorkspaceRoot(
 }
 
 function resolveMessageToolSendFilePath(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): string | null {
   const rawPath = String(request.filePath || '').trim();
   if (!rawPath) return null;
@@ -174,9 +174,7 @@ function normalizeMessageToolValue(rawValue: string | undefined): string {
   return String(rawValue || '').trim();
 }
 
-function isLikelyMSTeamsToolRequest(
-  request: DiscordToolActionRequest,
-): boolean {
+function isLikelyMSTeamsToolRequest(request: MessageActionRequest): boolean {
   if (resolveMSTeamsRequestSession(request.sessionId)) {
     return true;
   }
@@ -197,7 +195,7 @@ function isDiscordSessionId(value: string | undefined): boolean {
   );
 }
 
-function hasDiscordContext(request: DiscordToolActionRequest): boolean {
+function hasDiscordContext(request: MessageActionRequest): boolean {
   return Boolean(
     String(request.guildId || '').trim() ||
       String(request.contextChannelId || '').trim() ||
@@ -206,7 +204,7 @@ function hasDiscordContext(request: DiscordToolActionRequest): boolean {
 }
 
 function isDiscordTargetSelector(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   rawTarget: string,
 ): boolean {
   const trimmed = String(rawTarget || '').trim();
@@ -219,7 +217,7 @@ function isDiscordTargetSelector(
 }
 
 function shouldDelegateToDiscordToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): boolean {
   const rawChannelId = String(request.channelId || '').trim();
   if (isDiscordTargetSelector(request, rawChannelId)) return true;
@@ -252,7 +250,7 @@ function normalizeStoredMessageTimestamp(raw: string): string {
   return Number.isNaN(parsed) ? value : new Date(parsed).toISOString();
 }
 
-function resolveEmailReadTarget(request: DiscordToolActionRequest): {
+function resolveEmailReadTarget(request: MessageActionRequest): {
   channelId: string;
   sessionId: string;
 } | null {
@@ -306,7 +304,7 @@ function resolveEmailMailboxTargetFolder(rawChannelId: string): string {
   return prefixedFolder ? prefixedFolder[1].trim() : '';
 }
 
-function isEmailMailboxReadTarget(request: DiscordToolActionRequest): boolean {
+function isEmailMailboxReadTarget(request: MessageActionRequest): boolean {
   const rawChannelId = String(request.channelId || '').trim();
   if (!rawChannelId) return true;
   if (normalizeEmailMessageTarget(rawChannelId)) return false;
@@ -314,7 +312,7 @@ function isEmailMailboxReadTarget(request: DiscordToolActionRequest): boolean {
 }
 
 function resolveMessageToolRequestAgentId(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): string | undefined {
   const sessionId = String(request.sessionId || '').trim();
   if (!sessionId) return undefined;
@@ -324,7 +322,7 @@ function resolveMessageToolRequestAgentId(
 }
 
 function normalizeEmailMailboxFolders(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetFolder: string,
 ): string[] | undefined {
   const folders = [
@@ -337,7 +335,7 @@ function normalizeEmailMailboxFolders(
   return folders.length > 0 ? [...new Set(folders)] : undefined;
 }
 
-function hasMessageComponents(request: DiscordToolActionRequest): boolean {
+function hasMessageComponents(request: MessageActionRequest): boolean {
   return (
     Array.isArray(request.components) ||
     (request.components !== null && typeof request.components === 'object')
@@ -377,7 +375,7 @@ function normalizeEmailSenderName(value: unknown): string | null {
 }
 
 function resolveEmailSenderNameForRequest(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): string | null {
   const sessionId = String(request.sessionId || '').trim();
   if (!sessionId) return null;
@@ -430,7 +428,7 @@ function buildEmailSendResultMeta(params: {
 }
 
 async function runPluginChannelMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   target: NonNullable<ReturnType<typeof resolvePluginChannelTarget>>,
 ): Promise<Record<string, unknown>> {
   return sendPluginChannelToolMessage({
@@ -443,7 +441,7 @@ async function runPluginChannelMessageSendAction(
 }
 
 async function runEmailMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -486,7 +484,7 @@ async function runEmailMessageSendAction(
 
   const email = await emailRuntimeLoader.load();
   if (filePath) {
-    await email.sendEmailAttachmentTo({
+    const from = await email.sendEmailAttachmentTo({
       to: channelId,
       filePath,
       body: content || '',
@@ -497,25 +495,27 @@ async function runEmailMessageSendAction(
       action: 'send',
       channelId,
       transport: 'email',
+      from,
       attachmentCount: 1,
       contentLength: content.length,
       ...emailMeta,
     };
   }
 
-  await email.sendToEmail(channelId, content, emailOptions);
+  const from = await email.sendToEmail(channelId, content, emailOptions);
   return {
     ok: true,
     action: 'send',
     channelId,
     transport: 'email',
+    from,
     contentLength: content.length,
     ...emailMeta,
   };
 }
 
 async function runTelegramMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -557,7 +557,7 @@ async function runTelegramMessageSendAction(
 }
 
 async function runSignalMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -586,7 +586,7 @@ async function runSignalMessageSendAction(
 }
 
 async function runSlackWebhookMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -613,7 +613,7 @@ async function runSlackWebhookMessageSendAction(
 }
 
 async function runDiscordWebhookMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -640,7 +640,7 @@ async function runDiscordWebhookMessageSendAction(
 }
 
 async function runThreemaMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -667,7 +667,7 @@ async function runThreemaMessageSendAction(
 }
 
 async function runEmailReadAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   params: {
     channelId: string;
     sessionId: string;
@@ -772,7 +772,7 @@ function mapEmailMailboxMessage(message: EmailMailboxMessage) {
 }
 
 async function runEmailMailboxReadAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Promise<Record<string, unknown>> {
   if (
     String(request.before || '').trim() ||
@@ -842,7 +842,7 @@ async function runEmailMailboxReadAction(
 }
 
 async function runLocalMessageSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -875,7 +875,7 @@ async function runLocalMessageSendAction(
 }
 
 async function runConnectedDiscordToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Promise<Record<string, unknown>> {
   const discord = await discordRuntimeLoader.loadIfRequested();
   if (!discord) throw new Error('Discord is not running.');
@@ -883,7 +883,7 @@ async function runConnectedDiscordToolAction(
 }
 
 export async function runMessageToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Promise<Record<string, unknown>> {
   if (isA2ALocalModeEnabled(getRuntimeConfig())) {
     const localChannelId = normalizeLocalMessageTarget(request.channelId || '');

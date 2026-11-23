@@ -8,6 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { isManagedTempMediaDirName } from '@hybridclaw/shared/managed-temp-media';
+
 const DEFAULT_WORKSPACE_ROOT_DISPLAY = '/workspace';
 function normalizeDisplayRoot(rawValue: string | undefined): string {
   const trimmed = String(rawValue || '').trim();
@@ -24,7 +26,6 @@ export const WORKSPACE_ROOT_DISPLAY = normalizeDisplayRoot(
 );
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
-const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
@@ -146,13 +147,7 @@ function resolveManagedTempMediaPath(rawPath: string): string | null {
   if (!isWithinRoot(candidate, tempRoot)) return null;
 
   const dirName = path.basename(path.dirname(candidate));
-  if (
-    !MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
-      dirName.startsWith(prefix),
-    )
-  ) {
-    return null;
-  }
+  if (!isManagedTempMediaDirName(dirName)) return null;
 
   return candidate;
 }
@@ -391,4 +386,45 @@ export function replaceWorkspaceRootInOutput(text: string): string {
     .replaceAll(`${WORKSPACE_ROOT_OUTPUT}/`, '')
     .replace(BARE_WORKSPACE_ROOT_RE, '.')
     .replaceAll(`${WORKSPACE_ROOT_DISPLAY}/`, '');
+}
+
+/**
+ * A resolved path as the file tools take it back: relative inside the
+ * workspace, since an allowed root may claim the `/workspace/...` form.
+ */
+export function toWorkspaceToolPath(resolvedPath: string): string {
+  const root = resolveCanonicalPath(WORKSPACE_ROOT);
+  const base = isWithinRoot(resolvedPath, root) ? root : WORKSPACE_ROOT;
+  if (!isWithinRoot(resolvedPath, base)) return resolvedPath;
+  return path.relative(base, resolvedPath).replace(/\\/g, '/') || '.';
+}
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A path that starts at the display root, up to the next shell word boundary
+// or backslash escape. A `:` does not start a path (`host:/workspace`).
+const DISPLAY_ROOT_COMMAND_PATH_RE = new RegExp(
+  `(?<=^|[\\s'"\`=;,(|&<>@{])${escapeRegExp(WORKSPACE_ROOT_DISPLAY)}(?=$|[/\\s'"\`;,)|&<>}\\\\])[^\\s'"\`:;,()|&<>{}$\\\\]*`,
+  'gm',
+);
+const SHELL_LITERAL_PATH_RE = /^[\w./-]+$/;
+
+/**
+ * A host shell sees the real filesystem, where the display root is absent or
+ * another directory. Where the file tools read `/workspace/x` from the
+ * workspace, the command gets the same path; only that prefix changes.
+ */
+export function resolveDisplayRootInCommand(command: string): string {
+  if (
+    path.resolve(WORKSPACE_ROOT_DISPLAY) === WORKSPACE_ROOT ||
+    !SHELL_LITERAL_PATH_RE.test(WORKSPACE_ROOT)
+  ) {
+    return command;
+  }
+  return command.replace(DISPLAY_ROOT_COMMAND_PATH_RE, (token) => {
+    const aliased = `${WORKSPACE_ROOT}${token.slice(WORKSPACE_ROOT_DISPLAY.length)}`;
+    return resolveWorkspacePath(token) === path.resolve(aliased)
+      ? aliased
+      : token;
+  });
 }

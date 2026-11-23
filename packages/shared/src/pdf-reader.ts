@@ -6,7 +6,7 @@
  */
 import { fork } from 'node:child_process';
 import fs from 'node:fs/promises';
-import type { VisualAttachmentMessage } from './visual-snapshots.ts';
+import type { VisualAttachmentMessage } from '@hybridclaw/contracts/visual-snapshots';
 import { PDF_READ_MAX_PAGES, saveVisualSnapshot } from './visual-snapshots.ts';
 
 export { PDF_READ_MAX_PAGES } from './visual-snapshots.ts';

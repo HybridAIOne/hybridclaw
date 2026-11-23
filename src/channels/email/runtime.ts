@@ -512,26 +512,24 @@ export function createEmailRuntime() {
     });
   };
 
+  // Resolves to the address the mail went out from, which for an agent
+  // without its own mailbox is the default one.
   const sendTextToAddress = async (
     to: string,
     text: string,
     options?: EmailTextSendOptions,
-  ): Promise<void> => {
-    await sendTextFromAccount(
-      resolveSendAccountState(options?.agentId),
-      to,
-      text,
-      options,
-    );
+  ): Promise<string> => {
+    const state = resolveSendAccountState(options?.agentId);
+    await sendTextFromAccount(state, to, text, options);
+    return state.account.address;
   };
 
   const sendAttachmentToAddress = async (
     params: EmailAttachmentSendParams,
-  ): Promise<void> => {
-    await sendAttachmentFromAccount(
-      resolveSendAccountState(params.agentId),
-      params,
-    );
+  ): Promise<string> => {
+    const state = resolveSendAccountState(params.agentId);
+    await sendAttachmentFromAccount(state, params);
+    return state.account.address;
   };
 
   const readMailboxFromAccount = async (
@@ -703,18 +701,8 @@ export function createEmailRuntime() {
 
   return {
     initEmail: runtimeLifecycle.init,
-    async sendToEmail(
-      to: string,
-      text: string,
-      options?: EmailTextSendOptions,
-    ): Promise<void> {
-      await sendTextToAddress(to, text, options);
-    },
-    async sendEmailAttachmentTo(
-      params: EmailAttachmentSendParams,
-    ): Promise<void> {
-      await sendAttachmentToAddress(params);
-    },
+    sendToEmail: sendTextToAddress,
+    sendEmailAttachmentTo: sendAttachmentToAddress,
     async readEmailMailbox(
       params: EmailMailboxReadParams,
     ): Promise<EmailMailboxReadResult> {
@@ -741,11 +729,11 @@ export const sendToEmail = (
   to: string,
   text: string,
   options?: EmailTextSendOptions,
-): Promise<void> => ensureDefaultRuntime().sendToEmail(to, text, options);
+): Promise<string> => ensureDefaultRuntime().sendToEmail(to, text, options);
 
 export const sendEmailAttachmentTo = (
   params: EmailAttachmentSendParams,
-): Promise<void> => ensureDefaultRuntime().sendEmailAttachmentTo(params);
+): Promise<string> => ensureDefaultRuntime().sendEmailAttachmentTo(params);
 
 export const readEmailMailbox = (
   params: EmailMailboxReadParams,

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
+import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import type { StructuredAuditEntry } from '../src/types/audit.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -968,7 +969,20 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
         durationMs: 3,
         isError: true,
       },
+      {
+        name: 'web_fetch',
+        arguments: '{"url":"https://example.com/report"}',
+        result: 'HTTP 404',
+        durationMs: 5,
+        isError: true,
+        errorCode: 'NOT_FOUND',
+      },
     ],
+    tokenUsage: {
+      ...createTokenUsageStats(),
+      modelCalls: 4,
+      modelRetries: 2,
+    },
     error: 'Model request failed: HTTP 502',
   });
 
@@ -1011,17 +1025,34 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
   await flushAudit();
-  const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
-    (row) => row.event_type === 'turn.end',
-  );
+  const rows = getRecentStructuredAuditForSession(sessionId, 40).reverse();
+  const turnEnd = rows.find((row) => row.event_type === 'turn.end');
   expect(JSON.parse(turnEnd?.payload || '{}')).toMatchObject({
     type: 'turn.end',
     finishReason: 'error',
     assistantMessageId: assistantMessage?.id,
-    toolCalls: 2,
-    failedToolCalls: 1,
-    toolNames: ['send_email', 'bash'],
+    toolCalls: 3,
+    failedToolCalls: 2,
+    toolNames: ['send_email', 'bash', 'web_fetch'],
   });
+  const payloads = (type: string) =>
+    rows
+      .filter((row) => row.event_type === type)
+      .map((row) => JSON.parse(row.payload));
+  // Only a failure its path coded carries a code; nothing quotes the result.
+  expect(
+    payloads('tool.result').map(({ toolName, errorCode }) => ({
+      toolName,
+      errorCode,
+    })),
+  ).toEqual([
+    { toolName: 'send_email', errorCode: undefined },
+    { toolName: 'bash', errorCode: undefined },
+    { toolName: 'web_fetch', errorCode: 'NOT_FOUND' },
+  ]);
+  expect(payloads('model.usage')).toMatchObject([
+    { modelCalls: 4, modelRetries: 2 },
+  ]);
 });
 
 test('handleGatewayMessage records streamed tool calls when a timeout output carries no executions', async () => {

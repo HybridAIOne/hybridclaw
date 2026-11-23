@@ -4,6 +4,11 @@
  * use generic fallback credentials or fabricate a context window while offline.
  * A missing MLX entry triggers fresh discovery, including after local startup.
  */
+
+import {
+  normalizeModelBehavior,
+  resolveModelBehavior,
+} from '@hybridclaw/shared/model-behavior';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
@@ -16,10 +21,6 @@ import {
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
 import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
-import {
-  normalizeModelBehavior,
-  resolveModelBehavior,
-} from '../types/model-behavior.js';
 import {
   discoverAllLocalModels,
   getLocalModelInfo,

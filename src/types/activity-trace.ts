@@ -3,9 +3,9 @@
  * drafts, thinking segments, and tool calls the gateway streams to the web
  * chat, in the order they occurred.
  *
- * Persisted per assistant message so a page reload can replay the same trace
- * the web client rendered live. The step shape mirrors the console's live
- * trace so hydration is a near-identity map.
+ * Persisted per assistant message so reloads replay foreground turns and
+ * still-running background jobs. Only explicitly running snapshots retain
+ * unfinished tool states; terminal traces never imply a tool is still active.
  */
 
 import { asRecord } from '../utils/type-guards.js';
@@ -29,6 +29,8 @@ export interface ActivityTraceToolStep {
   durationMs?: number;
   /** `browser_sign_in` asked the user for this site's sign-in. */
   signIn?: { host: string };
+  /** `browser_fill_payment` asked the user for a card for this site. */
+  paymentCard?: { host: string };
 }
 
 export type ActivityTraceStep =
@@ -38,6 +40,8 @@ export type ActivityTraceStep =
 
 export interface ActivityTrace {
   steps: ActivityTraceStep[];
+  /** A background job is still publishing this durable trace. */
+  running?: boolean;
   /** Wall-clock duration of the turn, for the collapsed summary line. */
   elapsedMs?: number;
 }
@@ -90,8 +94,14 @@ export class ActivityTraceBuilder {
     durationMs?: number,
     resultPreview?: string,
     toolCallId?: string,
-    signIn?: { host: string },
+    ask?: { signIn?: { host: string }; paymentCard?: { host: string } },
   ): void {
+    const asks = {
+      ...(ask?.signIn ? { signIn: { host: ask.signIn.host } } : {}),
+      ...(ask?.paymentCard
+        ? { paymentCard: { host: ask.paymentCard.host } }
+        : {}),
+    };
     for (let i = this.steps.length - 1; i >= 0; i--) {
       const step = this.steps[i];
       if (
@@ -103,7 +113,7 @@ export class ActivityTraceBuilder {
         step.status = 'done';
         if (durationMs !== undefined) step.durationMs = durationMs;
         if (resultPreview) step.resultPreview = resultPreview;
-        if (signIn) step.signIn = { host: signIn.host };
+        Object.assign(step, asks);
         return;
       }
     }
@@ -113,7 +123,7 @@ export class ActivityTraceBuilder {
       status: 'done',
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(resultPreview ? { resultPreview } : {}),
-      ...(signIn ? { signIn: { host: signIn.host } } : {}),
+      ...asks,
     });
   }
 
@@ -122,17 +132,18 @@ export class ActivityTraceBuilder {
   }
 
   /** Returns null when no activity occurred, so callers skip persisting. */
-  build(elapsedMs?: number): ActivityTrace | null {
+  build(elapsedMs?: number, running = false): ActivityTrace | null {
     if (this.steps.length === 0) return null;
-    // A run can end while a tool is still marked running (no finish event);
-    // present it as done in the persisted, terminal trace.
+    // Terminal traces close tools that never sent a finish; live snapshots
+    // retain them so background activity renders expanded after a reload.
     const steps = this.steps.map((step) =>
-      step.kind === 'tool' && step.status === 'running'
+      !running && step.kind === 'tool' && step.status === 'running'
         ? { ...step, status: 'done' as const }
         : step,
     );
     return {
       steps,
+      ...(running ? { running: true } : {}),
       ...(typeof elapsedMs === 'number' && elapsedMs >= 0 ? { elapsedMs } : {}),
     };
   }
@@ -166,6 +177,7 @@ export function parseActivityTrace(
   if (!Array.isArray(stepsRaw)) return null;
 
   const steps: ActivityTraceStep[] = [];
+  const running = (parsed as { running?: unknown }).running === true;
   for (const entry of stepsRaw) {
     if (!entry || typeof entry !== 'object') continue;
     const source = entry as Record<string, unknown>;
@@ -181,7 +193,7 @@ export function parseActivityTrace(
       const step: ActivityTraceToolStep = {
         kind: 'tool',
         toolName,
-        status: 'done',
+        status: running && source.status === 'running' ? 'running' : 'done',
       };
       const argsPreview = readString(source, 'argsPreview');
       if (argsPreview) step.argsPreview = argsPreview;
@@ -192,6 +204,8 @@ export function parseActivityTrace(
       }
       const signInHost = readString(asRecord(source.signIn) ?? {}, 'host');
       if (signInHost) step.signIn = { host: signInHost };
+      const cardHost = readString(asRecord(source.paymentCard) ?? {}, 'host');
+      if (cardHost) step.paymentCard = { host: cardHost };
       steps.push(step);
     }
   }
@@ -200,6 +214,7 @@ export function parseActivityTrace(
   const elapsedMs = (parsed as { elapsedMs?: unknown }).elapsedMs;
   return {
     steps,
+    ...(running ? { running: true } : {}),
     ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
   };
 }

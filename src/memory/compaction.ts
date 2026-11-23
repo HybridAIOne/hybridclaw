@@ -1,9 +1,10 @@
+import {
+  estimateMessageTokens,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
 import { logger } from '../logger.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
+import { sliceHeadAtCodePointBoundary } from '../session/token-efficiency.js';
 import { expandStoredMessage } from '../session/tool-history.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
@@ -119,8 +120,8 @@ function toChatMessages(messages: StoredMessage[]): ChatMessage[] {
   return messages.flatMap(expandStoredMessage);
 }
 
-function estimateMessageTokens(message: StoredMessage): number {
-  return estimateTokenCountFromMessages(expandStoredMessage(message));
+function estimateStoredMessageTokens(message: StoredMessage): number {
+  return estimateMessageTokens(expandStoredMessage(message));
 }
 
 function resolveCompactionConfig(
@@ -132,6 +133,8 @@ function resolveCompactionConfig(
   };
 }
 
+const SUMMARY_TRUNCATED_MARKER = '\n\n...[truncated]';
+
 function normalizeSummary(text: string, maxChars: number): string {
   let normalized = text.trim();
   if (normalized.startsWith('```')) {
@@ -141,7 +144,11 @@ function normalizeSummary(text: string, maxChars: number): string {
       .trim();
   }
   if (normalized.length > maxChars) {
-    normalized = `${normalized.slice(0, maxChars)}\n\n...[truncated]`;
+    const room = maxChars - SUMMARY_TRUNCATED_MARKER.length;
+    normalized =
+      room > 0
+        ? `${sliceHeadAtCodePointBoundary(normalized, room)}${SUMMARY_TRUNCATED_MARKER}`
+        : sliceHeadAtCodePointBoundary(normalized, maxChars);
   }
   return normalized.trim();
 }
@@ -259,7 +266,7 @@ function isOversizedForSummary(
   config: CompactionConfig,
 ): boolean {
   return (
-    estimateMessageTokens(message) * config.safetyMargin >
+    estimateStoredMessageTokens(message) * config.safetyMargin >
     contextWindowTokens * 0.5
   );
 }
@@ -321,9 +328,9 @@ function splitConversation(
     };
   }
 
-  const totalTokens = estimateTokenCountFromMessages(toChatMessages(nonSystem));
+  const totalTokens = estimateMessageTokens(toChatMessages(nonSystem));
   const minRecentCount = clamp(config.keepRecentMessages, 1, nonSystem.length);
-  const minimumRecentTokens = estimateTokenCountFromMessages(
+  const minimumRecentTokens = estimateMessageTokens(
     toChatMessages(nonSystem.slice(-minRecentCount)),
   );
   const targetRecentTokens = Math.max(
@@ -337,7 +344,7 @@ function splitConversation(
   while (recentStart > 0) {
     recentStart -= 1;
     keptRecentCount += 1;
-    keptRecentTokens += estimateMessageTokens(nonSystem[recentStart]);
+    keptRecentTokens += estimateStoredMessageTokens(nonSystem[recentStart]);
     if (
       keptRecentCount >= minRecentCount &&
       keptRecentTokens >= targetRecentTokens
@@ -361,14 +368,14 @@ export function splitMessagesByTokenShare(
   const normalizedParts = clamp(Math.floor(parts) || 1, 1, messages.length);
   if (normalizedParts <= 1) return [messages];
 
-  const totalTokens = estimateTokenCountFromMessages(toChatMessages(messages));
+  const totalTokens = estimateMessageTokens(toChatMessages(messages));
   const targetTokens = totalTokens / normalizedParts;
   const chunks: StoredMessage[][] = [];
   let current: StoredMessage[] = [];
   let currentTokens = 0;
 
   for (const message of messages) {
-    const messageTokens = estimateMessageTokens(message);
+    const messageTokens = estimateStoredMessageTokens(message);
     if (
       chunks.length < normalizedParts - 1 &&
       current.length > 0 &&
@@ -410,7 +417,7 @@ export function computeAdaptiveChunkRatio(
   const safetyMargin =
     overrides?.safetyMargin ?? DEFAULT_COMPACTION_CONFIG.safetyMargin;
 
-  const totalTokens = estimateTokenCountFromMessages(toChatMessages(messages));
+  const totalTokens = estimateMessageTokens(toChatMessages(messages));
   const avgTokens = totalTokens / messages.length;
   const safeAvgTokens = avgTokens * safetyMargin;
   const avgRatio = safeAvgTokens / Math.max(1, contextWindowTokens);
@@ -456,7 +463,7 @@ export async function summarizeWithFallback(params: {
         maxSummaryChars: params.config.maxSummaryChars,
       });
       bestSummary = summary;
-      const estimatedTokens = estimateTokenCountFromText(summary);
+      const estimatedTokens = estimateTextTokens(summary);
       if (
         estimatedTokens <=
         Math.ceil(params.targetTokens * params.config.safetyMargin)
@@ -549,9 +556,7 @@ async function summarizeInStages(params: {
   previousSummary?: string | null;
   config: CompactionConfig;
 }): Promise<{ summary: string; stages: CompactionStage[] }> {
-  const totalTokens = estimateTokenCountFromMessages(
-    toChatMessages(params.messages),
-  );
+  const totalTokens = estimateMessageTokens(toChatMessages(params.messages));
   const maxChunkTokens = resolveMaxChunkTokens({
     messages: params.messages,
     session: params.session,
@@ -581,7 +586,7 @@ async function summarizeInStages(params: {
       index: 0,
       total: 1,
       inputTokens: totalTokens,
-      outputTokens: estimateTokenCountFromText(summary),
+      outputTokens: estimateTextTokens(summary),
       messageCount: params.messages.length,
     });
     return { summary, stages };
@@ -595,7 +600,7 @@ async function summarizeInStages(params: {
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
-    const chunkTokens = estimateTokenCountFromMessages(toChatMessages(chunk));
+    const chunkTokens = estimateMessageTokens(toChatMessages(chunk));
     const summary = await summarizeWithFallback({
       session: params.session,
       promptRunner: params.promptRunner,
@@ -616,7 +621,7 @@ async function summarizeInStages(params: {
       index,
       total: chunks.length,
       inputTokens: chunkTokens,
-      outputTokens: estimateTokenCountFromText(summary),
+      outputTokens: estimateTextTokens(summary),
       messageCount: chunk.length,
     });
   }
@@ -636,9 +641,7 @@ async function summarizeInStages(params: {
       created_at: new Date().toISOString(),
     }),
   );
-  const mergeInputTokens = estimateTokenCountFromMessages(
-    toChatMessages(mergeMessages),
-  );
+  const mergeInputTokens = estimateMessageTokens(toChatMessages(mergeMessages));
   const mergedSummary = await summarizeWithFallback({
     session: params.session,
     promptRunner: params.promptRunner,
@@ -659,7 +662,7 @@ async function summarizeInStages(params: {
     index: 0,
     total: 1,
     inputTokens: mergeInputTokens,
-    outputTokens: estimateTokenCountFromText(mergedSummary),
+    outputTokens: estimateTextTokens(mergedSummary),
     messageCount: mergeMessages.length,
   });
   return { summary: mergedSummary, stages };
@@ -694,9 +697,7 @@ export async function compactConversation(
   });
 
   const normalizedSummary = normalizeSummary(summary, config.maxSummaryChars);
-  const tokensBefore = estimateTokenCountFromMessages(
-    toChatMessages(params.messages),
-  );
+  const tokensBefore = estimateMessageTokens(toChatMessages(params.messages));
   const metadata = {
     archivePath: archive.path,
     tokensBefore,
@@ -734,9 +735,8 @@ export async function compactConversation(
   }
 
   const tokensAfter =
-    estimateTokenCountFromMessages(
-      toChatMessages([...split.system, ...split.recent]),
-    ) + estimateTokenCountFromText(normalizedSummary);
+    estimateMessageTokens(toChatMessages([...split.system, ...split.recent])) +
+    estimateTextTokens(normalizedSummary);
 
   return {
     tokensBefore,

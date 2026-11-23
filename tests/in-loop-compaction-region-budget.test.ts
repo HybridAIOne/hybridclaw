@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
-import { estimateMessageTokens } from '../container/src/token-usage.js';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import type { ChatMessage } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

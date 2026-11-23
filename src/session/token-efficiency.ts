@@ -1,7 +1,13 @@
+/**
+ * Prompt history shaping: drops whole older turns to fit a token budget and
+ * truncates text without splitting a surrogate pair. It never estimates tokens
+ * itself; every count comes from `@hybridclaw/shared/token-estimate`, so the
+ * gateway and the worker size the same history the same way.
+ */
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import type { ChatMessage } from '../types/api.js';
 
-export const DEFAULT_CHARS_PER_TOKEN = 4;
 export const DEFAULT_BOOTSTRAP_HEAD_RATIO = 0.7;
 export const DEFAULT_BOOTSTRAP_TAIL_RATIO = 0.2;
 
@@ -92,65 +98,6 @@ function groupHistoryTurns(
   return turns;
 }
 
-export function estimateTokenCountFromText(
-  text: string | null | undefined,
-): number {
-  const normalized = typeof text === 'string' ? text : '';
-  if (!normalized) return 0;
-  return Math.max(1, Math.ceil(normalized.length / DEFAULT_CHARS_PER_TOKEN));
-}
-
-function normalizeMessageContentToText(
-  content: ChatMessage['content'],
-): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (part?.type === 'text' && typeof part.text === 'string') {
-      chunks.push(part.text);
-      continue;
-    }
-    if (part?.type === 'image_url' && part.image_url?.url) {
-      chunks.push('[image]');
-      continue;
-    }
-    if (part?.type === 'audio_url' && part.audio_url?.url) {
-      chunks.push('[audio]');
-    }
-  }
-  return chunks.join('\n');
-}
-
-export function estimateTokenCountFromMessages(
-  messages: ChatMessage[],
-): number {
-  if (!Array.isArray(messages) || messages.length === 0) return 0;
-
-  let total = 2; // Approximate completion priming overhead.
-  for (const message of messages) {
-    total += 4; // Approximate per-message framing overhead.
-    total += estimateTokenCountFromText(message.role);
-    total += estimateTokenCountFromText(
-      message.tool_calls ? JSON.stringify(message.tool_calls) : null,
-    );
-    total += estimateTokenCountFromText(
-      message.anthropic_content
-        ? JSON.stringify(message.anthropic_content)
-        : null,
-    );
-    total += estimateTokenCountFromText(
-      message.openai_response_items
-        ? JSON.stringify(message.openai_response_items)
-        : null,
-    );
-    total += estimateTokenCountFromText(
-      normalizeMessageContentToText(message.content),
-    );
-  }
-  return total;
-}
-
 export function truncateHeadTailText(
   content: string,
   maxChars: number,
@@ -197,7 +144,7 @@ export function optimizeHistoryMessagesForPrompt(
     Number.MAX_SAFE_INTEGER,
   );
   const turns = groupHistoryTurns(messages);
-  const turnTokens = turns.map((turn) => estimateTokenCountFromMessages(turn));
+  const turnTokens = turns.map((turn) => estimateMessageTokens(turn));
   const originalTokens = turnTokens.reduce((total, value) => total + value, 0);
 
   let firstIncludedTurn = turns.length;

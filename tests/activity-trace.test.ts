@@ -6,6 +6,20 @@ import {
 } from '../src/types/activity-trace.js';
 
 describe('ActivityTraceBuilder', () => {
+  it('round-trips live background tools and closes them in terminal snapshots', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.startTool('web_search', 'example data', 'call_a');
+    const live = builder.build(20, true);
+    expect(live).not.toBeNull();
+    expect(parseActivityTrace(serializeActivityTrace(live!))).toMatchObject({
+      running: true, steps: [{ kind: 'tool', status: 'running' }],
+    });
+    const terminal = builder.build(30);
+    expect(parseActivityTrace(serializeActivityTrace(terminal!))).toMatchObject({
+      steps: [{ kind: 'tool', status: 'done' }],
+    });
+    expect(terminal?.running).toBeUndefined();
+  });
   it('merges consecutive thinking deltas and collapses tool start/finish', () => {
     const builder = new ActivityTraceBuilder();
     builder.pushThinking('Weighing ');
@@ -131,11 +145,14 @@ describe('serialize/parseActivityTrace round-trip', () => {
     expect(parsed).toEqual(trace);
   });
 
-  it('keeps the site a sign-in was asked for, and only a site', () => {
+  it('keeps the site a sign-in or a card was asked for, and only a site', () => {
     const builder = new ActivityTraceBuilder();
     builder.startTool('browser_sign_in', '{}', 'call-1');
     builder.finishTool('browser_sign_in', 40, 'asked', 'call-1', {
-      host: 'shop.example',
+      signIn: { host: 'shop.example' },
+    });
+    builder.finishTool('browser_fill_payment', 40, 'asked', 'call-2', {
+      paymentCard: { host: 'shop.example' },
     });
     const trace = builder.build();
     if (!trace) throw new Error('expected a trace');
@@ -143,6 +160,10 @@ describe('serialize/parseActivityTrace round-trip', () => {
     expect(parsed?.steps[0]).toMatchObject({
       toolName: 'browser_sign_in',
       signIn: { host: 'shop.example' },
+    });
+    expect(parsed?.steps[1]).toMatchObject({
+      toolName: 'browser_fill_payment',
+      paymentCard: { host: 'shop.example' },
     });
     expect(
       parseActivityTrace(

@@ -6,11 +6,10 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { normalizeMimeType } from '@hybridclaw/shared/media-kind';
 import * as config from '../config/config.js';
 import { logger } from '../logger.js';
 import type { MediaContextItem } from '../types/container.js';
-import { normalizeMimeType } from './mime-utils.js';
 
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
 export const UPLOADED_MEDIA_CACHE_LIMIT_ERROR =

@@ -9,6 +9,7 @@ import {
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
 import {
+  ASK_QUESTIONS_TOOL,
   DRAFT_TRANSFER_TOOL,
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
@@ -77,7 +78,7 @@ export async function runIsolatedScheduledTask(params: {
   channelId: string;
   chatbotId: string;
   model: string;
-  reasoningEffort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort;
+  reasoningEffort?: import('@hybridclaw/contracts/reasoning-effort').ReasoningEffort;
   agentId: string;
   sessionId?: string;
   sessionKey?: string;
@@ -181,6 +182,7 @@ export async function runIsolatedScheduledTask(params: {
       'trigger',
       SHOW_WIDGET_TOOL,
       DRAFT_TRANSFER_TOOL,
+      ASK_QUESTIONS_TOOL,
       SHOW_DASHBOARD_TOOL,
       ...(scopeRun?.blockedTools ?? []),
     ],

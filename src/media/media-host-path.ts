@@ -11,7 +11,7 @@
  * enforces the same roots for tool calls inside the sandbox.
  */
 import path from 'node:path';
-
+import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from '@hybridclaw/shared/managed-temp-media';
 import {
   CONTAINER_BINDS,
   CONTAINER_SANDBOX_MODE,
@@ -21,7 +21,6 @@ import {
   buildValidatedMountAliases,
   resolveAllowedHostMediaPath,
 } from '../security/media-paths.js';
-import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from './managed-temp-media.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,

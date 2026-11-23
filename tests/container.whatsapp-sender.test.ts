@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MessageActionRequestSchema } from '@hybridclaw/contracts/message-action';
 import { expect, test, vi } from 'vitest';
 import {
   executeTool,
@@ -42,6 +43,7 @@ test.each(['+15550100200', '', null])(
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const payload = JSON.parse(String(init?.body));
       expect(payload).toHaveProperty('from', from);
+      expect(MessageActionRequestSchema.check(payload)).toBe(true);
       try {
         const target = resolvePluginChannelTarget(payload.channelId);
         if (!target) throw new Error('unresolved target');

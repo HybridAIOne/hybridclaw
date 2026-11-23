@@ -3,12 +3,16 @@
  * language. The policy runtime owns grants and exact-call replay; this module
  * cannot edit tool arguments, grant an unknown scope, or execute a tool.
  */
+
+import type {
+  ApprovalReplyDecision,
+  ApprovalReplyInterpretation,
+} from '@hybridclaw/contracts/agent-io';
 import {
   APPROVAL_REPLY_INSTRUCTIONS,
-  type ApprovalReplyDecision,
-  type ApprovalReplyInterpretation,
   parseApprovalReplyDecision,
 } from '@hybridclaw/shared/approval-reply';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { parseApprovalDirective } from './approval-directive.js';
 import type {
   ApprovalPrelude,
@@ -18,7 +22,7 @@ import { approvalReviewArguments } from './approval-review.js';
 import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import type { PendingApproval } from './pending-approval-store.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import { finalizeTokenUsage, normalizeContentText } from './token-usage.js';
+import { finalizeTokenUsage } from './token-usage.js';
 import type { TurnToolHistory } from './turn-tool-history.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
@@ -101,7 +105,7 @@ export async function resolveApprovalReply(
                   originalRequest: item.originalPrompt,
                   reason: item.reason,
                 })),
-                lastAssistantMessage: normalizeContentText(
+                lastAssistantMessage: chatContentText(
                   [...messages]
                     .reverse()
                     .find((message) => message.role === 'assistant')?.content ??

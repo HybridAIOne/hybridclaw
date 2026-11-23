@@ -343,6 +343,7 @@ test('auxiliary retries are separate requests and do not invent a charge for an 
   expect(worker.counts.helpers).toBe(2);
   expect(output.tokenUsage).toMatchObject({
     modelCalls: 4,
+    modelRetries: 1,
     apiTotalTokens: 583,
   });
   expect(output.tokenUsage?.costUsd).toBeUndefined();
@@ -350,9 +351,13 @@ test('auxiliary retries are separate requests and do not invent a charge for an 
   expect(helper).toHaveLength(2);
   expect(helper?.[0]).toMatchObject({
     status: 'error',
-    usage: { apiUsageAvailable: false },
+    usage: { apiUsageAvailable: false, modelRetries: 0 },
   });
-  expect(helper?.[1]).toMatchObject({ status: 'success', costUsd: 0.002 });
+  expect(helper?.[1]).toMatchObject({
+    status: 'success',
+    costUsd: 0.002,
+    usage: { modelRetries: 1 },
+  });
 });
 
 test('SIGKILL preserves completed helper usage and the unknown in-flight primary request', async () => {

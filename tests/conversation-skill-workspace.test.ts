@@ -85,9 +85,10 @@ test('advertised skill reads reach agent-owned assets from a separate execution 
   expect(selected.skill.location).toBe(
     path.join(f.workspaceDir, 'skills/notes/SKILL.md'),
   );
-  expect(context.messages.map((m) => String(m.content)).join('\n')).toContain(
-    selected.skill.location,
-  );
+  const prompt = context.messages.map((m) => String(m.content)).join('\n');
+  expect(prompt).toContain('- notes [');
+  const location = /^Available skills \(default location: (.+)\):$/m.exec(prompt)?.[1];
+  expect(location?.replace('<name>', 'notes')).toBe(selected.skill.location);
   expect(fs.readdirSync(f.project)).toEqual([]);
 });
 

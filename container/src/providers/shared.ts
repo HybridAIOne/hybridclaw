@@ -3,11 +3,15 @@
  * Execution bounds are inherited context, not provider generation limits;
  * this contract never chooses a model or renews a request's deadline.
  */
-import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+
+import type {
+  ExecutionDeadline,
+  ModelBehavior,
+  ModelThinkingFormat,
+} from '@hybridclaw/contracts/agent-io';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { isRecord, readString } from '@hybridclaw/shared/primitive-values';
-import type { ReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
-import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
-import { normalizeMessageContentToText } from '../ralph.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -147,7 +151,7 @@ export function isHybridAIEmptyVisibleCompletion(
   const choice = response.choices[0];
   if (!choice) return false;
   if ((choice.message.tool_calls || []).length > 0) return false;
-  return !normalizeMessageContentToText(choice.message.content).trim();
+  return !chatContentText(choice.message.content).trim();
 }
 
 export function summarizeHybridAICompletionForDebug(

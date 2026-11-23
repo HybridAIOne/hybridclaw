@@ -18,6 +18,7 @@ import { queryAll, queryOne } from '../memory/sqlite.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { TaskCost } from '../usage/task-cost.js';
 import { readWork } from '../work/work-store.js';
+import { outOfCredit } from './out-of-credit.js';
 import { routineDue } from './routine-time.js';
 import { parseSchedulerTimestampMs } from './schedule-time.js';
 
@@ -187,7 +188,8 @@ export function finishTaskRun(
         "UPDATE task_runs SET outcome = CASE outcome WHEN 'running' THEN 'done' ELSE outcome END, ended_at = ? WHERE id = ?",
       ).run(now, id);
   });
-  if (failure)
+  // The run's own failure line already told the chat it is out of credit.
+  if (failure && !outOfCredit(failure.error))
     notice(task, [id], {
       kind: 'failed',
       dueAt: dueAtOf(id),

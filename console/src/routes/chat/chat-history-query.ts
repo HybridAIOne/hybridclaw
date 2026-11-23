@@ -125,13 +125,14 @@ function hydrateActivityTrace(
     steps.push({
       kind: 'tool',
       toolName: step.toolName,
-      status: 'done',
+      status: trace.running && step.status === 'running' ? 'running' : 'done',
       ...(step.argsPreview ? { argsPreview: step.argsPreview } : {}),
       ...(step.resultPreview ? { resultPreview: step.resultPreview } : {}),
       ...(typeof step.durationMs === 'number'
         ? { durationMs: step.durationMs }
         : {}),
       ...(step.signIn ? { signIn: step.signIn } : {}),
+      ...(step.paymentCard ? { paymentCard: step.paymentCard } : {}),
     });
   }
   return {
@@ -140,7 +141,7 @@ function hydrateActivityTrace(
     content: '',
     sessionId,
     steps,
-    done: true,
+    done: trace.running !== true,
     startedAt: 0,
     // startedAt is 0, so finishedAt carries the persisted elapsed for the
     // summary's duration; omitted when unknown.

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
+import type { ModelCallUsage } from '@hybridclaw/contracts/token-usage';
 import {
   createTokenUsageStats,
   finalizeTokenUsage,

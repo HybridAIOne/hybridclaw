@@ -18,6 +18,7 @@ import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { isConnectorEventCurrent } from './connector-events.js';
 import { isTriggerRunCurrent, triggerRunPrompt } from './event-triggers.js';
+import { outOfCredit } from './out-of-credit.js';
 import {
   claimRoutineEdition,
   deliveredEdition,
@@ -135,9 +136,12 @@ export function fireDbTask(
         (!current?.enabled ||
           current.managed_scope !== task.managed_scope ||
           current.managed_key !== task.managed_key);
+      // A run refused for lack of credit runs again once there is credit.
       const failure = stopped
         ? { disabled: false, consecutiveErrors: 0 }
-        : markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES, err);
+        : markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES, err, {
+            counts: !outOfCredit(err),
+          });
       if (run)
         recordRun(task, () =>
           finishTaskRun(task, run, {

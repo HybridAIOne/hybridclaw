@@ -19,13 +19,15 @@ export {
   shouldOfferMessageTool,
 };
 
-const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
+// Email is described per agent by `describeEmailAction`.
+const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<
+  Exclude<MessageToolChannelKind, 'email'>,
+  string
+> = {
   discord:
     'Discord: send/read messages, upload files, inspect members/channels, react, edit, pin, and manage threads.',
   discord_webhook:
     'Discord webhook: send outbound-only messages to configured Discord Incoming Webhook targets.',
-  email:
-    "Email: send and read email in the agent's own mailbox. Mail in the user's name goes from their own connected mail account, not this one.",
   imessage: 'iMessage: send messages to explicit iMessage handles.',
   line: 'LINE: send messages to the linked account self-chat only.',
   msteams:
@@ -51,10 +53,23 @@ export function collectActiveMessageToolChannelKinds(): MessageToolChannelKind[]
   );
 }
 
+// The model must know whose address its mail carries: an agent without a
+// mailbox borrows the default one, and only setup can change that.
+function describeEmailAction(ownEmailAddress: string | null): string {
+  const userMail =
+    "Mail in the user's name goes from their own connected mail account, not this one.";
+  if (ownEmailAddress) {
+    return `Email: send and read email in this agent's own mailbox, ${ownEmailAddress}. ${userMail}`;
+  }
+  return `Email: this agent has no mailbox of its own yet. Email it sends goes out from the shared default mailbox under this agent's name, and reading reads that mailbox. You cannot create a mailbox or change the sender address; an owner must give this agent a mailbox. ${userMail}`;
+}
+
 export function describeMessageToolChannelActions(
   kinds: readonly string[] | undefined,
+  ownEmailAddress: string | null = null,
 ): string[] {
   return normalizeMessageToolChannelKinds(kinds).map(
-    (kind) => `- ${MESSAGE_TOOL_CHANNEL_ACTIONS[kind]}`,
+    (kind) =>
+      `- ${kind === 'email' ? describeEmailAction(ownEmailAddress) : MESSAGE_TOOL_CHANNEL_ACTIONS[kind]}`,
   );
 }

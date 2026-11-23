@@ -11,6 +11,7 @@
  * from the `*` entries (`packages/shared/src/tool-patterns.ts`).
  * NOT account-level limits (one Google account per scope): not built.
  */
+import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { fetchHybridAIConnectorDirectory } from '../gateway/gateway-admin-connectors.js';
 import { logger } from '../logger.js';
 import { DEVICE_CONNECTOR_ID, type Scope } from './scope-store.js';
@@ -30,6 +31,18 @@ export interface ConnectorDirectoryEntry {
   id: string;
   /** "tool": public, no account. Anything else is a personal account. */
   kind: 'tool' | 'connector';
+  /** The user signed in to it (a tool: it is on). */
+  connected: boolean;
+  /** Which account it is, when the platform says (a mailbox's address). */
+  account: string | null;
+}
+
+function readAccount(value: unknown): string | null {
+  const raw =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>).address
+      : value;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 // 5 min (engineering choice, 2026-10-09): connectors change when the user
@@ -55,7 +68,12 @@ export function parseConnectorDirectory(
     const record = raw as Record<string, unknown>;
     const id = typeof record.id === 'string' ? record.id.trim() : '';
     if (!id) continue;
-    entries.push({ id, kind: record.kind === 'tool' ? 'tool' : 'connector' });
+    entries.push({
+      id,
+      kind: record.kind === 'tool' ? 'tool' : 'connector',
+      connected: record.connected === true,
+      account: readAccount(record.account),
+    });
   }
   return entries;
 }
@@ -92,6 +110,16 @@ export async function getConnectorDirectory(): Promise<
   } finally {
     inFlight = null;
   }
+}
+
+/**
+ * The directory for a chat's prompt: null without asking when this gateway
+ * has no HybridAI key, so an install without the platform logs nothing.
+ */
+export async function getLinkedConnectorDirectory(): Promise<
+  ConnectorDirectoryEntry[] | null
+> {
+  return readHybridAIApiKey() ? getConnectorDirectory() : null;
 }
 
 export function resetConnectorDirectoryCacheForTests(): void {

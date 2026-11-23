@@ -8,6 +8,7 @@
 import type { ProactiveDeliveryOutcome } from '../channels/channel-descriptor.js';
 import { logger } from '../logger.js';
 import { getJob } from '../memory/jobs.js';
+import { outOfCredit, outOfCreditNotice } from '../scheduler/out-of-credit.js';
 import {
   readRoutineEdition,
   saveEdition,
@@ -274,7 +275,9 @@ export async function runScheduledTask(
 
 /**
  * A failed run tells its own delivery target in one line, so a quiet channel
- * never hides a broken job. Best effort: the run's error is what propagates.
+ * never hides a broken job. A run refused for lack of credit says so once per
+ * target instead (`out-of-credit.ts`). Best effort: the run's error is what
+ * propagates.
  */
 async function notifyRunFailure(
   error: Error,
@@ -294,7 +297,21 @@ async function notifyRunFailure(
     0,
     200,
   );
-  const text = `⚠️ Scheduled run ${name} failed: ${reason}`;
+  const credit = outOfCredit(error);
+  const text = credit
+    ? outOfCreditNotice(
+        request.delivery.kind === 'webhook'
+          ? request.delivery.webhookUrl
+          : channelId === 'web'
+            ? `web:${sessionId}`
+            : String(channelId),
+        credit,
+        request.taskId
+          ? getJob(request.taskId, { kind: 'scheduled_task' })?.tz
+          : null,
+      )
+    : `⚠️ Scheduled run ${name} failed: ${reason}`;
+  if (!text) return;
   try {
     if (request.delivery.kind === 'webhook') {
       await target.deliverWebhookMessage(

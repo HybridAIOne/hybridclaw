@@ -198,6 +198,8 @@ prices remain unknown, and estimates can differ from the provider's bill.
   badges; see [Web chat notifications](../guides/web-notifications.md)
 - chat renders LaTeX equations with `$...$` or `\(...\)` inline and
   `$$...$$` or `\[...\]` for display math; code spans and fences stay literal
+- web chat shows external Markdown images as clickable links and displays
+  image file attachments as previews
 - the web chat route syntax-highlights completed code blocks, shows language
   labels, and keeps copy controls reachable on hover and touch devices
 - the web chat route offers a realtime voice mode (microphone button in the

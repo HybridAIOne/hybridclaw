@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from 'vitest';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import { useTempDir } from './test-utils.js';
 

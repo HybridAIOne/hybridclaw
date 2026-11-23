@@ -4,6 +4,7 @@
  * Failures and missing evidence keep the bounded continuation loop open.
  */
 import { randomUUID } from 'node:crypto';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import {
   type GoalJudgeEvent,
   registerJudgeSubscriber,
@@ -13,7 +14,6 @@ import {
   type AuxiliaryModelCallParams,
   callAuxiliaryModel,
 } from '../providers/auxiliary.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { emitRuntimeEvent } from '../skills/skill-run-events.js';
 import type { ChatMessage } from '../types/api.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
@@ -154,7 +154,7 @@ async function recordGoalJudgeUsage(params: {
   if (!isDatabaseInitialized()) return;
   const inputTokens =
     usageTokenCount(params.response.usage?.inputTokens) ??
-    estimateTokenCountFromMessages(params.messages);
+    estimateMessageTokens(params.messages);
   const outputTokens =
     usageTokenCount(params.response.usage?.outputTokens) ?? 0;
   const totalTokens =

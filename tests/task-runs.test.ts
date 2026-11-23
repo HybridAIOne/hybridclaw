@@ -204,6 +204,36 @@ test('failed runs keep their error and the chat hears of it once a day', async (
   expect(notices()[1]?.content).toContain('I paused it after 5 failed runs');
 });
 
+test('runs refused for lack of credit neither pause the routine nor add a routine notice', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(BASE + 30_000));
+  const { jobs, notices, session } = await setup();
+  const { fireDbTask } = await import('../src/scheduler/db-task-runner.ts');
+  const taskId = jobs.createJob({
+    kind: 'scheduled_task',
+    sessionId: session.id,
+    channelId: 'web',
+    cronExpr: '*/30 * * * *',
+    prompt: 'Write my briefing',
+  });
+  const runner = vi.fn(async () => {
+    throw new Error(
+      'Provider API error 429: Free usage limit reached; add credits or try again after 2026-11-28 05:00 UTC.',
+    );
+  });
+  for (let run = 1; run <= 6; run += 1) {
+    const stored = jobs.getJob(taskId, { kind: 'scheduled_task' });
+    if (!stored?.enabled) break;
+    // As the scheduler would see it: last run on the fake clock.
+    const task = { ...stored, last_run: at(run / 2), updated_at: at(run / 2) };
+    fireDbTask(task, BASE + (run / 2) * HOUR, 'Cron', {}, runner);
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  expect(runner).toHaveBeenCalledTimes(6);
+  expect(jobs.getJob(taskId, { kind: 'scheduled_task' })?.enabled).toBeTruthy();
+  expect(notices()).toHaveLength(0);
+});
+
 test('apps find the run history by its subcommand in the command list', async () => {
   const { buildTuiSlashMenuEntries, rankTuiSlashMenuEntries } = await import(
     '../src/tui-slash-menu.ts'

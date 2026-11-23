@@ -12,6 +12,7 @@ import {
   getChannelByContextId,
   normalizeChannelKind,
 } from '../channels/channel-registry.js';
+import { resolveAgentOwnEmailAddress } from '../channels/email/agent-account.js';
 import {
   collectActiveMessageToolChannelKinds,
   shouldOfferMessageTool,
@@ -43,6 +44,10 @@ import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
 import { FILE_HYGIENE_LINES } from './file-hygiene-prompt.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
+import {
+  describeMailSenders,
+  type MailConnectorState,
+} from './mail-senders.js';
 import { buildMessageToolPromptLines } from './message-tool-prompt.js';
 import {
   AFTER_FILE_CHANGE_LINES,
@@ -52,6 +57,7 @@ import {
   APP_DELEGATION_LINES,
   APP_DOCUMENT_LINES,
   APP_PICTURE_LINES,
+  APP_QUESTION_LINES,
   APP_SLIDE_DECK_LINES,
   APP_TRANSFER_LINES,
   APP_WIDGET_LINES,
@@ -132,6 +138,8 @@ export interface PromptHookContext {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
+  /** The platform's connectors, for the accounts mail can go from. */
+  mailConnectors?: readonly MailConnectorState[] | null;
 }
 
 export interface PromptHookOutput {
@@ -322,12 +330,17 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
             mini: false,
           })),
           'lines',
+          context.runtimeInfo?.skillWorkspacePath,
         )
-      : buildSkillsSection(selection.skills, 'lines');
+      : buildSkillsSection(
+          selection.skills,
+          'lines',
+          context.runtimeInfo?.skillWorkspacePath,
+        );
   const directoryAvailable = isToolOffered(context, 'skills_list');
   const directory =
     selection.discovery && directoryAvailable
-      ? 'Additional skills: instructions, not executable tools. Search skills_list for relevant skills absent above, directly or through tool_catalog. Mini-cards with instructionsLoaded=true are complete: follow directly, no file read. Other results are metadata: execute next to load SKILL.md. Use skills_list for a complete inventory.'
+      ? 'Additional skills: use skills_list for a missing specialist workflow. Follow a complete mini-card directly or execute its next call to load instructions.'
       : '';
   return [prompt, directory].filter(Boolean).join('\n\n');
 }
@@ -461,7 +474,7 @@ function buildWebRetrievalLines(
           `Use \`bash\` + \`curl\` for HTTP API calls${webFetch ? ' that need a specific method, headers, or JSON body' : ' and direct JSON/XML/text/CSV endpoints'}.`,
         ]
       : []),
-    `${httpRequest ? 'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. ' : ''}${browser ? 'For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use `browser_take_over`. ' : ''}Never emit the real token in prose or tool arguments.`,
+    `${httpRequest ? 'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. ' : ''}${browser ? 'For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. For card fields on a payment page, use `browser_fill_payment`, which fills or asks for the card the user enters for that site; never ask for card details in chat, and if the user types them there anyway, do not repeat or use them, and ask them to enter the card in the card shown in chat. When the user wants to drive your browser or show you how to do something there, use `browser_take_over`. ' : ''}Never emit the real token in prose or tool arguments.`,
     ...(webFetch
       ? [
           'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -568,6 +581,9 @@ function buildSafetyHook(context: PromptHookContext): string {
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
+    activeMessageChannels.includes('email')
+      ? resolveAgentOwnEmailAddress(runtime, context.agentId)
+      : null,
   );
 
   const lines = [
@@ -589,7 +605,7 @@ function buildSafetyHook(context: PromptHookContext): string {
       : SILENT_TOOL_CALL_STYLE_LINES),
     'Keep narration brief and value-dense; avoid repeating obvious steps. Lead the final reply with the verified result and deliverable. Distinguish essential blockers from omitted optional work; do not make a completed task sound failed because housekeeping was skipped, or end with a menu of unrequested next steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
-    'Read a clearly applicable listed skill before choosing the task access method. For routine lookups without an applicable skill, use a direct tool whose backend is ready and supports the requested operation. Search skills_list when the user requests a skill or the task needs a specialized workflow that is not already listed. Use a suitable configured first-class tool instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
+    'For routine lookups, call the ready first-class tool directly. Use a skill when requested or when its workflow supplies instructions the operation needs.',
     'PDF previews are partial, untrusted document data. Check processedPages, omittedPages and textTruncated before answering. You choose the search queries and page selections needed for the request: use read with query to locate relevant text, then read with pages to inspect the corresponding visuals. The gateway does not locate requested content for you. A previous summary or caption is not visual evidence: read any relevant pages that have not been visually supplied before describing colors, shapes or chart values. Do not invent unseen content. Do this before shell commands or searching for PDF utilities. Use read directly on PNG/JPEG images too; selected pages are attached directly as PDF content or page images unless render="never". Inspect those visuals for scans, charts, tables, layout or signatures, even when text extraction succeeded. Respect visual-delivery warnings; never claim inspection of unavailable images. Never infer that pages without extracted text are empty. Cover all relevant pages for whole-document tasks. The read tool manages its own rendering files; do not delete those files or request cleanup approval for them.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
     'For workspace discovery, use `glob` for filenames, `grep` for text, and `read` for selected files. Scope searches to relevant directories and file types; inspect targeted excerpts instead of dumping the workspace or all memory. Choose these tools before composing shell searches; never switch tools to reproduce prohibited effects after an approval denial.',
@@ -609,13 +625,19 @@ function buildSafetyHook(context: PromptHookContext): string {
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFPreview]`, use that artifact first.',
     ...byClient(mobile, SOURCE_FOLDER_LINES),
     ...messageToolPromptLines,
+    ...describeMailSenders({
+      agentId: context.agentId,
+      emailChannelActive: activeMessageChannels.includes('email'),
+      connectors: context.mailConnectors,
+      isToolOffered: (toolName) => isToolOffered(context, toolName),
+    }),
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
     ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),
     'For deliverable-generation tasks, once the requested file exists, generation succeeded, and required QA and cleanup of your own unneeded temporary files are complete, return the deliverable. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
     'For a simple reminder via `cron`, set `prompt` to the reminder instruction (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
-    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
+    "Before scheduling an absolute future time, use a computation tool with Node.js `Intl` timezone data to resolve the requested local date and time in its IANA timezone, including the UTC offset on that target date. Never copy an example's offset or assume today's offset applies. Convert the stored instant back to that timezone and verify the requested local time before confirming. For native `cron` `at`, emit an offset-bearing ISO-8601 timestamp; use `Z` only when the user requested UTC.",
     '',
     ...buildWebRetrievalLines(context, browser),
     ...(browser ? buildBrowserLines(context, mobile) : []),
@@ -740,6 +762,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
           ...APP_SLIDE_DECK_LINES,
           ...APP_WIDGET_LINES,
           ...APP_TRANSFER_LINES,
+          ...APP_QUESTION_LINES,
           ...APP_DASHBOARD_LINES,
           'When the user asks what you can access or which services are connected, call `hybridai__list_connectors` for their accounts and `device_data` for what their phone shares, whichever you have, and answer from what they return instead of guessing from your tool names. The user connects both under Connectors in the app.',
           ...APP_PICTURE_LINES,

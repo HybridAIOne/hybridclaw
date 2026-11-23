@@ -5,7 +5,7 @@
  */
 import { spawnSync } from 'node:child_process';
 
-import { mergeSystemMessage } from './system-messages.js';
+import { mergeSystemMessage } from '@hybridclaw/shared/system-messages';
 import type { ChatMessage } from './types.js';
 
 export interface RuntimeCapabilities {

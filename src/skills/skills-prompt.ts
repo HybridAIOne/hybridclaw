@@ -66,20 +66,28 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
     notice: (compactedDescriptions, omittedSkills) =>
       `  <skills_catalog_notice compacted_descriptions="${compactedDescriptions}" omitted_skills="${omittedSkills}">Catalog constrained by maxSkillsPromptChars=${MAX_SKILLS_PROMPT_CHARS}. Use skills_list to search the complete eligible catalog.</skills_catalog_notice>`,
     scanRule:
-      'Before answering or making the first task-related tool call: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries. Recheck when a later step introduces a different workflow.',
+      'Choose a workflow from `<available_skills>` `<name>`, `<category>`, and `<description>` entries. Recheck when a later step introduces a different workflow.',
     namedRule:
       '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     readRule:
       '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   },
-  lines: {
-    open: 'Available skills (default location: skills/<name>/SKILL.md):',
+  lines: lineFormat(),
+};
+
+function lineFormat(workspace?: string): SkillListFormat {
+  const prefix = workspace
+    ? `${flattenLine(workspace).replace(/\/$/, '')}/skills/`
+    : 'skills/';
+  const defaultPath = `${prefix}<name>/SKILL.md`;
+  return {
+    open: `Available skills (default location: ${defaultPath}):`,
     close: '',
     escape: flattenLine,
     render: (skill, description) => {
       // The path is shown only where it differs from the rule's default.
       const path =
-        skill.location === `skills/${skill.name}/SKILL.md`
+        skill.location === `${prefix}${skill.name}/SKILL.md`
           ? ''
           : ` (${flattenLine(skill.location)})`;
       return `- ${flattenLine(skill.name)} [${flattenLine(skill.category)}]${path}${description ? `: ${description}` : ''}`;
@@ -88,13 +96,13 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
     notice: (compactedDescriptions, omittedSkills) =>
       `(${compactedDescriptions} descriptions shortened and ${omittedSkills} skills left out to fit the prompt. Use skills_list to search the complete eligible catalog.)`,
     scanRule:
-      'Before answering or making the first task-related tool call: scan the skill list below. Each line is `- name [category]: description`. Recheck when a later step introduces a different workflow.',
+      'Choose a workflow from the skill list below. Each line is `- name [category]: description`. Recheck when a later step introduces a different workflow.',
     namedRule:
       '- If the user explicitly names a listed skill, treat that skill as selected.',
     readRule:
-      '- If exactly one skill clearly applies: read `skills/<name>/SKILL.md` with `read` (or the path in parentheses after its name, when shown), then follow it.',
-  },
-};
+      '- If exactly one skill clearly applies: read its SKILL.md at the default location in the catalog header or the path shown in parentheses, then follow it.',
+  };
+}
 
 /**
  * Build compact CLAUDE/OpenClaw-style skill prompt metadata.
@@ -102,8 +110,12 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
 export function buildSkillsPrompt(
   skills: Skill[],
   formatName: SkillListFormatName = 'xml',
+  workspace?: string,
 ): string {
-  const format = SKILL_LIST_FORMATS[formatName];
+  const format =
+    formatName === 'lines' && workspace
+      ? lineFormat(workspace)
+      : SKILL_LIST_FORMATS[formatName];
   const promptCandidates = skills.filter(
     (skill) => !skill.disableModelInvocation,
   );
@@ -267,9 +279,13 @@ export function buildSkillsPrompt(
 export function buildSkillsSection(
   skills: Skill[],
   formatName: SkillListFormatName = 'xml',
+  workspace?: string,
 ): string {
-  const format = SKILL_LIST_FORMATS[formatName];
-  const catalog = buildSkillsPrompt(skills, formatName);
+  const format =
+    formatName === 'lines' && workspace
+      ? lineFormat(workspace)
+      : SKILL_LIST_FORMATS[formatName];
+  const catalog = buildSkillsPrompt(skills, formatName, workspace);
   if (!catalog) return '';
   if (!catalog.includes(format.open)) return catalog;
 
@@ -283,7 +299,7 @@ export function buildSkillsSection(
     '- Read the selected SKILL.md before the first operation in its workflow, including inspecting an input artifact for a broader task. After reading SKILL.md, use ordinary available tools exactly as the skill instructs.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
-    '- If none clearly apply: do not read any SKILL.md.',
+    '- For a routine lookup supported by an available tool, call it directly. Search skills_list only for a requested or needed specialist workflow missing from this list.',
     '- Do not claim a listed skill is unavailable when the user named it.',
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
     '- Only write under `skills/` when the user explicitly asked to create or edit a skill.',

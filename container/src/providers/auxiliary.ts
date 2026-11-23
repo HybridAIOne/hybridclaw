@@ -11,7 +11,7 @@ import {
   resolveProviderRequestMaxTokens,
 } from '@hybridclaw/shared/request-max-tokens';
 import { modelRetryDelayMs } from '../model-retry.js';
-import { withModelTask } from '../model-usage.js';
+import { withModelRetry, withModelTask } from '../model-usage.js';
 import { haltIfShuttingDown } from '../shutdown-latch.js';
 import type {
   ChatCompletionResponse,
@@ -64,7 +64,7 @@ async function retryAuxiliaryCall<T>(
   for (let attempt = 1; ; attempt += 1) {
     await haltIfShuttingDown();
     try {
-      return await withModelTask(task, call);
+      return await withModelTask(task, () => withModelRetry(attempt > 1, call));
     } catch (error) {
       const waitMs = modelRetryDelayMs(attempt, error);
       if (waitMs === null) throw error;

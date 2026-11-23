@@ -5,9 +5,9 @@
  * It does not grant tool access or approval.
  */
 import fs from 'node:fs';
+import type { ToolCallLimits } from '@hybridclaw/contracts/tool-call-limits';
 import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
-import type { ToolCallLimits } from '@hybridclaw/shared/tool-call-limits';
 import { sessionStateKey, sessionStatePath } from './session-state.js';
 
 let active: { path: string; limits: Map<string, number> } | null = null;

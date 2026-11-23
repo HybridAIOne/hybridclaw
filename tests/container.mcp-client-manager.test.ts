@@ -330,6 +330,28 @@ describe('McpClientManager boost handshake', () => {
 
 describe('McpClientManager when the server answers with an error', () => {
   test.each([
+    [true, 'NOT_FOUND', 'NOT_FOUND'],
+    [true, 'not a code', undefined],
+    [false, 'NOT_FOUND', undefined],
+  ])('a result with isError %s and code %s fails with %s', async (isError, code, expected) => {
+    const handle = makeHandle('hybridai', 'search');
+    handle.client = {
+      callTool: vi.fn().mockResolvedValue({
+        isError,
+        content: [{ type: 'text', text: 'Mailbox not found.' }],
+        _meta: { 'hybridai/errorCode': code },
+      }),
+    } as never;
+
+    const result = await managerWith(handle).callToolDetailed(
+      'hybridai__search',
+      {},
+    );
+
+    expect(result.errorCode).toBe(expected);
+  });
+
+  test.each([
     ErrorCode.InvalidParams,
     ErrorCode.InternalError,
     ErrorCode.MethodNotFound,

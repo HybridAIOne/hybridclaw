@@ -686,6 +686,7 @@ export function stashBrowserFrameLine(
     title: redactCredentialSecrets(frame.title),
     ...(hostPath ? { frame: hostPath } : {}),
     ...(frame.signIn ? { signIn: frame.signIn } : {}),
+    ...(frame.paymentCard ? { paymentCard: frame.paymentCard } : {}),
   };
   return true;
 }
@@ -1135,6 +1136,7 @@ async function runContainerInner(
     channelId = '',
     ralphMaxIterations,
     approvalMode,
+    dryRun,
     approvalUserText = null,
     approvalUserId,
     approvalUserIsBot,
@@ -1267,6 +1269,7 @@ async function runContainerInner(
     ralphMaxIterations,
     disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
     approvalMode,
+    dryRun,
     approvalUserText,
     approvalUserId,
     approvalUserIsBot,

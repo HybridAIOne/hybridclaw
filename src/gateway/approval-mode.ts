@@ -8,9 +8,10 @@
  * NOT the approval pipeline (`container/src/approval-policy.ts` applies the
  * mode) and NOT `/approve`, which answers a single pending request.
  */
+
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import {
   APPROVAL_MODE_PRESENTATION,
-  type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   isApprovalMode,
 } from '@hybridclaw/shared/approval-mode';

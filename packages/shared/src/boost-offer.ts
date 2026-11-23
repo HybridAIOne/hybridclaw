@@ -5,17 +5,14 @@
  * line (gateway), so only well-formed offers become a boost question.
  *
  * Only the user's answer spends a boost; nothing here is shown to the model.
+ * The prompt shape a pending approval carries is wire data
+ * (`@hybridclaw/contracts/boost-offer`).
  */
 
-export type BoostCategory = 'image' | 'music' | 'video';
-
-/** What the app's boost popup shows; part of a pending approval. */
-export interface BoostPrompt {
-  category: BoostCategory;
-  modelName: string;
-  /** Boosts the user has before this one is spent. */
-  available: number;
-}
+import type {
+  BoostCategory,
+  BoostPrompt,
+} from '@hybridclaw/contracts/boost-offer';
 
 /** A platform offer (`_meta["hybridai/boostOffer"]` on a tool result). */
 export interface BoostOffer extends BoostPrompt {

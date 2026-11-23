@@ -283,8 +283,9 @@ test.each(['length', 'stop'])('never marks reasoning-only local output as comple
   const { output, requests } = await harness([
     catalog('call', 'read', { path: 'notes.txt' }),
     { role: 'assistant', content: '<think>I still need to create the PDF', finish_reason },
+    ...(finish_reason === 'length' ? [{ role: 'assistant', content: '<think>Still unfinished', finish_reason }] : []),
   ], { localStarterTools: ['skills_list'] });
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(finish_reason === 'length' ? 3 : 2);
   expect(output.status).toBe('error');
   expect(output.result).toBeNull();
   expect(output.artifacts ?? []).toEqual([]);

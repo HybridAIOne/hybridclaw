@@ -16,8 +16,14 @@ import type { ConnectorApproval } from '@hybridclaw/shared/connector-approval';
 import { CONTEXT_GUARD_DEFAULTS } from '@hybridclaw/shared/context-guard-config';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
 import { normalizeLocalContextMode } from '@hybridclaw/shared/local-tool-config';
+import { chatContentText } from '@hybridclaw/shared/message-text';
 import { shouldOfferMessageTool } from '@hybridclaw/shared/message-tool-channels';
 import { isRetrySafeRun } from '@hybridclaw/shared/retry-safety';
+import {
+  collapseSystemMessages,
+  mergeSystemMessage,
+} from '@hybridclaw/shared/system-messages';
+import { createTokenEstimateCache } from '@hybridclaw/shared/token-estimate';
 import { compileToolPatterns } from '@hybridclaw/shared/tool-patterns';
 import { appendActionPrerequisiteCheckpoint } from './action-prerequisite-checkpoint.js';
 import { resolveApprovalPrelude } from './approval-prelude.js';
@@ -66,6 +72,10 @@ import {
   writeHealthOutput,
   writeOutput,
 } from './ipc.js';
+import {
+  localOutputRecoveryPrompt,
+  localReasoningExhausted,
+} from './local-output-recovery.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -82,7 +92,11 @@ import {
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
-import { createRequestTurnHistory, withModelUsage } from './model-usage.js';
+import {
+  createRequestTurnHistory,
+  withModelRetry,
+  withModelUsage,
+} from './model-usage.js';
 import {
   injectNativeAudioContent,
   injectNativeVisionContent,
@@ -101,7 +115,7 @@ import {
   withHybridAICorrelationHeaders,
 } from './providers/shared.js';
 import { estimateVisualMessageTokens } from './providers/visual-content.js';
-import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
+import { buildRalphPrompt } from './ralph.js';
 import type { ProcessRequestParams } from './request-context.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
@@ -128,11 +142,6 @@ import {
   steerBeforeFinishing,
 } from './steer-inbox.js';
 import {
-  collapseSystemMessages,
-  mergeSystemMessage,
-} from './system-messages.js';
-import {
-  createTokenEstimateCache,
   estimateResponseTokens,
   finalizeTokenUsage,
   readChatCompletionUsageTokens,
@@ -214,6 +223,7 @@ import {
   type ToolCall,
   type ToolDefinition,
   type ToolExecution,
+  type ToolRunResult,
 } from './types.js';
 import { latestUserRequestText } from './user-request-text.js';
 
@@ -418,9 +428,7 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
     messages.some(
       (message) =>
         message.role === 'system' &&
-        normalizeMessageContentToText(message.content).includes(
-          '[SkillSelectionCache]',
-        ),
+        chatContentText(message.content).includes('[SkillSelectionCache]'),
     )
   ) {
     return messages;
@@ -758,21 +766,29 @@ async function executePreparedToolCall(
     await sleep(approval.implicitDelayMs);
   }
 
-  const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  // Only a dry run lets a denied call get here; it reports the refusal.
+  const denied = approval.decision === 'denied';
+  const blockedReason = denied
+    ? approval.reason
+    : await runBeforeToolHooks(toolName, argsJson);
   // Last await before the tool runs: a stop in the delay or hooks cancels it.
   await haltIfShuttingDown();
   const loopGuard = blockedReason
     ? { stuck: false as const }
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
-  const runtimeResult = blockedReason
+  const runtimeResult: ToolRunResult = blockedReason
     ? {
-        output: `Tool blocked by security hook: ${blockedReason}`,
+        output: denied
+          ? `Approval denied: ${blockedReason}`
+          : `Tool blocked by security hook: ${blockedReason}`,
         isError: true,
+        errorCode: 'PERMISSION_DENIED',
       }
     : loopGuard.stuck
       ? {
           output: loopGuard.message,
           isError: true,
+          errorCode: 'ABORTED',
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
@@ -822,6 +838,9 @@ async function executePreparedToolCall(
       toolCallId: call.id,
       durationMs: toolDuration,
       isError,
+      ...(isError && runtimeResult.errorCode
+        ? { errorCode: runtimeResult.errorCode }
+        : {}),
       blocked: Boolean(executionBlockedReason),
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
@@ -933,30 +952,32 @@ async function callModelWithRetry(
       let response: ChatCompletionResponse;
       if (onTextDelta) {
         try {
-          response = await callRoutedModelStream({
-            provider,
-            executionDeadlineAtMs: params.executionDeadlineAtMs,
-            providerMethod,
-            sessionId,
-            baseUrl,
-            apiKey,
-            model,
-            chatbotId,
-            enableRag,
-            requestHeaders,
-            messages: history,
-            tools,
-            onTextDelta: wrappedOnTextDelta ?? (() => undefined),
-            onThinkingDelta,
-            onActivity,
-            maxTokens,
-            debugModelResponses,
-            isLocal,
-            contextWindow,
-            modelBehavior,
-            thinkingFormat,
-            reasoningEffort,
-          });
+          response = await withModelRetry(attempt > 1, () =>
+            callRoutedModelStream({
+              provider,
+              executionDeadlineAtMs: params.executionDeadlineAtMs,
+              providerMethod,
+              sessionId,
+              baseUrl,
+              apiKey,
+              model,
+              chatbotId,
+              enableRag,
+              requestHeaders,
+              messages: history,
+              tools,
+              onTextDelta: wrappedOnTextDelta ?? (() => undefined),
+              onThinkingDelta,
+              onActivity,
+              maxTokens,
+              debugModelResponses,
+              isLocal,
+              contextWindow,
+              modelBehavior,
+              thinkingFormat,
+              reasoningEffort,
+            }),
+          );
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
             provider,
@@ -971,7 +992,34 @@ async function callModelWithRetry(
           ) {
             throw streamErr;
           }
-          response = await callRoutedModel({
+          // The same request again, without streaming: a resend.
+          response = await withModelRetry(true, () =>
+            callRoutedModel({
+              provider,
+              executionDeadlineAtMs: params.executionDeadlineAtMs,
+              providerMethod,
+              sessionId,
+              baseUrl,
+              apiKey,
+              model,
+              chatbotId,
+              enableRag,
+              requestHeaders,
+              messages: history,
+              tools,
+              maxTokens,
+              debugModelResponses,
+              isLocal,
+              contextWindow,
+              modelBehavior,
+              thinkingFormat,
+              reasoningEffort,
+            }),
+          );
+        }
+      } else {
+        response = await withModelRetry(attempt > 1, () =>
+          callRoutedModel({
             provider,
             executionDeadlineAtMs: params.executionDeadlineAtMs,
             providerMethod,
@@ -991,30 +1039,8 @@ async function callModelWithRetry(
             modelBehavior,
             thinkingFormat,
             reasoningEffort,
-          });
-        }
-      } else {
-        response = await callRoutedModel({
-          provider,
-          executionDeadlineAtMs: params.executionDeadlineAtMs,
-          providerMethod,
-          sessionId,
-          baseUrl,
-          apiKey,
-          model,
-          chatbotId,
-          enableRag,
-          requestHeaders,
-          messages: history,
-          tools,
-          maxTokens,
-          debugModelResponses,
-          isLocal,
-          contextWindow,
-          modelBehavior,
-          thinkingFormat,
-          reasoningEffort,
-        });
+          }),
+        );
       }
       response.timing = {
         durationMs: Date.now() - attemptStartedAt,
@@ -1222,6 +1248,9 @@ async function processRequestInner(
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
   let invalidToolCallRetries = 0;
+  let localOutputRecoveries = 0;
+  let localOutputBudgetExhausted = false;
+  let localCompletionTokens = 0;
   let latestFinalAssistantText: string | null = null;
   const collectArtifacts = (
     finalText: string | null = latestFinalAssistantText,
@@ -1554,7 +1583,7 @@ async function processRequestInner(
         contextWindow,
         modelBehavior,
         thinkingFormat,
-        reasoningEffort,
+        reasoningEffort: localOutputBudgetExhausted ? 'none' : reasoningEffort,
       });
     } catch (err) {
       if (
@@ -1636,6 +1665,17 @@ async function processRequestInner(
     });
 
     turnToolHistory.checkpointUsage();
+    localCompletionTokens += completionTokensForSample;
+    if (
+      localReasoningExhausted({
+        isLocal: Boolean(isLocal),
+        reasoningEffort,
+        finishReason: choice.finish_reason,
+        completionTokens: localCompletionTokens,
+      })
+    ) {
+      localOutputBudgetExhausted = true;
+    }
     let toolCalls = choice.message.tool_calls || [];
     const batchError = validateToolCallBatch(toolCalls, choice.finish_reason);
     let invalidToolCallError = batchError;
@@ -1738,6 +1778,19 @@ async function processRequestInner(
       return failed;
     }
     invalidToolCallRetries = 0;
+    const outputRecovery = localOutputRecoveryPrompt({
+      isLocal: Boolean(isLocal),
+      finishReason: choice.finish_reason,
+      toolCallCount: toolCalls.length,
+      recoveryCount: localOutputRecoveries,
+    });
+    if (outputRecovery) {
+      localOutputRecoveries += 1;
+      stalledTurns += 1;
+      history.push({ role: 'user', content: outputRecovery });
+      console.error('[model] continuing after local output-token limit');
+      continue;
+    }
     const assistantSegment = classifyAssistantChatSegment({
       content: choice.message.content,
       hasToolCalls: toolCalls.length > 0,
@@ -2077,8 +2130,11 @@ async function processRequestInner(
           argsJson: call.function.arguments,
         }));
       logToolCallStart(call, approval);
+      // A dry run answers without a refused step instead of ending the turn.
+      const endsTurnDenied =
+        approval.decision === 'denied' && !approvalRuntime.isDryRun();
 
-      if (approval.decision === 'required' || approval.decision === 'denied') {
+      if (approval.decision === 'required' || endsTurnDenied) {
         // A note the user sent meanwhile comes before asking them, or ending.
         steered = steerAfterToolCalls({
           history,
@@ -2126,7 +2182,7 @@ async function processRequestInner(
         return waitingForApproval;
       }
 
-      if (approval.decision === 'denied') {
+      if (endsTurnDenied) {
         const denied = await handleToolDenial({
           approval,
           unrunCalls: toolCalls.slice(callIndex),
@@ -2424,6 +2480,7 @@ async function main(): Promise<void> {
     mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
     approvalUserIsBot: firstInput.approvalUserIsBot,
+    dryRun: firstInput.dryRun,
   });
 
   let firstOutput: ContainerOutput;
@@ -2606,6 +2663,7 @@ async function main(): Promise<void> {
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
       approvalUserIsBot: input.approvalUserIsBot,
+      dryRun: input.dryRun,
     });
     const prelude = await resolveApprovalPrelude(
       input,

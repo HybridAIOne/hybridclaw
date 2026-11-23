@@ -3,6 +3,10 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import {
+  isPaymentCardSecretName,
+  resolveBrowserPaymentCardSecret,
+} from '../security/browser-payment-cards.js';
 import { browserSignInHostProblem } from '../security/browser-sign-ins.js';
 import {
   isRuntimeSecretName,
@@ -105,7 +109,12 @@ export function recordSecretResolved(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
+  secretSource:
+    | 'store'
+    | 'payment-card'
+    | 'google-oauth'
+    | 'hubspot-oauth'
+    | 'microsoft-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -133,7 +142,12 @@ export function recordSecretUnsafeEscaped(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
+  secretSource:
+    | 'store'
+    | 'payment-card'
+    | 'google-oauth'
+    | 'hubspot-oauth'
+    | 'microsoft-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -171,6 +185,9 @@ export function resolveStoredSecretForInjection(params: {
   const secretName = normalizeString(params.secretName);
   if (!isRuntimeSecretName(secretName)) {
     throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
+  }
+  if (isPaymentCardSecretName(secretName)) {
+    return resolvePaymentCardForInjection({ ...params, secretName });
   }
   assertSecretResolveAllowed({
     sessionId: params.sessionId,
@@ -211,6 +228,40 @@ export function resolveStoredSecretForInjection(params: {
   rememberResolvedSecretForLeakScan({
     sessionId: normalizeSecretSessionId(params.sessionId),
     secretId: secretName,
+    value,
+  });
+  return value;
+}
+
+/**
+ * A card the user entered in their card sheet (`security/browser-payment-cards.ts`):
+ * held in memory and bound to its site, so no workspace policy applies.
+ */
+function resolvePaymentCardForInjection(params: {
+  secretName: string;
+  sessionId?: string;
+  skillName?: string;
+  sinkKind: SecretSinkKind;
+  host?: string;
+  selector?: string;
+}): string {
+  let value: string;
+  try {
+    value = resolveBrowserPaymentCardSecret(params.secretName, params.host);
+  } catch (error) {
+    throw new GatewayRequestError(
+      403,
+      error instanceof Error ? error.message : 'The card is not available.',
+    );
+  }
+  recordSecretResolved({
+    ...params,
+    secretSource: 'payment-card',
+    secretId: params.secretName,
+  });
+  rememberResolvedSecretForLeakScan({
+    sessionId: normalizeSecretSessionId(params.sessionId),
+    secretId: params.secretName,
     value,
   });
   return value;

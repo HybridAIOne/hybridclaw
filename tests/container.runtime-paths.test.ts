@@ -103,18 +103,21 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  test('allows managed WhatsApp temp media paths', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
-    const tempFile = path.join(tempDir, 'voice-note.ogg');
+  test.each([
+    ['WhatsApp', 'hybridclaw-wa-', true],
+    ['Slack', 'hybridclaw-slack-', true],
+    ['unmanaged', 'hybridclaw-other-', false],
+  ])('%s temp media dir is readable: %s', async (_label, prefix, allowed) => {
+    const tempFile = path.join(makeTempDir(prefix), 'voice-note.ogg');
     fs.writeFileSync(tempFile, 'audio');
 
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'
     );
 
-    expect(resolveMediaPath(tempFile)).toBe(fs.realpathSync.native(tempFile));
-
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    expect(resolveMediaPath(tempFile)).toBe(
+      allowed ? fs.realpathSync.native(tempFile) : null,
+    );
   });
 
   test('maps overridden /app display root into the actual workspace root', async () => {
@@ -301,5 +304,39 @@ describe.sequential('container runtime path aliases', () => {
     expect(resolveMediaPath(uploadedFile)).toBe(path.resolve(uploadedFile));
 
     fs.rmSync(uploadedRoot, { recursive: true, force: true });
+  });
+
+  describe('display-root paths in a host shell command', () => {
+    const ws = '/workspace/.data/data/agents/main/workspace';
+
+    test.each([
+      ['cat /workspace/notes.md', `cat ${ws}/notes.md`],
+      ['cd /workspace && ls', `cd ${ws} && ls`],
+      ['cat /workspace/my\\ file.txt', `cat ${ws}/my\\ file.txt`],
+      ['echo /workspace/a\;touch x', `echo ${ws}/a\;touch x`],
+      ['cp -r /workspace/src/. dst', `cp -r ${ws}/src/. dst`],
+      ['curl -F f=@/workspace/r.pdf u', `curl -F f=@${ws}/r.pdf u`],
+      ['cat {/workspace/a,/workspace/b}', `cat {${ws}/a,${ws}/b}`],
+      ['ls "/workspace/$NAME"', `ls "${ws}/$NAME"`],
+      ['docker run -v /data:/workspace img', 'docker run -v /data:/workspace img'],
+      ['scp host:/workspace/x .', 'scp host:/workspace/x .'],
+      [`cat ${ws}/notes.md`, `cat ${ws}/notes.md`],
+      ['ls /workspace/.data/home/x', 'ls /workspace/.data/home/x'],
+      ['cat /workspace/../etc/passwd', 'cat /workspace/../etc/passwd'],
+      ['ls /workspaces /workspace.bak', 'ls /workspaces /workspace.bak'],
+    ])('%s', async (command, expected) => {
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', ws);
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+      vi.stubEnv(
+        'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+        JSON.stringify([ws, '/workspace/.data/home']),
+      );
+      vi.resetModules();
+      const { resolveDisplayRootInCommand } = await import(
+        '../container/src/runtime-paths.ts'
+      );
+
+      expect(resolveDisplayRootInCommand(command)).toBe(expected);
+    });
   });
 });

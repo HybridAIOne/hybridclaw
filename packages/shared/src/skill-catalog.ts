@@ -1,7 +1,7 @@
 /**
- * Shared host/worker skill catalog: admitted identities and complete mini-cards.
- * Ordinary instructions and credentials retain their existing access paths;
- * this wire contract carries guidance, never capabilities or permissions.
+ * Mini-skill admission shared by host and worker: the size limit and the
+ * check a catalog entry's instructions must pass. The entry shape is wire
+ * data (`@hybridclaw/contracts/skill-catalog`).
  */
 /**
  * Mini-skill text is complete bounded guidance, never executable authority.
@@ -17,15 +17,4 @@ export function isMiniSkillInstructions(value: unknown): value is string {
     value.trim().length > 0 &&
     value.length <= MAX_MINI_SKILL_CHARS
   );
-}
-
-export interface SessionSkillCatalogEntry {
-  name: string;
-  description: string;
-  category: string;
-  location: string;
-  /** Complete mini-skill body, already admitted by the host's skill filters. */
-  instructions?: string;
-  /** Credential ids the skill declares; omitted when it declares none. */
-  requiredCredentials?: string[];
 }

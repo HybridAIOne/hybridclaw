@@ -54,7 +54,9 @@ export interface CreateJobInput {
 export interface TaskExecutionOptions {
   title?: string | null;
   model?: string | null;
-  effort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort | null;
+  effort?:
+    | import('@hybridclaw/contracts/reasoning-effort').ReasoningEffort
+    | null;
   freshSession?: boolean;
 }
 
@@ -189,7 +191,9 @@ function addOptionsOf(rawAction: string): {
   eventParentId?: number;
   title?: string | null;
   model?: string | null;
-  effort?: import('@hybridclaw/shared/reasoning-effort').ReasoningEffort | null;
+  effort?:
+    | import('@hybridclaw/contracts/reasoning-effort').ReasoningEffort
+    | null;
   freshSession?: boolean;
   trigger?: TaskTrigger;
   triggerEvent?: TriggerEvent;
@@ -206,7 +210,7 @@ function addOptionsOf(rawAction: string): {
     title?: string | null;
     model?: string | null;
     effort?:
-      | import('@hybridclaw/shared/reasoning-effort').ReasoningEffort
+      | import('@hybridclaw/contracts/reasoning-effort').ReasoningEffort
       | null;
     freshSession?: boolean;
   } | null>(rawAction, null);
@@ -794,6 +798,8 @@ export function markJobFailure(
   jobId: string | number,
   maxConsecutiveErrors = 5,
   reason?: unknown,
+  // false: the failure is recorded but does not bring the pause closer.
+  { counts = true }: { counts?: boolean } = {},
 ): { disabled: boolean; consecutiveErrors: number } {
   return withMemoryDatabase((database) => {
     const normalizedJobId = normalizeJobId(jobId);
@@ -806,7 +812,8 @@ export function markJobFailure(
       return { disabled: false, consecutiveErrors: 0 };
     }
 
-    const nextCount = Math.max(0, Math.floor(row.consecutive_errors || 0)) + 1;
+    const nextCount =
+      Math.max(0, Math.floor(row.consecutive_errors || 0)) + (counts ? 1 : 0);
     const shouldDisable =
       nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
     database

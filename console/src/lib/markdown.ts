@@ -1,9 +1,10 @@
 /**
  * Chat markdown stays sanitized; provider citation IDs never become invented URLs.
+ * Remote Markdown images require a click to open their source.
  * Math is rendered separately with KaTeX in untrusted mode; raw HTML stays restricted.
  * Unlike provider adapters, this renderer has no source registry and marks unresolved citations.
  */
-import { Marked, type Tokens } from 'marked';
+import { Marked, Renderer, type Tokens } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { highlightCodeBlock } from './highlight';
 import { createMathRenderer } from './markdown-math';
@@ -140,6 +141,7 @@ function linkifyBareLocalAppRoutes(markdown: string): string {
 
 function createMarked(highlight: boolean): Marked {
   const instance = new Marked({ async: false, breaks: true, gfm: true });
+  let insideLink = false;
   instance.use({
     extensions: [
       {
@@ -174,6 +176,27 @@ function createMarked(highlight: boolean): Marked {
       },
     ],
     renderer: {
+      link(token: Tokens.Link): string {
+        const wasInsideLink = insideLink;
+        insideLink = true;
+        try {
+          return Renderer.prototype.link.call(this, token);
+        } finally {
+          insideLink = wasInsideLink;
+        }
+      },
+      image(token: Tokens.Image): string {
+        const text =
+          this.parser
+            .parseInline(token.tokens, this.parser.textRenderer)
+            .trim() || 'Open image';
+        const label: Tokens.Text = { type: 'text', raw: text, text };
+        // A linked image supplies the label for its existing link.
+        if (insideLink || !/^https?:\/\//i.test(token.href)) {
+          return this.text(label);
+        }
+        return this.link({ ...token, type: 'link', tokens: [label] });
+      },
       // marked v16+ passes a token object; older signatures pass (code, lang).
       // Handle both so this keeps working across marked upgrades.
       code(codeOrToken: string | Tokens.Code, infostring?: string): string {

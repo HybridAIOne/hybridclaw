@@ -4,6 +4,7 @@ import type {
   SlideSamples,
   ToolProgressEvent,
 } from '../types/execution.js';
+import { asRecord } from '../utils/type-guards.js';
 
 const TOOL_NAME_PATTERN = '([a-zA-Z0-9_.-]+)';
 const TOOL_LABEL_PATTERN = '((?:\\s+\\[[^\\]\\r\\n]*\\])*)';
@@ -72,8 +73,12 @@ export function parseBrowserFrameLine(line: string): BrowserFrame | null {
       line.slice(BROWSER_FRAME_PREFIX.length),
     ) as Record<string, unknown> | null;
     if (!parsed || typeof parsed.url !== 'string' || !parsed.url) return null;
-    const signIn = parsed.signIn as Record<string, unknown> | null | undefined;
-    const signInHost = normalizeBrowserSignInHost(signIn?.host);
+    const signInHost = normalizeBrowserSignInHost(
+      asRecord(parsed.signIn)?.host,
+    );
+    const cardHost = normalizeBrowserSignInHost(
+      asRecord(parsed.paymentCard)?.host,
+    );
     return {
       url: parsed.url,
       title: typeof parsed.title === 'string' ? parsed.title : '',
@@ -81,6 +86,7 @@ export function parseBrowserFrameLine(line: string): BrowserFrame | null {
         ? { frame: parsed.frame }
         : {}),
       ...(signInHost ? { signIn: { host: signInHost } } : {}),
+      ...(cardHost ? { paymentCard: { host: cardHost } } : {}),
     };
   } catch {
     return null;

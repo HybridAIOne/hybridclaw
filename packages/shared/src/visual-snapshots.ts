@@ -2,25 +2,14 @@
  * Durable visual snapshots contain selected PDF pages or one normalized image, addressed by their bytes.
  * This is replay storage, not a file-access grant: callers authorize source reads;
  * loading accepts no paths and rejects symlinks, oversized or changed snapshots.
+ * The reference shapes are wire data (`@hybridclaw/contracts/visual-snapshots`).
  */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { VisualAttachment } from '@hybridclaw/contracts/visual-snapshots';
 
-/** Content-addressed visual snapshots; references never grant arbitrary file access. */
-export interface VisualAttachment {
-  id: string;
-  /** Original PDF page numbers; empty for a standalone image. */
-  pages: number[];
-}
-export interface VisualAttachmentMessage {
-  visualAttachments?: VisualAttachment[];
-}
-export interface PdfFilePart {
-  type: 'file';
-  file: { filename: string; file_data: string };
-}
 export interface VisualSnapshot {
   pdf: string;
   images: string[];

@@ -218,9 +218,11 @@ export class ToolCatalog {
     const directory = names.includes(NAME);
     return [
       '## Tool call boundary',
-      names.length
-        ? `Directly exposed functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
-        : 'No functions are exposed in this request.',
+      this.indexDeferred
+        ? 'Call supplied functions directly.'
+        : names.length
+          ? `Directly exposed functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
+          : 'No functions are exposed in this request.',
       directory
         ? `${this.deferredLabel} are available through tool_catalog. Execute them with action=call, their exact name in name, and their parameters in arguments; their own schemas do not need to be directly exposed.`
         : '',
@@ -233,7 +235,7 @@ export class ToolCatalog {
         ? 'To run a known command from skill instructions, call tool_catalog with {"action":"call","name":"bash","arguments":{"command":"the command"}}. Never emit a direct bash call: it is not an exposed function.'
         : '',
       directory && this.byName.has('skills_list')
-        ? 'Skill discovery is staged: search skills_list summaries, request details with the exact skill name, then execute the returned next call to read its instructions. Search results are not skill instructions. Follow next.name and next.arguments exactly; discovery does not expose additional functions.'
+        ? 'Use skills_list only for a requested or missing specialist workflow. Follow a complete mini-card directly, otherwise execute its next call.'
         : '',
       directory
         ? 'Discover only what is missing: list when the tool name is unknown, describe when its parameters are unknown, then call. Reuse schemas and skill instructions already returned in this request; do not repeat discovery before each action. The directory can reject tools that are unavailable or blocked.'
@@ -365,9 +367,10 @@ export class ToolCatalog {
       }
       this.validators.set(tool.function.name, validate);
     }
-    if (!validate(args.arguments).valid) {
+    const validation = validate(args.arguments);
+    if (!validation.valid) {
       throw new CatalogArgumentError(
-        `Arguments do not match the selected tool schema. Use tool_catalog action=describe with name=${JSON.stringify(tool.function.name)} to inspect required fields and types, then retry.`,
+        `Arguments do not match the selected tool schema. Validation at tool_catalog.arguments: ${validation.errorMessage}. Keep every target-tool field inside that object. Use tool_catalog action=describe with name=${JSON.stringify(tool.function.name)} to inspect required fields and types, then retry.`,
       );
     }
     return {

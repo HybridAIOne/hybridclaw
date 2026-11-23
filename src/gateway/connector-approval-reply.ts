@@ -3,9 +3,10 @@
  * proof. Worker output cannot authorize a connector; the caller, live prompt
  * and one-shot scope are checked again before crossing that boundary.
  */
+
+import type { ApprovalReplyDecision } from '@hybridclaw/contracts/agent-io';
 import {
   APPROVAL_REPLY_INSTRUCTIONS,
-  type ApprovalReplyDecision,
   parseApprovalReplyDecision,
 } from '@hybridclaw/shared/approval-reply';
 import { platformApprovalId } from '@hybridclaw/shared/connector-approval';

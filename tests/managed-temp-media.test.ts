@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { WHATSAPP_MEDIA_TMP_PREFIX } from '@hybridclaw/shared/managed-temp-media';
 import { describe, expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -23,11 +24,9 @@ describe('managed temp media helpers', () => {
       },
     }));
 
-    const {
-      isManagedTempMediaPath,
-      resolveManagedTempMediaDir,
-      WHATSAPP_MEDIA_TMP_PREFIX,
-    } = await import('../src/media/managed-temp-media.js');
+    const { isManagedTempMediaPath, resolveManagedTempMediaDir } = await import(
+      '../src/media/managed-temp-media.js'
+    );
 
     const tempRoot = makeTempRoot();
     const managedDir = fs.mkdtempSync(
@@ -74,8 +73,9 @@ describe('managed temp media helpers', () => {
       },
     }));
 
-    const { cleanupManagedTempMediaDirectories, WHATSAPP_MEDIA_TMP_PREFIX } =
-      await import('../src/media/managed-temp-media.js');
+    const { cleanupManagedTempMediaDirectories } = await import(
+      '../src/media/managed-temp-media.js'
+    );
 
     const tempRoot = makeTempRoot();
     const managedDir = fs.mkdtempSync(

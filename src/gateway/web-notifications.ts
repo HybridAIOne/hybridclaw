@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type {
   MobilePushDevice,
+  WebChatUpdate,
   WebNotification,
   WebNotificationKind,
   WebNotificationState,
@@ -34,6 +35,7 @@ import {
   deleteWebPushSubscription,
   readWebNotificationState,
   recordWebNotification,
+  webNotificationSessionOperator,
 } from './web-notification-store.js';
 
 const listeners = new Map<string, Set<ServerResponse>>();
@@ -42,7 +44,13 @@ const titles: Record<WebNotificationKind, string> = {
   reminder: 'HybridClaw reminder',
   approval: 'HybridClaw needs your approval',
 };
-const SIGN_IN_TITLE = 'HybridClaw needs you to sign in';
+const WAITING_FOR_TITLES: Record<
+  NonNullable<WebNotification['waitingFor']>,
+  string
+> = {
+  sign_in: 'HybridClaw needs you to sign in',
+  payment_card: 'HybridClaw needs your card details',
+};
 
 export function trackWebNotificationSession(
   sessionId: string,
@@ -86,6 +94,22 @@ export function broadcastWebNotifications(
   const payload = `event: notifications\ndata: ${JSON.stringify(state)}\n\n`;
   for (const response of listeners.get(operatorId) ?? []) {
     if (!response.destroyed && !response.writableEnded) response.write(payload);
+  }
+}
+
+/** Refresh only the owning operator's history, without a completion alert. */
+export function broadcastWebChatUpdate(sessionId: string): void {
+  try {
+    const operatorId = webNotificationSessionOperator(sessionId);
+    if (!operatorId) return;
+    const update: WebChatUpdate = { sessionId };
+    const payload = `event: chat-updated\ndata: ${JSON.stringify(update)}\n\n`;
+    for (const response of listeners.get(operatorId) ?? []) {
+      if (!response.destroyed && !response.writableEnded)
+        response.write(payload);
+    }
+  } catch {
+    logger.warn('Could not broadcast chat progress');
   }
 }
 
@@ -195,7 +219,7 @@ export function notifyWebSession(
       kind,
       ...(waitingFor ? { waitingFor } : {}),
       agentId: memoryService.getSessionById(sessionId)?.agent_id ?? null,
-      title: waitingFor === 'sign_in' ? SIGN_IN_TITLE : titles[kind],
+      title: waitingFor ? WAITING_FOR_TITLES[waitingFor] : titles[kind],
       createdAt: Date.now(),
     };
     const delivery = recordWebNotification(notification, operatorId);
@@ -236,15 +260,15 @@ export function notifyWebSession(
 
 /**
  * A finished turn rings as done, or as waiting for the user when it ended on
- * an approval or, per `waitingForSignIn`, on a website the agent's browser
- * needs the user to sign in to.
+ * an approval or, per `waitingFor`, on a website the agent's browser needs
+ * the user to sign in to or enter a card for.
  */
 export function notifyWebChatResult(
   operatorId: string | null,
   request: GatewayChatRequest,
   result: GatewayChatResult,
   notifiedApprovalId?: string | null,
-  waitingForSignIn = false,
+  waitingFor?: WebNotification['waitingFor'],
 ): void {
   if (!operatorId || request.channelId !== 'web' || result.status !== 'success')
     return;
@@ -263,10 +287,10 @@ export function notifyWebChatResult(
   ) {
     notifyWebSession(
       sessionId,
-      waitingForSignIn ? 'approval' : 'turn',
+      waitingFor ? 'approval' : 'turn',
       String(result.assistantMessageId ?? randomUUID()),
       operatorId,
-      waitingForSignIn ? { waitingFor: 'sign_in' } : {},
+      waitingFor ? { waitingFor } : {},
     );
   }
 }

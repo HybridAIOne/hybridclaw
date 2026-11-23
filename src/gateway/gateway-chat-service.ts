@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { estimateMessageTokens } from '@hybridclaw/shared/token-estimate';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -106,6 +107,7 @@ import {
 } from '../providers/model-routing.js';
 import { recordWorkerRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
+import { getLinkedConnectorDirectory } from '../scopes/scope-connectors.js';
 import {
   isScopeRunError,
   resolveScopeRun,
@@ -116,7 +118,6 @@ import {
   chatTypeFromSessionKey,
 } from '../session/session-context.js';
 import { startSessionTitle } from '../session/session-title.js';
-import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
   expandResolvedSkillInvocation,
@@ -167,6 +168,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import {
+  ASK_QUESTIONS_TOOL,
   DRAFT_TRANSFER_TOOL,
   SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
@@ -467,11 +469,12 @@ function errorTurnToolSummary(
 }
 
 /**
- * `show_slide_samples`, `show_widget`, `draft_transfer`, `estimate_cost` and
- * `show_dashboard` need a client that draws them: a card of slide pictures to
- * pick from, a live widget under the reply, a transfer card with a GiroCode, a
- * cost estimate card, or a dashboard. Only the Hy app (`client: "mobile"`)
- * does. Elsewhere the agent answers in words.
+ * `show_slide_samples`, `show_widget`, `draft_transfer`, `ask_questions`,
+ * `estimate_cost` and `show_dashboard` need a client that draws them: a card
+ * of slide pictures to pick from, a live widget under the reply, a transfer
+ * card with a GiroCode, a card of questions, a cost estimate card, or a
+ * dashboard. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent
+ * answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
@@ -483,6 +486,7 @@ function blockAppOnlyToolsUnlessApp(
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
+    ASK_QUESTIONS_TOOL,
     'estimate_cost',
     SHOW_DASHBOARD_TOOL,
   ];
@@ -842,11 +846,13 @@ async function handleGatewayMessageInner(
   ) {
     return agentScopeError(session.agent_id);
   }
-  const addressed = resolveAgentAddressing({
-    content: req.content,
-    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
-    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
-  });
+  const addressed = req.dryRun
+    ? ({ kind: 'none', content: req.content } as const)
+    : resolveAgentAddressing({
+        content: req.content,
+        currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+        fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+      });
   if (allowedAgentIds) {
     if (addressed.kind === 'fanout') {
       return agentScopeError(`@${addressed.alias}`);
@@ -1086,6 +1092,7 @@ async function handleGatewayMessageInner(
     maxWallClockMs: req.maxWallClockMs,
     abortSignal: req.abortSignal,
     steerInbox,
+    onToolProgress: (event) => emitGatewayToolProgress(event),
   });
   const resolvedRequest = resolveAgentForRequest({
     agentId: req.agentId,
@@ -1239,6 +1246,8 @@ async function handleGatewayMessageInner(
   }
   // A scoped chat runs in its scope's workspace with its connector limits,
   // and never reaches memory kept for the user as a whole.
+  // Which mail accounts the agent may send from; read beside the rest.
+  const mailConnectors = getLinkedConnectorDirectory();
   let scopeRun: Awaited<ReturnType<typeof resolveScopeRun>>;
   try {
     scopeRun = await resolveScopeRun(
@@ -1387,7 +1396,7 @@ async function handleGatewayMessageInner(
     });
   }
   const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
+  if (turnIndex === 1 && !req.dryRun) {
     if (pluginManager) {
       await pluginManager.notifySessionStart({
         sessionId: req.sessionId,
@@ -1412,7 +1421,7 @@ async function handleGatewayMessageInner(
       chatbotId,
       model,
       userContent,
-      isFirstTurn: turnIndex === 1 && !session.title,
+      isFirstTurn: turnIndex === 1 && !session.title && !req.dryRun,
     });
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
@@ -1492,6 +1501,7 @@ async function handleGatewayMessageInner(
         toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       startTitle(routingUserContent)?.persist();
       const result: GatewayChatResult = {
@@ -1749,10 +1759,11 @@ async function handleGatewayMessageInner(
       username: req.username,
       mediaCount: media.length,
       source,
+      ...(req.dryRun ? { dryRun: true } : {}),
     },
   });
   const onboardingAuditContext =
-    startupBootstrapFile === 'BOOTSTRAP.md'
+    startupBootstrapFile === 'BOOTSTRAP.md' && !req.dryRun
       ? {
           sessionId: req.sessionId,
           runId,
@@ -1986,6 +1997,7 @@ async function handleGatewayMessageInner(
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools,
+    mailConnectors: await mailConnectors,
   });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
@@ -2004,7 +2016,7 @@ async function handleGatewayMessageInner(
       historyBudgetTokens: historyStats.budgetTokens,
       historyTruncated,
       promptOverheadTokens,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
+      historyEstimatedTokens: estimateMessageTokens(
         messages.slice(historyStart),
       ),
       canonicalSummaryIncluded:
@@ -2111,6 +2123,7 @@ async function handleGatewayMessageInner(
         toolExecutions: [],
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       const result: GatewayChatResult = {
         status: 'success',
@@ -2308,6 +2321,7 @@ async function handleGatewayMessageInner(
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
+        dryRun: req.dryRun,
         ...approvalReplyContext(req, userTurnContent),
         approvalReplyDecision: connectorReply,
         fullAutoNeverApproveTools: neverAutoApproveTools,
@@ -2438,7 +2452,7 @@ async function handleGatewayMessageInner(
     const toolExecutions = output.toolExecutions || [];
     hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
-      bootstrapFile: startupBootstrapFile,
+      bootstrapFile: req.dryRun ? null : startupBootstrapFile,
       toolExecutions,
       turnSucceeded: output.status === 'success',
     });
@@ -2633,7 +2647,7 @@ async function handleGatewayMessageInner(
     })) {
       enqueueTokenUsage({ ...event, ...usageAttribution });
     }
-    if (observedSkillName) {
+    if (observedSkillName && !req.dryRun) {
       try {
         recordSkillExecution({
           skillName: observedSkillName,
@@ -2671,6 +2685,8 @@ async function handleGatewayMessageInner(
       ReturnType<typeof normalizeDelegationEffect>['plan']
     >[] = [];
     const sideEffectNotices: string[] = [];
+    // Delegate runs are ordinary turns, so a dry run starts none.
+    if (req.dryRun) delete output.sideEffects;
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -2835,6 +2851,7 @@ async function handleGatewayMessageInner(
             : observedToolCalls,
         delegationAcknowledgement,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        dryRun: req.dryRun,
       });
       turnPersisted = true;
       recordAuditEvent({
@@ -3042,10 +3059,11 @@ async function handleGatewayMessageInner(
       toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      dryRun: req.dryRun,
       promptOverheadTokens,
     });
     turnPersisted = true;
-    if (shown.emailDraft) {
+    if (shown.emailDraft && !req.dryRun) {
       storeEmailDraft(
         req.sessionId,
         storedTurn.assistantMessageId,
@@ -3070,7 +3088,7 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
     });
-    if (memoryPluginManager) {
+    if (memoryPluginManager && !req.dryRun) {
       await memoryPluginManager.notifyMemoryWrites({
         sessionId: req.sessionId,
         agentId,
@@ -3092,7 +3110,7 @@ async function handleGatewayMessageInner(
           );
         });
     }
-    if (pluginManager) {
+    if (pluginManager && !req.dryRun) {
       void pluginManager
         .notifyAgentEnd({
           sessionId: req.sessionId,
@@ -3237,6 +3255,7 @@ async function handleGatewayMessageInner(
           tools: observedToolCalls,
           delegationAcknowledgement,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+          dryRun: req.dryRun,
         });
       } catch (storeErr) {
         logger.error(

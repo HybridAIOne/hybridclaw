@@ -16,7 +16,7 @@
  * framing lives in the transport plugins, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
-import type { ApprovalReplyContext } from '@hybridclaw/shared/approval-reply';
+import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
 import type {
   RuntimeSpeechRealtimeConfig,
   RuntimeSpeechTurnDetectionConfig,

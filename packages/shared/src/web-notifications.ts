@@ -5,8 +5,8 @@ export interface WebNotification {
   sessionId: string;
   agentId: string | null;
   kind: WebNotificationKind;
-  /** An `approval` that asks the user to sign in to a website, not to approve. */
-  waitingFor?: 'sign_in';
+  /** An `approval` that asks the user to sign in to a website or enter a card, not to approve. */
+  waitingFor?: 'sign_in' | 'payment_card';
   title: string;
   createdAt: number;
 }
@@ -18,6 +18,10 @@ export interface WebNotificationState {
   operatorId: string;
   preferences: WebNotificationPreferences;
   notifications: WebNotification[];
+}
+/** Metadata-only `chat-updated` SSE event; read content through chat history. */
+export interface WebChatUpdate {
+  sessionId: string;
 }
 /** A phone app registered for mobile alerts through the `/push` command. */
 export interface MobilePushDevice {

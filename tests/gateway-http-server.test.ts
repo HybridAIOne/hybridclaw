@@ -2397,9 +2397,6 @@ async function importFreshHealth(options?: {
   const restoreEdgeRevision = vi.fn(() => boardEdge);
   const isBlocked = vi.fn(() => true);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
-  const normalizeDiscordToolAction = vi.fn((value: string) =>
-    value === 'reply' ? 'send' : null,
-  );
   const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
   const claimQueuedProactiveMessages = vi.fn(() => [
@@ -2906,7 +2903,6 @@ async function importFreshHealth(options?: {
     createDiscordToolActionRunner: vi.fn(() =>
       vi.fn(async () => ({ ok: true })),
     ),
-    normalizeDiscordToolAction,
   }));
   vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
     consumeGatewayMediaUploadQuota,
@@ -3150,7 +3146,6 @@ async function importFreshHealth(options?: {
     handleIMessageWebhook,
     handleMSTeamsWebhook,
     runMessageToolAction,
-    normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
     getDelegationJob,
     consumeGatewayMediaUploadQuota,
@@ -5307,46 +5302,46 @@ describe('gateway HTTP server', () => {
     expect(res.getHeader('x-hybridclaw-delegation-id')).toBe(payload.id);
   });
 
-  test('reuses the OpenAI executor session across repeated requests in the same conversation seed', async () => {
+  test('reuses the OpenAI executor session within one conversation, not across conversations', async () => {
     const state = await importFreshHealth();
-    const makeBody = (finalPrompt: string) => ({
-      model: 'gpt-5',
-      user: 'sdk-user',
-      messages: [
-        { role: 'system', content: 'You are concise.' },
-        { role: 'user', content: 'Task: fix the bug.' },
-        { role: 'assistant', content: 'I will inspect it.' },
-        { role: 'user', content: finalPrompt },
-      ],
-    });
+    const system = { role: 'system', content: 'You are concise.' };
+    const user = (content: string) => ({ role: 'user', content });
+    const assistant = (content: string) => ({ role: 'assistant', content });
+    const second = [
+      system,
+      user('Task: fix the bug.'),
+      assistant('I will inspect it.'),
+      user('Step 2'),
+    ];
+    const conversations = {
+      second,
+      third: [...second, assistant('Step 2 done.'), user('Step 3')],
+      fix: [system, user('Task: fix the bug.')],
+      docs: [system, user('Task: write the docs.')],
+      greetA: [system, user('hi'), assistant('Hello!'), user('Clean up build/.')],
+      greetB: [system, user('hi'), assistant('Hey there.'), user('Write docs.')],
+    };
+    const ids: Record<string, string> = {};
+    for (const [name, messages] of Object.entries(conversations)) {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({
+          method: 'POST',
+          url: '/v1/chat/completions',
+          body: { model: 'gpt-5', user: 'sdk-user', messages },
+        }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+      const call = state.handleGatewayMessage.mock.calls.at(-1)?.[0];
+      expect(call?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
+      expect(call?.executionSessionId).toMatch(OPENAI_EXECUTION_SESSION_ID_RE);
+      ids[name] = String(call?.executionSessionId);
+    }
 
-    const firstReq = makeRequest({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      body: makeBody('Step 1'),
-    });
-    const firstRes = makeResponse();
-    state.handler(firstReq as never, firstRes as never);
-    await waitForResponse(firstRes, (next) => next.writableEnded);
-
-    const secondReq = makeRequest({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      body: makeBody('Step 2'),
-    });
-    const secondRes = makeResponse();
-    state.handler(secondReq as never, secondRes as never);
-    await waitForResponse(secondRes, (next) => next.writableEnded);
-
-    const firstCall = state.handleGatewayMessage.mock.calls[0]?.[0];
-    const secondCall = state.handleGatewayMessage.mock.calls[1]?.[0];
-    expect(firstCall?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
-    expect(secondCall?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
-    expect(firstCall?.sessionId).not.toBe(secondCall?.sessionId);
-    expect(firstCall?.executionSessionId).toMatch(
-      OPENAI_EXECUTION_SESSION_ID_RE,
-    );
-    expect(secondCall?.executionSessionId).toBe(firstCall?.executionSessionId);
+    expect(ids.third).toBe(ids.second);
+    expect(ids.docs).not.toBe(ids.fix);
+    expect(ids.greetB).not.toBe(ids.greetA);
     expect(state.stopSessionExecution).not.toHaveBeenCalled();
   });
 
@@ -14501,17 +14496,20 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('normalizes message action payloads before dispatching tool actions', async () => {
+  test.each([
+    '/api/message/action',
+    '/api/discord/action',
+  ])('%s dispatches a checked request with trimmed threading headers', async (url) => {
     const state = await importFreshHealth();
     const req = makeRequest({
       method: 'POST',
-      url: '/api/message/action',
+      url,
       body: {
-        action: 'reply',
+        action: 'send',
         channelId: '123',
         content: 'hello',
         inReplyTo: ' <msg-1@example.com> ',
-        references: [' <ref-1@example.com> ', '<msg-1@example.com>'],
+        references: [' <ref-1@example.com> ', '<ref-1@example.com>'],
       },
     });
     const res = makeResponse();
@@ -14519,94 +14517,82 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.normalizeDiscordToolAction).toHaveBeenCalledWith('reply');
     expect(state.runMessageToolAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'send',
         channelId: '123',
         content: 'hello',
         inReplyTo: '<msg-1@example.com>',
-        references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+        references: ['<ref-1@example.com>'],
       }),
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
   });
 
-  test('rejects malformed cc email addresses for message actions', async () => {
+  test.each([
+    'sender@example.com',
+    '',
+    null,
+  ])('forwards from=%j on sends so plugin channels can refuse it', async (from) => {
     const state = await importFreshHealth();
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/message/action',
-      body: {
-        action: 'reply',
-        channelId: 'ops@example.com',
-        content: 'hello',
-        cc: ['not-an-email'],
-      },
-    });
+    const body = { action: 'send', channelId: 'chat-1', content: 'hi', from };
+    const req = makeRequest({ method: 'POST', url: '/api/message/action', body });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.runMessageToolAction).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'Invalid `cc` email address: not-an-email',
-    });
-  });
-
-  test('rejects malformed references for message actions', async () => {
-    const state = await importFreshHealth();
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/message/action',
-      body: {
-        action: 'reply',
-        channelId: 'ops@example.com',
-        content: 'hello',
-        references: 7,
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(state.runMessageToolAction).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({
-      error: '`references` must be a string or array of strings.',
-    });
-  });
-
-  test('keeps /api/discord/action as a compatibility alias for message actions', async () => {
-    const state = await importFreshHealth();
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/discord/action',
-      body: {
-        action: 'reply',
-        channelId: '123',
-        content: 'hello',
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(state.normalizeDiscordToolAction).toHaveBeenCalledWith('reply');
     expect(state.runMessageToolAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'send',
-        channelId: '123',
-        content: 'hello',
-      }),
+      expect.objectContaining({ action: 'send', from }),
+    );
+  });
+
+  test('forwards mailbox search filters for message reads', async () => {
+    const state = await importFreshHealth();
+    const filters = {
+      query: 'invoice',
+      folder: 'INBOX',
+      folders: ['INBOX', 'Archive'],
+      uid: 42,
+      unreadOnly: true,
+      from: 'pat@example.com',
+      since: '2026-01-01',
+      beforeDate: '2026-02-01',
+    };
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: { action: 'read', ...filters },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'read', ...filters }),
     );
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test.each([
+    ['an alias action', { action: 'reply', channelId: '123' }],
+    ['no action', { channelId: '123', content: 'hello' }],
+    ['non-string references', { action: 'send', references: 7 }],
+    ['a string uid', { action: 'read', uid: '42' }],
+    ['malformed cc', { action: 'send', cc: ['not-an-email'] }],
+  ])('rejects a message action with %s', async (_label, body) => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ method: 'POST', url: '/api/message/action', body });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toEqual(expect.any(String));
   });
 
   test('dispatches plugin tool API requests through the gateway plugin runtime', async () => {

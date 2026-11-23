@@ -266,4 +266,5 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 - `tokenUsage.completionTokens` — output tokens
 - `tokenUsage.totalTokens` — total tokens
 - `tokenUsage.modelCalls` — number of LLM round-trips (>1 when tools are used)
+- `tokenUsage.modelRetries` — calls among them that resent a failed request
 - `messages` — full `StoredMessage[]` for the turn

@@ -8,6 +8,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  MESSAGE_TOOL_ACTIONS,
+  type MessageActionRequest,
+} from '@hybridclaw/contracts/message-action';
 import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
 import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
@@ -19,6 +23,7 @@ import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
 } from '@hybridclaw/shared/msteams-session-ids';
+import { asRecord } from '@hybridclaw/shared/primitive-values';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -38,7 +43,9 @@ import {
 import { bashToolDefinition } from './bash-tool-definition.js';
 import {
   currentBrowserPage,
+  hideTypedSecrets,
   pauseBrowserFramesUntilNavigation,
+  recordTypedSecret,
 } from './browser-checkout.js';
 import {
   BROWSER_EVALUATE_TOOL,
@@ -46,7 +53,7 @@ import {
 } from './browser-evaluate.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
-  emitBrowserSignInRequest,
+  emitBrowserUserRequest,
   executeBrowserTool,
   setBrowserGatewayContext,
   usesGatewayManagedBrowser,
@@ -70,6 +77,7 @@ import {
 } from './gateway-json-post.js';
 import { resolveHttpArtifactReadPath } from './http-artifact-read-path.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import { normalizeMessageToolAction } from './message-tool-actions.js';
 import {
   type AuxiliaryRuntimeContext,
   captureAuxiliaryRuntimeContext,
@@ -105,7 +113,12 @@ import {
 } from './task-sandbox-files.js';
 import { readTextExcerpt, TEXT_READ_PARAMETERS } from './text-read.js';
 import { reserveToolCall } from './tool-call-limits.js';
-import { failTool, ToolExecutionFailure } from './tool-errors.js';
+import {
+  failTool,
+  httpStatusErrorCode,
+  ToolExecutionFailure,
+  thrownToolErrorCode,
+} from './tool-errors.js';
 import {
   CALL_USER_TOOL_DEFINITION,
   runCallUserTool,
@@ -137,6 +150,11 @@ import {
   runPreferencesTool,
 } from './tools/preferences.js';
 import { PROOF_TOOL_DEFINITION, runProofTool } from './tools/proof.js';
+import {
+  ASK_QUESTIONS_DEFINITION,
+  ASK_QUESTIONS_TOOL,
+  runAskQuestions,
+} from './tools/questions.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -371,19 +389,6 @@ let memoryTimezoneCache: {
 } | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
-type DiscordMessageToolAction =
-  | 'read'
-  | 'member-info'
-  | 'channel-info'
-  | 'send'
-  | 'react'
-  | 'quote-reply'
-  | 'edit'
-  | 'delete'
-  | 'pin'
-  | 'unpin'
-  | 'thread-create'
-  | 'thread-reply';
 
 function parseStructuredToolOutput(
   output: string,
@@ -449,8 +454,10 @@ export type ContainerSecretHandleCompileTimeGuards = {
   >;
 };
 
-const MESSAGE_TOOL_ACTION_LIST =
-  'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
+const MESSAGE_TOOL_ACTION_LIST = MESSAGE_TOOL_ACTIONS.join(', ');
+const MESSAGE_TOOL_ACTION_CHOICES = `${MESSAGE_TOOL_ACTIONS.slice(0, -1)
+  .map((action) => `"${action}"`)
+  .join(', ')}, or "${MESSAGE_TOOL_ACTIONS.at(-1)}"`;
 const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
@@ -784,61 +791,6 @@ function readPositiveNumberValue(value: unknown): number | null {
   return parsed;
 }
 
-function resolveDiscordMessageAction(
-  rawAction: unknown,
-): DiscordMessageToolAction | null {
-  const normalized = readStringValue(rawAction)?.toLowerCase();
-  if (!normalized) return null;
-  const compact = normalized.replace(/[\s_-]+/g, '');
-  if (
-    compact === 'read' ||
-    compact === 'readmessages' ||
-    compact === 'history' ||
-    compact === 'fetch'
-  ) {
-    return 'read';
-  }
-  if (compact === 'memberinfo' || compact === 'lookup' || compact === 'whois') {
-    return 'member-info';
-  }
-  if (compact === 'channelinfo') return 'channel-info';
-  if (
-    compact === 'react' ||
-    compact === 'reaction' ||
-    compact === 'reactions'
-  ) {
-    return 'react';
-  }
-  if (
-    compact === 'quotereply' ||
-    compact === 'replymessage' ||
-    compact === 'replyto'
-  ) {
-    return 'quote-reply';
-  }
-  if (compact === 'edit' || compact === 'update') return 'edit';
-  if (compact === 'delete' || compact === 'remove') return 'delete';
-  if (compact === 'pin') return 'pin';
-  if (compact === 'unpin') return 'unpin';
-  if (compact === 'threadcreate' || compact === 'createthread') {
-    return 'thread-create';
-  }
-  if (compact === 'threadreply' || compact === 'replythread') {
-    return 'thread-reply';
-  }
-  if (
-    compact === 'send' ||
-    compact === 'sendmessage' ||
-    compact === 'dm' ||
-    compact === 'post' ||
-    compact === 'reply' ||
-    compact === 'respond'
-  ) {
-    return 'send';
-  }
-  return null;
-}
-
 function normalizeDiscordMessageTarget(value: unknown): string | undefined {
   const raw = readStringValue(value);
   if (!raw) return undefined;
@@ -979,20 +931,13 @@ function withAutomaticGatewayAuth(
   return { ...args, headers };
 }
 
-function resolveGatewaySecretInjectUrl(): string | null {
+function resolveGatewayUrl(path: string): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
-  if (!base) return null;
-  return `${base}/api/secret/inject`;
-}
-
-function resolveGatewayBrowserSignInUrl(): string | null {
-  const base = gatewayBaseUrl.replace(/\/+$/, '');
-  if (!base) return null;
-  return `${base}/api/browser/sign-in`;
+  return base ? `${base}${path}` : null;
 }
 
 async function callGatewayMessageAction(
-  payload: Record<string, unknown>,
+  payload: MessageActionRequest,
 ): Promise<string> {
   const url = resolveGatewayMessageActionUrl();
   if (!url) {
@@ -1009,12 +954,8 @@ async function callGatewayMessageAction(
   }
 
   let response: Response;
-  const requestPayload = { ...payload };
-  if (
-    currentSessionId &&
-    typeof requestPayload.sessionId !== 'string' &&
-    !Array.isArray(requestPayload.sessionId)
-  ) {
+  const requestPayload: MessageActionRequest = { ...payload };
+  if (currentSessionId && requestPayload.sessionId === undefined) {
     requestPayload.sessionId = currentSessionId;
   }
   try {
@@ -1404,12 +1345,16 @@ async function callGatewayHttpRequest(
       parsed && typeof parsed.error === 'string'
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
-    return failTool(`Error: ${errorText}`);
+    return failTool(
+      `Error: ${errorText}`,
+      httpStatusErrorCode(response.status),
+    );
   }
 
   if (parsed && parsed.ok === false) {
     return failTool(
       JSON.stringify(summarizeGatewayHttpFailure(parsed), null, 2),
+      httpStatusErrorCode(parsed.status),
     );
   }
 
@@ -1420,7 +1365,7 @@ async function callGatewayHttpRequest(
 async function callGatewaySecretInject(
   args: Record<string, unknown>,
 ): Promise<ContainerSecretHandle> {
-  const url = resolveGatewaySecretInjectUrl();
+  const url = resolveGatewayUrl('/api/secret/inject');
   if (!url) {
     return failTool(
       'Error: browser_secret_type is unavailable because gatewayBaseUrl is not configured.',
@@ -1544,14 +1489,19 @@ type SavedBrowserSignIn = {
   passwordSecret: string;
 };
 
-/** Which store names hold the host's sign-in; never the values. */
-async function lookupBrowserSignIn(
+/**
+ * Ask the gateway which secret names hold what the user gave for `host`
+ * (`/api/browser/sign-in`, `/api/browser/payment-card`); never the values.
+ */
+async function lookupBrowserSecretNames(
+  toolName: string,
+  path: string,
   host: string,
-): Promise<SavedBrowserSignIn | null> {
-  const url = resolveGatewayBrowserSignInUrl();
+): Promise<Record<string, unknown> | null> {
+  const url = resolveGatewayUrl(path);
   if (!url) {
     return failTool(
-      'Error: browser_sign_in is unavailable because gatewayBaseUrl is not configured.',
+      `Error: ${toolName} is unavailable because gatewayBaseUrl is not configured.`,
     );
   }
   const headers: Record<string, string> = {
@@ -1578,12 +1528,22 @@ async function lookupBrowserSignIn(
     }
   } catch (err) {
     return failTool(
-      `Error: sign-in lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Error: ${toolName} lookup failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (parsed?.saved !== true || typeof parsed.passwordSecret !== 'string') {
-    return null;
-  }
+  return parsed?.saved === true ? parsed : null;
+}
+
+/** Which store names hold the host's sign-in; never the values. */
+async function lookupBrowserSignIn(
+  host: string,
+): Promise<SavedBrowserSignIn | null> {
+  const parsed = await lookupBrowserSecretNames(
+    'browser_sign_in',
+    '/api/browser/sign-in',
+    host,
+  );
+  if (typeof parsed?.passwordSecret !== 'string') return null;
   return {
     ...(typeof parsed.usernameSecret === 'string'
       ? { usernameSecret: parsed.usernameSecret }
@@ -1639,7 +1599,7 @@ async function executeBrowserSignIn(
   const replace = args.replace === true;
   const signIn = replace ? null : await lookupBrowserSignIn(page.host);
   if (!signIn) {
-    emitBrowserSignInRequest(page, page.host);
+    emitBrowserUserRequest(page, 'signIn', page.host);
     return JSON.stringify(
       {
         success: true,
@@ -1691,11 +1651,91 @@ async function executeBrowserSignIn(
   );
 }
 
+// What `browser_fill_payment` types into each field it is given a ref for.
+const PAYMENT_FIELD_ARGS = [
+  ['number_ref', 'number'],
+  ['expiry_ref', 'expiry'],
+  ['expiry_month_ref', 'expiry_month'],
+  ['expiry_year_ref', 'expiry_year'],
+  ['cvc_ref', 'cvc'],
+] as const;
+
+/**
+ * Fill a payment form with the card the user entered for the page's site, or
+ * ask them for one. The ask is a `paymentCard` frame line: the Hy app turns it
+ * into a card sheet that hands the details to `/api/payment-cards`, which
+ * holds them in gateway memory for ten minutes.
+ */
+async function executeBrowserFillPayment(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const page = await resolveCurrentBrowserPage();
+  if (!page.host) {
+    return failTool(
+      'Error: browser_fill_payment needs an open page with the payment form.',
+    );
+  }
+  const fields = PAYMENT_FIELD_ARGS.flatMap(([arg, field]) => {
+    const ref = String(args[arg] || '').trim();
+    return ref ? [{ ref, field }] : [];
+  });
+  if (fields.length === 0 && args.replace !== true) {
+    return failTool(
+      'Error: name the card fields to fill, for example number_ref, expiry_ref and cvc_ref.',
+    );
+  }
+  const card =
+    args.replace === true
+      ? null
+      : asRecord(
+          (
+            await lookupBrowserSecretNames(
+              'browser_fill_payment',
+              '/api/browser/payment-card',
+              page.host,
+            )
+          )?.secrets,
+        );
+  if (!card) {
+    emitBrowserUserRequest(page, 'paymentCard', page.host);
+    return JSON.stringify(
+      {
+        success: true,
+        host: page.host,
+        card_requested: true,
+        next: `No card is ready for ${page.host}. The user's chat now shows a card for ${page.host} where they enter their card details, which reach the page without you seeing them. Stop here and tell the user in one short sentence that you need their card details for ${page.host} to continue. Never ask for a card number, expiry date or security code in chat. When the user says they entered it, call browser_fill_payment again.`,
+      },
+      null,
+      2,
+    );
+  }
+  const yearField =
+    args.expiry_year_format === 'YYYY' ? 'expiry_year' : 'expiry_year_short';
+  for (const { ref, field } of fields) {
+    const secretName = card[field === 'expiry_year' ? yearField : field];
+    if (typeof secretName !== 'string') {
+      return failTool(`Error: the card has no ${field}.`);
+    }
+    await typeSavedSecret(secretName, { ref }, args.frame);
+  }
+  return JSON.stringify(
+    {
+      success: true,
+      host: page.host,
+      filled: fields.map(({ field }) => field),
+      next: 'Fill the rest of the form, check the order, then place it with its button; that click asks the user first. If the site rejects the card, call browser_fill_payment with replace: true.',
+    },
+    null,
+    2,
+  );
+}
+
 async function injectIntoElement(
   handle: ContainerSecretHandle,
   locator: { ref?: string; selector?: string; frame?: string },
 ): Promise<string> {
   try {
+    recordTypedSecret(handle.unsafeReadStringForInjection());
     const output = await executeBrowserTool(
       'browser_type',
       {
@@ -2949,6 +2989,16 @@ async function executeToolInternal(
       }
     }
 
+    case ASK_QUESTIONS_TOOL: {
+      try {
+        return runAskQuestions(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case SHOW_DASHBOARD_TOOL: {
       try {
         return runShowDashboard(args, writeWorkspaceFile, readWorkspaceText);
@@ -3157,20 +3207,20 @@ async function executeToolInternal(
     }
 
     case 'message': {
-      const action = resolveDiscordMessageAction(args.action);
+      const action = normalizeMessageToolAction(args.action);
       if (!action) {
         return failTool(
-          'Error: unsupported message action. Use "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
+          `Error: unsupported message action. Use ${MESSAGE_TOOL_ACTION_CHOICES}.`,
         );
       }
 
-      const payload: Record<string, unknown> = { action };
-      const resolveAmbiguousRaw = readStringValue(args.resolveAmbiguous);
+      const payload: MessageActionRequest = { action };
+      const resolveAmbiguousRaw = readStringValue(
+        args.resolveAmbiguous,
+      )?.toLowerCase();
       const resolveAmbiguous =
-        resolveAmbiguousRaw &&
-        (resolveAmbiguousRaw.toLowerCase() === 'best' ||
-          resolveAmbiguousRaw.toLowerCase() === 'error')
-          ? resolveAmbiguousRaw.toLowerCase()
+        resolveAmbiguousRaw === 'best' || resolveAmbiguousRaw === 'error'
+          ? resolveAmbiguousRaw
           : undefined;
       const messageId = normalizeDiscordMessageTarget(args.messageId);
       const emoji = readStringValue(args.emoji);
@@ -3247,7 +3297,11 @@ async function executeToolInternal(
       }
 
       if (action === 'send') {
-        if (args.from !== undefined) payload.from = args.from;
+        if (typeof args.from === 'string' || args.from === null) {
+          payload.from = args.from;
+        } else if (args.from !== undefined) {
+          return failTool('Error: from must be a string.');
+        }
         const explicitChannelId =
           resolveDiscordMessageExplicitChannelTarget(args);
         const userLookupTarget =
@@ -3461,12 +3515,12 @@ async function executeToolInternal(
     }
 
     case 'work': {
-      const { ok, text } = await runWorkTool(args, {
+      const { ok, text, errorCode } = await runWorkTool(args, {
         baseUrl: gatewayBaseUrl,
         apiToken: gatewayApiToken,
         sessionId: currentSessionId,
       });
-      return ok ? text : failTool(text);
+      return ok ? text : failTool(text, errorCode);
     }
     case 'draft_email': {
       const { ok, text } = await runTrackedDraftEmailTool(args, {
@@ -3756,7 +3810,8 @@ async function executeToolInternal(
         }
       }
       const output = `${lines.join('\n')}\n\n${header}${outputText}`;
-      if (isHttpError) return failTool(output);
+      if (isHttpError)
+        return failTool(output, httpStatusErrorCode(result.status));
       return output;
     }
 
@@ -3839,6 +3894,7 @@ async function executeToolInternal(
     case 'browser_type':
     case 'browser_secret_type':
     case 'browser_sign_in':
+    case 'browser_fill_payment':
     case 'browser_upload':
     case 'browser_press':
     case 'browser_scroll':
@@ -3853,13 +3909,15 @@ async function executeToolInternal(
       const output =
         name === 'browser_sign_in'
           ? await executeBrowserSignIn(args)
-          : name === 'browser_secret_type' && !usesGatewayManagedBrowser()
-            ? await executeBrowserSecretType(args)
-            : await executeBrowserTool(
-                name,
-                args,
-                currentSessionId || 'default',
-              );
+          : name === 'browser_fill_payment'
+            ? await executeBrowserFillPayment(args)
+            : name === 'browser_secret_type' && !usesGatewayManagedBrowser()
+              ? await executeBrowserSecretType(args)
+              : await executeBrowserTool(
+                  name,
+                  args,
+                  currentSessionId || 'default',
+                );
       const structured = parseStructuredToolOutput(output);
       if (structured?.success === false) {
         return failTool(output);
@@ -4131,21 +4189,29 @@ export async function executeToolWithMetadata(
       typeof result === 'string' ? { output: result, isError: false } : result;
     return {
       ...metadata,
-      output: appendFileReferenceReceipt(metadata.output, sentFiles),
+      output: appendFileReferenceReceipt(
+        hideTypedSecrets(metadata.output),
+        sentFiles,
+      ),
     };
   } catch (err) {
+    const errorCode = thrownToolErrorCode(err);
     if (
       err instanceof ToolExecutionFailure ||
       err instanceof IncompleteVisionAnalysisError
     ) {
       return {
-        output: err.output,
+        output: hideTypedSecrets(err.output),
         isError: true,
+        ...(errorCode ? { errorCode } : {}),
       };
     }
     return {
-      output: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+      output: hideTypedSecrets(
+        `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       isError: true,
+      ...(errorCode ? { errorCode } : {}),
     };
   }
 }
@@ -4202,6 +4268,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WRITE_TOOL_DEFINITION,
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
+  ASK_QUESTIONS_DEFINITION,
   SHOW_DASHBOARD_DEFINITION,
   {
     type: 'function',
@@ -4314,22 +4381,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           action: {
             type: 'string',
-            description:
-              'Action to perform: "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
-            enum: [
-              'read',
-              'member-info',
-              'channel-info',
-              'send',
-              'react',
-              'quote-reply',
-              'edit',
-              'delete',
-              'pin',
-              'unpin',
-              'thread-create',
-              'thread-reply',
-            ],
+            description: `Action to perform: ${MESSAGE_TOOL_ACTION_CHOICES}.`,
+            enum: [...MESSAGE_TOOL_ACTIONS],
           },
           channelId: {
             type: 'string',
@@ -5109,7 +5162,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to subagents that have your tools. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns the subagent reports; check them and finish the answer yourself. Set `background` only for long work the user should not wait for: the reports then arrive later as a new message, so acknowledge the start briefly and do not poll or sleep.',
+        'Complete requests directly by default, including multi-step research. Delegate only when the user asks for subagents or a distinct, self-contained subtask benefits from separate context while you continue other useful work. Complexity alone is not a reason to hand off the whole request. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns reports; check them and finish the answer yourself. Set `background` only when the user requests background work or a later result: reports then arrive as a new message, so acknowledge the start briefly and do not poll or sleep.',
       parameters: {
         type: 'object',
         properties: {

@@ -15,7 +15,10 @@
 import type { IncomingMessage } from 'node:http';
 import { SHELL_RUNTIME_ENV_PATH } from '@hybridclaw/shared/shell-runtime-env';
 import { getActiveDelegationChildContext } from '../gateway/delegation-child-context.js';
-import { BROWSER_SIGN_IN_LOOKUP_PATH } from '../gateway/gateway-browser-sign-ins.js';
+import {
+  BROWSER_PAYMENT_CARD_LOOKUP_PATH,
+  BROWSER_SIGN_IN_LOOKUP_PATH,
+} from '../gateway/gateway-browser-sign-ins.js';
 import { readJsonBody } from '../gateway/gateway-http-utils.js';
 import { isDatabaseInitialized } from '../memory/database.js';
 import { getSessionById } from '../memory/sessions.js';
@@ -31,7 +34,7 @@ export interface RuntimeScope {
 
 // Runtime routes that act on no chat's data (2026-10-09): prices, the shell's
 // environment, the user's style preferences (shared by design), outbound HTTP
-// and secret injection, the shared browser and its sign-in lookup.
+// and secret injection, the shared browser and its sign-in and card lookups.
 const SESSIONLESS_ROUTES: ReadonlySet<string> = new Set([
   '/api/cost-estimate',
   SHELL_RUNTIME_ENV_PATH,
@@ -40,6 +43,7 @@ const SESSIONLESS_ROUTES: ReadonlySet<string> = new Set([
   '/api/secret/inject',
   '/api/browser/tool',
   BROWSER_SIGN_IN_LOOKUP_PATH,
+  BROWSER_PAYMENT_CARD_LOOKUP_PATH,
 ]);
 // User-wide notes are not partitioned by scope, so a scope never reads them.
 const REFUSED_ROUTES: ReadonlySet<string> = new Set([NOTES_RUNTIME_PATH]);

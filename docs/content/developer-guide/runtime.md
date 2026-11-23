@@ -91,8 +91,10 @@ of source checkouts only.
 The gateway image installs the esbuild gateway bundle and its plugin SDK chunks
 under `dist/`. Docker startup, the shell CLI, the package bin, and the embedded
 terminal all use `dist/cli.js`. Both gateway and agent bundles inline the
-private `@hybridclaw/shared` workspace package (`packages/shared`); the image
-does not ship that package or plain gateway `tsc` output. Source builds, npm
+private `@hybridclaw/contracts` and `@hybridclaw/shared` workspace packages
+(`packages/contracts`, the wire types, below `packages/shared`, the logic that
+uses them); the image does not ship those packages or plain gateway `tsc`
+output. Source builds, npm
 packages, and desktop packages also run the gateway bundle at `dist/cli.js`;
 the build rolls the plugin SDK's declarations, shared types included, into
 the one file `dist/plugin-sdk.d.ts` beside it. A rebuild
@@ -206,6 +208,20 @@ The fetched-code guard refuses unreadable or invalid saved history. Downloads
 and recognized data-derived outputs share durable session provenance. Downloads
 are refused if their history cannot be persisted; that worker retains the failure
 for the session instead of allowing later downloads without durable tracking.
+
+Local output-limit recovery remembers exhaustion for the current turn only.
+Remaining requests use reasoning effort `none`, allowing supported local
+backends to finish without consuming another thinking budget. The output cap
+and bounded recovery count stay unchanged; a new turn restores its requested
+effort. Default local turns also switch after 8,192 cumulative completion tokens
+across primary requests, using API usage when available and estimates otherwise.
+This preserves initial reasoning instead of disabling it from the start. Explicit
+effort bypasses this cumulative allowance; truncation recovery still applies.
+Backend generation admission and per-call limits stay unchanged. The allowance
+resets on a new turn, never on successful tools, and is not a wall-clock deadline.
+Cross-channel recall keeps the caller-selected turns in full, with
+quoted content attributed to its original speaker; normal context budgeting
+controls their size without silently dropping conditions or action receipts.
 
 Shell argv redirection roles are parser-local metadata keyed by the parsed
 arrays. Explicit slices and command-prefix extraction retain them within an
@@ -332,6 +348,25 @@ Recovery returns typed evidence with a per-call `result_recorded`,
 side effects are excluded from recovered evidence. An interruption wins over a
 late success reply. The output carries a recovery marker even when no tool-start
 progress or execution record survived.
+
+Background delegation in web chat keeps one updating progress message per batch
+in the parent conversation. Its status names each task and current tool, and its
+expandable activity trace retains tool argument/result previews and durations after
+completion or a page reload. Credential previews use the existing redactor.
+Progress sends a metadata-only `chat-updated` event on the owning operator's
+notification stream; it creates neither unread alerts nor phone pushes. The
+console defers history refresh while the parent's response is streaming, and
+refreshes after reconnecting. Failed jobs and gateway restart recovery mark the
+progress message interrupted without discarding the recorded calls. Waiting
+delegates forward child tool events into the parent's current stream, including
+nested calls, with call IDs scoped to each child. Both paths honor the session's
+tool visibility setting; released or aborted requests receive no further events.
+
+Risk boundary: progress is display history, never execution or approval state.
+It cannot recreate a deleted or reset parent session. A display failure must not
+fail or retry delegated work. Delegation guidance prefers direct execution for
+ordinary requests, including multi-step research; background mode is reserved
+for user-requested background work or later results.
 
 Retry audit:
 - Whole-run model routing and delegation retries use the shared retry guard.
@@ -695,6 +730,12 @@ Common advanced areas:
   delivery targets (`one_shot` jobs run immediately, retry up to
   `maxRetries`, and land in review on success or terminal failure).
   Pausing a scheduled task remains effective if an active run later fails.
+
+  Routine guidance distinguishes internal checks from user-facing reminders,
+  scopes native `cron` rules to native schedules, and requires monitoring
+  runs to consult persistent delivery receipts before repeating an alert.
+  Absolute scheduling guidance requires computing the offset on the target
+  date and checking the stored instant against the requested local time.
   `webhook` delivery posts only to public `https://` URLs, never follows
   redirects, and signs every body with the stored `SCHEDULER_WEBHOOK_SECRET`
   in `X-HybridClaw-Signature: t=<unix seconds>, v1=<hex HMAC-SHA256 of

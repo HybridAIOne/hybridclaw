@@ -12,8 +12,14 @@ export interface BrowserPageState {
   url: string;
   title: string;
   refs: Map<string, BrowserRefLabel>;
-  /** Set after a secret was typed; live frames and page scripts stay off until the URL changes. */
+  /** Set after a secret was typed; live frames, pictures and page scripts stay off until the URL changes. */
   framesPaused: boolean;
+  /**
+   * What was typed from the secret store in this browser session, kept out of
+   * tool results (`hideTypedSecrets`). It outlives the page: a submitted form
+   * can come back in a later page or network log.
+   */
+  typedSecrets: string[];
 }
 
 export interface CheckoutAction {
@@ -30,6 +36,7 @@ const state: BrowserPageState = {
   title: '',
   refs: new Map(),
   framesPaused: false,
+  typedSecrets: [],
 };
 
 export function currentBrowserPage(): Readonly<BrowserPageState> {
@@ -70,11 +77,55 @@ export function pauseBrowserFramesUntilNavigation(): void {
   state.framesPaused = true;
 }
 
+/** A secret now sits in a field of this page; see `hideTypedSecrets`. */
+export function recordTypedSecret(value: string): void {
+  pauseBrowserFramesUntilNavigation();
+  if (value.trim() && !state.typedSecrets.includes(value)) {
+    state.typedSecrets.push(value);
+  }
+}
+
+const HIDDEN_SECRET = '[typed secret]';
+// Shorter values (a security code, an expiry month) are hidden only where a
+// snapshot shows them as a field's value, not in every price on the page.
+const MIN_HIDDEN_ANYWHERE_LENGTH = 6;
+
+function typedSecretPattern(value: string): RegExp {
+  const compact = value.replace(/[\s/.-]/g, '');
+  // A page may show typed digits regrouped: "4242 4242 …", "04 / 28".
+  const core = /^\d+$/.test(compact)
+    ? [...compact].join(String.raw`[\s/.-]*`)
+    : value.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  if (compact.length >= MIN_HIDDEN_ANYWHERE_LENGTH) {
+    return new RegExp(String.raw`(?<![\w])${core}(?![\w])`, 'g');
+  }
+  // `textbox "CVC" [ref=e4]: 123` and `StaticText "123"`, also inside JSON.
+  return new RegExp(
+    String.raw`(?<=\]: |StaticText \\?")${core}(?=$|\\n|\\?"|\n)`,
+    'gm',
+  );
+}
+
+/**
+ * Replace what was typed into the page from the secret store wherever a tool
+ * result repeats it. A snapshot shows a text field's value, so without this
+ * the model would read a card number back after typing it. Passwords show as
+ * dots there already.
+ */
+export function hideTypedSecrets(text: string): string {
+  let next = text;
+  for (const value of state.typedSecrets) {
+    next = next.replace(typedSecretPattern(value), HIDDEN_SECRET);
+  }
+  return next;
+}
+
 export function resetBrowserPage(): void {
   state.url = '';
   state.title = '';
   state.refs = new Map();
   state.framesPaused = false;
+  state.typedSecrets = [];
 }
 
 function normalizeRef(raw: string): string {

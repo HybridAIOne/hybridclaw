@@ -4,9 +4,9 @@
  * diagnostics, runtime-config defaults, and the console all read it, so a
  * provider is named and defaulted the same way on every surface.
  *
- * NOT the id list (`packages/shared/src/provider-ids.ts`) and NOT the per-flow
- * auth details (`src/auth/generic-provider-auth.ts`). Imports only from
- * `@hybridclaw/shared` so the console can import it.
+ * NOT the id list (`packages/contracts/src/provider-ids.ts`) and NOT the
+ * per-flow auth details (`src/auth/generic-provider-auth.ts`). Imports only
+ * from the workspace packages so the console can import it.
  */
 import { ANTHROPIC_DEFAULT_BASE_URL } from '@hybridclaw/shared/anthropic-utils';
 import type { RuntimeProviderId } from './provider-ids.js';

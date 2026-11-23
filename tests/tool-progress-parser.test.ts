@@ -135,6 +135,15 @@ test('parses browser frame lines and ignores everything else', () => {
       '[browser-frame] {"url":"https://hybridai.one/login","title":"Login","signIn":{"host":"evil.example/path"}}',
     ),
   ).toEqual({ url: 'https://hybridai.one/login', title: 'Login' });
+  expect(
+    parseBrowserFrameLine(
+      '[browser-frame] {"url":"https://shop.example/pay","title":"Pay","paymentCard":{"host":"Shop.example"}}',
+    ),
+  ).toEqual({
+    url: 'https://shop.example/pay',
+    title: 'Pay',
+    paymentCard: { host: 'shop.example' },
+  });
   expect(parseBrowserFrameLine('[browser-frame] {"title":"no url"}')).toBeNull();
   expect(parseBrowserFrameLine('[browser-frame] not json')).toBeNull();
   expect(parseBrowserFrameLine('[tool] browser_click: {}')).toBeNull();

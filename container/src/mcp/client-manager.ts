@@ -8,6 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { TOOL_ERROR_CODES } from '@hybridclaw/contracts/tool-error-code';
 import {
   type BoostAnswer,
   parseBoostOffer,
@@ -53,6 +54,7 @@ import {
   BOOST_OFFER_META,
   BOOST_OFFERS_META,
   DEFER_LOADING_META,
+  ERROR_CODE_META,
   type LiveHeaders,
   type McpClientHandle,
   type McpServerConfig,
@@ -709,9 +711,15 @@ export class McpClientManager {
         this.getToolBehavior(namespacedName)?.platformApproval && result.isError
           ? parseConnectorApproval(result._meta?.[CONNECTOR_APPROVAL_META])
           : null;
+      const errorCode = result.isError
+        ? TOOL_ERROR_CODES.find(
+            (code) => code === result._meta?.[ERROR_CODE_META],
+          )
+        : undefined;
       return {
         output: rendered,
         isError: result.isError === true,
+        ...(errorCode ? { errorCode } : {}),
         ...(connectorApproval ? { connectorApproval } : {}),
         ...(boostOffer ? { boostOffer } : {}),
       };

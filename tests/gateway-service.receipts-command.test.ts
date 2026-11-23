@@ -230,7 +230,7 @@ test('an app sees its web chats and its tasks, a peer only its own', async () =>
     ok: false,
     error: 'Mailbox unavailable',
   });
-  expect(app[1]).toMatchObject({ task: taskId, allowed: 'earlier' });
+  expect(app[1]).toMatchObject({ task: taskId, allowed: 'earlier', priorApproval: true });
   expect(app[2]).toMatchObject({
     session: OTHER_APP_CHAT,
     title: 'Dentist',
@@ -248,6 +248,14 @@ test('an app sees its web chats and its tasks, a peer only its own', async () =>
   expect((await run(APP_CHAT, ['receipts', '--bogus'])).text).toContain(
     'Usage',
   );
+});
+
+test('automatic promotion is reported as policy approval', async () => {
+  const { run, act } = await load();
+  await run(APP_CHAT, ['receipts']);
+  await act(APP_CHAT, { approvalDecision: 'promoted' });
+  const { json } = await run(APP_CHAT, ['receipts', '--json']);
+  expect(json.receipts).toMatchObject([{ allowed: 'policy', priorApproval: false }]);
 });
 
 test('a browser order is confirmed only by a check after it', async () => {

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.43.1',
+  version: '0.43.2',
   highlights: [
-    'One deadline across retries and delegated work',
-    'Clear errors for incomplete replies',
-    'Fewer prompts for current-channel replies',
-    'Tool-use summaries in the audit log',
+    'Browse older messages in web chat',
+    'Follow delegated work after reloading chat',
+    'Try read-only API turns with dry-run',
+    'Answer question cards on supported mobile apps',
   ],
 } as const;
 

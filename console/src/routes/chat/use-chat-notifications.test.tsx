@@ -19,6 +19,7 @@ vi.mock('../../lib/web-push', () => ({
 }));
 
 let enqueue: (state: WebNotificationState) => void;
+let enqueueUpdate: (sessionId: string) => void;
 let visible = false;
 let permission: NotificationPermission;
 const requestPermission = vi.fn();
@@ -67,6 +68,12 @@ beforeEach(() => {
   enablePush.mockRejectedValue(new Error('Push unavailable'));
   const body = new ReadableStream({
     start(controller) {
+      enqueueUpdate = (sessionId) =>
+        controller.enqueue(
+          new TextEncoder().encode(
+            `event: chat-updated\ndata: ${JSON.stringify({ sessionId })}\n\n`,
+          ),
+        );
       enqueue = (state) =>
         controller.enqueue(
           new TextEncoder().encode(
@@ -178,6 +185,38 @@ test('clears the previous operator unread state immediately when credentials cha
   hook.rerender({ token: 'operator-b-token' });
   expect(hook.result.current.state).toBeNull();
   expect(hook.result.current.unreadSessions.size).toBe(0);
+});
+
+test('progress refreshes history without unread state or desktop alerts', async () => {
+  const hook = mount();
+  await act(async () => enqueue(snapshot()));
+  await act(async () => enqueueUpdate('session-a'));
+  expect(hook.onMessage).toHaveBeenCalledWith('session-a');
+  expect(hook.result.current.unreadSessions.size).toBe(0);
+  expect(notification).not.toHaveBeenCalled();
+  expect(requestJson).not.toHaveBeenCalled();
+});
+
+test('progress waits for the parent stream to reconcile before refreshing history', async () => {
+  const onMessage = vi.fn();
+  const hook = renderHook(
+    ({ streamingSessionId }) =>
+      useChatNotifications({
+        token: 'test-token',
+        enabled: true,
+        sessionId: 'session-a',
+        streamingSessionId,
+        onOpenSession: vi.fn(),
+        onMessage,
+      }),
+    { initialProps: { streamingSessionId: 'session-a' as string | null } },
+  );
+  await act(async () => enqueueUpdate('session-a'));
+  await act(async () => enqueueUpdate('session-a'));
+  expect(onMessage).not.toHaveBeenCalled();
+  hook.rerender({ streamingSessionId: null });
+  expect(onMessage).toHaveBeenCalledExactlyOnceWith('session-a');
+  expect(notification).not.toHaveBeenCalled();
 });
 
 test('permission is requested only by the explicit enable control and push avoids duplicate desktop alerts', async () => {

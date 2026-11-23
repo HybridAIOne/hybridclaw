@@ -5,7 +5,11 @@
  * missing reports remain unknown in the routing trace.
  */
 
-import type { ModelCallUsage } from '@hybridclaw/shared/token-usage';
+import type { ModelCallUsage } from '@hybridclaw/contracts/token-usage';
+import {
+  estimateMessageTokens,
+  estimateTextTokens,
+} from '@hybridclaw/shared/token-estimate';
 import { primaryTokenUsage } from '@hybridclaw/shared/token-usage';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { UsageAttribution } from '../memory/usage.js';
@@ -14,10 +18,6 @@ import {
   refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import { isLocalBackendType } from '../providers/provider-ids.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { RoutingTraceAttempt } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -155,9 +155,8 @@ export function buildTokenUsageAuditPayload(
   }, 0);
   const completionChars = (resultText || '').length;
 
-  const fallbackEstimatedPromptTokens =
-    estimateTokenCountFromMessages(messages);
-  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(
+  const fallbackEstimatedPromptTokens = estimateMessageTokens(messages);
+  const fallbackEstimatedCompletionTokens = estimateTextTokens(
     resultText || '',
   );
   const estimatedPromptTokens =
@@ -191,6 +190,7 @@ export function buildTokenUsageAuditPayload(
     modelCalls: tokenUsage
       ? Math.max(apiTotalTokens > 0 ? 1 : 0, tokenUsage.modelCalls)
       : 0,
+    modelRetries: tokenUsage?.modelRetries ?? 0,
     promptChars,
     completionChars,
     promptTokens,

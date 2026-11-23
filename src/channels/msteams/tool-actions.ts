@@ -1,10 +1,10 @@
+import type { MessageActionRequest } from '@hybridclaw/contracts/message-action';
 import {
   getAllSessions,
   getMemoryValue,
   getRecentMessages,
 } from '../../memory/db.js';
 import type { Session } from '../../types/session.js';
-import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import {
   hasActiveMSTeamsSession,
   sendToActiveMSTeamsSession,
@@ -74,7 +74,7 @@ function normalizeStoredMessageTimestamp(raw: string): string {
   return Number.isNaN(parsed) ? value : new Date(parsed).toISOString();
 }
 
-function isLikelyMSTeamsRequest(request: DiscordToolActionRequest): boolean {
+function isLikelyMSTeamsRequest(request: MessageActionRequest): boolean {
   if (resolveMSTeamsRequestSession(request.sessionId)) {
     return true;
   }
@@ -91,7 +91,7 @@ function isLikelyMSTeamsRequest(request: DiscordToolActionRequest): boolean {
 }
 
 function pickMostRecentMatchingSession(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   channelId: string,
 ): Session | null {
   const normalizedGuildId = normalizeValue(request.guildId) || null;
@@ -106,7 +106,7 @@ function pickMostRecentMatchingSession(
 }
 
 function resolveKnownMSTeamsSession(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Session | null {
   const currentSession = resolveMSTeamsRequestSession(request.sessionId);
   const rawChannelId = normalizeValue(request.channelId);
@@ -138,7 +138,7 @@ function resolveKnownMSTeamsSession(
 }
 
 function ensureAuthorizedMSTeamsSendTarget(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): void {
   const requesterSession = resolveMSTeamsRequestSession(request.sessionId);
@@ -294,7 +294,7 @@ function resolveMSTeamsMemberCandidate(
 }
 
 async function runMSTeamsSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
   resolvedFilePath: string | null,
 ): Promise<Record<string, unknown>> {
@@ -331,7 +331,7 @@ async function runMSTeamsSendAction(
 }
 
 function runMSTeamsReadAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): Record<string, unknown> {
   if (
@@ -397,7 +397,7 @@ function runMSTeamsChannelInfoAction(
 }
 
 function runMSTeamsMemberInfoAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): Record<string, unknown> {
   const candidates = collectMSTeamsMemberCandidates(targetSession);
@@ -441,9 +441,9 @@ function runMSTeamsMemberInfoAction(
 }
 
 export async function maybeRunMSTeamsToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   params: {
-    resolveSendFilePath: (request: DiscordToolActionRequest) => string | null;
+    resolveSendFilePath: (request: MessageActionRequest) => string | null;
   },
 ): Promise<Record<string, unknown> | null> {
   if (!isLikelyMSTeamsRequest(request)) {

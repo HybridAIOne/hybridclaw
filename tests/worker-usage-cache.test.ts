@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { TokenUsageStats } from '@hybridclaw/shared/token-usage';
+import type { TokenUsageStats } from '@hybridclaw/contracts/token-usage';
 import { createTokenUsageStats } from '@hybridclaw/shared/token-usage';
 import { readCacheTokenUsage } from '../src/usage/token-usage-buffer.js';
 

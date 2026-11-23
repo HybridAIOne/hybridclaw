@@ -104,15 +104,15 @@ vi.mock('../src/skills/skills.js', () => ({
   loadSkills: vi.fn(() => []),
 }));
 
-vi.mock('../src/session/token-efficiency.js', () => ({
-  estimateTokenCountFromMessages: vi.fn(
+vi.mock('@hybridclaw/shared/token-estimate', () => ({
+  estimateMessageTokens: vi.fn(
     (messages: Array<{ content: string | null }>) =>
       messages.reduce(
         (total, message) => total + (message.content?.length ?? 0),
         0,
       ),
   ),
-  estimateTokenCountFromText: vi.fn(() => 0),
+  estimateTextTokens: vi.fn(() => 0),
 }));
 
 function makeStoredMessage(

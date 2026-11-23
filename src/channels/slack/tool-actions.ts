@@ -1,3 +1,4 @@
+import type { MessageActionRequest } from '@hybridclaw/contracts/message-action';
 import {
   getAllSessions,
   getRecentMessages,
@@ -7,7 +8,6 @@ import { parseSessionKey } from '../../session/session-key.js';
 import type { Session } from '../../types/session.js';
 import { normalizeTrimmedString as normalizeValue } from '../../utils/normalized-strings.js';
 import { slackRuntimeLoader } from '../channel-runtime-loaders.js';
-import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isSlackSessionId } from './inbound.js';
 import { normalizeSlackUserId, parseSlackChannelTarget } from './target.js';
 
@@ -51,7 +51,7 @@ function resolveSlackRequestSession(
   return session;
 }
 
-function isLikelySlackRequest(request: DiscordToolActionRequest): boolean {
+function isLikelySlackRequest(request: MessageActionRequest): boolean {
   if (resolveSlackRequestSession(request.sessionId)) {
     return true;
   }
@@ -101,7 +101,7 @@ function pickMostRecentMatchingSession(
 }
 
 function resolveKnownSlackSession(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
 ): Session | null {
   const currentSession = resolveSlackRequestSession(request.sessionId);
   const rawChannelId = normalizeValue(request.channelId);
@@ -125,7 +125,7 @@ function resolveKnownSlackSession(
 }
 
 function ensureAuthorizedSlackSendTarget(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): void {
   const requesterSession = resolveSlackRequestSession(request.sessionId);
@@ -250,7 +250,7 @@ function resolveSlackMemberLookup(
 }
 
 async function runSlackSendAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
   resolvedFilePath: string | null,
 ): Promise<Record<string, unknown>> {
@@ -291,7 +291,7 @@ async function runSlackSendAction(
 }
 
 function runSlackReadAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): Record<string, unknown> {
   if (
@@ -359,7 +359,7 @@ function runSlackChannelInfoAction(
 }
 
 function runSlackMemberInfoAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   targetSession: Session,
 ): Record<string, unknown> {
   const candidates = collectSlackMemberCandidates(targetSession.id);
@@ -403,9 +403,9 @@ function runSlackMemberInfoAction(
 }
 
 export async function maybeRunSlackToolAction(
-  request: DiscordToolActionRequest,
+  request: MessageActionRequest,
   params: {
-    resolveSendFilePath: (request: DiscordToolActionRequest) => string | null;
+    resolveSendFilePath: (request: MessageActionRequest) => string | null;
   },
 ): Promise<Record<string, unknown> | null> {
   if (!isLikelySlackRequest(request)) {

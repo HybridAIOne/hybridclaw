@@ -10,10 +10,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ApprovalMode } from '@hybridclaw/shared/approval-mode';
+import type { ApprovalMode } from '@hybridclaw/contracts/approval-mode';
 import { writeFileAtomic } from '@hybridclaw/shared/atomic-write';
 import { isDynamicContextMessageText } from '@hybridclaw/shared/dynamic-context';
 import { buildMcpServerNamespaces } from '@hybridclaw/shared/mcp-tool-namespaces';
+import {
+  isAudioMediaItem,
+  isImageMediaItem,
+} from '@hybridclaw/shared/media-kind';
 import { getSupportedReasoningEfforts } from '@hybridclaw/shared/reasoning-effort';
 import {
   currentDateStampInTimezone,
@@ -241,7 +245,6 @@ import {
   parseMcpServerConfig,
   supportsMcpOAuth,
 } from '../mcp/server-config.js';
-import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { movementMediaLines } from '../media/movement-media.js';
 import {
@@ -2367,16 +2370,6 @@ export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   return normalized;
 }
 
-function isImageMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase();
-  if (mimeType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
-    item.filename || '',
-  );
-}
-
 function buildVisibleMediaSummary(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
   const summary = summarizeMediaFilenames(media.map((item) => item.filename));
@@ -3425,16 +3418,14 @@ export function formatCanonicalContextPrompt(params: {
   }
 
   if (params.recentMessages.length > 0) {
-    const lines = params.recentMessages.slice(-6).map((entry) => {
+    // The caller selects authorized turns; preserve their constraints and receipts.
+    const lines = params.recentMessages.map((entry) => {
       const role = (entry.role || 'user').trim().toLowerCase();
       const who = role === 'assistant' ? 'Assistant' : 'User';
       const from = entry.channel_id?.trim()
         ? `${entry.channel_id.trim()} (${entry.session_id})`
         : entry.session_id;
-      const compact = entry.content.replace(/\s+/g, ' ').trim();
-      const short =
-        compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
-      return `- ${who} [${from}]: ${short}`;
+      return `- ${who} [${from}]: ${JSON.stringify(entry.content)}`;
     });
     sections.push(
       [
@@ -3533,6 +3524,7 @@ export function recordSuccessfulTurn(opts: {
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  dryRun?: boolean;
   promptOverheadTokens?: number;
 }): {
   userMessageId: number;
@@ -3543,7 +3535,7 @@ export function recordSuccessfulTurn(opts: {
     assistantContent: opts.resultText,
   });
 
-  if (opts.replaceBuiltInMemory !== true) {
+  if (opts.replaceBuiltInMemory !== true && !opts.dryRun) {
     void maybeCompactSession({
       sessionId: opts.sessionId,
       agentId: opts.agentId,
@@ -3706,6 +3698,7 @@ export function recordErrorTurn(opts: {
   /** Present iff delegations were started; without it the turn says none were. */
   delegationAcknowledgement?: string | null;
   replaceBuiltInMemory?: boolean;
+  dryRun?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;

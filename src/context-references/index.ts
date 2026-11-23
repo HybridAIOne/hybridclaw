@@ -1,4 +1,4 @@
-import { estimateTokenCountFromText } from '../session/token-efficiency.js';
+import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 import {
   type ContextReferenceResult,
   parseContextReferences,
@@ -75,7 +75,7 @@ export async function preprocessContextReferences(
 
   const strippedMessage = removeReferenceTokens(originalMessage, references);
   const attachedContext = blocks.join('\n\n').trim();
-  const contextTokens = estimateTokenCountFromText(attachedContext);
+  const contextTokens = estimateTextTokens(attachedContext);
   const contextLength = normalizeContextLength(params.contextLength);
   const softLimit = Math.floor(contextLength * SOFT_LIMIT_RATIO);
   const hardLimit = Math.floor(contextLength * HARD_LIMIT_RATIO);

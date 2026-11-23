@@ -67,6 +67,7 @@ describe('bash action descriptions', () => {
     expect(pending.intent).toBe(description);
     expect(pending.prompt).toBe(prompt);
     expect(pending.commandPreview).toContain('cp scripts/report.js');
+    expect(JSON.parse(pending.reviewArguments!)).toEqual({ command, description });
     expect(evaluation).toEqual(original);
     const parsed = parseApprovalProgress(`[approval] ${Buffer.from(JSON.stringify(pending)).toString('base64')}`);
     expect(parsed?.intent).toBe(description);
@@ -101,6 +102,16 @@ describe('bash action descriptions', () => {
     expect(protectedCall.pinned).toBe(true);
     expect(protectedCall.decision).toBe('required');
     expect(buildPendingApproval(protectedCall, 'prompt', 'bash', '{}')).toMatchObject({ allowSession: false, allowAgent: false, allowAll: false });
+  });
+
+  test('the card carries the whole command, however long, whatever the description says', () => {
+    const long = `echo ${'a'.repeat(400)} && rm -rf reports`;
+    const prepared = prepareInput(JSON.stringify({ command: long, description: 'Print a line.', timeoutMs: 1000 }));
+    const evaluation = runtime().evaluateToolCall({ toolName: 'bash', argsJson: prepared.argsJson, latestUserPrompt: 'Prepare a report' });
+    const pending = buildPendingApproval(evaluation, 'prompt', 'bash', prepared.argsJson, prepared.description);
+    expect(pending.commandPreview).not.toContain('rm -rf reports');
+    expect(JSON.parse(pending.reviewArguments!)).toEqual({ command: long, description: 'Print a line.' });
+    expect(buildPendingApproval(evaluation, 'prompt', 'bash', '{').reviewArguments).toBeUndefined();
   });
 
   test('keeps the concrete policy intent when no description was supplied', () => {
