@@ -16,6 +16,8 @@ export interface TokenUsageCounters {
   apiUsageAvailable: boolean;
   apiPromptTokens: number;
   apiCompletionTokens: number;
+  /** Reported reasoning tokens already included in the completion count. */
+  apiReasoningTokens?: number;
   apiTotalTokens: number;
   apiCacheUsageAvailable: boolean;
   apiCacheReadTokens: number;

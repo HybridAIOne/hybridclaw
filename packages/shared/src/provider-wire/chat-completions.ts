@@ -13,7 +13,7 @@ import type {
   AnthropicContentBlock,
   ToolCall,
 } from '@hybridclaw/contracts/agent-io';
-import { isRecord } from '../primitive-values.ts';
+import { isRecord, parseNonNegativeInteger } from '../primitive-values.ts';
 
 export type ChatCompletionsToolChoice =
   | 'auto'
@@ -56,6 +56,16 @@ export function extractStructuredReasoning(value: unknown): string | null {
     if (typeof candidate === 'string' && candidate) return candidate;
   }
   return null;
+}
+
+export function readChatCompletionsReasoningTokens(
+  usage: unknown,
+): number | null {
+  if (!isRecord(usage) || !isRecord(usage.completion_tokens_details))
+    return null;
+  return parseNonNegativeInteger(
+    usage.completion_tokens_details.reasoning_tokens,
+  );
 }
 
 export interface ChatCompletionsStreamState<TUsage = Record<string, unknown>> {

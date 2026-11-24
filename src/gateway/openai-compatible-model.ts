@@ -9,6 +9,7 @@ import {
   buildChatCompletionsBody,
   type ChatCompletionsToolChoice,
   createChatCompletionsStreamState,
+  readChatCompletionsReasoningTokens,
 } from '@hybridclaw/shared/provider-wire/chat-completions';
 import {
   adaptResponsesPayload,
@@ -55,6 +56,7 @@ export interface OpenAICompatibleUsagePayload {
     cached_tokens?: number;
     cache_write_tokens?: number;
   };
+  completion_tokens_details?: { reasoning_tokens?: number };
 }
 
 export interface OpenAICompatibleModelResponse {
@@ -417,6 +419,7 @@ export function mapOpenAICompatibleUsageToTokenStats(
   const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0;
   const totalTokens = usage.total_tokens ?? promptTokens + completionTokens;
   const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(usage);
+  const reasoningTokens = readChatCompletionsReasoningTokens(usage);
   const cacheUsageAvailable =
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   return {
@@ -425,6 +428,9 @@ export function mapOpenAICompatibleUsageToTokenStats(
     apiUsageAvailable: true,
     apiPromptTokens: promptTokens,
     apiCompletionTokens: completionTokens,
+    ...(reasoningTokens !== null
+      ? { apiReasoningTokens: reasoningTokens }
+      : {}),
     apiTotalTokens: totalTokens,
     apiCacheUsageAvailable: cacheUsageAvailable,
     apiCacheReadTokens: cacheReadTokens ?? 0,

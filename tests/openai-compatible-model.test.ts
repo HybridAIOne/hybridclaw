@@ -7,6 +7,18 @@ import {
 } from '../src/gateway/openai-compatible-model.js';
 import { mapOpenAICompatibleUsage } from '../src/gateway/openai-compatible-response.js';
 
+test.each([0, 7])('preserves reported reasoning tokens of %i in chat completion usage', (reasoningTokens) => {
+  const usage = {
+    prompt_tokens: 20,
+    completion_tokens: 10,
+    total_tokens: 30,
+    completion_tokens_details: { reasoning_tokens: reasoningTokens },
+  };
+  const stats = mapOpenAICompatibleUsageToTokenStats(usage);
+  expect(stats?.apiReasoningTokens).toBe(reasoningTokens);
+  expect(mapOpenAICompatibleUsage(stats)).toEqual(usage);
+});
+
 function makeEventStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

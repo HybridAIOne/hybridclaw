@@ -1,8 +1,10 @@
 import { expect, test } from 'vitest';
 import {
   createTokenUsageStats,
+  primaryTokenUsage,
   validateTokenUsage,
 } from '@hybridclaw/shared/token-usage';
+import { accumulateApiUsage } from '../container/src/token-usage.js';
 import { isContainerOutput } from '../src/infra/ipc-output-validation.js';
 
 const sample = {
@@ -44,6 +46,41 @@ test('accepts snapshots without optional timing samples without inventing report
     apiUsageAvailable: false,
     apiCacheUsageAvailable: false,
   });
+  expect(validateTokenUsage(stats)).not.toHaveProperty('apiReasoningTokens');
+});
+
+test('preserves reported reasoning tokens in worker snapshots and primary call totals', () => {
+  const stats = createTokenUsageStats();
+  stats.modelUsage = [7, 0, 3].map((reasoningTokens, index) => {
+    const usage = {
+      prompt_tokens: 20,
+      completion_tokens: 10,
+      total_tokens: 30,
+      completion_tokens_details: { reasoning_tokens: reasoningTokens },
+    };
+    const callStats = { ...createTokenUsageStats(), modelCalls: 1 };
+    accumulateApiUsage(callStats, { usage });
+    accumulateApiUsage(stats, { usage });
+    stats.modelCalls++;
+    return {
+      model: 'test-model',
+      ...(index === 2 ? { task: 'auxiliary' } : {}),
+      status: 'success',
+      durationMs: 1,
+      usage: callStats,
+    };
+  });
+
+  const recovered = validateTokenUsage(stats);
+  expect(recovered.apiReasoningTokens).toBe(10);
+  expect(recovered.modelUsage?.[1].usage.apiReasoningTokens).toBe(0);
+  expect(primaryTokenUsage(recovered)).toMatchObject({
+    apiCompletionTokens: 20,
+    apiReasoningTokens: 7,
+    apiTotalTokens: 60,
+  });
+  expect(isContainerOutput({ ...output, tokenUsage: recovered })).toBe(true);
+  expect(() => validateTokenUsage({ ...stats, apiReasoningTokens: 9 })).toThrow();
 });
 
 test.each([
@@ -51,6 +88,7 @@ test.each([
   ['nonfinite count', { modelCalls: Number.POSITIVE_INFINITY }],
   ['negative cache', { apiCacheReadTokens: -1 }],
   ['fractional tokens', { apiCompletionTokens: 1.5 }],
+  ['invalid reasoning tokens', { apiReasoningTokens: -1 }],
   ['invalid cache availability', { apiCacheUsageAvailable: 'true' }],
   [
     'overflowing estimate',
