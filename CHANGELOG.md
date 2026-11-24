@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+## [0.44.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.44.1) - 2026-11-24
+
+### Changed
+
+- Enable personal agents in Microsoft Teams channel settings. New personal
+  agents start with the person's email and time zone when available. Other
+  chats skip assigned personal agents in mentions, group broadcasts, agent
+  lists, and agent switching (#2327).
+- HybridAI chat and schedule settings offer the reasoning levels each model
+  advertises, including `minimal` and `high`. Models that advertise adaptive
+  thinking can use it by default (#2320).
+- Server-managed OpenAI-compatible agent requests accept `reasoning_effort`,
+  including for Nebius and OpenRouter. Clients that send this field with
+  client-managed tools or decision completions must omit it on those paths
+  to avoid HTTP 400. Usage includes reasoning tokens when the provider reports
+  them (#2331, #2336, #2338).
+
+### Fixed
+
+- Scheduled web reports arrive directly in the configured chat without
+  prompting for a terminal send (#2324).
+- Hosted sandboxes launch full Chrome on a virtual display when a browser
+  session requests headed mode (#2337).
+- Teams records thumbs-up and thumbs-down reactions on bot replies as response
+  ratings (#2330).
+- Nebius agent requests honor the model's advertised output limit. When no
+  limit is available, GLM-5 models reserve up to 131,072 output tokens for
+  reasoning and the answer (#2329, #2334).
+- HybridAI attributes background work such as session titles, routing, and
+  compaction to the conversation that requested it (#2321).
+- File tools, search results, and overwrite reviews agree on the target file
+  across host and container workspace paths (#2325).
+- Shell approval checks recognize more read-only HTML and text inspections,
+  single-file searches, and temporary home directory setup. Agents use APT
+  package metadata to check dependency availability (#2328, #2332, #2333,
+  #2335).
+
 ## [0.44.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.44.0) - 2026-11-23
 
 ### Added
