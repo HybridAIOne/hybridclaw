@@ -33,7 +33,10 @@ import {
   sessionShowModeShowsTools,
 } from '../../gateway/show-mode.js';
 import { logger } from '../../logger.js';
-import { getLatestAssistantMessageId } from '../../memory/db.js';
+import {
+  getLatestAssistantMessageId,
+  resolveSessionIdCompat,
+} from '../../memory/db.js';
 import { memoryService } from '../../memory/memory-service.js';
 import {
   msteamsAttachmentsLoader,
@@ -365,13 +368,11 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
       }
       if (addedRatings.length === 0 && removedRatings.length === 0) return;
 
-      const messageId = resolveMSTeamsRatingTarget(
-        event.sessionId,
-        event.activityId,
-      );
+      const sessionId = resolveSessionIdCompat(event.sessionId);
+      const messageId = resolveMSTeamsRatingTarget(sessionId, event.activityId);
       if (!messageId) {
         logger.debug(
-          { sessionId: event.sessionId, activityId: event.activityId },
+          { sessionId, activityId: event.activityId },
           'Teams reaction targets an activity without a known rating target',
         );
         return;
@@ -380,7 +381,7 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
         await import('../../gateway/response-ratings.js');
       try {
         const result = applyReactionRatingChanges({
-          sessionId: event.sessionId,
+          sessionId,
           messageId,
           operatorUserId: event.userId,
           addedRatings,
@@ -390,7 +391,7 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
         if (result) {
           logger.info(
             {
-              sessionId: event.sessionId,
+              sessionId,
               messageId,
               rating: result.rating,
               userId: event.userId,
@@ -401,13 +402,13 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
       } catch (error) {
         if (error instanceof ResponseRatingNotFoundError) {
           logger.debug(
-            { sessionId: event.sessionId, messageId },
+            { sessionId, messageId },
             'Teams reaction rating target no longer exists',
           );
           return;
         }
         logger.warn(
-          { error, sessionId: event.sessionId, messageId },
+          { error, sessionId, messageId },
           'Failed to record Teams reaction as response rating',
         );
       }
