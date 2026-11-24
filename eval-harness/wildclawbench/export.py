@@ -36,8 +36,9 @@ def export_run(summary, model, categories, expected_tasks, run_date):
                     ("hybridclaw_commit", "hybridclaw_version", "image_id")}
         if any(not value for value in identity.values()):
             raise ValueError("Missing image/source provenance")
+        identity["reasoning_effort"] = recorded.get("reasoning_effort")
         if provenance is not None and identity != provenance:
-            raise ValueError("Mixed image/source revisions cannot form one model run")
+            raise ValueError("Mixed image/source/reasoning settings cannot form one model run")
         provenance = identity
         cost = usage["cost_usd"]
         elapsed = usage["elapsed_time"]

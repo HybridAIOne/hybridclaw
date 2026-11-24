@@ -1,7 +1,8 @@
 /**
  * Compatibility wire input is validated before routing or agent execution.
  * Explicit execution budgets start before body/media preparation; the gateway
- * and runners enforce them. Parsing never grants tool access.
+ * and runners enforce them. Canonical reasoning effort is optional and stays
+ * scoped to server-managed agents. Parsing never grants tool access.
  */
 
 import { createHash } from 'node:crypto';
@@ -9,12 +10,14 @@ import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
 import type { ExecutionDeadline } from '@hybridclaw/contracts/agent-io';
+import type { ReasoningEffort } from '@hybridclaw/contracts/reasoning-effort';
 import {
   ExecutionDeadlineError,
   readExecutionDeadline,
   remainingExecutionMs,
 } from '@hybridclaw/shared/execution-deadline';
 import type { ChatCompletionsToolChoice } from '@hybridclaw/shared/provider-wire/chat-completions';
+import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import { normalizeOptionalTrimmedString as normalizeOptionalString } from '../utils/normalized-strings.js';
@@ -35,6 +38,7 @@ type OpenAIChatCompletionRequestBody = {
   messages?: unknown;
   stream?: unknown;
   stream_options?: unknown;
+  reasoning_effort?: unknown;
   user?: unknown;
   n?: unknown;
   tools?: unknown;
@@ -64,6 +68,7 @@ export interface ParsedOpenAICompatibleChatRequest extends ExecutionDeadline {
   promptCacheKey?: string;
   wantsStream: boolean;
   includeUsage: boolean;
+  reasoningEffort?: ReasoningEffort;
   usesClientTools: boolean;
   evalProfile?: string;
   messages: ChatMessage[];
@@ -791,6 +796,13 @@ export async function readOpenAICompatibleChatRequest(
     req.headers[EXECUTION_TIMEOUT_HEADER.toLowerCase()],
   );
   const body = await readJsonBody(req);
+  const reasoningEffort = body.reasoning_effort;
+  if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort)) {
+    throw new OpenAICompatibleRequestError(400, 'Invalid `reasoning_effort`.', {
+      param: 'reasoning_effort',
+      code: 'unsupported_value',
+    });
+  }
   const wantsStream = body.stream === true;
   const model = normalizeOptionalString(body.model);
   if (!model) {
@@ -807,6 +819,13 @@ export async function readOpenAICompatibleChatRequest(
   const tools = normalizeToolDefinitions(body);
   const toolChoice = normalizeToolChoice(body);
   const usesClientTools = tools.length > 0 || toolChoice !== undefined;
+  if (usesClientTools && reasoningEffort !== undefined) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      '`reasoning_effort` requires server-managed agent tools.',
+      { param: 'reasoning_effort', code: 'unsupported_value' },
+    );
+  }
   if (usesClientTools && executionDeadlineAtMs !== undefined) {
     throw new OpenAICompatibleRequestError(
       400,
@@ -902,6 +921,7 @@ export async function readOpenAICompatibleChatRequest(
     ...(user ? { promptCacheKey: derivePromptCacheKey(user) } : {}),
     wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
+    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     executionDeadlineAtMs,
     usesClientTools,
     ...(normalizeEvalProfileHeader(req.headers['x-hybridclaw-eval-profile'])

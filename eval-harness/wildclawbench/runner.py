@@ -17,7 +17,7 @@ from src.utils.docker_utils import (
 )
 from src.utils.transcript_loader import OPENCLAW_FALLBACK_PATH
 from .evidence import generation_ids, summarize_generations
-from .launch import completion_outcome
+from .launch import completion_outcome, reasoning_effort
 
 RUNTIME = "/tmp/hybridclaw-runtime"
 TRANSCRIPT = OPENCLAW_FALLBACK_PATH
@@ -42,8 +42,9 @@ class HybridClawAgent(BaseAgent):
         os.environ["OPENROUTER_BASE_URL"] = openrouter_base_url
 
     def run_task(self, spec):
-        if spec.lobster or spec.models_config or spec.thinking is not None:
+        if spec.lobster or spec.models_config:
             raise ValueError("HybridClaw comparison requires the fresh default configuration")
+        effort = reasoning_effort(spec.thinking)
         if TMP_WORKSPACE != "/tmp_workspace":
             raise ValueError("HybridClaw image requires TMP_WORKSPACE=/tmp_workspace")
         if not spec.model.startswith("openrouter/"):
@@ -79,6 +80,7 @@ class HybridClawAgent(BaseAgent):
                 "hybridclaw_commit": revision, "hybridclaw_version": version,
                 "image_id": docker("inspect", spec.task_id, "--format", "{{.Image}}").strip(),
                 "model": spec.model, "judge_model": "openai/gpt-5.4",
+                "thinking": spec.thinking, "reasoning_effort": effort,
                 "timeout_seconds": spec.timeout_seconds,
                 "prompt_sha256": hashlib.sha256(spec.prompt.encode()).hexdigest(),
             }, indent=2))
@@ -103,7 +105,8 @@ class HybridClawAgent(BaseAgent):
                     "python3", "/opt/wildclawbench/launch.py",
                 ], stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, text=True)
                 proc.communicate(json.dumps({"model": spec.model, "prompt": spec.prompt,
-                                             "timeout_seconds": spec.timeout_seconds}))
+                                             "timeout_seconds": spec.timeout_seconds,
+                                             "thinking": spec.thinking}))
             elapsed = min(time.perf_counter() - started, spec.timeout_seconds)
             # Upstream Hermes grades whatever exists when the task timeout ends.
             error = None if proc.returncode in (0, 124) else "Task-local HybridClaw exited unsuccessfully"
