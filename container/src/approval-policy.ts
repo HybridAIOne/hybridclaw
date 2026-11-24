@@ -125,6 +125,7 @@ import {
   matchesPathPattern,
   normalizePathValue,
 } from './pinned-paths.js';
+import { quotedPythonStdinCommands } from './python-stdin-inspection.js';
 import {
   resolveCanonicalPath,
   toWorkspaceRelativePath,
@@ -3684,7 +3685,8 @@ export class TrustedAgentApprovalRuntime {
     // segment; these checks need the commands bash actually runs, parsed once
     // from the workspace root, where every call starts.
     const shellScript = stripHereDocBodies(command);
-    const shellCommands = scriptCommands(shellScript);
+    const shellCommands =
+      quotedPythonStdinCommands(command) ?? scriptCommands(shellScript);
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
