@@ -170,33 +170,60 @@ the default agent for everyone and records no per-user data.
 
 ### Personal agents
 
-A personal agent is a child of a shared parent agent: it carries only its own
-identity, workspace, and memory, and takes model, skills, tools, chatbot, RAG,
-and budget from the parent through `extends`. Editing the parent changes every
-personal agent at once.
+A personal agent is a child of a shared parent agent that works for one
+person. It has its own `USER.md`, memory, files, and conversation history, and
+takes model, skills, tools, chatbot, RAG, and budget from the parent through
+`extends`. It reads the parent's `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and
+`TOOLS.md` on every turn, so editing the parent changes every personal agent
+at once.
 
-Pick the parent in **Parent agent for personal agents** and use **Create
-personal agent** on a user's row. The console creates
-`<parent>-<user name>`, copies the parent's `SOUL.md`, `IDENTITY.md`, and
-other workspace instructions (never `USER.md` or `MEMORY.md`), writes a
-`USER.md` with the sender's name, Entra object ID and Teams user ID, skips the
-hatching flow, and maps the user to the new agent. Creating personal agents
-requires the agents write permission.
+To give everyone a personal agent, pick the parent under **Personal agents**
+in the Teams channel settings (`msteams.personalAgentParent`). Each person
+without an assigned agent then gets one on their next direct chat, including
+people who used the bot before. To create one by hand instead, pick the parent
+in **Parent agent for personal agents** and use **Create personal agent** on a
+user's row. Creating personal agents requires the agents write permission.
 
-Set `msteams.personalAgentParent` to an agent ID to do this automatically for
-every new sender on their first direct message. Leave it empty to create
-personal agents by hand only.
+A new personal agent is named `<parent>-<user name>` and skips the hatching
+flow. Its `USER.md` holds the person's name, email, time zone, Entra object ID,
+and Teams user ID. The time zone is the one Teams reports for the person, or
+the parent's when Teams reports none.
 
-Personal agents answer their user in direct chats. In group chats and channel
-threads the parent answers instead, so one shared conversation never mixes
-several people's private agents. Usage stays attributed to the sender either
-way.
+A personal agent starts empty:
+
+- It does not see the parent's `MEMORY.md` or daily notes. Before turning
+  personal agents on for an agent that people already use, move knowledge
+  everyone needs (definitions, conventions, how to use a data source) from the
+  parent's `MEMORY.md` into its `TOOLS.md`.
+- The person's earlier direct chat with the shared agent stays with that
+  agent. The first message to the personal agent starts a fresh conversation.
+
+The shared agent keeps everyone's earlier direct chats and its `MEMORY.md`,
+and it still answers group chats and channels, where it can search those
+chats. Remove facts about individual people from its `MEMORY.md` when you turn
+personal agents on.
+
+Only the person's own direct chat reaches their personal agent. In group chats
+and channel threads the parent answers instead, so one shared conversation
+never mixes several people's private agents. Other chats cannot address it
+with `@name`, `@team`, `@all` or its full `@agent@owner@instance` id, select it
+with `/agent switch`, or see it in `/agent list`. Usage stays attributed to the
+sender either way.
+
+Turning personal agents off, or choosing a different parent, only affects
+people who have no agent yet. Existing personal agents stay assigned until you
+change their row in the user list.
+
+Personal agents separate what the agent remembers and recalls. They are not an
+access boundary for a person who tries: an agent with the shell tool can read
+files outside its own workspace.
 
 Each agent has a separate session key for a Teams conversation. Changing the
 assignment selects that agent's history; it does not copy the previous agent's
 history. Users mapped to the same agent in the same group chat or thread still
-share that conversation. A mapping is the starting agent selection, not an access
-restriction on explicit agent addressing or other existing bot commands.
+share that conversation. Assigning someone to a shared agent picks where their
+chats start; it does not limit which other shared agents they can address or
+which commands they can use.
 
 Usage tracking begins when this feature is installed. Messages exclude commands.
 Tokens and estimated costs are attributed to the initiating user, including

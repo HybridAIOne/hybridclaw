@@ -78,7 +78,7 @@ export function createAdminMSTeamsPersonalAgent(body: unknown): {
     parentAgentId: parent.id,
     handle: user.displayName || user.userId,
     displayName: `${parent.displayName || parent.name || parent.id} · ${user.displayName || user.userId}`,
-    userMarkdown: buildMSTeamsUserMarkdown(user),
+    userMarkdown: buildMSTeamsUserMarkdown(user, parent.id),
   });
   setMSTeamsUserAgent(user.userId, created.id);
   return { status: 200, agentId: created.id };

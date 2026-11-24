@@ -9,6 +9,7 @@
  * NOT the routing layer (channels decide which person maps to which agent)
  * and NOT the registry (which owns validation and persistence).
  */
+import { listAssignedAgentIds } from '../memory/channel-users.js';
 import { seedWorkspaceFromAgent } from '../workspace.js';
 import {
   getAgentById,
@@ -70,4 +71,17 @@ export function createPersonalAgent(
     userMarkdown: params.userMarkdown,
   });
   return created;
+}
+
+/**
+ * A child agent a channel sender is assigned to belongs to that person: only
+ * their own channel routing may reach it. Other children are plain agents.
+ */
+export function listPersonalAgentIds(): Set<string> {
+  const assigned = listAssignedAgentIds();
+  return new Set(
+    listAgents()
+      .filter((agent) => agent.extends && assigned.has(agent.id))
+      .map((agent) => agent.id),
+  );
 }

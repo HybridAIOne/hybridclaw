@@ -2740,6 +2740,7 @@ function VoiceChannelEditor(props: {
 function TeamsChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
+  agents: AdminAgent[];
   appPasswordConfigured: boolean;
   appPasswordSource: SecretSource;
   token: string;
@@ -2811,6 +2812,44 @@ function TeamsChannelEditor(props: {
           render={<a href="/admin/connectors#teams-sso">App Setup</a>}
         />
       </div>
+
+      <FormField
+        name="msteams.personalAgentParent"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Personal agents</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="">Off</NativeSelectOption>
+              {field.value &&
+              !props.agents.some(
+                (agent) => agent.id === field.value && !agent.extends,
+              ) ? (
+                <NativeSelectOption value={field.value as string}>
+                  On: based on {field.value as string}
+                </NativeSelectOption>
+              ) : null}
+              {props.agents
+                .filter((agent) => !agent.extends)
+                .map((agent) => (
+                  <NativeSelectOption key={agent.id} value={agent.id}>
+                    On: based on {formatAgentOptionLabel(agent)}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelect>
+            <FieldDescription>
+              Needs the Tenant ID above. When on, each person without an agent
+              of their own gets one on their next direct chat, with private
+              memory, files and history. It starts without the shared agent's
+              memory and earlier conversation. Group chats and channels keep the
+              shared agent. Turning this off or changing it later leaves
+              existing personal agents in place.
+            </FieldDescription>
+          </Field>
+        )}
+      />
 
       <TeamsUsers />
 
@@ -3939,6 +3978,7 @@ function renderSelectedEditor(
         <TeamsChannelEditor
           draft={draft}
           form={form}
+          agents={agents}
           appPasswordConfigured={secretStatus.msteams.configured}
           appPasswordSource={secretStatus.msteams.source}
           token={token}
@@ -3980,7 +4020,7 @@ export function ChannelsPage() {
   const agentsQuery = useQuery({
     queryKey: ['admin-agents', auth.token],
     queryFn: () => fetchAdminAgents(auth.token),
-    enabled: selectedKind === 'email',
+    enabled: selectedKind === 'email' || selectedKind === 'msteams',
   });
 
   const form = useForm<AdminConfig>({

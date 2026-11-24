@@ -8,6 +8,7 @@
  * agent (`agents.channels.msteams`, else the default agent).
  * Session construction stays with inbound.ts; unavailable mappings fail closed.
  */
+import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import { getAgentById } from '../../agents/agent-registry.js';
 import { createPersonalAgent } from '../../agents/personal-agent.js';
 import {
@@ -16,9 +17,11 @@ import {
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import {
+  findChannelUserEmail,
   getChannelUserMapping,
   setChannelUserAgent,
 } from '../../memory/channel-users.js';
+import { readUserTimezone } from '../../workspace.js';
 import type { MSTeamsConversationKind } from './inbound.js';
 
 export function resolveMSTeamsUserAgent(
@@ -63,18 +66,33 @@ export interface MSTeamsPersonalAgentSeed extends MSTeamsUserProfile {
   tenantId: string;
   userId: string;
   displayName: string | null;
+  /** The sender's IANA zone as Teams reports it; the parent's when unknown. */
+  timezone?: string | null;
 }
 
+/**
+ * USER.md for a person's own agent. The zone matters: schedules, the daily
+ * note and the prompt's clock read it from here, and fall back to the host's.
+ */
 export function buildMSTeamsUserMarkdown(
   seed: MSTeamsPersonalAgentSeed,
+  parentAgentId: string,
 ): string {
+  const email = findChannelUserEmail('msteams', seed.userId);
+  const timezone = [seed.timezone, readUserTimezone(parentAgentId)].find(
+    isValidTimezone,
+  );
   const lines = [
     '# USER.md',
     '',
-    `- Name: ${seed.displayName || 'Unknown'}`,
-    '- Channel: Microsoft Teams',
-    ...(seed.entraObjectId ? [`- Entra object ID: ${seed.entraObjectId}`] : []),
-    ...(seed.teamsUserId ? [`- Teams user ID: ${seed.teamsUserId}`] : []),
+    `- **Name:** ${seed.displayName || 'Unknown'}`,
+    ...(email ? [`- **Email:** ${email}`] : []),
+    ...(timezone ? [`- **Timezone:** ${timezone}`] : []),
+    '- **Channel:** Microsoft Teams',
+    ...(seed.entraObjectId
+      ? [`- **Entra object ID:** ${seed.entraObjectId}`]
+      : []),
+    ...(seed.teamsUserId ? [`- **Teams user ID:** ${seed.teamsUserId}`] : []),
     '',
     'This agent works for this one person. Learn their preferences here.',
     '',
@@ -104,7 +122,7 @@ export function ensureMSTeamsPersonalAgent(
     parentAgentId,
     handle: seed.displayName || seed.userId,
     displayName: `${parent?.displayName || parent?.name || parentAgentId} · ${seed.displayName || seed.userId}`,
-    userMarkdown: buildMSTeamsUserMarkdown(seed),
+    userMarkdown: buildMSTeamsUserMarkdown(seed, parentAgentId),
   });
   setChannelUserAgent(key, created.id);
   logger.info(

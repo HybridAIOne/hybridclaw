@@ -153,6 +153,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       dangerouslyAllowNameMatching: false,
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],
+      personalAgentParent: '',
     },
     slack: {
       enabled: false,
@@ -571,6 +572,65 @@ describe('ChannelsPage', () => {
     screen.getByText(/add an `access_as_user` scope/i);
     screen.getByText(/Authorized client applications/i);
     screen.getByText(/use Apps, Share, Add to Teams/i);
+  });
+
+  it('turns personal agents on for Teams by picking the shared agent they follow', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({ path: '/tmp/config.json', config });
+    saveConfigMock.mockResolvedValue({ path: '/tmp/config.json', config });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'sales', name: 'Sales' }),
+      makeAgent({ id: 'sales-erika', name: 'Sales · Erika', extends: 'sales' }),
+    ]);
+
+    renderChannelsPage();
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Microsoft Teams/i }),
+    );
+
+    const select = (
+      await screen.findByRole('option', {
+        name: 'On: based on Sales (sales)',
+      })
+    ).closest('select') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    expect([...select.options].map((option) => option.value)).toEqual([
+      '',
+      'sales',
+    ]);
+    screen.getByText(/starts without the shared agent's memory/);
+
+    fireEvent.change(select, { target: { value: 'sales' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel settings' }),
+    );
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          msteams: expect.objectContaining({ personalAgentParent: 'sales' }),
+        }),
+      );
+    });
+  });
+
+  it('shows a saved personal-agent parent that is no longer an active agent', async () => {
+    const config = makeConfig();
+    config.msteams.personalAgentParent = 'retired';
+    fetchConfigMock.mockResolvedValue({ path: '/tmp/config.json', config });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'sales', name: 'Sales' }),
+    ]);
+
+    renderChannelsPage();
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Microsoft Teams/i }),
+    );
+
+    const select = (
+      await screen.findByRole('option', { name: 'On: based on retired' })
+    ).closest('select') as HTMLSelectElement;
+    expect(select.value).toBe('retired');
   });
 
   it('shows the target agent for the default email mailbox', async () => {

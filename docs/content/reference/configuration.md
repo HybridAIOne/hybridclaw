@@ -326,7 +326,10 @@ saved revision history directly.
   read time, so editing the parent changes every child at once. Identity,
   display name, workspace, archived state, and org-chart links never inherit.
   Lists replace rather than merge, inheritance is one level deep, and a parent
-  cannot be archived or deleted while active children extend it.
+  cannot be archived or deleted while active children extend it. A child
+  that a channel user is assigned to is that person's personal agent: only
+  their own chat reaches it, and `@name`, `@team`, `@all` and `/agent` in other
+  chats skip it.
 - `agents.list[].proxy` for agents that forward their turns to a hosted
   HybridAI chatbot instead of running the local agent loop. Proxy agents
   require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a
