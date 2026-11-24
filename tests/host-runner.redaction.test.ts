@@ -775,7 +775,7 @@ test('HostExecutor does not apply the HybridAI token cap to remote OpenAI-compat
 
 test.each([
   { provider: 'openrouter', model: 'openrouter/anthropic/claude-sonnet-4', expected: 64_000 },
-  { provider: 'nebius', model: 'nebius/zai-org/GLM-5.3-Flash', expected: 32_768 },
+  { provider: 'nebius', model: 'nebius/zai-org/GLM-5.3-Flash', expected: 64_000 },
 ] as const)('HostExecutor sends the provider output budget for $model', async ({ provider, model, expected }) => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

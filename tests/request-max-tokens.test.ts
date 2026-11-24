@@ -106,15 +106,22 @@ runSharedContract(
 );
 
 test.each([
-  [undefined, 32_768],
-  [0, 32_768],
-  [Number.NaN, 32_768],
-  [Number.POSITIVE_INFINITY, 32_768],
+  [undefined, 131_072],
+  [0, 131_072],
+  [Number.NaN, 131_072],
+  [Number.POSITIVE_INFINITY, 131_072],
   [16_384, 16_384],
-  [131_072, 32_768],
+  [32_768, 32_768],
+  [131_072, 131_072],
+  [262_144, 262_144],
 ])('Nebius reserves bounded reasoning and answer output with limit %s', (discoveredMaxTokens, expected) => {
   expect(resolveProviderRequestMaxTokens({
     model: 'nebius/zai-org/GLM-5.3-Flash',
     discoveredMaxTokens,
   })).toBe(expected);
+});
+
+test('Nebius models outside the verified GLM family retain their provider defaults', () => {
+  expect(resolveProviderRequestMaxTokens({model: 'nebius/google/gemma-3-27b-it'})).toBeUndefined();
+  expect(resolveProviderRequestMaxTokens({model: 'nebius/google/gemma-3-27b-it', discoveredMaxTokens: 8192})).toBe(8192);
 });
