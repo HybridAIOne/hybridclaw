@@ -133,9 +133,9 @@ whose destination starts with `=`; other opaque write-expression checks remain.
 
 Recursive shell search flags on verified regular-file operands do not imply a
 directory walk. Directories, unresolved paths, globs and symlinks retain walk
-checks; canonical targets still undergo pinned-path checks. These are static
-classification hints based on the filesystem at review time, not enforcement
-against a file being replaced before execution.
+checks; canonical targets still undergo pinned-path checks. Shell redirections
+are checked separately from search operands, including after `--`. Filesystem
+checks reflect the state at review time. A file can be replaced before execution.
 
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation

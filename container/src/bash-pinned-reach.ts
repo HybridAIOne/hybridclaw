@@ -233,6 +233,7 @@ function rgAdmits(
 function scanGrep(args: string[]): ProgramScan {
   let recursive = false;
   let patternGiven = false;
+  let optionsEnded = false;
   const filters: Array<{ include: boolean; glob: string }> = [];
   const nonPathArgs: number[] = [];
   const operands: number[] = [];
@@ -241,11 +242,10 @@ function scanGrep(args: string[]): ProgramScan {
     const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
+    } else if (optionsEnded) {
+      operands.push(index);
     } else if (arg === '--') {
-      for (let rest = index + 1; rest < args.length; rest += 1) {
-        operands.push(rest);
-      }
-      break;
+      optionsEnded = true;
     } else if (arg.startsWith('--')) {
       const [name, inline] = splitLongOption(arg);
       let valueAt = -1;
@@ -308,6 +308,7 @@ function scanRipgrep(args: string[]): ProgramScan {
   let unrestricted = 0;
   let listsFiles = false;
   let patternGiven = false;
+  let optionsEnded = false;
   const globs: Array<{ glob: string; caseInsensitive: boolean }> = [];
   const nonPathArgs: number[] = [];
   const operands: number[] = [];
@@ -316,11 +317,10 @@ function scanRipgrep(args: string[]): ProgramScan {
     const width = redirectWidth(args, index);
     if (width > 0) {
       index += width - 1;
+    } else if (optionsEnded) {
+      operands.push(index);
     } else if (arg === '--') {
-      for (let rest = index + 1; rest < args.length; rest += 1) {
-        operands.push(rest);
-      }
-      break;
+      optionsEnded = true;
     } else if (arg.startsWith('--')) {
       const [name, inline] = splitLongOption(arg);
       let valueAt = -1;
