@@ -1,11 +1,15 @@
 /**
  * Request output budgets are separate from model context capacity. Provider
- * defaults serve ordinary calls; auxiliary tasks have bounded defaults and
- * never change the primary conversation's generation budget.
+ * overrides avoid unusably small service defaults; auxiliary task limits stay
+ * separate and never change the primary conversation's generation budget.
  */
 import { parsePositiveInteger } from './primitive-values.ts';
+import { inferProviderFromModelPrefix } from './provider-ids.ts';
 
 export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS: number = 32_000;
+// Codex, 2026-11-24: Nebius's 8K service default can expire inside reasoning.
+// Reserve 32K for reasoning plus an answer; per-model effort controls deferred.
+export const DEFAULT_NEBIUS_PROVIDER_MAX_TOKENS: number = 32_768;
 // Runtime default (Codex engineering decision, 2026-10-31): 8K supports image
 // descriptions/OCR without reserving a provider's full 128K output allowance.
 // Larger analyses use the existing auxiliaryModels.vision.maxTokens setting.
@@ -33,6 +37,13 @@ export function resolveProviderRequestMaxTokens(params: {
   discoveredMaxTokens?: number;
 }): number | undefined {
   const discoveredMaxTokens = parsePositiveInteger(params.discoveredMaxTokens);
+
+  if (inferProviderFromModelPrefix(params.model) === 'nebius') {
+    return Math.min(
+      discoveredMaxTokens ?? DEFAULT_NEBIUS_PROVIDER_MAX_TOKENS,
+      DEFAULT_NEBIUS_PROVIDER_MAX_TOKENS,
+    );
+  }
 
   if (!isAnthropicProviderModel(params.model)) {
     return undefined;

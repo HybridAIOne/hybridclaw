@@ -963,7 +963,10 @@ test('ContainerExecutor does not apply the HybridAI token cap to remote OpenAI-c
   expect(firstInput).not.toHaveProperty('maxTokens');
 });
 
-test('ContainerExecutor uses discovered maxTokens for Anthropic OpenRouter models', async () => {
+test.each([
+  { provider: 'openrouter', model: 'openrouter/anthropic/claude-sonnet-4', expected: 64_000 },
+  { provider: 'nebius', model: 'nebius/zai-org/GLM-5.3-Flash', expected: 32_768 },
+] as const)('ContainerExecutor sends the provider output budget for $model', async ({ provider, model, expected }) => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -977,7 +980,7 @@ test('ContainerExecutor uses discovered maxTokens for Anthropic OpenRouter model
     artifacts: [],
   }));
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
-    provider: 'openrouter' as const,
+    provider,
     apiKey: '',
     baseUrl: 'https://openrouter.ai/api/v1',
     chatbotId: '',
@@ -1037,7 +1040,7 @@ test('ContainerExecutor uses discovered maxTokens for Anthropic OpenRouter model
     messages: [{ role: 'user', content: 'hello' }],
     chatbotId: '',
     enableRag: false,
-    model: 'openrouter/anthropic/claude-sonnet-4',
+    model,
     agentId: 'default',
     channelId: 'web',
   });
@@ -1045,7 +1048,7 @@ test('ContainerExecutor uses discovered maxTokens for Anthropic OpenRouter model
   const firstInput = JSON.parse(
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as Record<string, unknown>;
-  expect(firstInput.maxTokens).toBe(64_000);
+  expect(firstInput.maxTokens).toBe(expected);
 });
 
 test('ContainerExecutor surfaces missing packaged runtime dependencies as immediate errors', async () => {
