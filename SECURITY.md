@@ -98,16 +98,25 @@ Tool actions are risk-tiered at runtime:
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
 
-Fetched-code review recognizes bounded JSON and read-only ElementTree XML
-readers, and Pillow image open/thumbnail/save operations with literal workspace
-paths. XML file operands retain their resolved and canonical pinned-path checks,
-including scratch-directory reads. Custom XML parsers and XML mutations remain
-unrecognized. Output pipes and redirects from recognized fetched-data readers
+Fetched-code review recognizes bounded JSON, read-only ElementTree XML and
+BeautifulSoup HTML readers, and Pillow image open/thumbnail/save operations.
+HTML certification requires a literal installed HTML builder (`html.parser`,
+`lxml`, or `html5lib`) and supported read-only tree operations. XML builders
+and custom builders remain unrecognized. File operands must be literal and retain their
+resolved and canonical pinned-path checks, including scratch-directory reads.
+Custom builders, callbacks and tree mutations remain unrecognized. Read-only
+`re` matching and string replacements support extracted text; regex
+callbacks and reflection remain unrecognized. Literal,
+quoted Python stdin programs can use the same bounded inspection as `-c`;
+expanded or unsupported programs retain their existing classification.
+Output pipes and redirects from recognized fetched-data readers
 retain provenance across workers. Inspection never executes supplied Python. Recognized image writes retain write intent and
 pinned-path checks; outputs derived from fetched inputs retain provenance
 across workers. Unsupported Python string literals remain visible to the
-existing fetched-file checks. Downloaded importable files and unknown download
-destinations cannot establish this data-only exemption. This is static analysis,
+existing fetched-file checks. Downloaded importable files, including canonical
+aliases, cannot establish this data-only exemption. Unknown download locations
+retain review for imports and writes; verified read-only programs without
+imports may inspect literal data files. This is static analysis,
 not a sandbox. Python startup also reviews downloaded importable files visible
 from the command's current directory or a direct script's directory, including
 package and namespace imports. Version/help probes remain non-executing;

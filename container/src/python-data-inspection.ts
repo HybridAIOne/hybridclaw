@@ -1,5 +1,5 @@
 /**
- * Bounded Python inspection distinguishes JSON, XML and image data from code.
+ * Bounded Python inspection distinguishes JSON, XML, HTML and image data from code.
  * The isolated parser never executes supplied source. Failed inspection keeps
  * the caller's conservative result; comments never authorize executable code.
  * Read operands retain path checks; unlike approval policy this grants no access.
@@ -18,7 +18,7 @@ import {
 
 // Codex, 2026-11-08: cap untrusted parsing at 32 KiB / 4096 nodes
 // and one second. Missing system Python keeps the existing approval path.
-const MAX_SOURCE_BYTES = 32 * 1024;
+export const MAX_PYTHON_SOURCE_BYTES = 32 * 1024;
 const PARSER_TIMEOUT_MS = 1000;
 
 const PYTHON_INSPECTION = `
@@ -31,10 +31,13 @@ DATA = 'data'
 TREE = 'xml-tree'
 ELEMENT = 'xml-element'
 ELEMENTS = 'xml-elements'
+HTML = 'html-element'
+HTMLS = 'html-elements'
+MATCH = 'regex-match'
 FILE = 'file'
 IMAGE = 'image'
 PURE = {'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'tuple', 'set',
-        'sorted', 'enumerate', 'range', 'chr', 'min', 'max', 'sum', 'abs', 'round'}
+        'repr', 'sorted', 'enumerate', 'range', 'chr', 'min', 'max', 'sum', 'abs', 'round'}
 METHODS = {'get', 'items', 'keys', 'values', 'strip', 'split', 'splitlines',
            'join', 'lower', 'upper', 'replace'}
 
@@ -43,7 +46,7 @@ class Reader:
         self.names = {}
         self.reserved = PURE | {'open', 'print'}
         self.reads = []
-        self.xml_reads = []
+        self.read_only_reads = []
         self.writes = []
 
     def literal_path(self, node, paths):
@@ -63,7 +66,7 @@ class Reader:
             raise Unknown()
 
     def data(self, node):
-        if self.expr(node) != DATA:
+        if self.expr(node) not in {DATA, HTML, HTMLS, MATCH}:
             raise Unknown()
 
     def args(self, node):
@@ -78,7 +81,7 @@ class Reader:
         if isinstance(node, ast.Constant):
             return DATA
         if isinstance(node, ast.Name):
-            if self.names.get(node.id) in {DATA, FILE, IMAGE, TREE, ELEMENT, ELEMENTS}:
+            if self.names.get(node.id) in {DATA, FILE, IMAGE, TREE, ELEMENT, ELEMENTS, HTML, HTMLS, MATCH}:
                 return self.names[node.id]
         elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
             for item in node.elts:
@@ -92,8 +95,11 @@ class Reader:
                 self.data(value)
             return DATA
         elif isinstance(node, ast.Subscript):
-            self.data(node.value)
+            kind = self.expr(node.value)
             self.data(node.slice)
+            if kind == HTMLS:
+                return HTMLS if isinstance(node.slice, ast.Slice) else HTML
+            self.data(node.value)
             return DATA
         elif isinstance(node, ast.Slice):
             for part in [node.lower, node.upper, node.step]:
@@ -115,9 +121,18 @@ class Reader:
                 self.data(node.format_spec)
             return DATA
         elif isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and self.names.get(node.value.id) == 're' and node.attr in {'ASCII', 'IGNORECASE', 'MULTILINE', 'DOTALL', 'VERBOSE', 'NOFLAG', 'A', 'I', 'M', 'S', 'X'}:
+                return DATA
             if isinstance(node.value, ast.Name) and self.names.get(node.value.id) == 'sys' and node.attr == 'stdin':
                 return FILE
             kind = self.expr(node.value)
+            if kind == HTML:
+                if node.attr in {'name', 'text', 'attrs'}:
+                    return DATA
+                if node.attr == 'parent':
+                    return HTML
+                if node.attr == 'children':
+                    return HTMLS
             if node.attr == 'size' and kind == IMAGE or kind == ELEMENT and node.attr in {'text', 'tail', 'tag', 'attrib'}:
                 return DATA
         elif isinstance(node, ast.Call):
@@ -134,11 +149,21 @@ class Reader:
 
     def call(self, node):
         fn = node.func
+        soup = (isinstance(fn, ast.Name) and self.names.get(fn.id) == 'beautifulsoup'
+                or isinstance(fn, ast.Attribute) and fn.attr == 'BeautifulSoup'
+                and isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 'bs4')
+        if soup:
+            if len(node.args) != 2 or node.keywords or not isinstance(node.args[1], ast.Constant) or node.args[1].value not in {'html.parser', 'lxml', 'html5lib'}:
+                raise Unknown()
+            if self.expr(node.args[0]) not in {DATA, FILE}:
+                raise Unknown()
+            return HTML
         if isinstance(fn, ast.Name):
             if fn.id == 'open':
                 if not 1 <= len(node.args) <= 2:
                     raise Unknown()
                 self.data(node.args[0])
+                self.literal_path(node.args[0], self.read_only_reads)
                 modes = node.args[1:]
                 for kw in node.keywords:
                     if kw.arg == 'mode':
@@ -159,10 +184,17 @@ class Reader:
                 self.args(node)
                 return DATA
         elif isinstance(fn, ast.Attribute):
+            if isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 're':
+                self.args(node)
+                if fn.attr in {'search', 'match', 'fullmatch'}:
+                    return MATCH
+                if fn.attr in {'findall', 'split', 'escape', 'sub', 'subn'}:
+                    return DATA
+                raise Unknown()
             if self.xml_module(fn.value) and fn.attr == 'parse':
                 if len(node.args) != 1 or node.keywords:
                     raise Unknown()
-                self.literal_path(node.args[0], self.xml_reads)
+                self.literal_path(node.args[0], self.read_only_reads)
                 return TREE
             if isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 'pillow' and fn.attr == 'open':
                 if len(node.args) != 1 or node.keywords:
@@ -178,6 +210,14 @@ class Reader:
                     self.data(node.args[0])
                     return DATA
             kind = self.expr(fn.value)
+            if kind == MATCH and fn.attr in {'group', 'groups', 'groupdict', 'start', 'end', 'span'}:
+                self.args(node)
+                return DATA
+            if kind == HTML and fn.attr in {'find', 'find_all', 'select', 'select_one', 'get', 'get_text', 'prettify'}:
+                self.args(node)
+                if fn.attr in {'get', 'get_text', 'prettify'}:
+                    return DATA
+                return HTMLS if fn.attr in {'find_all', 'select'} else HTML
             if kind == TREE and fn.attr == 'getroot' and not node.args and not node.keywords:
                 return ELEMENT
             if kind in {TREE, ELEMENT} and fn.attr in {'find', 'findall', 'findtext'}:
@@ -208,7 +248,7 @@ class Reader:
                     if alias.name == 'xml.etree.ElementTree':
                         kind = 'elementtree' if alias.asname else 'xml'
                         name = alias.asname or 'xml'
-                    elif alias.name not in {'json', 'sys'}:
+                    elif alias.name not in {'json', 'sys', 'bs4', 're'}:
                         raise Unknown()
                     if name in self.names or name in self.reserved:
                         raise Unknown()
@@ -218,7 +258,7 @@ class Reader:
                 if node.level or len(node.names) != 1:
                     raise Unknown()
                 alias = node.names[0]
-                kind = {('PIL', 'Image'): 'pillow', ('xml.etree', 'ElementTree'): 'elementtree'}.get((node.module, alias.name))
+                kind = {('bs4', 'BeautifulSoup'): 'beautifulsoup', ('PIL', 'Image'): 'pillow', ('xml.etree', 'ElementTree'): 'elementtree'}.get((node.module, alias.name))
                 name = alias.asname or alias.name
                 if kind is None or name in self.names or name in self.reserved:
                     raise Unknown()
@@ -232,9 +272,9 @@ class Reader:
                 self.expr(node.value)
             elif isinstance(node, ast.For):
                 kind = self.expr(node.iter)
-                if kind not in {DATA, ELEMENT, ELEMENTS}:
+                if kind not in {DATA, ELEMENT, ELEMENTS, HTMLS}:
                     raise Unknown()
-                self.bind(node.target, ELEMENT if kind in {ELEMENT, ELEMENTS} else DATA)
+                self.bind(node.target, HTML if kind == HTMLS else ELEMENT if kind in {ELEMENT, ELEMENTS} else DATA)
                 self.statements(node.body)
                 self.statements(node.orelse)
             elif isinstance(node, ast.If):
@@ -293,7 +333,7 @@ try:
                 parent = parents.get(node)
                 if not isinstance(parent, ast.Attribute) or parent.attr != 'stdin':
                     changes_path = True
-        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'xmlReads': reader.xml_reads, 'writes': reader.writes, 'literals': literals, 'imports': imports, 'changesPath': changes_path}))
+        print(json.dumps({'recognized': recognized, 'reads': reader.reads, 'readOnlyReads': reader.read_only_reads, 'writes': reader.writes, 'literals': literals, 'imports': imports, 'changesPath': changes_path}))
     elif sys.argv[1] == 'comments':
         lines = source.split('\\n')
         for token in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -315,7 +355,7 @@ function inspectPython(
   source: string,
   mode: 'data' | 'comments',
 ): string | null {
-  if (Buffer.byteLength(source) > MAX_SOURCE_BYTES) return null;
+  if (Buffer.byteLength(source) > MAX_PYTHON_SOURCE_BYTES) return null;
   const result = spawnSync(
     '/usr/bin/python3',
     ['-I', '-S', '-B', '-c', PYTHON_INSPECTION, mode],
@@ -323,7 +363,7 @@ function inspectPython(
       input: source,
       encoding: 'utf8',
       timeout: PARSER_TIMEOUT_MS,
-      maxBuffer: MAX_SOURCE_BYTES * 2 + 32,
+      maxBuffer: MAX_PYTHON_SOURCE_BYTES * 2 + 32,
       windowsHide: true,
     },
   );
@@ -368,11 +408,21 @@ function isRealWorkspacePath(candidate: string): boolean {
 
 const PYTHON_IMPORTABLE = /\.(?:py[co]?|so|pyd|zip|egg)$/i;
 
-function hasPythonStartupRisk(fetchedFiles: Iterable<string>): boolean {
-  // Downloaded importable code may shadow the standard modules this subset
-  // uses. Unknown locations cannot establish a data-only interpretation either.
+function hasPythonStartupRisk(
+  fetchedFiles: Iterable<string>,
+  readOnlyWithoutImports: boolean,
+): boolean {
+  // Downloaded modules may shadow trusted imports. With unknown destinations,
+  // only a verified read-only program without imports can establish data use.
   for (const file of fetchedFiles) {
-    if (file.includes('\0') || PYTHON_IMPORTABLE.test(file)) return true;
+    if (file.includes('\0')) {
+      if (!readOnlyWithoutImports) return true;
+      continue;
+    }
+    if (PYTHON_IMPORTABLE.test(file)) return true;
+    const resolved = resolveWorkspacePath(file);
+    const canonical = resolved && canonicalFromExistingAncestor(resolved);
+    if (canonical && PYTHON_IMPORTABLE.test(canonical)) return true;
   }
   return false;
 }
@@ -385,6 +435,7 @@ export function inspectPythonInline(
   data: { reads: string[]; writes: string[]; pathHints: string[] } | null;
   literals: string[];
   recognized: boolean;
+  pathHints: string[];
   imports: string[];
   changesPath: boolean;
 } | null {
@@ -397,8 +448,8 @@ export function inspectPythonInline(
       typeof value.recognized !== 'boolean' ||
       !Array.isArray(value.reads) ||
       !Array.isArray(value.writes) ||
-      !Array.isArray(value.xmlReads) ||
-      !value.xmlReads.every(
+      !Array.isArray(value.readOnlyReads) ||
+      !value.readOnlyReads.every(
         (file): file is string => typeof file === 'string',
       ) ||
       !Array.isArray(value.imports) ||
@@ -415,13 +466,13 @@ export function inspectPythonInline(
       literals: value.literals as string[],
       imports: value.imports as string[],
       changesPath: value.changesPath,
+      pathHints: [] as string[],
     };
-    if (!value.recognized || hasPythonStartupRisk(fetchedFiles))
-      return { data: null, ...metadata };
+    if (!value.recognized) return { data: null, ...metadata };
     const paths = [...value.reads, ...value.writes];
     if (!paths.every((file): file is string => typeof file === 'string'))
       return null;
-    const pathHints: string[] = [];
+    const pathHints = metadata.pathHints;
     for (const file of paths) {
       const resolved = resolvePath(file, cwd);
       const actual = resolved === null ? null : resolveWorkspacePath(resolved);
@@ -437,8 +488,8 @@ export function inspectPythonInline(
         path.relative(WORKSPACE_ROOT, actual),
       );
     }
-    // XML reads may use scratch paths; their canonical names still reach pins.
-    for (const file of value.xmlReads as string[]) {
+    // Structured reads may use scratch paths; canonical names still reach pins.
+    for (const file of value.readOnlyReads as string[]) {
       const resolved = resolvePath(file, cwd);
       if (resolved === null) return { data: null, ...metadata };
       const actual =
@@ -451,9 +502,19 @@ export function inspectPythonInline(
       if (isWithinRoot(canonical, root))
         pathHints.push(path.relative(root, canonical));
     }
+    if (
+      hasPythonStartupRisk(
+        fetchedFiles,
+        value.imports.length === 0 && value.writes.length === 0,
+      )
+    )
+      return { data: null, ...metadata };
     return {
       data: {
-        reads: [...(value.reads as string[]), ...(value.xmlReads as string[])],
+        reads: [
+          ...(value.reads as string[]),
+          ...(value.readOnlyReads as string[]),
+        ],
         writes: value.writes as string[],
         pathHints,
       },

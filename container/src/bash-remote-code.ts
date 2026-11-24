@@ -271,6 +271,7 @@ export function findFetchedCode(
       parseBudget.remaining-- > 0
         ? inspectPythonInline(source.inline, [...savedBefore, ...saved], cwd)
         : null;
+    if (inspection?.data === null) pathHints.push(...inspection.pathHints);
     if (source?.pythonStartup) {
       const startup = source.pythonStartup;
       const script =

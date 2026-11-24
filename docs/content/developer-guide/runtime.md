@@ -565,7 +565,14 @@ inspection budget per interpretation; larger batches fail before execution.
 
 Inline Python data operations use a bounded, non-executing AST recognizer instead
 of treating their filenames as shell executables. The supported subset reads
-files or stdin, parses JSON and performs ordinary data transformations. Pillow
+literal files or stdin, parses JSON and performs ordinary data transformations.
+BeautifulSoup reads support literal installed HTML builders (`html.parser`,
+`lxml`, `html5lib`) and read-only tree
+operations. Read-only `re` matching and string replacements can inspect extracted
+text; callbacks and reflection remain unrecognized. Quoted literal Python stdin
+programs use the same bounded inspection as `-c`; expanded or unsupported heredocs
+retain their existing classification.
+Read operands retain canonical protected-path checks, including scratch files. Pillow
 image open, thumbnail, size and save operations support literal workspace paths;
 their write intent and pinned-path checks remain active, including in commands
 that also contact HTTP endpoints. Possible output paths derived from fetched
@@ -573,7 +580,7 @@ inputs are recorded before the decision, so later execution still requires
 provenance review after a worker replacement. Other imports, callbacks,
 evaluation and write modes are outside this recognized subset. Explicit
 interactive/import-customizing startup options, downloaded importable code,
-unknown provenance, unsupported syntax or parser failures retain conservative
+unknown provenance with imports or writes, unsupported syntax or parser failures retain conservative
 inspection. Unsupported inline Python that can consume fetched operands or
 stdin requires provenance review. This does not validate arbitrary ambient interpreter state or
 import hooks and does not replace other approval and protected-path checks.
