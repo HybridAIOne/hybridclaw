@@ -100,8 +100,9 @@ Tool actions are risk-tiered at runtime:
 
 Fetched-code review recognizes bounded JSON, read-only ElementTree XML and
 BeautifulSoup HTML readers, and Pillow image open/thumbnail/save operations.
-HTML certification requires the literal `html.parser` builder and supported
-read-only tree operations. File operands must be literal and retain their
+HTML certification requires a literal installed HTML builder (`html.parser`,
+`lxml`, or `html5lib`) and supported read-only tree operations. XML builders
+and custom builders remain unrecognized. File operands must be literal and retain their
 resolved and canonical pinned-path checks, including scratch-directory reads.
 Custom builders, callbacks and tree mutations remain unrecognized. Literal,
 quoted Python stdin programs can use the same bounded inspection as `-c`;

@@ -566,7 +566,8 @@ inspection budget per interpretation; larger batches fail before execution.
 Inline Python data operations use a bounded, non-executing AST recognizer instead
 of treating their filenames as shell executables. The supported subset reads
 literal files or stdin, parses JSON and performs ordinary data transformations.
-BeautifulSoup reads support the literal `html.parser` builder and read-only tree
+BeautifulSoup reads support literal installed HTML builders (`html.parser`,
+`lxml`, `html5lib`) and read-only tree
 operations. Quoted literal Python stdin programs use the same bounded inspection
 as `-c`; expanded or unsupported heredocs retain their existing classification.
 Read operands retain canonical protected-path checks, including scratch files. Pillow

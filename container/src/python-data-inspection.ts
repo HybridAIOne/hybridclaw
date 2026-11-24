@@ -150,7 +150,7 @@ class Reader:
                 or isinstance(fn, ast.Attribute) and fn.attr == 'BeautifulSoup'
                 and isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 'bs4')
         if soup:
-            if len(node.args) != 2 or node.keywords or not isinstance(node.args[1], ast.Constant) or node.args[1].value != 'html.parser':
+            if len(node.args) != 2 or node.keywords or not isinstance(node.args[1], ast.Constant) or node.args[1].value not in {'html.parser', 'lxml', 'html5lib'}:
                 raise Unknown()
             if self.expr(node.args[0]) not in {DATA, FILE}:
                 raise Unknown()
@@ -200,9 +200,9 @@ class Reader:
                     self.data(node.args[0])
                     return DATA
             kind = self.expr(fn.value)
-            if kind == HTML and fn.attr in {'find', 'find_all', 'select', 'select_one', 'get', 'get_text'}:
+            if kind == HTML and fn.attr in {'find', 'find_all', 'select', 'select_one', 'get', 'get_text', 'prettify'}:
                 self.args(node)
-                if fn.attr in {'get', 'get_text'}:
+                if fn.attr in {'get', 'get_text', 'prettify'}:
                     return DATA
                 return HTMLS if fn.attr in {'find_all', 'select'} else HTML
             if kind == TREE and fn.attr == 'getroot' and not node.args and not node.keywords:

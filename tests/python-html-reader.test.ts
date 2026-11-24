@@ -78,11 +78,40 @@ test.each([
   expect(inspect(reader + '\n' + tail, ['page.html'])?.data).toBeNull();
 });
 
-test.each(['lxml', 'xml', 'html5lib'])(
+test.each(['xml', 'lxml-xml', 'custom-builder'])(
   'does not certify an alternate HTML builder: %s', (builder) => {
     expect(inspect(reader.replace("'html.parser'", JSON.stringify(builder)), ['page.html'])?.data).toBeNull();
   },
 );
+
+test.each(['html.parser', 'lxml', 'html5lib'])(
+  'recognizes installed HTML builders and read-only formatting: %s', (builder) => {
+    const body = `from bs4 import BeautifulSoup
+with open('page.html') as file:
+    html = file.read()
+soup = BeautifulSoup(html, '${builder}')
+content = soup.find('div', id='page-content')
+if content:
+    print(content.prettify()[:8000])
+else:
+    for div in soup.find_all('div', class_=True):
+        if 'content' in ' '.join(div.get('class', [])):
+            print(div.get('class'))`;
+    expect(inspect(body, ['page.html'])?.data).toMatchObject({ reads: ['page.html'], writes: [] });
+  },
+);
+
+test('formatted HTML output retains fetched origins before execution', () => {
+  const value = runtime();
+  value.afterToolExecution(evaluate(value, 'curl https://example.com/page -o page.html'), true);
+  const formatted = command(reader.replace('content.get_text()', 'content.prettify()')) + ' > rendered.py';
+  const decision = evaluate(value, formatted);
+  expect(decision.decision).toBe('approved_fullauto');
+  value.afterToolExecution(decision, true);
+  expect(evaluate(runtime(), 'python3 rendered.py')).toMatchObject({
+    actionKey: 'bash:fetched-code', decision: 'required',
+  });
+});
 
 test.each(['bs4.py', 'bs4/__init__.py', 'bs4/element.py', 'sitecustomize.py', '\0unknown-fetch-location'])(
   'downloaded startup code cannot gain a data-only exemption: %s', (file) => {
