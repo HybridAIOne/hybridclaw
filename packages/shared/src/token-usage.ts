@@ -84,8 +84,9 @@ export function primaryTokenUsage(stats: TokenUsageStats): TokenUsageStats {
 
 function sumCallCounters(calls: ModelCallUsage[]): TokenUsageStats {
   const counters = createTokenUsageStats();
+  const requiredCounters = Object.entries(counters);
   for (const call of calls) {
-    for (const [key, initial] of Object.entries(counters)) {
+    for (const [key, initial] of requiredCounters) {
       if (typeof initial === 'number')
         (counters as unknown as Record<string, number>)[key] += (
           call.usage as unknown as Record<string, number>
@@ -94,6 +95,10 @@ function sumCallCounters(calls: ModelCallUsage[]): TokenUsageStats {
         (counters as unknown as Record<string, boolean>)[key] ||= (
           call.usage as unknown as Record<string, boolean>
         )[key];
+    }
+    if (call.usage.apiReasoningTokens !== undefined) {
+      counters.apiReasoningTokens =
+        (counters.apiReasoningTokens ?? 0) + call.usage.apiReasoningTokens;
     }
   }
   return finalizeTokenUsage(counters);
@@ -112,6 +117,17 @@ function validateCounters(value: unknown): TokenUsageStats {
     )
       throw new Error('Invalid checkpoint usage.');
     (result as unknown as Record<string, unknown>)[key] = actual;
+  }
+  const reasoningTokens = value.apiReasoningTokens;
+  if (reasoningTokens !== undefined) {
+    if (
+      typeof reasoningTokens !== 'number' ||
+      !Number.isSafeInteger(reasoningTokens) ||
+      reasoningTokens < 0
+    ) {
+      throw new Error('Invalid checkpoint reasoning token count.');
+    }
+    result.apiReasoningTokens = reasoningTokens;
   }
   if (value.performanceSamples !== undefined) {
     if (!Array.isArray(value.performanceSamples))
@@ -198,6 +214,11 @@ export function validateTokenUsage(value: unknown): TokenUsageStats {
       };
     });
     const expected = sumCallCounters(result.modelUsage);
+    if (expected.apiReasoningTokens !== result.apiReasoningTokens) {
+      throw new Error(
+        'Model call usage does not match aggregate reasoning tokens.',
+      );
+    }
     for (const [key, initial] of Object.entries(createTokenUsageStats())) {
       if (typeof initial !== 'number' && typeof initial !== 'boolean') continue;
       if (

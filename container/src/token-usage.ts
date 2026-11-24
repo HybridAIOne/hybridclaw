@@ -6,6 +6,7 @@
  */
 import { isRecord } from '@hybridclaw/shared/primitive-values';
 import { readProviderCacheUsage } from '@hybridclaw/shared/provider-cache-usage';
+import { readChatCompletionsReasoningTokens } from '@hybridclaw/shared/provider-wire/chat-completions';
 import { estimateTextTokens } from '@hybridclaw/shared/token-estimate';
 import type {
   ChatCompletionResponse,
@@ -68,9 +69,11 @@ export function accumulateApiUsage(
     usageRecord.inputTokens != null ||
     usageRecord.outputTokens != null;
   const { cacheReadTokens, cacheWriteTokens } = readProviderCacheUsage(usage);
+  const reasoningTokens = readChatCompletionsReasoningTokens(usage);
   const hasCacheUsageFields =
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
-  if (!hasTokenUsageFields && !hasCacheUsageFields) return;
+  if (!hasTokenUsageFields && !hasCacheUsageFields && reasoningTokens === null)
+    return;
 
   const promptTokens = parseUsageNumber(
     firstDefined([
@@ -105,6 +108,10 @@ export function accumulateApiUsage(
     stats.apiCacheUsageAvailable = true;
     stats.apiCacheReadTokens += cacheReadTokens ?? 0;
     stats.apiCacheWriteTokens += cacheWriteTokens ?? 0;
+  }
+  if (reasoningTokens !== null) {
+    stats.apiReasoningTokens =
+      (stats.apiReasoningTokens ?? 0) + reasoningTokens;
   }
 }
 

@@ -74,6 +74,8 @@ curl https://gateway.example/v1/chat/completions \
   tool definitions).
 - `stream: true` returns standard SSE chunks; add
   `"stream_options": {"include_usage": true}` for a final usage chunk.
+- Usage includes `completion_tokens_details.reasoning_tokens` when the upstream
+  provider reports it. The reasoning count is part of `completion_tokens`.
 - `user` is optional and labels the turn in session history. On requests the
   gateway sends straight to an OpenAI Codex model (client tools and the
   `regular` decision model), a hash of `user` becomes the upstream
