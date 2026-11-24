@@ -374,9 +374,9 @@ function resolveRunner(): BrowserRunner | null {
 }
 
 function resolveHeadedBrowserExecutable(): string | undefined {
-  const configured = String(
-    process.env.AGENT_BROWSER_EXECUTABLE_PATH || '',
-  ).trim();
+  const configured =
+    process.env.AGENT_BROWSER_HEADED_EXECUTABLE_PATH?.trim() ||
+    process.env.AGENT_BROWSER_EXECUTABLE_PATH?.trim();
   if (configured) return configured;
 
   const chromeBin = String(process.env.CHROME_BIN || '').trim();
@@ -3824,7 +3824,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Open a URL and return the rendered page text and element refs, including content loaded by JavaScript. Use for app-like/dynamic websites, interaction, login/consent/challenge flows, or web_fetch escalation. Navigate directly when the source URL is known. Prefer web_fetch for static articles/docs and direct data endpoints. Read the returned snapshot; do not request another snapshot immediately. Use headed=true only when visible browser control is requested; it persists for the session and requires a local display. Private/loopback URLs are blocked by default.',
+        'Open a URL and return the rendered page text and element refs, including content loaded by JavaScript. Use for app-like/dynamic websites, interaction, login/consent/challenge flows, or web_fetch escalation. Navigate directly when the source URL is known. Prefer web_fetch for static articles/docs and direct data endpoints. Read the returned snapshot; do not request another snapshot immediately. Use headed=true when headed browsing is requested. It persists for the session and uses a virtual display in hosted sandboxes. Private/loopback URLs are blocked by default.',
       parameters: {
         type: 'object',
         properties: {
@@ -3835,7 +3835,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           headed: {
             type: 'boolean',
             description:
-              'Use a visible browser window when the user explicitly requests headful/headed browser control.',
+              'Use a headed browser when the user explicitly requests it.',
           },
           expects_2fa: {
             type: 'boolean',
