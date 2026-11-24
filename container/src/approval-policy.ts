@@ -3683,7 +3683,8 @@ export class TrustedAgentApprovalRuntime {
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
     // segment; these checks need the commands bash actually runs, parsed once
     // from the workspace root, where every call starts.
-    const shellCommands = scriptCommands(stripHereDocBodies(command));
+    const shellScript = stripHereDocBodies(command);
+    const shellCommands = scriptCommands(shellScript);
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
@@ -3758,6 +3759,7 @@ export class TrustedAgentApprovalRuntime {
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
       const outsideWorkspace = fenceCandidates(
+        shellScript,
         shellCommands,
         absPaths,
         isReadOnlyCommand,
