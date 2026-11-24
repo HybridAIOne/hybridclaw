@@ -113,6 +113,33 @@ test('formatted HTML output retains fetched origins before execution', () => {
   });
 });
 
+test.each(['re', 'regex'])(
+  'recognizes read-only HTML text matching with %s', (alias) => {
+    const body = reader + `
+import re as ${alias}
+text = content.get_text()
+match = ${alias}.search('Object Class', text, ${alias}.IGNORECASE)
+print(match)
+if match:
+    print(match.group(0), match.span())
+print(${alias}.findall('Class', text))
+print(${alias}.sub('Class', 'Type', text))`;
+    expect(inspect(body, ['page.html'])?.data?.reads).toContain('page.html');
+    expect(inspect(body, ['page.html', 're.py'])?.data).toBeNull();
+    expect(inspect(body, ['\0unknown-fetch-location'])?.data).toBeNull();
+  },
+);
+
+test.each([
+  "re.sub('x', eval, content.get_text())",
+  "re.sub('x', lambda value: exec(value.group()), content.get_text())",
+  "re.__dict__",
+  "match.__class__",
+])('regex callbacks and reflection stay opaque: %s', (tail) => {
+  const body = reader + "\nimport re\nmatch = re.search('x', content.get_text())\n" + tail;
+  expect(inspect(body, ['page.html'])?.data).toBeNull();
+});
+
 test.each(['bs4.py', 'bs4/__init__.py', 'bs4/element.py', 'sitecustomize.py', '\0unknown-fetch-location'])(
   'downloaded startup code cannot gain a data-only exemption: %s', (file) => {
     expect(inspect(reader, ['page.html', file])?.data).toBeNull();

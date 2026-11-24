@@ -568,8 +568,10 @@ of treating their filenames as shell executables. The supported subset reads
 literal files or stdin, parses JSON and performs ordinary data transformations.
 BeautifulSoup reads support literal installed HTML builders (`html.parser`,
 `lxml`, `html5lib`) and read-only tree
-operations. Quoted literal Python stdin programs use the same bounded inspection
-as `-c`; expanded or unsupported heredocs retain their existing classification.
+operations. Read-only `re` matching and string replacements can inspect extracted
+text; callbacks and reflection remain unrecognized. Quoted literal Python stdin
+programs use the same bounded inspection as `-c`; expanded or unsupported heredocs
+retain their existing classification.
 Read operands retain canonical protected-path checks, including scratch files. Pillow
 image open, thumbnail, size and save operations support literal workspace paths;
 their write intent and pinned-path checks remain active, including in commands

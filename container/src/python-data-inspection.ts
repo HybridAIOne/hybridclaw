@@ -33,6 +33,7 @@ ELEMENT = 'xml-element'
 ELEMENTS = 'xml-elements'
 HTML = 'html-element'
 HTMLS = 'html-elements'
+MATCH = 'regex-match'
 FILE = 'file'
 IMAGE = 'image'
 PURE = {'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'tuple', 'set',
@@ -65,7 +66,7 @@ class Reader:
             raise Unknown()
 
     def data(self, node):
-        if self.expr(node) not in {DATA, HTML, HTMLS}:
+        if self.expr(node) not in {DATA, HTML, HTMLS, MATCH}:
             raise Unknown()
 
     def args(self, node):
@@ -80,7 +81,7 @@ class Reader:
         if isinstance(node, ast.Constant):
             return DATA
         if isinstance(node, ast.Name):
-            if self.names.get(node.id) in {DATA, FILE, IMAGE, TREE, ELEMENT, ELEMENTS, HTML, HTMLS}:
+            if self.names.get(node.id) in {DATA, FILE, IMAGE, TREE, ELEMENT, ELEMENTS, HTML, HTMLS, MATCH}:
                 return self.names[node.id]
         elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
             for item in node.elts:
@@ -120,6 +121,8 @@ class Reader:
                 self.data(node.format_spec)
             return DATA
         elif isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and self.names.get(node.value.id) == 're' and node.attr in {'ASCII', 'IGNORECASE', 'MULTILINE', 'DOTALL', 'VERBOSE', 'NOFLAG', 'A', 'I', 'M', 'S', 'X'}:
+                return DATA
             if isinstance(node.value, ast.Name) and self.names.get(node.value.id) == 'sys' and node.attr == 'stdin':
                 return FILE
             kind = self.expr(node.value)
@@ -181,6 +184,13 @@ class Reader:
                 self.args(node)
                 return DATA
         elif isinstance(fn, ast.Attribute):
+            if isinstance(fn.value, ast.Name) and self.names.get(fn.value.id) == 're':
+                self.args(node)
+                if fn.attr in {'search', 'match', 'fullmatch'}:
+                    return MATCH
+                if fn.attr in {'findall', 'split', 'escape', 'sub', 'subn'}:
+                    return DATA
+                raise Unknown()
             if self.xml_module(fn.value) and fn.attr == 'parse':
                 if len(node.args) != 1 or node.keywords:
                     raise Unknown()
@@ -200,6 +210,9 @@ class Reader:
                     self.data(node.args[0])
                     return DATA
             kind = self.expr(fn.value)
+            if kind == MATCH and fn.attr in {'group', 'groups', 'groupdict', 'start', 'end', 'span'}:
+                self.args(node)
+                return DATA
             if kind == HTML and fn.attr in {'find', 'find_all', 'select', 'select_one', 'get', 'get_text', 'prettify'}:
                 self.args(node)
                 if fn.attr in {'get', 'get_text', 'prettify'}:
@@ -235,7 +248,7 @@ class Reader:
                     if alias.name == 'xml.etree.ElementTree':
                         kind = 'elementtree' if alias.asname else 'xml'
                         name = alias.asname or 'xml'
-                    elif alias.name not in {'json', 'sys', 'bs4'}:
+                    elif alias.name not in {'json', 'sys', 'bs4', 're'}:
                         raise Unknown()
                     if name in self.names or name in self.reserved:
                         raise Unknown()
