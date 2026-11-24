@@ -1593,6 +1593,10 @@ Container-side adaptations for local models:
 
 ## Model Request Retries
 
+Explicit worker reasoning effort reaches Nebius as `reasoning_effort` and
+OpenRouter as `reasoning: { enabled, effort }`. Omitting effort keeps provider
+defaults. These options leave the native output-token budget unchanged.
+
 Primary and auxiliary calls (including image analysis, web extraction and
 compaction) share the worker's retry policy. Temporary connection failures,
 rate limits and supported transient server errors retry the same model and

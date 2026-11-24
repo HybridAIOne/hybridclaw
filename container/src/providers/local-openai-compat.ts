@@ -2,6 +2,7 @@
  * Compatible API transport preserves tool calls, reasoning, and finish reasons.
  * Final answers take precedence over reasoning-only call recovery.
  * MLX streams keep thought observable; context budgets remain caller-owned.
+ * Nebius and OpenRouter receive explicit effort in their native wire formats.
  * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 
@@ -17,6 +18,7 @@ import {
 } from '@hybridclaw/shared/provider-wire/chat-completions';
 import { normalizeOpenAICompatModelName } from '@hybridclaw/shared/provider-wire/model-names';
 import { readServerSentEvents } from '@hybridclaw/shared/provider-wire/server-sent-events';
+import { isReasoningEffort } from '@hybridclaw/shared/reasoning-effort';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -300,6 +302,16 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     tools: args.tools,
     maxTokens: args.maxTokens,
   });
+  if (isReasoningEffort(args.reasoningEffort)) {
+    if (args.provider === 'nebius') {
+      request.reasoning_effort = args.reasoningEffort;
+    } else if (args.provider === 'openrouter') {
+      request.reasoning = {
+        enabled: args.reasoningEffort !== 'none',
+        effort: args.reasoningEffort,
+      };
+    }
+  }
   // Owner experiment, 2026-11-08: explicit non-thinking Qwen calls on vLLM.
   if (
     args.provider === 'vllm' &&
