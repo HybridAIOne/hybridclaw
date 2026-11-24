@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { AdminMSTeamsUser } from '../console/src/api/types.js';
+import { MSTEAMS_RATING_TARGETS_KEY } from '../src/channels/msteams/utils.js';
 import {
   getAvailablePort,
   waitForHealth,
@@ -475,4 +476,65 @@ describe.skipIf(!RUN)('Teams senders in channel_users on a live gateway', () => 
     ).toBe(401);
     expect(usageAgents()).toHaveLength(before);
   });
+
+  test('records and clears a reaction to a reply in a canonical session', async () => {
+    await sendMessage('rate this reply');
+    const [reply] = query<{ id: number; session_id: string }>(
+      'SELECT id, session_id FROM messages WHERE role = ? AND content = ? ORDER BY id DESC LIMIT 1',
+      'assistant',
+      'Hello from the fake model.',
+    );
+    expect(reply.session_id).toMatch(/^sess_/);
+    const deliveredActivityId = () =>
+      query<{ id: string }>(
+        `SELECT target.value ->> 'activityId' AS id
+         FROM kv_store, json_each(CAST(kv_store.value AS TEXT)) AS target
+         WHERE kv_store.agent_id = ? AND kv_store.key = ?
+           AND target.value ->> 'messageId' = ?
+         LIMIT 1`,
+        reply.session_id,
+        MSTEAMS_RATING_TARGETS_KEY,
+        reply.id,
+      )[0]?.id;
+    await expect.poll(deliveredActivityId).toMatch(/^bot-activity-/);
+    const activityId = deliveredActivityId();
+    const ratings = () =>
+      query(
+        'SELECT session_id, message_id, operator_user_id, rating FROM response_ratings',
+      );
+
+    expect(
+      await sendActivity({
+        type: 'messageReaction',
+        replyToId: 'unknown-activity',
+        reactionsAdded: [{ type: 'like' }],
+      }),
+    ).toBe(200);
+    expect(ratings()).toEqual([]);
+
+    expect(
+      await sendActivity({
+        type: 'messageReaction',
+        replyToId: activityId,
+        reactionsAdded: [{ type: 'like' }],
+      }),
+    ).toBe(200);
+    await expect.poll(ratings).toEqual([
+      {
+        session_id: reply.session_id,
+        message_id: reply.id,
+        operator_user_id: ERIKA.aadObjectId,
+        rating: 'up',
+      },
+    ]);
+
+    expect(
+      await sendActivity({
+        type: 'messageReaction',
+        replyToId: activityId,
+        reactionsRemoved: [{ type: 'like' }],
+      }),
+    ).toBe(200);
+    await expect.poll(ratings).toEqual([]);
+  }, TURN_TIMEOUT_MS);
 });
