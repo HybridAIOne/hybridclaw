@@ -183,6 +183,10 @@ and bash commands naming them, need explicit human approval every time, even
 in full-auto. The check is static and does not replace keeping these files out
 of the sandbox.
 
+APT configuration paths stay protected. Use `apt-cache policy PACKAGE` to
+diagnose package availability and run index updates and installs separately
+so their exit status is visible.
+
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 
 Shell inspection retains literal argument and redirection roles through command
