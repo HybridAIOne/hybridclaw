@@ -2740,6 +2740,7 @@ function VoiceChannelEditor(props: {
 function TeamsChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
+  agents: AdminAgent[];
   appPasswordConfigured: boolean;
   appPasswordSource: SecretSource;
   token: string;
@@ -2811,6 +2812,36 @@ function TeamsChannelEditor(props: {
           render={<a href="/admin/connectors#teams-sso">App Setup</a>}
         />
       </div>
+
+      <FormField
+        name="msteams.personalAgentParent"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Personal agents</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="">
+                Off: everyone shares one agent
+              </NativeSelectOption>
+              {props.agents
+                .filter((agent) => !agent.extends)
+                .map((agent) => (
+                  <NativeSelectOption key={agent.id} value={agent.id}>
+                    On: based on {formatAgentOptionLabel(agent)}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelect>
+            <FieldDescription>
+              When on, each person gets their own agent on their next direct
+              chat, with private memory, files and history. It starts without
+              the shared agent's memory and earlier conversation. Group chats
+              and channels keep the shared agent.
+            </FieldDescription>
+          </Field>
+        )}
+      />
 
       <TeamsUsers />
 
@@ -3939,6 +3970,7 @@ function renderSelectedEditor(
         <TeamsChannelEditor
           draft={draft}
           form={form}
+          agents={agents}
           appPasswordConfigured={secretStatus.msteams.configured}
           appPasswordSource={secretStatus.msteams.source}
           token={token}
@@ -3980,7 +4012,7 @@ export function ChannelsPage() {
   const agentsQuery = useQuery({
     queryKey: ['admin-agents', auth.token],
     queryFn: () => fetchAdminAgents(auth.token),
-    enabled: selectedKind === 'email',
+    enabled: selectedKind === 'email' || selectedKind === 'msteams',
   });
 
   const form = useForm<AdminConfig>({

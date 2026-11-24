@@ -207,8 +207,17 @@ test('Teams routes personal agents in direct chats only and provisions them on d
     userId: 'entra-erika',
     profile: { teamsUserId: '29:erika', entraObjectId: 'entra-erika' },
     displayName: 'Erika Mustermann',
+    email: 'erika@example.com',
     isMessage: true,
   });
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const userMarkdown = (agentId: string) =>
+    fs.readFileSync(path.join(agentWorkspaceDir(agentId), 'USER.md'), 'utf-8');
+  fs.mkdirSync(agentWorkspaceDir('main'), { recursive: true });
+  fs.writeFileSync(
+    path.join(agentWorkspaceDir('main'), 'USER.md'),
+    '- **Timezone:** Europe/Berlin\n',
+  );
   expect(getAdminMSTeamsUsers().personalAgentParent).toBeNull();
   expect(
     createAdminMSTeamsPersonalAgent({ userId: 'nobody', parentAgentId: 'ams' }),
@@ -223,6 +232,14 @@ test('Teams routes personal agents in direct chats only and provisions them on d
       userId: 'entra-erika',
     })?.agentId,
   ).toBe('main-erika-mustermann');
+  // Without a zone from Teams the person starts in the parent's, not the host's.
+  expect(userMarkdown('main-erika-mustermann')).toContain(
+    [
+      '- **Name:** Erika Mustermann',
+      '- **Email:** erika@example.com',
+      '- **Timezone:** Europe/Berlin',
+    ].join('\n'),
+  );
   expect(
     createAdminMSTeamsPersonalAgent({
       userId: 'entra-erika',
@@ -280,8 +297,13 @@ test('Teams routes personal agents in direct chats only and provisions them on d
       displayName: 'Tomasz',
       entraObjectId: 'entra-tomasz',
       teamsUserId: '29:tomasz',
+      timezone: 'America/New_York',
     }),
   ).toBe('ams-tomasz');
+  expect(userMarkdown('ams-tomasz')).toContain(
+    '- **Timezone:** America/New_York',
+  );
+  expect(userMarkdown('ams-tomasz')).not.toContain('Email');
   expect(registry.getAgentById('ams-tomasz')).toMatchObject({
     extends: 'ams',
     displayName: 'AMS Assistant · Tomasz',

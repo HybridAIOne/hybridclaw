@@ -144,7 +144,9 @@ export function resolveAgentAddressing(params: {
   if (!content.includes('@')) return { kind: 'none', content };
   const currentAgentId = params.currentAgentId?.trim() || DEFAULT_AGENT_ID;
   const fromAgentId = params.fromAgentId?.trim() || currentAgentId;
-  const agents = listAgents();
+  // A personal agent holds one person's memory; only that person's own
+  // channel routing reaches it, never an address someone typed.
+  const agents = listAgents().filter((agent) => !agent.extends);
 
   const canonicalMatch = CANONICAL_AGENT_ADDRESS_RE.exec(content);
   if (canonicalMatch) {

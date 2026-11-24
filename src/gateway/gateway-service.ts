@@ -9228,6 +9228,10 @@ export async function handleGatewayCommand(
 
       case 'agent': {
         const sub = parseLowerArg(req.args, 1);
+        // A personal agent holds one person's memory: a chat can name the one
+        // it is already on, never someone else's.
+        const selectable = (agent: AgentConfig): boolean =>
+          !agent.extends || agent.id === resolveSessionAgentId(session);
         const switchToAgent = (
           targetAgent: AgentConfig,
         ): GatewayCommandResult => {
@@ -9314,7 +9318,7 @@ export async function handleGatewayCommand(
 
         if (sub === 'list') {
           const currentAgentId = resolveSessionAgentId(session);
-          const entries = listAgents();
+          const entries = listAgents().filter(selectable);
           const lines = entries.map((agent) => {
             const label =
               agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
@@ -9335,7 +9339,7 @@ export async function handleGatewayCommand(
             return badCommand('Usage', 'Usage: `agent switch <id>`');
           }
           const targetAgent = findAgentConfig(targetAgentId);
-          if (!targetAgent) {
+          if (!targetAgent || !selectable(targetAgent)) {
             return badCommand(
               'Not Found',
               `Agent \`${targetAgentId}\` was not found.`,

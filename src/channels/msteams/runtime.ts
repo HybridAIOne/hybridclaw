@@ -715,6 +715,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
           displayName: actor.displayName || actor.username,
           entraObjectId: actor.aadObjectId,
           teamsUserId: normalizeValue(activity.from?.id) || null,
+          timezone: activity.localTimezone,
         });
       } catch (error) {
         logger.warn({ error }, 'Personal Teams agent provisioning failed');

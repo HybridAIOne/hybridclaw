@@ -393,3 +393,95 @@ test('agent-scoped turns cannot address agents outside the scope', async () => {
     agentId: 'support',
   });
 });
+
+test('a personal agent is reached by its own chat only: no address, fanout, list or switch', async () => {
+  setupHome();
+
+  runAgentMock.mockImplementation(async (request: { agentId?: string }) => ({
+    status: 'success',
+    result: `reply from ${request.agentId}`,
+    toolsUsed: [],
+    toolExecutions: [],
+  }));
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'sales' });
+  upsertRegisteredAgent({
+    id: 'sales-erika',
+    extends: 'sales',
+    displayName: 'Sales · Erika',
+  });
+
+  const colleague = {
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-2',
+    username: 'Colleague',
+  };
+  for (const content of [
+    '@sales-erika what do you remember?',
+    '@Sales-Erika what do you remember?',
+  ]) {
+    const addressed = await handleGatewayMessage({
+      ...colleague,
+      sessionId: 'session-colleague',
+      content,
+    });
+    expect(addressed).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('Unknown agent address'),
+    });
+  }
+  expect(runAgentMock).not.toHaveBeenCalled();
+
+  const fanout = await handleGatewayMessage({
+    ...colleague,
+    sessionId: 'session-colleague',
+    content: '@all status',
+  });
+  expect(fanout.addressEnvelope).toMatchObject({ to: ['main', 'sales'] });
+  expect(
+    runAgentMock.mock.calls.map(([request]) => request.agentId),
+  ).toEqual(['main', 'sales']);
+
+  const command = (sessionId: string, ...args: string[]) =>
+    handleGatewayCommand({ ...colleague, sessionId, args });
+  expect((await command('session-colleague', 'agent', 'list')).text).not.toContain(
+    'sales-erika',
+  );
+  for (const args of [
+    ['agent', 'switch', 'sales-erika'],
+    ['agent', '@sales-erika'],
+  ]) {
+    const refused = await command('session-colleague', ...args);
+    expect(refused.kind).toBe('error');
+    expect(refused.text).not.toContain('Session agent set');
+  }
+  expect(
+    (await command('session-colleague', 'agent', 'current')).text,
+  ).toContain('Current agent: main');
+
+  // The person's own chat is routed to the agent and may see it listed.
+  const own = await handleGatewayMessage({
+    ...colleague,
+    userId: 'user-1',
+    sessionId: 'session-erika',
+    agentId: 'sales-erika',
+    content: 'hello',
+  });
+  expect(own.result).toBe('reply from sales-erika');
+  expect((await command('session-erika', 'agent', 'list')).text).toContain(
+    'sales-erika (current)',
+  );
+});
