@@ -1647,6 +1647,13 @@ agent worker's deadline enforcement. Omitting it preserves existing limits.
 
 ## Request-Scoped Agent Replies
 
+Server-managed `/v1/chat/completions` requests can set `reasoning_effort` to a
+canonical HybridClaw effort. The gateway validates it and forwards it through
+the native agent to the provider. Omit it to retain native defaults. Invalid
+values, client-managed tools and decision completions return 400 rather than
+silently ignoring the option. This parameter does not change approval policy,
+output-token budgets or execution deadlines.
+
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
 `packages/shared/src/ipc-output-files.ts`), and `readOutput()` waits for that file

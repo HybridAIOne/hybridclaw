@@ -11,6 +11,31 @@ import time
 import urllib.request
 
 
+def reasoning_effort(thinking):
+    """Match the pinned Hermes adapter's aliases; None keeps runtime defaults."""
+    if thinking is None:
+        return None
+    if not isinstance(thinking, str) or not thinking.strip():
+        raise ValueError("Thinking must be a nonempty reasoning level")
+    value = thinking.strip().lower()
+    return {"off": "none", "disabled": "none", "false": "none",
+            "on": "medium", "enabled": "medium", "true": "medium",
+            "minimal": "low"}.get(value, value)
+
+
+def completion_request(payload):
+    # The native runtime owns provider-specific output budgets, as with Hermes.
+    body = {
+        "model": payload["model"] + "__hc_eval=current-agent",
+        "messages": [{"role": "user", "content": payload["prompt"]}],
+        "stream": False,
+    }
+    effort = reasoning_effort(payload.get("thinking"))
+    if effort is not None:
+        body["reasoning_effort"] = effort
+    return body
+
+
 def completion_outcome(result):
     """Use gateway metadata, never assistant prose, to identify approval stops."""
     if not isinstance(result, dict) or not result.get("choices"):
@@ -86,13 +111,7 @@ def main():
                 time.sleep(0.2)
         request = urllib.request.Request(
             "http://127.0.0.1:9090/v1/chat/completions",
-            data=json.dumps({
-                # Explicit profile enables existing eval auto-approval. A new
-                # runtime already provides a fresh default agent and session.
-                "model": model + "__hc_eval=current-agent",
-                "messages": [{"role": "user", "content": payload["prompt"]}],
-                "stream": False,
-            }).encode(),
+            data=json.dumps(completion_request(payload)).encode(),
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
         )
         with urllib.request.urlopen(request, timeout=payload["timeout_seconds"]) as response:

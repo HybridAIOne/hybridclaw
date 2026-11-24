@@ -1,3 +1,8 @@
+/**
+ * Routes compatibility requests through native agent execution or client tools.
+ * Reasoning effort belongs to the native agent path; this adapter never grants
+ * tool permissions based on model-generation options.
+ */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -244,6 +249,7 @@ function buildGatewayChatRequest(params: {
     ...(includeAgentId ? { agentId: params.prepared.requestAgentId } : {}),
     model: params.prepared.model,
     delegationPublicId: params.completionId,
+    reasoningEffort: params.input.reasoningEffort,
     ...(params.prepared.profile.ablateSystemPrompt
       ? { promptMode: 'none' as const }
       : {}),
@@ -804,6 +810,13 @@ export async function handleOpenAICompatibleChatCompletions(
     const prepared = prepareOpenAICompatibleRequest(input);
     const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
     const usesDecisionModel = isDecisionModel(prepared.model);
+    if (usesDecisionModel && input.reasoningEffort !== undefined) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        '`reasoning_effort` requires server-managed agent tools.',
+        { param: 'reasoning_effort', code: 'unsupported_value' },
+      );
+    }
     if (usesDecisionModel && input.executionDeadlineAtMs !== undefined) {
       throw new OpenAICompatibleRequestError(
         400,

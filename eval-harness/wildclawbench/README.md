@@ -12,6 +12,22 @@ HybridClaw configuration and state live under the separate per-task data root.
 A built image or an offline contract check is not a successful benchmark smoke
 test. Keep measurements and raw evidence outside this source tree.
 
+## Reasoning
+
+Like the pinned Hermes adapter, `--thinking` is optional. Omitting it leaves
+the native runtime and provider defaults in control; it does not disable
+reasoning or force `high`. An explicit `on`/`enabled`/`true` selects `medium`,
+`minimal` selects `low`, and `off`/`none`/`disabled`/`false` selects `none`.
+Other levels go through the gateway's canonical reasoning-effort validation.
+Use `--thinking medium` for a run with that explicit effort. Provider support
+still determines whether it can honor the requested level.
+
+The adapter sends no `max_tokens` override. HybridClaw's native model-aware
+request budget applies; reasoning and visible output share that budget.
+Provenance records the requested thinking value and normalized effort, and the
+60-task exporter rejects mixed reasoning settings. The task prompts, graders,
+deadlines and approval mode stay unchanged.
+
 ## Provenance
 
 [manifest.json](manifest.json) records the exact source commits, dataset

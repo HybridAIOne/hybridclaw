@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from evidence import convert_database, generation_ids, summarize_generations
-from launch import completion_outcome
+from launch import completion_outcome, completion_request, reasoning_effort
 
 spec = importlib.util.spec_from_file_location("wcb_export", Path(__file__).with_name("export.py"))
 exporter = importlib.util.module_from_spec(spec)
@@ -30,6 +30,29 @@ def complete_summary():
 
 
 class OutcomeTests(unittest.TestCase):
+    def test_thinking_matches_hermes_aliases(self):
+        cases = {None: None, "off": "none", "none": "none", "disabled": "none",
+                 "false": "none", "on": "medium", "enabled": "medium", "true": "medium",
+                 "medium": "medium", "high": "high", "low": "low", "minimal": "low",
+                 "xhigh": "xhigh", " HIGH ": "high"}
+        for thinking, expected in cases.items():
+            with self.subTest(thinking=thinking):
+                self.assertEqual(reasoning_effort(thinking), expected)
+
+    def test_request_keeps_native_output_budget_and_omits_unspecified_effort(self):
+        payload = {"model": "example/model", "prompt": "Create a synthetic report."}
+        body = completion_request(payload)
+        self.assertNotIn("reasoning_effort", body)
+        self.assertNotIn("max_tokens", body)
+        self.assertNotIn("max_completion_tokens", body)
+        self.assertEqual(completion_request({**payload, "thinking": "on"})["reasoning_effort"], "medium")
+        self.assertEqual(completion_request({**payload, "thinking": "off"})["reasoning_effort"], "none")
+
+    def test_malformed_thinking_is_rejected(self):
+        for value in (True, 1, {}, [], "", " "):
+            with self.subTest(thinking=value), self.assertRaises(ValueError):
+                reasoning_effort(value)
+
     def test_prose_is_not_used_as_approval_state(self):
         self.assertEqual(completion_outcome({"choices": [{"message": {"content": "Approval needed"}}]}),
                          {"status": "completed"})
@@ -90,6 +113,18 @@ class EvidenceTests(unittest.TestCase):
 
 
 class ExportTests(unittest.TestCase):
+    def test_mixed_reasoning_is_rejected_and_consistent_effort_is_exported(self):
+        summary = complete_summary()
+        for row in summary["results"]:
+            row["usage"]["provenance"]["reasoning_effort"] = "medium"
+        categories = {f"{i:02}": f"category-{i}" for i in range(1, 7)}
+        identities = {f"{i:02}_task_{j}" for i in range(1, 7) for j in range(1, 11)}
+        result = exporter.export_run(summary, next(iter(exporter.MODELS)), categories, identities, "2026-01-01")
+        self.assertEqual(result["reasoning_effort"], "medium")
+        summary["results"][0]["usage"]["provenance"]["reasoning_effort"] = "none"
+        with self.assertRaises(ValueError):
+            exporter.export_run(summary, next(iter(exporter.MODELS)), categories, identities, "2026-01-01")
+
     def export(self, summary):
         return exporter.export_run(summary, next(iter(exporter.MODELS)),
                                    {f"{n:02}": f"category_{n}" for n in range(1, 7)},

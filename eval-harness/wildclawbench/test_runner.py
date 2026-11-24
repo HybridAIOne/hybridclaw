@@ -39,7 +39,7 @@ class RunnerTests(unittest.TestCase):
         }):
             spec.loader.exec_module(self.runner)
 
-    def run_task(self, task, completion=None, returncode=0, expected_error=None):
+    def run_task(self, task, completion=None, returncode=0, expected_error=None, thinking=None):
         labels = json.dumps({"org.opencontainers.image.revision": "a" * 40,
                              "org.opencontainers.image.version": "0.0.0"})
         docker = Mock(side_effect=lambda *args: labels if args[-1] == "{{json .Config.Labels}}"
@@ -47,7 +47,7 @@ class RunnerTests(unittest.TestCase):
                       if args[-1].endswith("/completion.json") else "sha256:test-image")
         process = Mock(returncode=returncode)
         spec = SimpleNamespace(
-            lobster=False, models_config=None, thinking=None,
+            lobster=False, models_config=None, thinking=thinking,
             model=next(iter(self.runner.MANIFEST["models"])), task_id="test-task",
             task=task, workspace_path=self.root, output_dir=self.output,
             timeout_seconds=60, prompt="Create the requested deliverable.",
@@ -63,8 +63,20 @@ class RunnerTests(unittest.TestCase):
         self.runner.snapshot_workspace_state.assert_called_once_with("test-task")
         process.communicate.assert_called_once_with(json.dumps({
             "model": spec.model, "prompt": spec.prompt, "timeout_seconds": 60,
+            "thinking": thinking,
         }))
         return docker
+
+    def test_explicit_thinking_reaches_launcher_and_provenance(self):
+        self.run_task({}, thinking="on")
+        provenance = json.loads((self.output / "provenance.json").read_text())
+        self.assertEqual(provenance["thinking"], "on")
+        self.assertEqual(provenance["reasoning_effort"], "medium")
+
+    def test_unspecified_thinking_preserves_native_defaults(self):
+        self.run_task({})
+        provenance = json.loads((self.output / "provenance.json").read_text())
+        self.assertIsNone(provenance["reasoning_effort"])
 
     def test_approval_stop_is_reported_and_partial_outputs_remain_gradable(self):
         self.run_task({}, {"choices": [{}], "hybridclaw": {"pendingApproval": {
