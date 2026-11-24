@@ -153,6 +153,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       dangerouslyAllowNameMatching: false,
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],
+      personalAgentParent: '',
     },
     slack: {
       enabled: false,
@@ -611,6 +612,25 @@ describe('ChannelsPage', () => {
         }),
       );
     });
+  });
+
+  it('shows a saved personal-agent parent that is no longer an active agent', async () => {
+    const config = makeConfig();
+    config.msteams.personalAgentParent = 'retired';
+    fetchConfigMock.mockResolvedValue({ path: '/tmp/config.json', config });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'sales', name: 'Sales' }),
+    ]);
+
+    renderChannelsPage();
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Microsoft Teams/i }),
+    );
+
+    const select = (
+      await screen.findByRole('option', { name: 'On: based on retired' })
+    ).closest('select') as HTMLSelectElement;
+    expect(select.value).toBe('retired');
   });
 
   it('shows the target agent for the default email mailbox', async () => {

@@ -299,6 +299,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       dangerouslyAllowNameMatching: false,
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],
+      personalAgentParent: '',
     },
     imessage: {
       enabled: false,

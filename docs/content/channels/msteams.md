@@ -198,12 +198,21 @@ A personal agent starts empty:
 - The person's earlier direct chat with the shared agent stays with that
   agent. The first message to the personal agent starts a fresh conversation.
 
+The shared agent keeps everyone's earlier direct chats and its `MEMORY.md`,
+and it still answers group chats and channels, where it can search those
+chats. Remove facts about individual people from its `MEMORY.md` when you turn
+personal agents on.
+
 Only the person's own direct chat reaches their personal agent. In group chats
 and channel threads the parent answers instead, so one shared conversation
-never mixes several people's private agents. Nobody can address another
-person's agent with `@name`, `@team` or `@all`, or select it with
-`/agent switch`, and `/agent list` does not show it. Usage stays attributed to
-the sender either way.
+never mixes several people's private agents. Other chats cannot address it
+with `@name`, `@team`, `@all` or its full `@agent@owner@instance` id, select it
+with `/agent switch`, or see it in `/agent list`. Usage stays attributed to the
+sender either way.
+
+Turning personal agents off, or choosing a different parent, only affects
+people who have no agent yet. Existing personal agents stay assigned until you
+change their row in the user list.
 
 Personal agents separate what the agent remembers and recalls. They are not an
 access boundary for a person who tries: an agent with the shell tool can read
@@ -212,8 +221,9 @@ files outside its own workspace.
 Each agent has a separate session key for a Teams conversation. Changing the
 assignment selects that agent's history; it does not copy the previous agent's
 history. Users mapped to the same agent in the same group chat or thread still
-share that conversation. A mapping is the starting agent selection, not an access
-restriction on explicit agent addressing or other existing bot commands.
+share that conversation. Assigning someone to a shared agent picks where their
+chats start; it does not limit which other shared agents they can address or
+which commands they can use.
 
 Usage tracking begins when this feature is installed. Messages exclude commands.
 Tokens and estimated costs are attributed to the initiating user, including

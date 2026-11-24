@@ -1,5 +1,7 @@
+import { resolveLocalA2AAgentId } from '../a2a/identity.js';
 import { listAgents, peersOfAgent } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { listPersonalAgentIds } from '../agents/personal-agent.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
 import { getMemoryValue, setMemoryValue } from '../memory/db.js';
 import type { Session } from '../types/session.js';
@@ -144,15 +146,27 @@ export function resolveAgentAddressing(params: {
   if (!content.includes('@')) return { kind: 'none', content };
   const currentAgentId = params.currentAgentId?.trim() || DEFAULT_AGENT_ID;
   const fromAgentId = params.fromAgentId?.trim() || currentAgentId;
-  // A personal agent holds one person's memory; only that person's own
-  // channel routing reaches it, never an address someone typed.
-  const agents = listAgents().filter((agent) => !agent.extends);
+  // A personal agent holds one person's memory: a chat names the one it is
+  // already on, never someone else's.
+  const personal = listPersonalAgentIds();
+  const reachable = (agentId: string): boolean =>
+    !personal.has(agentId) || agentId === currentAgentId;
+  const agents = listAgents().filter((agent) => reachable(agent.id));
 
   const canonicalMatch = CANONICAL_AGENT_ADDRESS_RE.exec(content);
   if (canonicalMatch) {
     const handle = canonicalMatch[1] ?? '';
     try {
       const parsed = parseAgentIdentity(handle);
+      const localAgentId = resolveLocalA2AAgentId(parsed.id);
+      if (localAgentId && !reachable(localAgentId)) {
+        return {
+          kind: 'error',
+          handle,
+          content,
+          message: `Unknown agent address @${handle}.`,
+        };
+      }
       return {
         kind: 'remote',
         canonicalId: parsed.id,

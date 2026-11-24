@@ -99,6 +99,19 @@ export function findChannelUserEmail(
   });
 }
 
+/** Agents some channel sender is assigned to. */
+export function listAssignedAgentIds(): Set<string> {
+  const rows = withMemoryDatabase(
+    (db) =>
+      db
+        .prepare(
+          'SELECT DISTINCT agent_id FROM channel_users WHERE agent_id IS NOT NULL',
+        )
+        .all() as { agent_id: string }[],
+  );
+  return new Set(rows.map((row) => row.agent_id));
+}
+
 export function setChannelUserAgent(
   key: ChannelUserKey,
   agentId: string | null,

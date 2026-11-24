@@ -2822,9 +2822,15 @@ function TeamsChannelEditor(props: {
               value={field.value as string}
               onChange={field.onChange}
             >
-              <NativeSelectOption value="">
-                Off: everyone shares one agent
-              </NativeSelectOption>
+              <NativeSelectOption value="">Off</NativeSelectOption>
+              {field.value &&
+              !props.agents.some(
+                (agent) => agent.id === field.value && !agent.extends,
+              ) ? (
+                <NativeSelectOption value={field.value as string}>
+                  On: based on {field.value as string}
+                </NativeSelectOption>
+              ) : null}
               {props.agents
                 .filter((agent) => !agent.extends)
                 .map((agent) => (
@@ -2834,10 +2840,12 @@ function TeamsChannelEditor(props: {
                 ))}
             </NativeSelect>
             <FieldDescription>
-              When on, each person gets their own agent on their next direct
-              chat, with private memory, files and history. It starts without
-              the shared agent's memory and earlier conversation. Group chats
-              and channels keep the shared agent.
+              Needs the Tenant ID above. When on, each person without an agent
+              of their own gets one on their next direct chat, with private
+              memory, files and history. It starts without the shared agent's
+              memory and earlier conversation. Group chats and channels keep the
+              shared agent. Turning this off or changing it later leaves
+              existing personal agents in place.
             </FieldDescription>
           </Field>
         )}

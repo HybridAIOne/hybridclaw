@@ -675,6 +675,7 @@ export interface AdminConfig {
     dangerouslyAllowNameMatching: boolean;
     mediaAllowHosts: string[];
     mediaAuthAllowHosts: string[];
+    personalAgentParent: string;
   };
   slack: {
     enabled: boolean;

@@ -84,6 +84,7 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { listPersonalAgentIds } from '../agents/personal-agent.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import {
   makeAuditRunId,
@@ -9230,8 +9231,10 @@ export async function handleGatewayCommand(
         const sub = parseLowerArg(req.args, 1);
         // A personal agent holds one person's memory: a chat can name the one
         // it is already on, never someone else's.
+        const personal = listPersonalAgentIds();
         const selectable = (agent: AgentConfig): boolean =>
-          !agent.extends || agent.id === resolveSessionAgentId(session);
+          !personal.has(agent.id) ||
+          agent.id === resolveSessionAgentId(session);
         const switchToAgent = (
           targetAgent: AgentConfig,
         ): GatewayCommandResult => {
