@@ -67,6 +67,10 @@ Its API endpoint is `https://api.tokenfactory.nebius.com/v1`; model IDs use the
 uses the authenticated `/models` endpoint. Nebius is a cloud provider and uses
 the same confidentiality and routing boundaries as other remote providers.
 
+Nebius agent requests reserve up to 32,768 output tokens for reasoning and
+the answer, bounded by a discovered smaller output limit. Explicit auxiliary
+task budgets retain their configured limits.
+
 See the [Token Factory documentation](https://docs.tokenfactory.nebius.com/)
 for model availability and billing.
 

@@ -104,3 +104,17 @@ runSharedContract(
   resolveProviderRequestMaxTokens,
   DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS,
 );
+
+test.each([
+  [undefined, 32_768],
+  [0, 32_768],
+  [Number.NaN, 32_768],
+  [Number.POSITIVE_INFINITY, 32_768],
+  [16_384, 16_384],
+  [131_072, 32_768],
+])('Nebius reserves bounded reasoning and answer output with limit %s', (discoveredMaxTokens, expected) => {
+  expect(resolveProviderRequestMaxTokens({
+    model: 'nebius/zai-org/GLM-5.3-Flash',
+    discoveredMaxTokens,
+  })).toBe(expected);
+});
