@@ -92,6 +92,11 @@ import {
   isReadOnlyHttpMethod,
   normalizeHttpMethod,
 } from './bash-http-method.js';
+import {
+  isPipConfigDiagnostic,
+  PIP_CONFIG_DIAGNOSTIC_REPLAN,
+  PIP_CONFIG_PATH,
+} from './bash-package-diagnostics.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   isReadOnlyBashSurface,
@@ -1741,6 +1746,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
         tier: 'red',
         decision: 'denied',
         escalationRoute: 'policy_denial',
+        reason: classified.reason,
       }),
     );
   },
@@ -3838,6 +3844,34 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
+    const canRetryDiagnostic = this.approvalMode === 'full' && !writeIntent;
+    if (
+      canRetryDiagnostic &&
+      !pinnedReach.walk &&
+      pinnedReach.namedPaths.length === 1 &&
+      pinnedReach.namedPaths[0] === PIP_CONFIG_PATH &&
+      !absPaths.some(
+        (hint) => hint !== PIP_CONFIG_PATH && this.namesPinnedPath(hint),
+      ) &&
+      isPipConfigDiagnostic(shellCommands)
+    ) {
+      return {
+        tier: 'red',
+        actionKey: PIP_CONFIG_DIAGNOSTIC_REPLAN,
+        intent: 'inspect pip package availability',
+        consequenceIfDenied:
+          'I will query package availability without reading pip configuration.',
+        reason: 'pip configuration may contain package index credentials',
+        commandPreview: normalizePreview(command),
+        pathHints,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+        hardDeny: true,
+      };
+    }
+
     // Pinned red on every run (owner call, 2026-09-24): a walk that can read
     // .env* without naming it gets the same per-call approval as `read .env`;
     // session-trustable red was rejected and sandbox masking deferred.
@@ -3846,8 +3880,7 @@ export class TrustedAgentApprovalRuntime {
       const { program, reaches, fileSearchRetry } = pinnedReach.walk;
       const replan =
         fileSearchRetry &&
-        this.approvalMode === 'full' &&
-        !writeIntent &&
+        canRetryDiagnostic &&
         pinnedReach.namedPaths.length === 0 &&
         !absPaths.some((hint) => this.namesPinnedPath(hint));
       return {
@@ -3857,7 +3890,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied:
           'I will exclude pinned files or search with the grep tool instead.',
         reason: replan
-          ? 'an earlier shell command makes the recursive grep targets uncertain'
+          ? 'the recursive grep targets may include protected files; retry with named files'
           : `\`${program}\` can read pinned files (${reaches.join(', ')}) without naming them`,
         commandPreview: normalizePreview(command),
         pathHints,

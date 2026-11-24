@@ -28,6 +28,7 @@ import {
   grepOperandIsFileOnly,
   hasLiteralGrepFileOperands,
   initialGrepFileSearch,
+  isGrepPackageDirectorySearch,
 } from './bash-grep-files.js';
 import { sedLiteralDataArgs } from './bash-sed-data.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
@@ -721,7 +722,10 @@ function scanScript(
       const reaches = walkReaches(reached, cwd);
       if (reaches.length > 0) {
         const fileSearchRetry =
-          fileOnly && depth === 0 && !piped && command !== commands[0];
+          depth === 0 &&
+          !piped &&
+          ((fileOnly && command !== commands[0]) ||
+            isGrepPackageDirectorySearch(command, state.namesPinnedPath));
         state.walk = { program, reaches, fileSearchRetry };
       }
     }

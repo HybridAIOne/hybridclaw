@@ -151,8 +151,11 @@ review time. A file can be replaced before execution.
 
 In full-auto, a compound shell call that can only be verified as a file search
 before an earlier command runs is rejected with a bounded opportunity to retry
-with named files. The batch is skipped. Actual directory walks and explicit
-references to protected paths retain their approval checks.
+with named files. A direct recursive search of a verified installed Python
+package directory can recover the same way. Optional pip diagnostics bundled
+with `/etc/pip.conf` reads can retry with a package-index lookup. Each
+diagnostic gets one retry. The original batches do not execute. Standalone
+reads of protected paths and other directory walks retain their approval checks.
 
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation

@@ -6,6 +6,7 @@
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
 import { GREP_FILE_SEARCH_REPLAN } from './bash-grep-files.js';
+import { PIP_CONFIG_DIAGNOSTIC_REPLAN } from './bash-package-diagnostics.js';
 import { BASH_SAFETY_ACTION_KEY } from './bash-safety.js';
 import { statusOutputPresentation } from './chat-segments.js';
 import { emitRuntimeEvent } from './extensions.js';
@@ -26,6 +27,16 @@ const PRESERVATION_PREFIXES = [
   FILE_WRITE_REVIEW_ACTION_PREFIX,
   FILE_WRITE_CONFLICT_ACTION_PREFIX,
 ];
+const PACKAGE_DIAGNOSTIC_RECOVERIES = new Map([
+  [
+    GREP_FILE_SEARCH_REPLAN,
+    'Nothing in this tool call ran. List the package files with ls, then search named files with grep -n -- PATTERN FILE. For a directory search, use the grep tool where available. Do not repeat the unverified recursive search.',
+  ],
+  [
+    PIP_CONFIG_DIAGNOSTIC_REPLAN,
+    'Nothing in this tool call ran. Use python3 -m pip index versions PACKAGE to check package availability. Use the distribution name from the task or package metadata. Keep it separate from config inspection and direct network probes.',
+  ],
+]);
 
 export function canReplanAfterDenial(
   approval: ToolApprovalEvaluation,
@@ -33,6 +44,7 @@ export function canReplanAfterDenial(
 ): boolean {
   if (approval.decision !== 'denied') return false;
   if (
+    PACKAGE_DIAGNOSTIC_RECOVERIES.has(approval.actionKey) ||
     PRESERVATION_PREFIXES.some((prefix) =>
       approval.actionKey.startsWith(prefix),
     )
@@ -44,7 +56,6 @@ export function canReplanAfterDenial(
   // Per-file preservation recovery cannot authorize a denied effect.
   return (
     (approval.actionKey === BASH_SAFETY_ACTION_KEY ||
-      approval.actionKey === GREP_FILE_SEARCH_REPLAN ||
       (!approval.pinned && approval.actionKey.startsWith('network:'))) &&
     !executions.some((entry) => entry.approvalDecision === 'denied')
   );
@@ -79,13 +90,11 @@ export async function handleToolDenial(params: {
     }),
   );
   if (replan) {
-    const recovery = approval.actionKey.startsWith(
-      FILE_WRITE_CONFLICT_ACTION_PREFIX,
-    )
-      ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
-      : approval.actionKey === GREP_FILE_SEARCH_REPLAN
-        ? 'Nothing in this tool call ran. Inspect the package location in a separate call. Search named files with grep -n -- PATTERN FILE. For a directory search, use the grep tool where available. Do not repeat the unverified recursive search.'
-        : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.';
+    const recovery =
+      PACKAGE_DIAGNOSTIC_RECOVERIES.get(approval.actionKey) ??
+      (approval.actionKey.startsWith(FILE_WRITE_CONFLICT_ACTION_PREFIX)
+        ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
+        : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.');
     for (const unrun of params.unrunCalls) {
       const content =
         unrun === call

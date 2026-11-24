@@ -11,18 +11,50 @@ import { TASK_SANDBOX_FS_ENABLED } from './runtime-paths.js';
 export const GREP_FILE_SEARCH_REPLAN = 'bash:grep-file-search';
 const FILE_PATH =
   /^\/(?:[A-Za-z0-9._-]+\/)*(?:[A-Za-z0-9._-]+|\*)\.[A-Za-z0-9]+$/;
+const PACKAGE_DIRECTORY =
+  /^\/(?:[A-Za-z0-9._-]+\/)*(?:site|dist)-packages\/[A-Za-z0-9._-]+\/?$/;
 const SIMPLE_RECURSION = /^(?:-r|-rn|-nr|--recursive)$/;
 const UNKNOWN_PATTERN = /^-|[$`*?[\]{}~]/;
 
-export function hasLiteralGrepFileOperands(command: ScriptCommand): boolean {
-  if (TASK_SANDBOX_FS_ENABLED || command.words[0] !== 'grep') return false;
+function literalGrepOperands(command: ScriptCommand): string[] {
+  if (TASK_SANDBOX_FS_ENABLED || command.words[0] !== 'grep') return [];
   const [flags, pattern, ...files] = commandArguments(command.args);
-  return (
-    SIMPLE_RECURSION.test(flags ?? '') &&
+  return SIMPLE_RECURSION.test(flags ?? '') &&
     pattern !== undefined &&
-    !UNKNOWN_PATTERN.test(pattern) &&
+    !UNKNOWN_PATTERN.test(pattern)
+    ? files
+    : [];
+}
+
+export function hasLiteralGrepFileOperands(command: ScriptCommand): boolean {
+  const files = literalGrepOperands(command);
+  return (
     files.length > 0 &&
     files.every((file) => FILE_PATH.test(file) && path.normalize(file) === file)
+  );
+}
+
+export function isGrepPackageDirectorySearch(
+  command: ScriptCommand,
+  namesPinnedPath: (candidate: string) => boolean,
+): boolean {
+  const roots = literalGrepOperands(command);
+  return (
+    roots.length > 0 &&
+    roots.every((root) => {
+      if (!PACKAGE_DIRECTORY.test(root) || path.normalize(root) !== root)
+        return false;
+      const directory = path.resolve(root);
+      try {
+        return (
+          fs.realpathSync(directory) === directory &&
+          fs.statSync(directory).isDirectory() &&
+          !namesPinnedPath(directory)
+        );
+      } catch {
+        return false;
+      }
+    })
   );
 }
 
