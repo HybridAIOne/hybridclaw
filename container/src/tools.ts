@@ -458,7 +458,7 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 function buildBashToolDescription(): string {
-  return `Run a shell command and return stdout/stderr. ${describeBashStatePersistence(isPersistentBashStateEnabled())} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Search file contents with the grep tool: shell \`grep -r\`, \`rg --hidden\`, \`find -exec\`, and \`find | xargs\` wait for user approval on every run unless they exclude .env* files (for example \`grep -r --exclude='.env*'\`).`;
+  return `Run a shell command and return stdout/stderr. ${describeBashStatePersistence(isPersistentBashStateEnabled())} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Use the grep tool to search the workspace. For named files outside it, use \`grep -n -- PATTERN FILE\`. Check uncertain paths with \`ls\`. Recursive shell searches can require approval when the target is missing or the search may reach protected files.`;
 }
 
 export function setPersistentBashStateEnabled(enabled: boolean): void {

@@ -57,6 +57,41 @@ describe('recursive search with explicit file operands', () => {
     });
   });
 
+  test('a direct search can report a missing file without requesting walk approval', () => {
+    const dir = makeTempDir();
+    fs.writeFileSync(path.join(dir, 'model.py'), 'init\n');
+    const batch = (flags: string) =>
+      `grep -n init ${dir}/model.py | sed -n '1,60p'; echo ===; grep ${flags} 'unconstrain\\|init' ${dir}/services.py 2>/dev/null | head`;
+
+    expect(evaluate(batch('-rn'))).toMatchObject({
+      actionKey: 'bash:recursive-read',
+      decision: 'required',
+    });
+    expect(evaluate(batch('-n'))).toMatchObject({
+      pinned: false,
+      decision: 'approved_fullauto',
+    });
+
+    fs.writeFileSync(path.join(dir, 'services.py'), 'init\n');
+    expect(evaluate(batch('-rn'))).toMatchObject({ pinned: false });
+  });
+
+  test.each(['grep -rn', 'rg --hidden'])(
+    'checks redirects separately from operands after --: %s',
+    (prefix) => {
+      const dir = makeTempDir();
+      const file = path.join(dir, 'file.py');
+      fs.writeFileSync(file, 'init\n');
+      expect(evaluate(`${prefix} -- init ${file} 2> /dev/null`).pinned).toBe(
+        false,
+      );
+      expect(evaluate(`${prefix} -- init ${file} < .env`)).toMatchObject({
+        pinned: true,
+        decision: 'required',
+      });
+    },
+  );
+
   test('explicit sensitive files and symlink aliases stay pinned', () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, '.env'), 'test-key');
