@@ -15,6 +15,7 @@ import {
   OPERAND_WRITERS,
   type ScriptCommand,
   shellCommandsRun,
+  splitShellCommands,
   writeTargets,
 } from './bash-commands.js';
 import { NAME_ONLY_PROGRAMS } from './bash-pinned-reach.js';
@@ -25,6 +26,50 @@ import { TAR_PROGRAMS, tarWriteTargets } from './bash-tar-targets.js';
 // hides behind a variable or substitution. mv is not one: it removes its
 // sources.
 const PARSED_WRITERS = new Set([...OPERAND_WRITERS, 'cd', 'cp', 'pushd']);
+
+// Recognize the straight-line setup of a fresh scratch HOME. The initial
+// set -e makes a failed allocation or export stop before mkdir. Matching raw
+// syntax preserves the distinction between an expansion and a quoted literal.
+const SCRATCH_HOME_SETUP = new RegExp(
+  [
+    String.raw`^[ \t\n]*set[ \t]+-(?:e|eu|ue)[ \t]*[;\n][ \t\n]*`,
+    String.raw`(?<variable>[A-Za-z_][A-Za-z_0-9]*)=\$\(mktemp[ \t]+-d[ \t]+(?:--[ \t]+)?(?<template>/tmp/[A-Za-z0-9._-]*X{6,})\)[ \t]*[;\n][ \t\n]*`,
+    String.raw`(?:echo[ \t]+"\k<variable>=\$\k<variable>"[ \t]*[;\n][ \t\n]*)?`,
+    String.raw`export[ \t]+HOME=(?<quote>"?)\$(?:\k<variable>|\{\k<variable>\})/(?<directory>[A-Za-z0-9_-]+)\k<quote>[ \t]*[;\n][ \t\n]*`,
+    String.raw`mkdir[ \t]+-p[ \t]+(?:--[ \t]+)?"\$(?:HOME|\{HOME\})"(?=\s|;|$)`,
+  ].join(''),
+);
+
+function commandsWithScratchHome(
+  script: string,
+  commands: ScriptCommand[],
+): ScriptCommand[] {
+  const setup = SCRATCH_HOME_SETUP.exec(script);
+  if (!setup?.groups) return commands;
+  const parsedSetup = splitShellCommands(setup[0]);
+  const index = parsedSetup.length - 1;
+  const command = commands[index];
+  const expected = parsedSetup[index]?.words;
+  if (
+    !command ||
+    !expected ||
+    command.words.length !== expected.length ||
+    command.words.some((word, position) => word !== expected[position])
+  )
+    return commands;
+  // Only the first mkdir is proven. Unsupported trailing arguments, redirects
+  // and later writes keep their original interpretation. The template stands
+  // in for the generated basename solely to test scratch-root membership.
+  const resolved = [...commands];
+  resolved[index] = {
+    ...command,
+    words: [
+      ...command.words.slice(0, -1),
+      path.posix.join(setup.groups.template, setup.groups.directory),
+    ],
+  };
+  return resolved;
+}
 
 // Whether writeTargets() sees everything a command writes. Read-only commands
 // (as the green tier judges them) and programs that print names or text write
@@ -91,11 +136,12 @@ function runOnlyPaths(commands: ScriptCommand[]): Set<string> {
 // scratch or workspace target still skips it, because falling back there
 // fences reads whose output goes to /tmp.
 export function fenceCandidates(
+  script: string,
   commands: ScriptCommand[],
   namedPaths: string[],
   isReadOnly: (words: string[]) => boolean,
 ): string[] {
-  const targets = writeTargets(commands);
+  const targets = writeTargets(commandsWithScratchHome(script, commands));
   // Relative targets are workspace-relative, so `../x` lands outside it.
   const climbing = targets.filter((target) => /^\.\.(?:\/|$)/.test(target));
   const absolute = targets.filter((target) => target.startsWith('/'));

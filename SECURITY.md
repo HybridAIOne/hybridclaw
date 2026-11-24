@@ -162,6 +162,12 @@ The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
 - `approval.max_pending_approvals` and `approval.approval_timeout_secs`
 - `audit.log_all_red` and `audit.log_denials`
 
+The workspace fence recognizes the initial `mkdir -p "$HOME"` in a
+straight-line setup that creates a fresh directory under `/tmp` with
+`mktemp -d` and exports a child as `HOME`. The setup must stop on errors.
+This only resolves that write target. Other shell effects and pinned paths
+retain their normal checks.
+
 The policy and the trust stores live in the agent's workspace, so the agent's
 own writes, edits, and deletes of `.hybridclaw/**` and `approval-trust.json`,
 and bash commands naming them, need explicit human approval every time, even
