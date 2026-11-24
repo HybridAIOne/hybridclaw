@@ -50,6 +50,22 @@ describe.skipIf(!DOCKER_E2E)(
       removeContainer(CONTAINER_NAME);
     });
 
+    test('headed navigation uses full Chrome on a virtual display', () => {
+      const userAgent = exec(
+        `set -eu
+export AGENT_BROWSER_SESSION=runtime-headed-chrome
+export AGENT_BROWSER_EXECUTABLE_PATH="$AGENT_BROWSER_HEADED_EXECUTABLE_PATH"
+export AGENT_BROWSER_HEADED=1
+browser=/app/node_modules/.bin/agent-browser
+trap '"$browser" --json close >/dev/null' EXIT
+"$browser" --json open about:blank >/dev/null
+"$browser" --json eval 'navigator.userAgent'`,
+        40_000,
+      );
+      expect(userAgent).toContain('Chrome/');
+      expect(userAgent).not.toContain('HeadlessChrome/');
+    }, 45_000);
+
     test.each([...inventory.pip.keys()])(
       'python package %s is importable',
       (pkg) => {

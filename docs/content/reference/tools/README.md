@@ -21,6 +21,11 @@ are capped at 48,000 characters. After typing, pressing a key, or scrolling,
 use `browser_snapshot` to inspect the changed page; its interactive mode helps
 when a long page was truncated.
 
+With the local browser provider in hosted sandboxes, `browser_navigate` with
+`headed: true` runs full Chrome for Testing on a private Xvfb display. The
+selected mode persists for the browser session. New sessions default to the
+headless shell.
+
 `browser_evaluate` runs a JavaScript expression in the page and returns its
 value as JSON; promises are awaited, so the expression can `fetch()` the
 page's own API with its cookies. Results over 48,000 characters are

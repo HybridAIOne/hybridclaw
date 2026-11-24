@@ -84,6 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       file \
       build-essential \
       procps \
+      xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # uv installs the Python versions and project environments coding tasks need;
@@ -112,20 +113,23 @@ RUN --mount=type=cache,target=/root/.npm \
     && rm -f node_modules/.package-lock.json
 RUN sh /opt/hybridclaw-tools/install-github-cli.sh
 
-# Chromium for the browser tools. This image runs the agent in host sandbox
-# mode, and without a browser every browser_* call fails with "Chrome not
-# found". agent-browser 0.27 does not look inside
-# PLAYWRIGHT_BROWSERS_PATH for the headless shell, so it is named explicitly
-# through a version-free symlink. Installed before the app layers so a release
-# does not rebuild these ~400 MB; the CLI version follows the root package.json.
+# Browser executables for the host-sandbox worker. The headed launcher owns a
+# separate authenticated Xvfb display for the life of each Chrome process.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
+ENV AGENT_BROWSER_HEADED_EXECUTABLE_PATH=/usr/local/bin/hybridclaw-headed-chrome
 RUN --mount=type=cache,target=/root/.npm \
     DEBIAN_FRONTEND=noninteractive npx --yes playwright@1.63.0 install-deps chromium \
-    && npx --yes playwright@1.63.0 install --only-shell chromium \
-    && ln -s "$(find /ms-playwright -type f -name chrome-headless-shell | head -n 1)" \
-      /usr/local/bin/chrome-headless-shell \
-    && /usr/local/bin/chrome-headless-shell --version \
+    && npx --yes playwright@1.63.0 install chromium \
+    && ln -s "$(find /ms-playwright -type f -name chrome-headless-shell -print -quit)" \
+      "$AGENT_BROWSER_EXECUTABLE_PATH" \
+    && chrome="$(find /ms-playwright -type f -name chrome -print -quit)" \
+    && test -x "$chrome" \
+    && printf '#!/bin/sh\nexec xvfb-run -a -s "-screen 0 1280x720x24 -nolisten tcp" "%s" "$@"\n' \
+      "$chrome" > "$AGENT_BROWSER_HEADED_EXECUTABLE_PATH" \
+    && chmod 755 "$AGENT_BROWSER_HEADED_EXECUTABLE_PATH" \
+    && "$AGENT_BROWSER_EXECUTABLE_PATH" --version \
+    && "$AGENT_BROWSER_HEADED_EXECUTABLE_PATH" --version \
     && rm -rf /var/lib/apt/lists/* /var/cache/ldconfig/aux-cache \
     && find /var/log -type f -delete
 

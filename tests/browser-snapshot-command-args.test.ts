@@ -496,7 +496,10 @@ test('browser_navigate relaunches when headed mode changes', async () => {
     path.join(os.tmpdir(), 'hybridclaw-browser-headed-switch-'),
   );
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
-  vi.stubEnv('CHROME_BIN', path.join(tempRoot, 'Google Chrome'));
+  const headedPath = path.join(tempRoot, 'hybridclaw-headed-chrome');
+  const headlessPath = path.join(tempRoot, 'chrome-headless-shell');
+  vi.stubEnv('AGENT_BROWSER_HEADED_EXECUTABLE_PATH', headedPath);
+  vi.stubEnv('AGENT_BROWSER_EXECUTABLE_PATH', headlessPath);
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv(
     'AGENT_BROWSER_BIN',
@@ -530,7 +533,14 @@ test('browser_navigate relaunches when headed mode changes', async () => {
     .readFileSync(logPath, 'utf-8')
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line) as { command: string; headed: string });
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          command: string;
+          headed: string;
+          executablePath: string;
+        },
+    );
 
   expect(parsed.success).toBe(true);
   expect(parsed.headed).toBe(false);
@@ -543,10 +553,19 @@ test('browser_navigate relaunches when headed mode changes', async () => {
   // The headed launch and its close, then the headless one.
   const headedRecords = navigation.length + 1;
   expect(
-    records.slice(0, headedRecords).every((record) => record.headed === '1'),
+    records
+      .slice(0, headedRecords)
+      .every(
+        (record) => record.headed === '1' && record.executablePath === headedPath,
+      ),
   ).toBe(true);
   expect(
-    records.slice(headedRecords).every((record) => record.headed === '0'),
+    records
+      .slice(headedRecords)
+      .every(
+        (record) =>
+          record.headed === '0' && record.executablePath === headlessPath,
+      ),
   ).toBe(true);
 });
 
@@ -603,6 +622,7 @@ test('browser_navigate refuses headed mode without a system browser', async () =
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_EXECUTABLE_PATH', '');
+  vi.stubEnv('AGENT_BROWSER_HEADED_EXECUTABLE_PATH', '');
   vi.stubEnv('BROWSER_CDP_URL', '');
   vi.stubEnv('CHROME_BIN', '');
   vi.stubEnv('PATH', path.dirname(process.execPath));
