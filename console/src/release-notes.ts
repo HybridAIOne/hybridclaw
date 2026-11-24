@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.44.0',
+  version: '0.44.1',
   highlights: [
-    'Enter checkout details directly in web chat',
-    'Choose the sending account for email',
-    'Manage German district warnings in Hy',
-    'See the full command in shell approvals',
+    'Manage personal agents in Teams settings',
+    'Choose a supported HybridAI reasoning level',
+    'Run headed Chrome in hosted sandboxes',
+    'Receive scheduled reports directly in web chat',
   ],
 } as const;
 
