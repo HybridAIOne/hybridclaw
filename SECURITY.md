@@ -141,10 +141,18 @@ intent. Parsed shell redirections still establish writes, including redirects
 whose destination starts with `=`; other opaque write-expression checks remain.
 
 Recursive shell search flags on verified regular-file operands do not imply a
-directory walk. Directories, unresolved paths, globs and symlinks retain walk
-checks; canonical targets still undergo pinned-path checks. Shell redirections
-are checked separately from search operands, including after `--`. Filesystem
-checks reflect the state at review time. A file can be replaced before execution.
+directory walk. An initial direct `grep -r` with absolute file operands can
+also report a missing file in an existing canonical directory. Simple suffix
+globs qualify when they have regular-file matches and every possible match is a
+regular file. Directory matches, symlinks, unresolved parents, and protected
+paths retain approval checks. Shell redirections are checked separately from
+search operands, including after `--`. Filesystem checks reflect the state at
+review time. A file can be replaced before execution.
+
+In full-auto, a compound shell call that can only be verified as a file search
+before an earlier command runs is rejected with a bounded opportunity to retry
+with named files. The batch is skipped. Actual directory walks and explicit
+references to protected paths retain their approval checks.
 
 Operators can set `security.defaultApprovalMode` under **Admin → Security →
 Approvals & firewall**. It defaults to `auto` and is copied only when a conversation

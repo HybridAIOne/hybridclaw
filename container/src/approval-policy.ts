@@ -85,6 +85,7 @@ import {
   shellCommandsRun,
 } from './bash-commands.js';
 import { fenceCandidates } from './bash-fence.js';
+import { GREP_FILE_SEARCH_REPLAN } from './bash-grep-files.js';
 import {
   inferBashHttpMethod,
   isHttpClientCommand,
@@ -3688,8 +3689,10 @@ export class TrustedAgentApprovalRuntime {
     const shellCommands =
       quotedPythonStdinCommands(command) ?? scriptCommands(shellScript);
     const commandsRun = shellCommandsRun(shellCommands);
-    const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
-      this.namesPinnedPath(candidate),
+    const pinnedReach = findBashPinnedReach(
+      shellCommands,
+      shellScript,
+      (candidate) => this.namesPinnedPath(candidate),
     );
     const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Pinned rules match pathHints only; relative operands join them when
@@ -3840,20 +3843,29 @@ export class TrustedAgentApprovalRuntime {
     // session-trustable red was rejected and sandbox masking deferred.
     // Excluding .env* or using the grep tool keeps the usual tier.
     if (pinnedReach.walk) {
-      const { program, reaches } = pinnedReach.walk;
+      const { program, reaches, fileSearchRetry } = pinnedReach.walk;
+      const replan =
+        fileSearchRetry &&
+        this.approvalMode === 'full' &&
+        !writeIntent &&
+        pinnedReach.namedPaths.length === 0 &&
+        !absPaths.some((hint) => this.namesPinnedPath(hint));
       return {
         tier: 'red',
-        actionKey: 'bash:recursive-read',
+        actionKey: replan ? GREP_FILE_SEARCH_REPLAN : 'bash:recursive-read',
         intent: `run recursive read \`${normalizePreview(command)}\``,
         consequenceIfDenied:
           'I will exclude pinned files or search with the grep tool instead.',
-        reason: `\`${program}\` can read pinned files (${reaches.join(', ')}) without naming them`,
+        reason: replan
+          ? 'an earlier shell command makes the recursive grep targets uncertain'
+          : `\`${program}\` can read pinned files (${reaches.join(', ')}) without naming them`,
         commandPreview: normalizePreview(command),
         pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
         stickyYellow: true,
+        hardDeny: replan,
       };
     }
 
