@@ -1335,6 +1335,7 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   });
 
   expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveNpmInstall: true,
     approveDependencyInstall: true,
     onDependenciesAlreadySatisfied: expect.any(Function),
   });
@@ -1771,6 +1772,192 @@ test('handleTextChannelApprovalCommand approves npm for the session before promp
   );
 });
 
+test('handleTextChannelApprovalCommand requires one-time approval for npm registry installs and carries it cleanly across dependency approval', async () => {
+  setupHome();
+  const { PluginNpmInstallApprovalRequiredError } = await import(
+    '../src/plugins/plugin-source.ts'
+  );
+
+  installPluginMock
+    // Step 1: initial attempt asks for npm fetch approval.
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    )
+    // Step 2: after approving npm fetch, first try still has approveNpmInstall unset,
+    // gateway consumes one-shot approval and retries with approveNpmInstall: true,
+    // which then asks for dependency approval.
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: ['community-dep'],
+        pipPackages: [],
+      }),
+    )
+    // Step 3: after approving dependencies, carryActionKeys restores one-shot npm approval
+    // so both gates pass and installation finishes.
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: ['community-dep'],
+        pipPackages: [],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'community-plugin',
+      pluginDir: '/tmp/.hybridclaw/plugins/community-plugin',
+      source: 'npm:community-plugin',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: false,
+        installedNodePackages: ['community-dep'],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const npmApproval = await handleGatewayCommand({
+    sessionId: 'session-plugin-npm-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', 'npm:community-plugin'],
+  });
+
+  expect(npmApproval.kind).toBe('info');
+  expect(npmApproval.text).toContain(
+    'download and install plugin `community-plugin` from the npm registry',
+  );
+  expect(npmApproval.text).toContain(
+    'Reply `yes for session` is unavailable for this approval.',
+  );
+
+  const depApproval = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-npm-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(depApproval?.text).toContain('community-dep');
+
+  const installed = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-npm-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(installed?.text).toContain('Plugin Installed');
+  expect(installed?.text).toContain('Installed plugin `community-plugin`');
+  expect(installPluginMock).toHaveBeenLastCalledWith('npm:community-plugin', {
+    approveNpmInstall: true,
+    approveDependencyInstall: true,
+  });
+});
+
+test('handleTextChannelApprovalCommand denying dependency approval does not leave npm fetch pre-approved', async () => {
+  setupHome();
+  const { PluginNpmInstallApprovalRequiredError } = await import(
+    '../src/plugins/plugin-source.ts'
+  );
+
+  installPluginMock
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    )
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: ['community-dep'],
+        pipPackages: [],
+      }),
+    )
+    // Subsequent install attempt must prompt for npm fetch again.
+    .mockRejectedValueOnce(
+      new PluginNpmInstallApprovalRequiredError('community-plugin'),
+    );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  await handleGatewayCommand({
+    sessionId: 'session-plugin-npm-deny',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', 'npm:community-plugin'],
+  });
+
+  const depApproval = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-npm-deny',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+  expect(depApproval?.text).toContain('community-dep');
+
+  const denied = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-npm-deny',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'no'],
+  });
+  expect(denied?.text).toContain('Cancelled plugin install');
+
+  const secondAttempt = await handleGatewayCommand({
+    sessionId: 'session-plugin-npm-deny',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', 'npm:community-plugin'],
+  });
+  expect(secondAttempt.kind).toBe('info');
+  expect(secondAttempt.text).toContain(
+    'download and install plugin `community-plugin` from the npm registry',
+  );
+});
+
 test('handleGatewayCommand reports plugin install failures', async () => {
   setupHome();
 
@@ -1815,6 +2002,7 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
   });
 
   expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveNpmInstall: true,
     approveDependencyInstall: true,
     onDependenciesAlreadySatisfied: expect.any(Function),
   });

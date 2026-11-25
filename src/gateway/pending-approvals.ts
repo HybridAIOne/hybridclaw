@@ -32,6 +32,8 @@ const PENDING_APPROVAL_ASSET_PREFIX = 'pending-approvals/session/';
 export interface PendingApprovalCommandAction {
   approveArgs: string[];
   actionKey?: string;
+  /** Prior one-shot approvals to carry forward only if the user approves. */
+  carryActionKeys?: string[];
   allowSession?: boolean;
   allowAgent?: boolean;
   allowAll?: boolean;

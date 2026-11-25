@@ -691,6 +691,7 @@ Examples:
   hybridclaw plugin install ./plugins/example-plugin --yes
   hybridclaw plugin install mem0-memory --yes
   hybridclaw plugin install mempalace-memory --yes
+  hybridclaw plugin install npm:hybridclaw-plugin-example --yes
   hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
   hybridclaw plugin reinstall ./plugins/example-plugin --yes
   hybridclaw plugin check example-plugin
@@ -699,7 +700,7 @@ Examples:
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
-  - Bare plugin ids resolve to bundled plugins or \`./plugins/<plugin-id>\`; project-local plugins take priority.
+  - Bare plugin ids resolve to bundled plugins (first) or \`./plugins/<plugin-id>\` and never fall through to npm; pass \`npm:<package>\` (or a scoped \`@scope/<package>\`) to install from the npm registry, which requires confirmation (\`--yes\` in non-interactive use).
   - \`list\` shows discovered plugin status plus installable bundled/project plugins; use \`installed\` or \`available\` to filter.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` installs a registered but absent opt-in plugin before enabling it; dependency installation requires approval (\`--yes\` in non-interactive use).

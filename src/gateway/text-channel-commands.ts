@@ -297,6 +297,13 @@ export async function handleTextChannelApprovalCommand(params: {
         mode: approvalMode,
       });
     }
+    for (const carriedKey of pending.commandAction.carryActionKeys ?? []) {
+      recordCommandApproval({
+        sessionId,
+        actionKey: carriedKey,
+        mode: 'once',
+      });
+    }
 
     const gatewayCommandResult = await handleGatewayCommand({
       msteamsTenantId: params.msteamsTenantId,

@@ -35,6 +35,7 @@ hybridclaw plugin install managed-cloud
 hybridclaw plugin install browser-use-cloud
 hybridclaw plugin install camofox
 hybridclaw plugin install mac-cua
+hybridclaw plugin install npm:hybridclaw-plugin-example
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -93,11 +94,15 @@ installable bundled or project-local plugins. Use `hybridclaw plugin list
 installed` or `hybridclaw plugin list available` to show only one section.
 When installing by bare plugin id, a plugin bundled with HybridClaw takes
 priority over a project-local `./plugins/<id>` with the same id, so running the
-install from a source checkout still enables the packaged copy.
-An exact npm package name also resolves to a matching `package.json` in those
-local plugin catalogs before HybridClaw contacts the registry. This lets the
-same canonical install source work in a source checkout and in packaged
-releases after the package is published.
+install from a source checkout still enables the packaged copy. Bare plugin ids
+never fall through to the public npm registry: if a bundled or catalog plugin is
+missing from the install, or the id is unknown, `plugin install` fails without
+contacting npm. To install an unscoped package from npm, pass the explicit
+`npm:<package>` form (for example
+`hybridclaw plugin install npm:hybridclaw-plugin-example`); scoped packages
+(`@scope/<package>`) still check local plugin catalogs first before falling back
+to npm. Installing from the npm registry asks for confirmation unless `--yes` is
+passed.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/extensions?tab=plugins` for browser-based inspection.
 
