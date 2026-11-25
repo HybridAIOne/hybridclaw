@@ -381,7 +381,7 @@ export class ManagedCloudBrowserProvider {
       );
     }
     const metering = this.resolveMetering(opts);
-    const lease = await this.createLease(metering, opts);
+    const lease = await this.createLease(metering);
     let browser = null;
     try {
       const playwright = await loadPlaywright(
@@ -456,7 +456,7 @@ export class ManagedCloudBrowserProvider {
     return this.host.capabilities;
   }
 
-  async closeSession(session) {
+  async closeSession(session, opts) {
     if (!(session instanceof ManagedCloudBrowserSession)) {
       throw new Error(
         'ManagedCloudBrowserProvider can only close its own sessions',
@@ -466,9 +466,10 @@ export class ManagedCloudBrowserProvider {
     if (!active) {
       throw new Error('ManagedCloudBrowserProvider session is not active');
     }
+    this.activeSessions.delete(session);
 
     const [releaseResult, closeResult] = await Promise.allSettled([
-      this.releaseLease(active.lease.leaseId),
+      this.releaseLease(active.lease.leaseId, opts?.signal),
       active.browser.close(),
     ]);
     const release =
@@ -486,7 +487,6 @@ export class ManagedCloudBrowserProvider {
         endedAt: release?.endedAt ?? null,
       },
     });
-    this.activeSessions.delete(session);
 
     const errors = [];
     if (releaseResult.status === 'rejected') errors.push(releaseResult.reason);
@@ -526,12 +526,10 @@ export class ManagedCloudBrowserProvider {
     return poolAuthHeaders(this.options.getPoolToken?.());
   }
 
-  async createLease(metering, opts) {
-    const timeoutMs = opts.timeoutMs;
-    const ttlSeconds =
-      typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
-        ? Math.max(1, Math.ceil(timeoutMs / 1000))
-        : undefined;
+  // The pool owns the default lease lifetime (3600s in infra/managed-browser).
+  // SessionOptions.timeoutMs bounds the launch (the gateway passes 60s), and
+  // deriving ttlSeconds from it gave every gateway lease a 1-minute lifetime.
+  async createLease(metering) {
     const payload = await this.requestJson('/leases', {
       method: 'POST',
       body: JSON.stringify({
@@ -539,7 +537,6 @@ export class ManagedCloudBrowserProvider {
         agentId: metering.agentId,
         sessionId: metering.sessionId,
         auditRunId: metering.auditRunId ?? null,
-        ttlSeconds,
       }),
     });
     return normalizeLeaseResponse(payload);
@@ -582,11 +579,12 @@ export class ManagedCloudBrowserProvider {
     return guard;
   }
 
-  async releaseLease(leaseId) {
+  async releaseLease(leaseId, signal) {
     const payload = await this.requestJson(
       `/leases/${encodeURIComponent(leaseId)}`,
       {
         method: 'DELETE',
+        signal,
       },
     );
     return normalizeReleaseResponse(payload, leaseId);
@@ -594,6 +592,10 @@ export class ManagedCloudBrowserProvider {
 
   async requestJson(path, init) {
     const requestFetch = this.options.fetch || fetch;
+    const timeout = AbortSignal.timeout(30_000);
+    const signal = init.signal
+      ? AbortSignal.any([timeout, init.signal])
+      : timeout;
     const response = await requestFetch(`${this.endpointUrl}${path}`, {
       method: init.method,
       headers: {
@@ -601,7 +603,7 @@ export class ManagedCloudBrowserProvider {
         ...this.authHeaders(),
       },
       body: init.body,
-      signal: AbortSignal.timeout(30_000),
+      signal,
     });
     const text = await response.text();
     let payload = null;

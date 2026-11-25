@@ -31,6 +31,10 @@ import {
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
 import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
+import {
+  closeAllGatewayBrowserSessions,
+  closeStaleGatewayBrowserSessions,
+} from '../browser/session-registry.js';
 import type { ExternalChannelKind } from '../channels/channel.js';
 import type { ChannelDescriptor } from '../channels/channel-descriptor.js';
 import {
@@ -425,6 +429,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     if (!opts?.drain) {
       stopAllExecutions();
     }
+    await runShutdownStep('close gateway browser sessions', async () => {
+      await closeAllGatewayBrowserSessions('shutdown');
+    });
     await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopDashboardRefresher();
@@ -642,6 +649,14 @@ async function main(): Promise<void> {
       );
       startDiscoveryLoop();
       localBackendsProbe.invalidate();
+    }
+    if (JSON.stringify(next.browser) !== JSON.stringify(prev.browser)) {
+      void closeStaleGatewayBrowserSessions('config-change').catch((error) => {
+        logger.warn(
+          { error },
+          'Failed to close stale gateway browser sessions after browser config change',
+        );
+      });
     }
     if (!shouldRestartObservability) return;
 

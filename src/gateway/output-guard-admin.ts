@@ -646,14 +646,18 @@ export async function updateGatewayAdminOutputGuardProfile(
       route: OUTPUT_GUARD_REVISION_ROUTE,
       source: 'admin-console',
     });
-    const reloadResult = await reloadPluginRuntime();
+    const reloadResult = await reloadPluginRuntime({
+      preserveUnchangedBrowserSessions: true,
+    });
     if (!reloadResult.ok) {
       try {
         saveRuntimeConfig(previousConfig, {
           route: `${OUTPUT_GUARD_REVISION_ROUTE}.rollback`,
           source: 'admin-console',
         });
-        const rollbackReloadResult = await reloadPluginRuntime();
+        const rollbackReloadResult = await reloadPluginRuntime({
+          preserveUnchangedBrowserSessions: true,
+        });
         if (!rollbackReloadResult.ok) {
           logger.warn(
             {

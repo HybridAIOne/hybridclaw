@@ -325,7 +325,7 @@ export class BrowserUseCloudProvider {
     return this.host.capabilities;
   }
 
-  async closeSession(session) {
+  async closeSession(session, opts) {
     if (!(session instanceof BrowserUseCloudSession)) {
       throw new Error(
         'BrowserUseCloudProvider can only close its own sessions',
@@ -335,15 +335,15 @@ export class BrowserUseCloudProvider {
     if (!active) {
       throw new Error('BrowserUseCloudProvider session is not active');
     }
+    this.activeSessions.delete(session);
 
     const [stopResult, closeResult] = await Promise.allSettled([
-      this.stopCloudSession(active.apiKey, active.cloud.id),
+      this.stopCloudSession(active.apiKey, active.cloud.id, opts?.signal),
       active.browser.close(),
     ]);
     const stopped = stopResult.status === 'fulfilled' ? stopResult.value : null;
 
     this.recordCloseUsage(active, stopped);
-    this.activeSessions.delete(session);
     const errors = [];
     if (stopResult.status === 'rejected') errors.push(stopResult.reason);
     if (closeResult.status === 'rejected') errors.push(closeResult.reason);
@@ -395,19 +395,24 @@ export class BrowserUseCloudProvider {
     await this.stopCloudSession(apiKey, cloud.id).catch(() => {});
   }
 
-  async stopCloudSession(apiKey, providerSessionId) {
+  async stopCloudSession(apiKey, providerSessionId, signal) {
     return await this.requestJson(
       apiKey,
       `/browsers/${encodeURIComponent(providerSessionId)}`,
       {
         method: 'PATCH',
         body: JSON.stringify({ action: 'stop' }),
+        signal,
       },
     );
   }
 
   async requestJson(apiKey, path, init) {
     const requestFetch = this.options.fetch || fetch;
+    const timeout = AbortSignal.timeout(30_000);
+    const signal = init.signal
+      ? AbortSignal.any([timeout, init.signal])
+      : timeout;
     const response = await requestFetch(`${this.baseUrl}${path}`, {
       method: init.method,
       headers: {
@@ -415,7 +420,7 @@ export class BrowserUseCloudProvider {
         'X-Browser-Use-API-Key': apiKey,
       },
       body: init.body,
-      signal: AbortSignal.timeout(30_000),
+      signal,
     });
     const text = await response.text();
     let payload = null;

@@ -280,7 +280,6 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
         agentId: 'agent-managed',
         sessionId: 'session-managed',
         auditRunId: 'run-managed',
-        ttlSeconds: 60,
       }),
     }),
   );
@@ -738,4 +737,102 @@ test('managed cloud browser provider advertises F13 and F14 hook parity', async 
     credentialInjection: 'opaque-handle',
     waypointEvents: ['browser_await_two_factor', 'browser_resume_interaction'],
   });
+});
+
+// The gateway launches with timeoutMs 60s; that bounds the launch, not the
+// pool lease lifetime, which would otherwise expire after one minute.
+test('managed cloud browser provider does not derive lease ttlSeconds from launch timeoutMs', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'managed-browser-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { ManagedCloudBrowserProvider } = await import(
+    '../plugins/managed-cloud/src/provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-default-ttl',
+        nodeId: 'node-a',
+        cdpUrl: 'wss://pool.example/lease-default-ttl',
+      }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ leaseId: 'lease-default-ttl', endedAt: null }),
+    );
+  const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
+    endpointUrl: 'https://managed-browser.example',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    timeoutMs: 60_000,
+    metering: {
+      sessionId: 'session-default-ttl',
+      agentId: 'agent-default-ttl',
+    },
+  });
+  await provider.closeSession(session);
+
+  const leaseBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  expect(leaseBody).not.toHaveProperty('ttlSeconds');
+});
+
+test('managed cloud browser provider propagates closeSession abort signal to lease DELETE', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'managed-browser-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { ManagedCloudBrowserProvider } = await import(
+    '../plugins/managed-cloud/src/provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-abort',
+        nodeId: 'node-a',
+        cdpUrl: 'wss://pool.example/lease-abort',
+      }),
+    )
+    .mockImplementationOnce(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(init.signal?.reason ?? new Error('aborted'));
+          });
+        }),
+    );
+  const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
+    endpointUrl: 'https://managed-browser.example',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-abort',
+      agentId: 'agent-abort',
+    },
+  });
+  const controller = new AbortController();
+  const closing = provider.closeSession(session, { signal: controller.signal });
+  controller.abort(new Error('shutdown timeout'));
+
+  await expect(closing).rejects.toThrow(/shutdown timeout/u);
+  expect(mock.browser.close).toHaveBeenCalledTimes(1);
 });

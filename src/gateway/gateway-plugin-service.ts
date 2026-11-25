@@ -453,13 +453,15 @@ async function notifyChannelPluginAvailabilityChanges(
   }
 }
 
-export async function reloadPluginRuntime(): Promise<{
+export async function reloadPluginRuntime(opts?: {
+  preserveUnchangedBrowserSessions?: boolean;
+}): Promise<{
   ok: boolean;
   message: string;
 }> {
   const availabilityBefore = snapshotChannelPluginTransportAvailability();
   try {
-    await reloadPluginManager();
+    await reloadPluginManager(opts);
   } catch (error) {
     return {
       ok: false,
@@ -483,7 +485,9 @@ async function rollbackPluginRuntimeConfigChange(
   },
 ): Promise<string[]> {
   saveRuntimeConfig(previousConfig);
-  const rollbackReloadResult = await reloadPluginRuntime();
+  const rollbackReloadResult = await reloadPluginRuntime({
+    preserveUnchangedBrowserSessions: true,
+  });
   if (rollbackReloadResult.ok) {
     return ['Previous runtime config was restored.'];
   }
@@ -640,7 +644,9 @@ export async function handlePluginGatewayCommand(params: {
         rawValue === '--unset'
           ? await unsetPluginConfigValue(pluginId, key)
           : await writePluginConfigValue(pluginId, key, rawValue);
-      const reloadResult = await reloadPluginRuntime();
+      const reloadResult = await reloadPluginRuntime({
+        preserveUnchangedBrowserSessions: true,
+      });
       // A config that breaks a plugin which loaded before is rolled back too,
       // instead of leaving it failed behind a "config updated" message.
       const loadError =
@@ -740,7 +746,9 @@ export async function handlePluginGatewayCommand(params: {
               approveDependencyInstall,
             });
             await setPluginEnabled(pluginId, true);
-            const reloadResult = await reloadPluginRuntime();
+            const reloadResult = await reloadPluginRuntime({
+              preserveUnchangedBrowserSessions: true,
+            });
             return infoCommand(
               'Plugin Enabled',
               [
@@ -800,7 +808,9 @@ export async function handlePluginGatewayCommand(params: {
     const previousConfig = getRuntimeConfig();
     try {
       const result = await setPluginEnabled(pluginId, enabled);
-      const reloadResult = await reloadPluginRuntime();
+      const reloadResult = await reloadPluginRuntime({
+        preserveUnchangedBrowserSessions: true,
+      });
       if (!reloadResult.ok) {
         const rollbackLines = await rollbackPluginRuntimeConfigChange(
           previousConfig,
@@ -884,7 +894,9 @@ export async function handlePluginGatewayCommand(params: {
         approveDependencyInstall: yes === '--yes',
         onDependenciesAlreadySatisfied,
       });
-      const reloadResult = await reloadPluginRuntime();
+      const reloadResult = await reloadPluginRuntime({
+        preserveUnchangedBrowserSessions: true,
+      });
       const lines = [
         result.alreadyInstalled
           ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
@@ -914,7 +926,9 @@ export async function handlePluginGatewayCommand(params: {
           const result = await installPlugin(source, {
             approveDependencyInstall: true,
           });
-          const reloadResult = await reloadPluginRuntime();
+          const reloadResult = await reloadPluginRuntime({
+            preserveUnchangedBrowserSessions: true,
+          });
           const lines = [
             result.alreadyInstalled
               ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`

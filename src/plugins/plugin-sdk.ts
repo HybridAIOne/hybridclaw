@@ -19,9 +19,14 @@ export { recordAuditEvent } from '../audit/audit-events.js';
 export type {
   BrowserProvider,
   BrowserSession,
+  CloseSessionOptions as BrowserCloseSessionOptions,
   SessionOptions as BrowserSessionOptions,
 } from '../browser/provider.js';
-export type { BrowserProviderRegistration } from '../browser/provider-factory.js';
+export type {
+  BrowserProviderDisposeContext,
+  BrowserProviderDisposeReason,
+  BrowserProviderRegistration,
+} from '../browser/provider-factory.js';
 export type { BrowserProviderHost } from '../browser/provider-host.js';
 export type { ChannelInfo } from '../channels/channel.js';
 export type {
