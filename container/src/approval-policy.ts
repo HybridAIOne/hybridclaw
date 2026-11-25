@@ -2449,7 +2449,12 @@ export class TrustedAgentApprovalRuntime {
           ].join('\n'),
         };
       return {
-        immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
+        replayPrompt: [
+          '[Approval denied]',
+          `The user declined "${target.intent}". Do not execute that action or retry an equivalent action. Continue the original request using permitted actions, or explain what remains blocked.`,
+          '',
+          `Original user request: ${target.originalPrompt}`,
+        ].join('\n'),
       };
     }
 
