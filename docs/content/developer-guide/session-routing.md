@@ -98,6 +98,10 @@ memory and continuity across users.
 
 - `/api/chat` generates a unique canonical web session id when the caller omits
   `sessionId`
+- `/api/chat` with `channelId: "whatsapp"` and an opaque `sessionId` treats the
+  supplied ID as the peer. The request's `agentId` selects the agent when
+  present. Otherwise, each turn uses the current default. Each peer has a
+  separate session per agent.
 - `/api/command` and `/api/history` require an explicit `sessionId`
 - malformed canonical `sessionId` values are rejected instead of silently
   treated as legacy ids

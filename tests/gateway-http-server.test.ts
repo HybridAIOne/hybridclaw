@@ -12486,6 +12486,47 @@ describe('gateway HTTP server', () => {
     expect(invalid.statusCode).toBe(400);
   });
 
+  test('routes a WhatsApp conversation to the current default or the selected agent', async () => {
+    const state = await importFreshHealth({ webApiToken: 'test-web-token' });
+    const { getRuntimeConfig } = await import('../src/config/runtime-config.js');
+    const runtime = getRuntimeConfig();
+    runtime.agents = { defaultAgentId: 'first', list: [{ id: 'first' }, { id: 'second' }] };
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Answer',
+      toolsUsed: [],
+    });
+
+    async function send(agentId?: string) {
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/chat',
+        headers: { authorization: 'Bearer test-web-token' },
+        body: {
+          sessionId: 'whatsapp-example-binding',
+          channelId: 'whatsapp',
+          userId: 'example-owner',
+          content: 'Hello',
+          agentId,
+        },
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(200);
+    }
+
+    await send();
+    runtime.agents.defaultAgentId = 'second';
+    await send();
+    await send('first');
+    expect(state.handleGatewayMessage.mock.calls.map(([turn]) => [turn.agentId, turn.sessionId])).toEqual([
+      ['first', 'agent:first:channel:whatsapp:chat:dm:peer:whatsapp-example-binding'],
+      ['second', 'agent:second:channel:whatsapp:chat:dm:peer:whatsapp-example-binding'],
+      ['first', 'agent:first:channel:whatsapp:chat:dm:peer:whatsapp-example-binding'],
+    ]);
+  });
+
   test('routes web slash commands from /api/chat through handleGatewayCommand', async () => {
     const state = await importFreshHealth();
     state.handleGatewayCommand.mockResolvedValueOnce({
