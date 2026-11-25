@@ -7925,7 +7925,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       model: resolved.model,
     });
     const provider = resolveModelProvider(model);
-    const turnIndex = Math.max(1, session.message_count + 1);
+    const turnIndex = (session.messages_written ?? session.message_count) + 1;
     onboardingAuditContext =
       bootstrapFile === 'BOOTSTRAP.md'
         ? {
