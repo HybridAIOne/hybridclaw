@@ -10,6 +10,14 @@ export function isLocalProactivePullChannelId(channelId: string): boolean {
   return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(channelId.trim());
 }
 
+// A2A has no proactive sender (#1462, 2026-11-26): schedule creation rejects
+// these targets up front and dispatch fails them like any other target without
+// one. Delivering to the peer instead is deferred until a peer-push path exists.
+export function isA2ADeliveryTarget(channelId: string): boolean {
+  const normalized = channelId.trim().toLowerCase();
+  return normalized === 'a2a' || normalized.startsWith('a2a:');
+}
+
 export function isEmailAddress(channelId: string): boolean {
   return isNormalizedEmailAddress(channelId.trim());
 }
@@ -21,17 +29,27 @@ export function isSupportedProactiveChannelId(channelId: string): boolean {
   );
 }
 
+// A bare `web` target is delivered by dispatch to the default agent's main chat
+// (`web-scheduled-delivery.ts`); it is not a generic proactive target, so
+// escalation routes and the message tool never queue to it.
+export function isWebProactiveTarget(channelId: string): boolean {
+  return channelId.trim() === 'web';
+}
+
 export function hasQueuedProactiveDeliveryPath(
   item: Pick<QueuedProactiveMessage, 'channel_id'>,
 ): boolean {
-  return isSupportedProactiveChannelId(item.channel_id);
+  return (
+    isWebProactiveTarget(item.channel_id) ||
+    isSupportedProactiveChannelId(item.channel_id)
+  );
 }
 
 export function hasImmediateProactiveDeliveryPath(
   item: Pick<QueuedProactiveMessage, 'channel_id'>,
 ): boolean {
   return (
-    isSupportedProactiveChannelId(item.channel_id) &&
+    hasQueuedProactiveDeliveryPath(item) &&
     !isLocalProactivePullChannelId(item.channel_id)
   );
 }

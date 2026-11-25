@@ -15,6 +15,7 @@
  */
 
 import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
+import { getChannelDescriptorForTarget } from '../channels/channel-descriptors.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import { getSessionById } from '../memory/db.js';
@@ -33,6 +34,7 @@ import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
+import { isA2ADeliveryTarget } from './proactive-delivery.js';
 import {
   canManageScheduledTask,
   listManageableScheduledTasks,
@@ -149,7 +151,10 @@ function toResult(
 
 /** Shared by "add" (fields read straight from the request) and "update"
  * (fields merged onto the stored job first), so both enforce the same rules. */
-function validateScheduledTaskFields(fields: ScheduledTaskFields): void {
+function validateScheduledTaskFields(
+  fields: ScheduledTaskFields,
+  session: Session,
+): void {
   const scheduleFields = [
     fields.cronExpr,
     fields.runAt,
@@ -179,6 +184,22 @@ function validateScheduledTaskFields(fields: ScheduledTaskFields): void {
   if (!fields.prompt) throw new GatewayRequestError(400, 'Missing `prompt`.');
   if (!fields.channelId) {
     throw new GatewayRequestError(400, 'Missing delivery `channelId`.');
+  }
+  if (isA2ADeliveryTarget(fields.channelId)) {
+    throw new GatewayRequestError(
+      400,
+      'A2A targets do not support proactive scheduled delivery. Specify a supported delivery channel target instead.',
+    );
+  }
+  // Like the message tool, a turn may only post into its own Teams chat.
+  if (
+    getChannelDescriptorForTarget(fields.channelId)?.kind === 'msteams' &&
+    fields.channelId !== session.channel_id
+  ) {
+    throw new GatewayRequestError(
+      403,
+      'A task may only deliver to the Teams conversation it was created in.',
+    );
   }
 }
 
@@ -271,7 +292,7 @@ export function runScheduledTaskToolAction(
       prompt: normalizeTrimmedString(body.prompt) || job.prompt,
       channelId: normalizeTrimmedString(body.channelId) || job.channel_id,
     };
-    validateScheduledTaskFields(fields);
+    validateScheduledTaskFields(fields, session);
 
     updateScheduledTask(taskId, {
       cronExpr: fields.cronExpr || undefined,
@@ -299,7 +320,7 @@ export function runScheduledTaskToolAction(
       normalizeTrimmedString(body.channelId) ||
       normalizeTrimmedString(session.channel_id),
   };
-  validateScheduledTaskFields(fields);
+  validateScheduledTaskFields(fields, session);
 
   const taskId = createJob({
     kind: 'scheduled_task',

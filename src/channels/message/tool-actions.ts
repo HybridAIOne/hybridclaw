@@ -17,6 +17,7 @@ import {
   getSessionById,
 } from '../../memory/db.js';
 import { scopeWorkspaceDir } from '../../scopes/scope-paths.js';
+import { getChannelDescriptorForTarget } from '../channel-descriptors.js';
 import {
   discordRuntimeLoader,
   emailRuntimeLoader,
@@ -121,7 +122,8 @@ function resolveMessageToolSendFilePath(
 
 function normalizeLocalMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
-  if (!trimmed) return null;
+  // Teams tool sends stay in the current session; never queue around that.
+  if (getChannelDescriptorForTarget(trimmed)?.kind === 'msteams') return null;
   if (isDiscordChannelId(trimmed)) return null;
   if (matchesPluginChannelTarget(trimmed)) return null;
   if (isTelegramChannelId(trimmed)) return null;

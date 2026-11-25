@@ -3,10 +3,12 @@ import { describe, expect, test } from 'vitest';
 import {
   hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
+  isA2ADeliveryTarget,
   isDiscordChannelId,
   isEmailAddress,
   isLocalProactivePullChannelId,
   isSupportedProactiveChannelId,
+  isWebProactiveTarget,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -52,13 +54,27 @@ describe('proactive delivery helpers', () => {
       true,
     );
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
+    expect(isSupportedProactiveChannelId('19:conversation@thread.tacv2')).toBe(
+      true,
+    );
+    // `web` is a dispatch-only target, never an escalation or message-tool queue.
+    expect(isSupportedProactiveChannelId('web')).toBe(false);
+    expect(hasQueuedProactiveDeliveryPath({ channel_id: 'web' })).toBe(true);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
+    expect(isSupportedProactiveChannelId('a2a')).toBe(false);
+    expect(isSupportedProactiveChannelId('a2a:peer-1')).toBe(false);
     expect(isSupportedProactiveChannelId('smoke')).toBe(false);
+    expect(isWebProactiveTarget('  web  ')).toBe(true);
+    expect(isWebProactiveTarget('tui')).toBe(false);
+    expect(isA2ADeliveryTarget('a2a')).toBe(true);
+    expect(isA2ADeliveryTarget(' A2A:peer-1 ')).toBe(true);
+    expect(isA2ADeliveryTarget('web')).toBe(false);
   });
 
   test('distinguishes local pull queues from immediate delivery paths', () => {
     expect(isLocalProactivePullChannelId('tui')).toBe(true);
     expect(isLocalProactivePullChannelId('  tui  ')).toBe(true);
+    expect(isLocalProactivePullChannelId('web')).toBe(false);
     expect(isLocalProactivePullChannelId('123456789012345678')).toBe(false);
 
     expect(
@@ -66,6 +82,12 @@ describe('proactive delivery helpers', () => {
         channel_id: 'tui',
       }),
     ).toBe(false);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: 'web',
+      }),
+    ).toBe(true);
 
     expect(
       hasImmediateProactiveDeliveryPath({

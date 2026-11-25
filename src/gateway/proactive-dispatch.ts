@@ -1,6 +1,7 @@
 /**
  * Proactive dispatch validates destinations before sending or persisting a queue row.
- * Only the TUI uses local pull delivery; unknown targets fail explicitly.
+ * Only the TUI uses local pull delivery; a bare `web` target is stored in the
+ * default agent's main chat; unknown targets (including A2A) fail explicitly.
  * Channel senders own transport details, not quiet-hour or A2A policy.
  */
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
@@ -17,13 +18,19 @@ import {
   getConfigSnapshot,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
+import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { enqueueProactiveMessage } from '../memory/db.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import {
   isLocalProactivePullChannelId,
+  isWebProactiveTarget,
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
+import {
+  agentMainChatForWebTarget,
+  deliverWebScheduledMessage,
+} from './web-scheduled-delivery.js';
 export const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 
 async function dispatchProactiveMessage(
@@ -34,9 +41,11 @@ async function dispatchProactiveMessage(
   applyPolicy: boolean,
 ): Promise<ProactiveDeliveryOutcome> {
   channelId = channelId.trim();
+  const isLocal =
+    isLocalProactivePullChannelId(channelId) || isWebProactiveTarget(channelId);
   const descriptor = getChannelDescriptorForTarget(channelId);
   if (
-    !isLocalProactivePullChannelId(channelId) &&
+    !isLocal &&
     (!descriptor?.supportsProactive || !descriptor.sendProactive)
   ) {
     return {
@@ -44,7 +53,7 @@ async function dispatchProactiveMessage(
       reason: `No proactive delivery path for channel "${channelId}"`,
     };
   }
-  if (isA2ALocalModeEnabled(getConfigSnapshot()) && channelId !== 'tui') {
+  if (isA2ALocalModeEnabled(getConfigSnapshot()) && !isLocal) {
     logger.info(
       { source, channelId },
       'Proactive channel delivery suppressed by A2A local mode',
@@ -88,6 +97,21 @@ async function dispatchProactiveMessage(
       'Proactive message suppressed (outside active hours)',
     );
     return { status: 'suppressed', reason: 'Outside active hours' };
+  }
+
+  if (isWebProactiveTarget(channelId)) {
+    try {
+      const chat = agentMainChatForWebTarget(
+        resolveDefaultAgentId(getConfigSnapshot()),
+      );
+      return deliverWebScheduledMessage(chat.id, text, source, artifacts);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error },
+        'Proactive web delivery failed',
+      );
+      return proactiveDeliveryFailed(error);
+    }
   }
 
   if (descriptor?.supportsProactive && descriptor.sendProactive) {

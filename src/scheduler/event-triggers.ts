@@ -25,6 +25,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
 import { CronExpressionParser } from 'cron-parser';
+import { isA2ADeliveryTarget } from '../gateway/proactive-delivery.js';
 import { TRIGGER_PATH_PREFIX } from '../gateway/trigger-webhook.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { createJob, deleteJob, getAllJobs, getJob } from '../memory/jobs.js';
@@ -419,6 +420,8 @@ export interface NewTrigger {
  * Every trigger is reply-only and rings phones like a reminder.
  */
 export function createTrigger(input: NewTrigger): ScheduledTask {
+  if (isA2ADeliveryTarget(input.channelId))
+    throw new Error('A2A targets do not support proactive trigger delivery.');
   const source = input.source.trim().toLowerCase();
   if (!isTriggerSource(source))
     throw new Error('A trigger runs on "mail", "slack" or "webhook".');
