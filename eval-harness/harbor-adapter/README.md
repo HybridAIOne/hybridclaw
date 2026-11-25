@@ -24,6 +24,8 @@ OpenEnv 0.7.0.
   `intercept_config`, auto-approves tools and turns thinking off.
   In a task sandbox with cgroup v2 memory counters, a new out-of-memory kill
   interrupts an active shell call and reports the memory failure to the agent.
+  The unattended trial denies operations that need a human and lets the agent
+  continue with permitted alternatives, up to three times per turn.
 - Running `hybridclaw_harbor.py` as a script registers the seam and then hands
   over to the stock `openenv` CLI.
 

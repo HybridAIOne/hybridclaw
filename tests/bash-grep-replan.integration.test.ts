@@ -15,6 +15,54 @@ function bashCall(id: string, command: string) {
   };
 }
 
+test('an unattended full-auto turn can omit a protected step and finish', async () => {
+  const worker = await run(
+    [
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [bashCall('protected', 'printf skipped-prefix; cat .env')],
+      },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [bashCall('safe', 'printf continued')],
+      },
+      { role: 'assistant', content: 'Finished.' },
+    ],
+    { approvalMode: 'full', approvalUserIsBot: true },
+    { '.env': 'VALUE=test-key\n' },
+  );
+  expect(worker.output.pendingApproval).toBeUndefined();
+  expect(worker.output.toolExecutions?.[0]).toMatchObject({
+    approvalDecision: 'denied',
+    blocked: true,
+  });
+  expect(worker.output.toolExecutions?.[1]?.result).toBe('continued');
+  const denial = worker.requests[1].messages?.find(
+    (message) => message.role === 'tool',
+  );
+  expect(denial?.content).toContain('Nothing in this tool call ran');
+  expect(denial?.content).not.toContain('test-key');
+});
+
+test('bounds unattended replans for repeated approval-required calls', async () => {
+  const worker = await run(
+    Array.from({ length: 5 }, (_, i) => ({
+      role: 'assistant',
+      content: null,
+      tool_calls: [bashCall(`repeated-${i}`, 'cat .env')],
+    })),
+    { approvalMode: 'full', approvalUserIsBot: true },
+    { '.env': 'VALUE=test-key\n' },
+  );
+  expect(worker.output.pendingApproval).toBeUndefined();
+  expect(worker.requests).toHaveLength(4);
+  expect(
+    worker.output.toolExecutions?.map((call) => call.approvalDecision),
+  ).toEqual(['denied', 'denied', 'denied', 'denied']);
+});
+
 test('a compound grep denial allows a named-file retry without executing the original batch', async () => {
   const dir = fs.realpathSync(makeTempDir());
   const source = path.join(dir, 'model.py');

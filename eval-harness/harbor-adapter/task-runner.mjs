@@ -99,6 +99,8 @@ try {
     executionSessionId: 'harbor-adapter-trial',
     executorModeOverride: 'host',
     autoApproveTools: true,
+    approvalUserIsBot: true,
+    approvalUserText: null,
     workspacePathOverride: process.cwd(),
     workspaceDisplayRootOverride: process.cwd(),
     guildId: null,

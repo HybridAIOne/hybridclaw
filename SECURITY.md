@@ -101,6 +101,10 @@ Tool actions are risk-tiered at runtime:
 The built-in force-push pin treats `write` and `edit` payloads as file data.
 Protected file paths and custom `approval.pinned_red` rules still apply.
 
+In full-auto, a bot-started turn without a human approval target can replan
+after a protected call is denied. The denied call does not execute or create
+trust. The worker allows up to three such replans per turn.
+
 Fetched-code review recognizes bounded JSON, read-only ElementTree XML and
 BeautifulSoup HTML readers, and Pillow image open/thumbnail/save operations.
 HTML certification requires a literal installed HTML builder (`html.parser`,

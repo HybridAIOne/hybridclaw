@@ -293,6 +293,7 @@ export interface ApprovalPrelude {
 
 export interface ToolApprovalEvaluation {
   approvalObservation?: ApprovalObservation;
+  approvalUnavailable?: boolean;
   baseTier: ApprovalTier;
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;

@@ -5,6 +5,7 @@
  * Unlike approval-reply, this cannot resolve a pending human decision.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
+import { NO_APPROVER_REASON } from './approval-prompt-rule.js';
 import { GREP_FILE_SEARCH_REPLAN } from './bash-grep-files.js';
 import { PIP_CONFIG_DIAGNOSTIC_REPLAN } from './bash-package-diagnostics.js';
 import { BASH_SAFETY_ACTION_KEY } from './bash-safety.js';
@@ -43,6 +44,17 @@ export function canReplanAfterDenial(
   executions: ToolExecution[],
 ): boolean {
   if (approval.decision !== 'denied') return false;
+  if (approval.approvalUnavailable) {
+    // Three retries (Codex, 2026-11-25) let an unattended task skip a few
+    // optional diagnostics while still bounding repeated protected requests.
+    return (
+      executions.filter(
+        (entry) =>
+          entry.approvalDecision === 'denied' &&
+          entry.approvalReason === NO_APPROVER_REASON,
+      ).length < 3
+    );
+  }
   if (
     PACKAGE_DIAGNOSTIC_RECOVERIES.has(approval.actionKey) ||
     PRESERVATION_PREFIXES.some((prefix) =>
@@ -92,9 +104,11 @@ export async function handleToolDenial(params: {
   if (replan) {
     const recovery =
       PACKAGE_DIAGNOSTIC_RECOVERIES.get(approval.actionKey) ??
-      (approval.actionKey.startsWith(FILE_WRITE_CONFLICT_ACTION_PREFIX)
-        ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
-        : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.');
+      (approval.approvalUnavailable
+        ? 'Nothing in this tool call ran, and this turn cannot obtain human approval. Omit the protected operation and retry only the permitted parts. Do not retry the protected operation through a different command or tool.'
+        : approval.actionKey.startsWith(FILE_WRITE_CONFLICT_ACTION_PREFIX)
+          ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
+          : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.');
     for (const unrun of params.unrunCalls) {
       const content =
         unrun === call
