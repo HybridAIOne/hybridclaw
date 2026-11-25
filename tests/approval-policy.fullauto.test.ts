@@ -81,6 +81,7 @@ describe('full-auto approvals', () => {
   test.each([
     ['read', { path: 'secrets/api.txt' }],
     ['bash', { command: 'terraform destroy -auto-approve' }],
+    ['write', { path: 'docs/git.md', contents: 'git push --force' }],
   ])('configured approval.pinned_red %s %j prompts in full-auto', (tool, args) => {
     const runtime = createRuntime({
       fullAuto: true,
@@ -89,6 +90,7 @@ approval:
   pinned_red:
     - paths: ["secrets/**"]
     - pattern: 'terraform\\s+destroy'
+    - pattern: 'git push --force'
 `,
     });
 
@@ -96,6 +98,15 @@ approval:
       pinned: true,
       decision: 'required',
     });
+  });
+
+  test.each([
+    ['write', { path: 'docs/git.md', contents: 'Avoid git push --force.' }],
+    ['edit', { path: 'docs/git.md', oldText: 'Tip', newText: 'Avoid git push --force.' }],
+  ])('does not pin a force-push example in a %s payload', (tool, args) => {
+    const result = evaluate(createRuntime({ fullAuto: true }), tool, args);
+    expect(result).toMatchObject({ pinned: false, decision: 'approved_fullauto' });
+    expect(result.requestId).toBeUndefined();
   });
 
   test('a human approval of a pinned call covers one run only', () => {

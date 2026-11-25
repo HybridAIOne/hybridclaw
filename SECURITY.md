@@ -98,6 +98,9 @@ Tool actions are risk-tiered at runtime:
   files, and `approval.pinned_red` rules), shell writes outside the workspace
   fence, fetched code, and `full_auto.never_approve` entries
 
+The built-in force-push pin treats `write` and `edit` payloads as file data.
+Protected file paths and custom `approval.pinned_red` rules still apply.
+
 Fetched-code review recognizes bounded JSON, read-only ElementTree XML and
 BeautifulSoup HTML readers, and Pillow image open/thumbnail/save operations.
 HTML certification requires a literal installed HTML builder (`html.parser`,
