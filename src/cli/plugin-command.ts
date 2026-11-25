@@ -14,9 +14,9 @@ import type {
 } from '../plugins/plugin-install.js';
 import {
   formatDependencyPlanDetails,
-  isPluginNpmInstallApprovalRequiredError,
   listInstallablePlugins,
 } from '../plugins/plugin-install.js';
+import { isPluginNpmInstallApprovalRequiredError } from '../plugins/plugin-source.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printPluginUsage } from './help.js';
 
