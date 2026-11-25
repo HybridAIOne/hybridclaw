@@ -42,7 +42,11 @@ globalThis.fetch = async (input, init) => {
     assert.ok(state && state !== '/tmp_workspace');
     assert.ok(fs.existsSync(state + '/SOUL.md'));
     assert.equal(process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT, '/tmp_workspace');
-    if (process.env.HYBRIDCLAW_CHECK_APPROVAL === '1') {
+    if (
+      process.env.HYBRIDCLAW_CHECK_APPROVAL === '1' &&
+      !fs.existsSync('/tmp/fixture-approval-requested')
+    ) {
+      fs.writeFileSync('/tmp/fixture-approval-requested', 'requested');
       message = {
         role: 'assistant',
         content: null,
@@ -59,6 +63,10 @@ globalThis.fetch = async (input, init) => {
       };
       finish = 'tool_calls';
     } else if (!fs.existsSync('/tmp_workspace/results/fixture.txt')) {
+      assert.ok(
+        !JSON.stringify(body.messages).includes('fixture-private-value'),
+      );
+      assert.ok(JSON.stringify(body.messages).includes('Fixture prompt'));
       message = {
         role: 'assistant',
         content: null,

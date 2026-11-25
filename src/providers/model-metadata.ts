@@ -1,3 +1,7 @@
+/**
+ * Discovery comes first; these facts fill gaps.
+ * This does not grant access.
+ */
 import { collectModelLookupCandidates } from './model-lookup.js';
 
 export interface ModelCapabilityFlags {
@@ -16,6 +20,8 @@ interface StaticModelMetadataEntry {
 
 const MODEL_METADATA_SOURCES = {
   openaiModels: 'https://developers.openai.com/api/docs/models',
+  nebius:
+    'https://nebius.com/services/token-factory/models/glm-models-inference',
   anthropicModels: 'https://docs.claude.com/claude/docs/models-overview',
 };
 
@@ -41,6 +47,12 @@ const coreModelCapabilities: ModelCapabilityFlags = {
 };
 
 const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
+  // 2026-11-25: catalog checked. Bare ids remain unknown.
+  'nebius/zai-org/glm-5.3': {
+    contextWindow: 1_048_576,
+    capabilities: { ...coreModelCapabilities, vision: false },
+    sources: [MODEL_METADATA_SOURCES.nebius],
+  },
   'gpt-4.1': {
     contextWindow: 1_047_576,
     capabilities: coreModelCapabilities,

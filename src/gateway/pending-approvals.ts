@@ -1,10 +1,12 @@
 /**
  * Gateway prompts move from pending to claimed to handed_off, or terminate
  * as expired/superseded. Every mutation checks the prompt and claim identity.
+ * Dispatch context is gateway-owned and survives a restart with its claim.
  * Handoff means accepted for processing; executable facts and consent scope
  * remain worker-owned. Button cleanup never controls durable state.
  */
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import {
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
@@ -15,6 +17,7 @@ import {
   type ApprovalPresentation,
   createApprovalPresentation,
 } from './approval-presentation.js';
+import type { GatewayChatRequest } from './gateway-types.js';
 
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 const APPROVAL_PROMPT_STATES = [
@@ -53,6 +56,15 @@ export interface PendingApprovalPrompt {
   userId: string;
   state: (typeof APPROVAL_PROMPT_STATES)[number];
   claimId: string;
+  /** Gateway-owned dispatch facts; never populated from an HTTP body. */
+  executionContext?: Pick<
+    GatewayChatRequest,
+    | 'executionSessionId'
+    | 'workspacePathOverride'
+    | 'workspaceDisplayRootOverride'
+    | 'autoApproveTools'
+    | 'executionDeadlineAtMs'
+  >;
   commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
   disableTimeout?: ReturnType<typeof setTimeout> | null;
@@ -97,9 +109,49 @@ function normalizeDurablePendingApproval(
     return null;
   }
 
+  const executionContext: PendingApprovalPrompt['executionContext'] = {};
+  if (raw.executionContext !== undefined) {
+    if (
+      !raw.executionContext ||
+      typeof raw.executionContext !== 'object' ||
+      Array.isArray(raw.executionContext)
+    )
+      return null;
+    const context = raw.executionContext as Record<string, unknown>;
+    for (const key of [
+      'workspacePathOverride',
+      'workspaceDisplayRootOverride',
+    ] as const) {
+      if (context[key] === undefined) continue;
+      if (typeof context[key] !== 'string' || !path.isAbsolute(context[key]))
+        return null;
+      executionContext[key] = context[key];
+    }
+    if (context.executionSessionId !== undefined) {
+      if (
+        typeof context.executionSessionId !== 'string' ||
+        !context.executionSessionId.trim()
+      )
+        return null;
+      executionContext.executionSessionId = context.executionSessionId;
+    }
+    if (context.autoApproveTools !== undefined) {
+      if (typeof context.autoApproveTools !== 'boolean') return null;
+      executionContext.autoApproveTools = context.autoApproveTools;
+    }
+    if (context.executionDeadlineAtMs !== undefined) {
+      if (
+        typeof context.executionDeadlineAtMs !== 'number' ||
+        !Number.isFinite(context.executionDeadlineAtMs)
+      )
+        return null;
+      executionContext.executionDeadlineAtMs = context.executionDeadlineAtMs;
+    }
+  }
   return {
     approvalId,
     prompt,
+    executionContext,
     presentation:
       raw.presentation &&
       typeof raw.presentation === 'object' &&
@@ -134,6 +186,7 @@ function serializePendingApproval(
     approvalId: entry.approvalId,
     prompt: entry.prompt,
     approval: entry.approval,
+    executionContext: entry.executionContext,
     presentation: entry.presentation ?? createApprovalPresentation('text'),
     createdAt: entry.createdAt,
     expiresAt: entry.expiresAt,

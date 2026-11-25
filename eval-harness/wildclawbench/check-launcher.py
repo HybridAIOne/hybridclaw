@@ -20,6 +20,8 @@ def main():
     spec.loader.exec_module(launcher)
     task = Path("/tmp_workspace")
     (task / "input.txt").write_text("Fixture input")
+    if os.environ.get("HYBRIDCLAW_CHECK_APPROVAL") == "1":
+        (task / ".env").write_text("fixture-private-value")
     os.environ["NODE_OPTIONS"] = "--import=/opt/wildclawbench/check-provider.mjs"
     sys.stdin = io.StringIO(json.dumps({
         "model": "openrouter/z-ai/glm-5", "prompt": "Fixture prompt", "timeout_seconds": 90,
@@ -37,15 +39,17 @@ def main():
     assert (state / ".hybridclaw").is_dir()
     result = json.loads((root / "completion.json").read_text())
     outcome = launcher.completion_outcome(result)
+    assert outcome["status"] == "completed", outcome
+    names = ["input.txt", "results"]
     if os.environ.get("HYBRIDCLAW_CHECK_APPROVAL") == "1":
-        assert outcome["status"] == "awaiting_approval", outcome
-        assert outcome["pending_approval"]["toolName"] == "read", outcome
-        assert sorted(p.name for p in task.iterdir()) == ["input.txt"]
-    else:
-        assert outcome["status"] == "completed", outcome
-        assert sorted(p.name for p in task.iterdir()) == ["input.txt", "results"]
-        assert (task / "results/fixture.txt").read_text() == "Fixture artifact"
-        assert result["choices"][0]["message"]["content"] == "Fixture response"
+        names.insert(0, ".env")
+        denials = json.loads((root / "data/gateway/approval-continuations.json").read_text())
+        assert len(denials) == 1 and denials[0]["decision"] == "no"
+        assert denials[0]["toolName"] == "read"
+        assert (task / ".env").read_text() == "fixture-private-value"
+    assert sorted(p.name for p in task.iterdir()) == names
+    assert (task / "results/fixture.txt").read_text() == "Fixture artifact"
+    assert result["choices"][0]["message"]["content"] == "Fixture response"
     worker_env = dict(os.environ, HYBRIDCLAW_AGENT_SANDBOX_MODE="host",
                       HYBRIDCLAW_AGENT_WORKSPACE_ROOT="/tmp_workspace")
     preload = "/opt/wildclawbench/workspace-display.mjs"

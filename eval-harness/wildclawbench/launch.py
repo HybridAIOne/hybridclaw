@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import signal
@@ -114,8 +115,43 @@ def main():
             data=json.dumps(completion_request(payload)).encode(),
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
         )
+        task_deadline = time.monotonic() + payload["timeout_seconds"]
+        request.add_header("X-HybridClaw-Timeout-Ms", str(payload["timeout_seconds"] * 1000))
         with urllib.request.urlopen(request, timeout=payload["timeout_seconds"]) as response:
+            session_id = response.headers.get("X-HybridClaw-Session-Id")
+            user_id = response.headers.get("X-HybridClaw-Session-Key")
             result = json.load(response)
+        denied = []
+        while completion_outcome(result)["status"] == "awaiting_approval":
+            approval = result["hybridclaw"]["pendingApproval"]
+            approval_id = approval["approvalId"]
+            if not session_id or not user_id or not re.fullmatch(r"[a-f0-9]{8}", approval_id):
+                raise RuntimeError("Cannot bind native approval denial to task session")
+            if approval_id in {item["approvalId"] for item in denied}:
+                raise RuntimeError("Gateway repeated a consumed approval")
+            remaining = task_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("WildClawBench task deadline reached")
+            # Noninteractive evaluation never grants protected actions. The native
+            # denial flow continues permitted work within the original deadline.
+            denied.append({"approvalId": approval_id, "toolName": approval.get("toolName"), "decision": "no"})
+            (root / "data/gateway/approval-continuations.json").write_text(json.dumps(denied, indent=2))
+            body = {"sessionId": session_id, "channelId": "openai", "userId": user_id,
+                    "agentId": "main", "model": model, "stream": False,
+                    "approval": {"approvalId": approval_id, "decision": "no"}}
+            effort = reasoning_effort(payload.get("thinking"))
+            if effort is not None:
+                body["reasoningEffort"] = effort
+            continuation = urllib.request.Request("http://127.0.0.1:9090/api/chat",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            with urllib.request.urlopen(continuation, timeout=remaining) as response:
+                native = json.load(response)
+            if native.get("status") != "success":
+                raise RuntimeError("Native denial continuation failed")
+            extension = {"pendingApproval": native["pendingApproval"]} if native.get("pendingApproval") else {}
+            result = {"choices": [{"message": {"role": "assistant", "content": native.get("result")}}],
+                      "hybridclaw": extension}
         (root / "completion.json").write_text(json.dumps(result))
     finally:
         stop()

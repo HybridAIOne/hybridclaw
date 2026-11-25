@@ -8,6 +8,7 @@ import type { ApprovalReplyContext } from '@hybridclaw/contracts/agent-io';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { isGoalContinuationSource } from '../goals/goal-runtime.js';
 import type { ContainerOutput } from '../types/container.js';
+import { approvalAnswerText } from './approval-answer.js';
 import type {
   GatewayChatApprovalEvent,
   GatewayChatRequest,
@@ -73,7 +74,7 @@ export function extractGatewayChatApprovalEvent(
   };
 }
 
-/** Background prompts and model-derived consults cannot manufacture user consent. */
+/** Background prompts cannot grant consent; a structured denial can only cancel. */
 export function approvalReplyContext(
   req: GatewayChatRequest,
   userText: string,
@@ -86,11 +87,14 @@ export function approvalReplyContext(
   return {
     approvalUserId: req.userId,
     ...(req.approvalUserIsBot ? { approvalUserIsBot: true } : {}),
-    approvalUserText: autonomous
-      ? null
-      : req.approvalUserText === undefined
-        ? userText
-        : req.approvalUserText,
+    approvalUserText:
+      req.approval?.decision === 'no'
+        ? approvalAnswerText(req.approval)
+        : autonomous
+          ? null
+          : req.approvalUserText === undefined
+            ? userText
+            : req.approvalUserText,
   };
 }
 
