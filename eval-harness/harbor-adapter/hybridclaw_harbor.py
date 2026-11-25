@@ -201,7 +201,7 @@ class HybridClaw(BaseAgent):
                     "> /tmp/hybridclaw-process.log 2>&1"
                 ),
                 env={
-                    "PATH": "/opt/hybridclaw-node/bin:/usr/local/bin:/usr/bin:/bin",
+                    "PATH": "/opt/hybridclaw-node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                     "HYBRIDCLAW_DATA_DIR": STATE_DIR,
                 },
             )

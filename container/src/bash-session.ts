@@ -78,10 +78,10 @@ ${readStdinField('__hybridclaw_default_cwd')}
 ${RESTORE_WORKER_PATH}
 ${readStdinField('__hybridclaw_command')}
 __hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
-umask 077
-mkdir -p -- "$__hybridclaw_session_dir" || exit 125
+(umask 077; mkdir -p -- "$__hybridclaw_session_dir") || exit 125
 chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
-__hybridclaw_write_snapshot() {
+__hybridclaw_write_snapshot() (
+  umask 077
   {
     export -p | grep -vE '^declare -x (${SHELL_RUNTIME_ENV_NAMES.join('|')})(=|$)'
     alias -p
@@ -90,7 +90,7 @@ __hybridclaw_write_snapshot() {
     echo 'set +u'
   } > "$__hybridclaw_snapshot_tmp" &&
     mv -f -- "$__hybridclaw_snapshot_tmp" "$__hybridclaw_snapshot"
-}
+)
 if [ -f "$__hybridclaw_snapshot" ]; then
   source "$__hybridclaw_snapshot" 2>/dev/null || true
 else

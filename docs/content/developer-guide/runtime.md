@@ -625,6 +625,8 @@ Active command handles and process-group identities live in worker memory and
 are discarded after the command finishes. Persistent shell snapshots and fresh
 credential delivery follow the persistence boundaries below. Cancellation can
 stop the wrapper before it saves changes made by that command to shell state.
+Task commands inherit the shell's file creation mask. The shell state directory
+and snapshot are private, with modes `0700` and `0600` respectively.
 
 ### Persistence Boundaries
 

@@ -233,6 +233,8 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(uploaded["instruction"], "do the task")
         _, env = environment.commands[0]
         self.assertEqual(env["HYBRIDCLAW_DATA_DIR"], hybridclaw_harbor.STATE_DIR)
+        self.assertIn("/usr/sbin", env["PATH"].split(":"))
+        self.assertIn("/sbin", env["PATH"].split(":"))
         self.assertEqual(
             (context.n_input_tokens, context.n_output_tokens, context.n_cache_tokens),
             (11, 7, 3),
