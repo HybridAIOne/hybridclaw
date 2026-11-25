@@ -12405,6 +12405,31 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('allows bearer-token auth for SSE admin events on a non-loopback host', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/events',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe(
+      'text/event-stream; charset=utf-8',
+    );
+    expect(res.body).toContain('event: overview');
+    expect(res.body).toContain('event: status');
+  });
+
   test('allows signed session cookie auth for SSE admin events', async () => {
     const authSecret = 'sse-session-auth-secret';
     const state = await importFreshHealth({
