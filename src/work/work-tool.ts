@@ -4,6 +4,7 @@
  * Models cannot write completion, delivery, or seen receipts.
  */
 import type { ToolErrorCode } from '@hybridclaw/contracts/tool-error-code';
+import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { getSessionById } from '../memory/db.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -121,6 +122,14 @@ export function runWorkTool(body: unknown): {
     };
   }
 }
-export function workPrompt(prompt: string): string {
-  return `${prompt}\n\nBefore suggesting or preparing something, use work(record) to save the concrete reason and the supporting evidence you actually read (source identifiers or URLs plus a short factual summary). Do this before taking the action. One work id links this run, its action receipts, prepared files, chat reply and alert. Do not invent evidence. If no evidence is available, record an empty evidence list and state the gap in the reason. When asked why a suggestion was made, use work(get) or work(list) and explain the recorded reason; say when it was not recorded. A completed run, a saved reply, an attempted notification, transport acceptance and the user seeing it are separate facts.`;
+export function workPrompt(prompt: string, noticeEvidence = false): string {
+  const evidenceRule = noticeEvidence
+    ? 'Record work only after verifying a reportable new event in this run. Put the evidence for that event first. ' +
+      'For email use mail:<provider>:<account-id>:<immutable-message-id> as the reference. Use the same lowercase ' +
+      'provider and stable mailbox identity across watches (the primary address if the connector uses that as its identity). ' +
+      'Use the immutable ID returned by the source, not a thread ID, subject, folder or date. Use the original mail ' +
+      'as the primary evidence when other findings merely add context. For a non-mail event use event:<source-reference>. ' +
+      `Never guess a missing reference. If nothing qualifies, leave the work unrecorded and return only ${SILENT_REPLY_TOKEN}.`
+    : 'If no evidence is available, record an empty evidence list and state the gap in the reason.';
+  return `${prompt}\n\nBefore suggesting or preparing something, use work(record) to save the concrete reason and the supporting evidence you actually read (source identifiers or URLs plus a short factual summary). Do this before taking the action. One work id links this run, its action receipts, prepared files, chat reply and alert. Do not invent evidence. ${evidenceRule} When asked why a suggestion was made, use work(get) or work(list) and explain the recorded reason; say when it was not recorded. A completed run, a saved reply, an attempted notification, transport acceptance and the user seeing it are separate facts.`;
 }

@@ -20,6 +20,7 @@ export interface WorkRecord {
   originSessionId?: string;
   taskId: number | null;
   trackedItem?: { scope: string; id: number };
+  noticeEvidence?: true;
   startedAt: string;
   completedAt: string | null;
   failedAt: string | null;
@@ -83,6 +84,7 @@ export function startWork(
     | 'runSessionId'
     | 'taskId'
     | 'trackedItem'
+    | 'noticeEvidence'
   >,
 ): void {
   const work: WorkRecord = {

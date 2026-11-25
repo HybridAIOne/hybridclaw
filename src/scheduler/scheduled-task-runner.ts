@@ -154,7 +154,17 @@ export async function runIsolatedScheduledTask(params: {
   const taskPrompt = params.approver
     ? storedPrompt
     : trackedTaskPrompt(taskId, storedPrompt);
-  const prompt = owner ? workPrompt(taskPrompt) : taskPrompt;
+  const noticePrompt = task?.event_parent_id
+    ? getJob(task.event_parent_id, { kind: 'scheduled_task' })?.prompt
+    : task?.prompt;
+  // An opt-in policy can be woken by a connector event as well as by cron.
+  const noticeEvidence = Boolean(
+    !params.approver &&
+      channelId === 'web' &&
+      task?.reply_only &&
+      /^\[[^\]\r\n]+\] \[notice-evidence\](?:\s|$)/.test(noticePrompt ?? ''),
+  );
+  const prompt = owner ? workPrompt(taskPrompt, noticeEvidence) : taskPrompt;
   const trackedItem = trackedOwningTask(taskId);
   startWork({
     id: runId,
@@ -169,6 +179,7 @@ export async function runIsolatedScheduledTask(params: {
     sessionId: params.originSessionId ?? sessionId ?? activeSessionId,
     runSessionId: activeSessionId,
     taskId: taskId > 0 ? taskId : null,
+    ...(noticeEvidence ? { noticeEvidence: true } : {}),
   });
   // A task made in a scoped chat runs in its scope, with the scope's limits.
   const scopeRun = await resolveScopeRun(taskSession, agentId);
