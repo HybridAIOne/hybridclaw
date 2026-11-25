@@ -260,3 +260,9 @@ Pending approvals retain partial-artifact grading, elapsed time and billing.
 Usage includes `execution_status`; exports count `approval_blocked` separately
 from infrastructure failures, preserving the official score and 60-task denominator.
 The adapter never approves a blocked call automatically.
+
+Noninteractive runs answer native protected-action approvals with a structured
+`no`, then continue the original task in the same execution context and deadline.
+The adapter records these denials in the gateway evidence directory. It never
+grants an approval. Repeated approval IDs, missing session identity and
+non-native approval types stop the launcher.
