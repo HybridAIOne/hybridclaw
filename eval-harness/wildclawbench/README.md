@@ -124,6 +124,11 @@ mean its parent account has funded credit.
 
 ## Smoke and full runs
 
+The [GLM-5.3/Nebius smoke report](smoke-results-glm53-nebius.json) records
+calibration and holdout attempts with scores, time, cost and execution status.
+It retains approval stops and incomplete billing; the smoke sample is not a
+full-suite score or a passing readiness gate.
+
 The planned smoke set uses three categories on GLM 5. Run each once, inspect
 `agent.log`, `chat.jsonl`, `score.json`, `usage.json`, `execution.json`, and
 `openrouter-generations.json`, and check that billing is complete. Each task
