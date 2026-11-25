@@ -3744,7 +3744,7 @@ async function executeToolInternal(
         lines.push('Source content was truncated; this result is incomplete.');
       if (result.escalationHint === 'bot_blocked') {
         lines.push(
-          'Escalation hint: bot_blocked (access denied or a challenge; browser rendering may not resolve it).',
+          `Escalation hint: bot_blocked (access denied or a challenge; browser rendering may not resolve it, and other pages on ${new URL(result.finalUrl).hostname} are likely blocked too).`,
         );
       } else if (result.escalationHint) {
         lines.push(
@@ -3789,6 +3789,8 @@ async function executeToolInternal(
       const output = `${lines.join('\n')}\n\n${header}${outputText}`;
       if (isHttpError)
         return failTool(output, httpStatusErrorCode(result.status));
+      // A 200 challenge page is not the page either.
+      if (result.escalationHint === 'bot_blocked') return failTool(output);
       return output;
     }
 

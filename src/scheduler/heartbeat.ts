@@ -191,7 +191,7 @@ export function startHeartbeat(
         channelId,
         agentId,
       );
-      turnIndex = session.message_count + 1;
+      turnIndex = (session.messages_written ?? session.message_count) + 1;
 
       const history = memoryService.getConversationHistory(
         sessionId,

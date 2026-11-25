@@ -316,6 +316,9 @@ describe('database session integration', () => {
       'Summary of 20 older messages.',
     );
     expect(updatedSession.compaction_count).toBeGreaterThanOrEqual(1);
+    // Turn numbers come from messages_written, which compaction keeps.
+    expect(updatedSession.message_count).toBe(5);
+    expect(updatedSession.messages_written).toBe(25);
   });
 
   it('forkSessionBranch creates a new session with copied messages', () => {
@@ -339,6 +342,7 @@ describe('database session integration', () => {
     expect(forkResult.session).toBeDefined();
     expect(forkResult.session.id).not.toBe(session.id);
     expect(forkResult.copiedMessageCount).toBe(6);
+    expect(getSessionById(forkResult.session.id)?.messages_written).toBe(6);
 
     // Verify fork has the copied messages.
     const forkHistory = getConversationHistory(forkResult.session.id, 100);

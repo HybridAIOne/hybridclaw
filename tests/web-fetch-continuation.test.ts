@@ -29,10 +29,22 @@ test('a real access challenge does not prescribe another retrieval', async () =>
   const fetchMock = vi.fn(async () => htmlResponse('<html><body><h1>Verification required</h1><p>Complete the CAPTCHA to continue.</p></body></html>'));
   vi.stubGlobal('fetch', fetchMock);
   try {
-    const { executeTool } = await import('../container/src/tools.js');
-    const output = await executeTool('web_fetch', JSON.stringify({ url }));
+    const { executeToolWithMetadata } = await import('../container/src/tools.js');
+    const { output, isError } = await executeToolWithMetadata('web_fetch', JSON.stringify({ url }));
+    expect(isError).toBe(true);
     expect(output).toContain('bot_blocked');
     expect(output).not.toContain('Next retrieval:');
     expect(fetchMock).toHaveBeenCalledOnce();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+test('an HTTP error page is a failed fetch', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('<html><title>Just a moment...</title></html>', { status: 403, headers: { 'Content-Type': 'text/html' } })));
+  try {
+    const { executeToolWithMetadata } = await import('../container/src/tools.js');
+    const { output, isError } = await executeToolWithMetadata('web_fetch', JSON.stringify({ url }));
+    expect(isError).toBe(true);
+    expect(output).toContain('(403,');
+    expect(output).toContain('other pages on 93.184.216.34 are likely blocked too');
   } finally { vi.unstubAllGlobals(); }
 });

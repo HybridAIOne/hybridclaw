@@ -1395,7 +1395,7 @@ async function handleGatewayMessageInner(
       onProactiveMessage: req.onProactiveMessage ?? null,
     });
   }
-  const turnIndex = session.message_count + 1;
+  const turnIndex = (session.messages_written ?? session.message_count) + 1;
   if (turnIndex === 1 && !req.dryRun) {
     if (pluginManager) {
       await pluginManager.notifySessionStart({

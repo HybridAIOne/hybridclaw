@@ -20,6 +20,8 @@ export interface Session {
   model: string | null;
   enable_rag: number;
   message_count: number;
+  /** Messages ever written; unlike message_count, compaction doesn't lower it. */
+  messages_written?: number;
   session_summary: string | null;
   summary_updated_at: string | null;
   compaction_count: number;

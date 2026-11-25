@@ -188,6 +188,7 @@ function buildStructuredSystemPrompt(params: {
     stageDirective,
     IDENTIFIER_PRESERVATION_INSTRUCTIONS,
     'Keep durable facts, active work state, decisions, constraints, and open follow-ups.',
+    'Key Decisions and Constraints hold only what the user decided or asked for. Put your own caveats, failed lookups and missing data under Progress or Next Steps as what is still missing, never as a rule against answering, and drop them once later messages supply that data.',
     'Drop greetings, filler, and low-value repetition.',
     `Keep the result under approximately ${params.targetTokens} tokens.`,
     'Return markdown only with these exact sections:',

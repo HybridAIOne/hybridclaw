@@ -716,6 +716,11 @@ export function forkSessionBranch(
       );
     getSessionDatabase()
       .prepare(
+        'UPDATE sessions SET messages_written = message_count WHERE id = ?',
+      )
+      .run(nextSessionId);
+    getSessionDatabase()
+      .prepare(
         `INSERT INTO session_branches (
          session_id,
          parent_session_id,
@@ -1668,7 +1673,7 @@ export function clearSessionHistory(sessionId: string): number {
     .run(resolvedSessionId);
   getSessionDatabase()
     .prepare(
-      'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
+      'UPDATE sessions SET message_count = 0, messages_written = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
     )
     .run(resolvedSessionId);
   return result.changes;

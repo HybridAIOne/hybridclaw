@@ -190,7 +190,7 @@ export async function runPreCompactionMemoryFlush(params: {
     "IMPORTANT: Append new content only to today's daily memory note. Do not write or rewrite MEMORY.md in this pass.",
     'Capture only stable, durable facts, preferences, and decisions worth preserving after compaction.',
     'Use memory action=append and report success only after it succeeds. If there is nothing worth saving, reply MEMORY_FLUSH_SKIPPED.',
-    'Preserve complete durable preferences and recurring-task requirements, including selection criteria, exclusions, source lists, and output formats. Do not turn transient execution failures or time-sensitive task results into durable preferences.',
+    'Preserve complete durable preferences and recurring-task requirements, including selection criteria, exclusions, source lists, and output formats. Do not turn transient execution failures, failed lookups or missing data into durable preferences or into rules for later turns; note what was missing as a dated observation instead.',
     'Read today’s note before appending to avoid saving the same facts again. Excerpts may continue across maintenance batches; preserve partial instructions for the next batch rather than discarding them.',
     '',
     `Current time: ${now.toISOString()}`,

@@ -94,6 +94,20 @@ and whenever they ask what something costs.
    months of transactions. A payee with a similar amount every month, quarter
    or year is a subscription. Look through PayPal bookings ("PayPal Europe …
    Netflix") to the real merchant.
+
+For the bills of one merchant ("check my bills from X"):
+
+- Search every connected mailbox and the bank connector in one response, not
+  one at a time.
+- Search the subject for the merchant (`subject:X`), not a bare word: a bare
+  word also matches newsletters and unrelated mail. Payment services name the
+  merchant in the subject ("Beleg für Ihre Zahlung an …").
+- Merchants bill under changing names: a legal entity, a country company, an
+  old brand. When the hits are few or old, search again for the other names
+  you saw in them, and ask the user what the receipts are called before you
+  conclude there are none.
+- Open only the receipts in the period you compare; the list already shows
+  sender, subject and date.
 3. Write each one to `money/subscriptions.md`: name, amount, cycle, cost per
    year, next renewal, when it can end and by when to cancel, how to cancel,
    where you saw it.

@@ -253,7 +253,7 @@ export function storeMessage(
 
     getMessageDatabase()
       .prepare(
-        "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
+        "UPDATE sessions SET message_count = message_count + 1, messages_written = messages_written + 1, last_active = datetime('now') WHERE id = ?",
       )
       .run(resolvedSessionId);
 

@@ -86,15 +86,18 @@ describe('provider tool-count cap', () => {
     { provider: 'openai', reviewedRead: false },
     { provider: 'hybridai', reviewedRead: false },
     { provider: undefined, reviewedRead: true },
-  ] as const)('defers every MCP tool when %j would exceed the cap', ({
+  ] as const)('defers only the last-listed MCP tools when %j would exceed the cap', ({
     provider,
     reviewedRead,
   }) => {
     const result = plan(provider, 40, 140, reviewedRead);
-    expect(result.limit).toBeDefined();
-    expect(result.deferred).toHaveLength(140);
+    expect(result.limit).toBe(128);
+    // 40 built-ins + tool_catalog leave room for the first 87 MCP tools.
+    expect(result.deferred).toHaveLength(53);
+    expect(result.deferred[0]).toBe('srv__tool_87');
+    expect(result.exposed).toContain('srv__tool_86');
     expect(result.exposed).toContain('tool_catalog');
-    expect(result.exposed.length).toBeLessThanOrEqual(result.limit ?? 0);
+    expect(result.exposed).toHaveLength(128);
     expect(result.failure).toBeNull();
   });
 

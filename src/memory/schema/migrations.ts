@@ -34,7 +34,7 @@ import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createProactiveClaimSchema } from '../proactive-queue-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 81;
+export const DATABASE_SCHEMA_VERSION = 82;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -976,6 +976,7 @@ function migrateV1(database: Database.Database): void {
       model TEXT,
       enable_rag INTEGER DEFAULT 1,
       message_count INTEGER DEFAULT 0,
+      messages_written INTEGER NOT NULL DEFAULT 0,
       session_summary TEXT,
       summary_updated_at TEXT,
       compaction_count INTEGER DEFAULT 0,
@@ -4080,6 +4081,25 @@ export function runMigrations(
       81,
       'Lease proactive pulls until client acknowledgement',
     );
+  }
+  if (currentVersion < 82) {
+    // Compaction deletes messages and recounts message_count, so a turn
+    // number derived from it repeats; this one only grows.
+    if (tableExists(database, 'sessions')) {
+      addColumnIfMissing({
+        database,
+        table: 'sessions',
+        column: 'messages_written',
+        ddl: 'messages_written INTEGER NOT NULL DEFAULT 0',
+        quiet,
+      });
+      if (columnExists(database, 'sessions', 'message_count')) {
+        database.exec(
+          'UPDATE sessions SET messages_written = COALESCE(message_count, 0)',
+        );
+      }
+    }
+    recordMigration(database, 82, 'Count messages written per session');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

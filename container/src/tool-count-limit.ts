@@ -2,8 +2,9 @@
  * Provider tool-count caps: the one place a provider's maximum `tools` array
  * length is defined.
  *
- * Over the cap, every MCP tool joins the deferred set that `tool-catalog.ts`
- * keeps behind `tool_catalog`; this module widens that set, it is not a second
+ * Over the cap, the last-listed MCP tools join the deferred set that
+ * `tool-catalog.ts` keeps behind `tool_catalog`, just enough to fit; servers
+ * list their most-used tools first. This module widens that set, it is not a second
  * deferral mechanism. A request still over the cap after deferral fails before
  * it is sent, since the provider would reject it on every attempt. Providers
  * without a documented cap are never capped.
@@ -34,8 +35,8 @@ export function resolveToolCountLimit(
 }
 
 /**
- * `deferred`, plus every MCP tool in `tools` when the tools left exposed
- * (and `tool_catalog` itself) would exceed `limit`.
+ * `deferred`, plus the last-listed exposed MCP tools of `tools` needed to keep
+ * the tools left exposed (and `tool_catalog` itself) within `limit`.
  */
 export function deferMcpToolsOverLimit(
   tools: ToolDefinition[],
@@ -49,7 +50,9 @@ export function deferMcpToolsOverLimit(
   const catalog = exposed.length < tools.length ? 1 : 0;
   if (exposed.length + catalog <= limit) return deferred;
   const exposedNames = new Set(exposed.map((tool) => tool.function.name));
-  const added = mcpToolNames.filter((name) => exposedNames.has(name));
+  const exposedMcp = mcpToolNames.filter((name) => exposedNames.has(name));
+  const excess = exposed.length + 1 - limit;
+  const added = exposedMcp.slice(Math.max(0, exposedMcp.length - excess));
   if (added.length === 0) return deferred;
   console.error(
     `[tools] ${tools.length} tools exceed the provider limit of ${limit}; deferring ${added.length} more MCP tools behind tool_catalog`,
