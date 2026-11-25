@@ -19,6 +19,7 @@ const dataDir = process.env.HYBRIDCLAW_DATA_DIR;
 if (!['/opt/hybridclaw-check', '/opt/hybridclaw-state'].includes(dataDir))
   throw new Error('The adapter requires its isolated runtime directory');
 process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+process.env.HYBRIDCLAW_AGENT_DEDICATED_CGROUP = '1';
 
 const trace = (type, value) => {
   if (!check)
@@ -102,7 +103,7 @@ try {
     channelId: 'cli',
     userId: 'harbor',
     username: 'harbor',
-    content: run.instruction,
+    content: `Carry out the task using the available tools in this isolated Harbor sandbox. Harbor verifies the sandbox state after your turn.\n\n${run.instruction}`,
     agentId: 'main',
     model,
     reasoningEffort: 'none',

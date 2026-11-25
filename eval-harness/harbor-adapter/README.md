@@ -22,6 +22,8 @@ OpenEnv 0.7.0.
 - `task-runner.mjs` starts the gateway with a host-mode worker in the task's
   working directory. It configures one vLLM endpoint from the adapter's
   `intercept_config`, auto-approves tools and turns thinking off.
+  In a task sandbox with cgroup v2 memory counters, a new out-of-memory kill
+  interrupts an active shell call and reports the memory failure to the agent.
 - Running `hybridclaw_harbor.py` as a script registers the seam and then hands
   over to the stock `openenv` CLI.
 

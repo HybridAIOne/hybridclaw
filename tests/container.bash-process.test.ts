@@ -8,6 +8,7 @@ const makeTempDir = useTempDir('hc-bash-process-');
 let shell: typeof import('../container/src/bash-process.js') | undefined;
 useCleanMocks({
   resetModules: true,
+  restoreAllMocks: true,
   unstubAllEnvs: true,
   cleanup: async () => {
     await shell?.cancelBashProcesses();
@@ -40,6 +41,38 @@ test('timeout kills TERM-resistant descendants and retains partial output', asyn
       Number(fs.readFileSync(path.join(dir, file), 'utf8')),
     );
   }
+});
+
+test('a new sandbox OOM kill interrupts an active command', async () => {
+  const { run } = await runtime();
+  vi.stubEnv('HYBRIDCLAW_AGENT_DEDICATED_CGROUP', '1');
+  let kills = 1;
+  const readFile = fs.readFileSync;
+  vi.spyOn(fs, 'readFileSync').mockImplementation((file, options) =>
+    file === '/sys/fs/cgroup/memory.events'
+      ? `low 0\noom_kill ${kills}\n`
+      : readFile(file, options),
+  );
+  const resultPromise = run('printf partial; sleep 30', 3_000);
+  kills += 1;
+  const result = await resultPromise;
+  expect(result.error?.message).toContain('out-of-memory kill');
+  expect(result.stdout).toBe('partial');
+  expect(await run('printf recovered')).toMatchObject({
+    error: undefined,
+    status: 0,
+    stdout: 'recovered',
+  });
+});
+
+test('ignores cgroup counters when the worker does not own the sandbox', async () => {
+  const { run } = await runtime();
+  vi.stubEnv('HYBRIDCLAW_AGENT_DEDICATED_CGROUP', '');
+  const readFile = vi.spyOn(fs, 'readFileSync');
+  expect(await run('true')).toMatchObject({ status: 0, error: undefined });
+  expect(readFile.mock.calls.map(([file]) => file)).not.toContain(
+    '/sys/fs/cgroup/memory.events',
+  );
 });
 
 test('shutdown cancels every active process group and is idempotent', async () => {
