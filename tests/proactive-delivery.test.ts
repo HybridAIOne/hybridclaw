@@ -54,12 +54,19 @@ describe('proactive delivery helpers', () => {
       true,
     );
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
+    // Teams is delivered from validated schedules and the queue, but a route,
+    // escalation, or tool can never name it.
     expect(isSupportedProactiveChannelId('19:conversation@thread.tacv2')).toBe(
-      true,
+      false,
     );
-    // `web` is a dispatch-only target, never an escalation or message-tool queue.
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: '19:conversation@thread.tacv2',
+      }),
+    ).toBe(true);
+    // `web` is dispatch-only: never named by a route and never flushed from the queue.
     expect(isSupportedProactiveChannelId('web')).toBe(false);
-    expect(hasQueuedProactiveDeliveryPath({ channel_id: 'web' })).toBe(true);
+    expect(hasQueuedProactiveDeliveryPath({ channel_id: 'web' })).toBe(false);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
     expect(isSupportedProactiveChannelId('a2a')).toBe(false);
     expect(isSupportedProactiveChannelId('a2a:peer-1')).toBe(false);
@@ -87,7 +94,7 @@ describe('proactive delivery helpers', () => {
       hasImmediateProactiveDeliveryPath({
         channel_id: 'web',
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       hasImmediateProactiveDeliveryPath({

@@ -73,3 +73,27 @@ test('a bare web target lands in the default agent main chat with a live notific
   expect(sse.chunks.join('')).toContain(main.id);
   closeWebNotificationStreams();
 });
+
+test('a queued web row is never flushed into the default agent main chat', async () => {
+  setupHome();
+  const db = await import('../src/memory/db.ts');
+  const { flushQueuedProactiveMessages } = await import(
+    '../src/gateway/proactive-queue-flush.ts'
+  );
+  db.initDatabase({ quiet: true });
+  const main = db.getOrCreateSession(
+    `main-${'ab'.repeat(16)}-main`,
+    null,
+    'web',
+    'main',
+  );
+  // Full-auto, delegation, and goal fallbacks queue the session's channel, so a
+  // `web` row may come from any agent's chat and carries no chat to return to.
+  db.enqueueProactiveMessage('web', 'Another agent chat output', 'fullauto', 100);
+
+  await flushQueuedProactiveMessages();
+
+  expect(db.getRecentMessages(main.id)).toEqual([]);
+  expect(db.getQueuedProactiveMessageCount()).toBe(0);
+  expect(db.getFailedProactiveMessageCount()).toBe(1);
+});

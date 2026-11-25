@@ -15,7 +15,6 @@
  */
 
 import { isValidTimezone } from '@hybridclaw/shared/workspace-time';
-import { getChannelDescriptorForTarget } from '../channels/channel-descriptors.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import { getSessionById } from '../memory/db.js';
@@ -36,6 +35,7 @@ import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { isA2ADeliveryTarget } from './proactive-delivery.js';
 import {
+  assertOwnTeamsTarget,
   canManageScheduledTask,
   listManageableScheduledTasks,
 } from './scheduled-task-access.js';
@@ -191,16 +191,7 @@ function validateScheduledTaskFields(
       'A2A targets do not support proactive scheduled delivery. Specify a supported delivery channel target instead.',
     );
   }
-  // Like the message tool, a turn may only post into its own Teams chat.
-  if (
-    getChannelDescriptorForTarget(fields.channelId)?.kind === 'msteams' &&
-    fields.channelId !== session.channel_id
-  ) {
-    throw new GatewayRequestError(
-      403,
-      'A task may only deliver to the Teams conversation it was created in.',
-    );
-  }
+  assertOwnTeamsTarget(fields.channelId, session);
 }
 
 export function runScheduledTaskToolAction(

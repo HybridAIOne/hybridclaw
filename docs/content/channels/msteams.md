@@ -292,11 +292,12 @@ to Teams direct messages, group chats, and team channels.
 - **Team channels:** a target that names a team channel (without
   `;messageid=`) posts a new top-level message, reusing the reference stored
   from any thread in that channel.
-- **Agent-created tasks stay in their conversation.** A task the agent creates
-  with the `cron` tool can only deliver to the Teams conversation it was
-  created in, and the agent's `message` tool only sends to the current Teams
-  conversation. Admin scheduler jobs can target any conversation with a stored
-  reference.
+- **Agent-created tasks stay in their conversation.** A task or trigger the
+  agent creates with the `cron` or `trigger` tool can only deliver to the Teams
+  conversation it was created in, and the agent's `message` tool only sends to
+  the current Teams conversation. Escalation and browser-interaction notices
+  cannot name a Teams conversation. Admin scheduler jobs and the heartbeat
+  channel can target any conversation with a stored reference.
 - **Attachments** follow Teams bot file limits: personal chats use
   file-consent cards (with `"supportsFiles": true` in the Teams app manifest);
   team channels and group chats cannot receive bot file uploads, so the message

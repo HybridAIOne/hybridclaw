@@ -47,16 +47,13 @@ describe('proactive dispatch boundary', () => {
     expect(state.enqueue).not.toHaveBeenCalled();
   });
 
-  test('stores a bare web target in the default agent main chat and queues it outside active hours', async () => {
+  test.each([true, false])('stores a bare web target in the default agent main chat at once with active hours %s', async activeHours => {
+    state.activeHours = activeHours;
     expect(await deliverProactiveMessage('  web  ', 'hello web', 'heartbeat')).toMatchObject({ status: 'delivered' });
     expect(state.mainChat).toHaveBeenCalledWith('main');
     expect(state.deliverWeb).toHaveBeenCalledWith('main:main', 'hello web', 'heartbeat', undefined);
+    // A queued `web` row has no agent or chat, so web output is never queued.
     expect(state.enqueue).not.toHaveBeenCalled();
-
-    state.activeHours = false;
-    expect(await deliverProactiveMessage('web', 'later', 'schedule:1')).toMatchObject({ status: 'queued' });
-    expect(state.enqueue).toHaveBeenCalledWith('web', 'later', 'schedule:1', expect.any(Number));
-    expect(await sendProactiveMessageNow('web', 'now', 'schedule:1:queued')).toMatchObject({ status: 'delivered' });
   });
 
   test('fails a bare web target explicitly when the agent has no main chat', async () => {

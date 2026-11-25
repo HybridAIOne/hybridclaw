@@ -578,9 +578,9 @@ JSON for the app) reply in the chat that created them.
 
 Output sent to a bare `web` target that has no chat of its own (an admin
 scheduler job, heartbeat, or a recently used web channel) goes to the agent's
-main chat, or the default agent's for heartbeat and queued notices. Without a
-main chat the delivery fails with an explicit error; it is never posted into
-another web chat. A2A sessions cannot be a scheduling target: `/schedule add`,
+main chat (the default agent's for heartbeat), right away rather than queued
+outside active hours. Without a main chat the delivery fails with an explicit
+error; it is never posted into another web chat. A2A sessions cannot be a scheduling target: `/schedule add`,
 triggers, the `cron` tool, and admin jobs reject them.
 
 `--alert <kind>` (before the schedule) rings the creating operator's phones

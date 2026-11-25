@@ -49,7 +49,10 @@ describe('channel descriptors', () => {
     expect(getChannelDescriptorForTarget(padded)?.kind).toBe(kind);
     expect(resolveChannelTargetKind(padded)).toBe(kind);
     expect(getChannelByContextId(padded)?.kind).toBe(kind);
-    expect(isSupportedProactiveChannelId(padded)).toBe(proactive);
+    // Teams receives schedule and queue output only; a route cannot name it.
+    expect(isSupportedProactiveChannelId(padded)).toBe(
+      proactive && kind !== 'msteams',
+    );
     expect(hasImmediateProactiveDeliveryPath({ channel_id: padded })).toBe(proactive);
     expect(shouldDropQueuedProactiveMessage({ channel_id: padded, source: 'delegate' })).toBe(!proactive);
   });

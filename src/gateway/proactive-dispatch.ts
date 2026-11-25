@@ -1,7 +1,8 @@
 /**
  * Proactive dispatch validates destinations before sending or persisting a queue row.
- * Only the TUI uses local pull delivery; a bare `web` target is stored in the
- * default agent's main chat; unknown targets (including A2A) fail explicitly.
+ * Only the TUI uses local pull delivery; a bare `web` target is stored at once in
+ * the default agent's main chat and never queued; unknown targets (including
+ * A2A) fail explicitly.
  * Channel senders own transport details, not quiet-hour or A2A policy.
  */
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
@@ -65,6 +66,23 @@ async function dispatchProactiveMessage(
     return { status: 'suppressed', reason: 'Heartbeat OK' };
   }
 
+  // Chat history is the durable target, so web skips the active-hours queue
+  // like scheduled web output does (`gateway-scheduled-dispatch.ts`).
+  if (isWebProactiveTarget(channelId)) {
+    try {
+      const chat = agentMainChatForWebTarget(
+        resolveDefaultAgentId(getConfigSnapshot()),
+      );
+      return deliverWebScheduledMessage(chat.id, text, source, artifacts);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error },
+        'Proactive web delivery failed',
+      );
+      return proactiveDeliveryFailed(error);
+    }
+  }
+
   if (applyPolicy && !isWithinActiveHours()) {
     if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
       const { queued, dropped } = enqueueProactiveMessage(
@@ -97,21 +115,6 @@ async function dispatchProactiveMessage(
       'Proactive message suppressed (outside active hours)',
     );
     return { status: 'suppressed', reason: 'Outside active hours' };
-  }
-
-  if (isWebProactiveTarget(channelId)) {
-    try {
-      const chat = agentMainChatForWebTarget(
-        resolveDefaultAgentId(getConfigSnapshot()),
-      );
-      return deliverWebScheduledMessage(chat.id, text, source, artifacts);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error },
-        'Proactive web delivery failed',
-      );
-      return proactiveDeliveryFailed(error);
-    }
   }
 
   if (descriptor?.supportsProactive && descriptor.sendProactive) {
