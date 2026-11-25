@@ -102,6 +102,39 @@ describe('recursive search with explicit file operands', () => {
     }
   });
 
+  test('full-auto rejects a package directory walk without prompting for an optional diagnostic', () => {
+    const dir = fs.realpathSync(makeTempDir());
+    const pkg = path.join(dir, 'site-packages', 'example');
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, '.env'), 'TOKEN=test-key');
+    fs.symlinkSync(pkg, path.join(dir, 'site-packages', 'alias'));
+    const command = `grep -rn parameter ${pkg}/ | grep -v pyc | head`;
+    expect(evaluate(command)).toMatchObject({
+      actionKey: 'bash:grep-file-search', decision: 'denied', pinned: true,
+    });
+    for (const result of [
+      evaluate(command, 'ask'),
+      evaluate(command.replace('/example/', '/alias/')),
+      evaluate(`${command}; cat ${pkg}/.env`),
+    ]) {
+      expect(result).toMatchObject({ pinned: true, decision: 'required' });
+    }
+  });
+
+  test('pip config diagnostics can retry while standalone credential reads stay pinned', () => {
+    const command = 'pip config list 2>/dev/null; cat /etc/pip.conf 2>/dev/null; curl -sI https://pypi.org/simple/example/ | head -3';
+    expect(evaluate(command)).toMatchObject({
+      actionKey: 'bash:pip-config-diagnostic', decision: 'denied', pinned: true,
+    });
+    for (const result of [
+      evaluate(command, 'ask'),
+      evaluate('cat /etc/pip.conf'),
+      evaluate(`${command}; cat /etc/passwd`),
+    ]) {
+      expect(result).toMatchObject({ pinned: true, decision: 'required' });
+    }
+  });
+
   test.each([
     'grep -rn TODO DIR/missing/arguments.py | head',
     'grep -rn TODO DIR/*.js | head',
