@@ -3,10 +3,12 @@
  * Final answers take precedence over reasoning-only call recovery.
  * MLX streams keep thought observable; context budgets remain caller-owned.
  * Nebius and OpenRouter receive explicit effort in their native wire formats.
+ * Nebius tool-call reasoning replays unchanged only to its originating model.
  * Explicit vLLM Qwen effort `none` disables thinking on the wire.
  */
 
 import { createHash } from 'node:crypto';
+import { ProviderReasoningReplaySchema } from '@hybridclaw/contracts/agent-io';
 import { chatContentText } from '@hybridclaw/shared/message-text';
 import { resolveModelBehavior } from '@hybridclaw/shared/model-behavior';
 import { isRecord } from '@hybridclaw/shared/primitive-values';
@@ -290,9 +292,23 @@ function buildRequestMessages(
       content: normalizeMessageContent(message.content),
     }));
   }
+  const wireMessages = messages.map(
+    ({ provider_reasoning: replay, ...message }) => ({
+      ...message,
+      ...(message.role === 'assistant' &&
+      Array.isArray(message.tool_calls) &&
+      message.tool_calls.length > 0 &&
+      args.provider === 'nebius' &&
+      ProviderReasoningReplaySchema.check(replay) &&
+      replay.provider === args.provider &&
+      replay.model === args.model
+        ? { reasoning_content: replay.content }
+        : {}),
+    }),
+  );
   return isMistralCompatModel(args.provider, args.model)
-    ? sanitizeMistralToolCallIds(messages)
-    : messages;
+    ? sanitizeMistralToolCallIds(wireMessages)
+    : wireMessages;
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
@@ -431,6 +447,17 @@ function adaptLocalOpenAICompatResponse(
           role: message?.role || 'assistant',
           content,
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          ...(params.provider === 'nebius' &&
+          toolCalls.length > 0 &&
+          typeof message?.reasoning_content === 'string'
+            ? {
+                provider_reasoning: {
+                  provider: params.provider,
+                  model: params.model,
+                  content: message.reasoning_content,
+                },
+              }
+            : {}),
         },
         finish_reason: finishReason,
       },
@@ -775,10 +802,8 @@ export async function callLocalOpenAICompatProviderStream(
         {
           message: {
             role: state.role,
-            content: combineReasoningAndContent(
-              state.content || null,
-              state.reasoning || null,
-            ),
+            content: state.content || null,
+            ...(state.reasoning ? { reasoning_content: state.reasoning } : {}),
             ...(state.toolCalls.length > 0
               ? { tool_calls: state.toolCalls }
               : {}),
