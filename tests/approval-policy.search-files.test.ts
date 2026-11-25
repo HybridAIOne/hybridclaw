@@ -162,13 +162,17 @@ describe('recursive search with explicit file operands', () => {
     });
   });
 
-  test('a direct search can report a missing file without requesting walk approval', () => {
-    const dir = makeTempDir();
+  test('a later recursive search of a missing file must retry in full-auto', () => {
+    const dir = fs.realpathSync(makeTempDir());
     fs.writeFileSync(path.join(dir, 'model.py'), 'init\n');
     const batch = (flags: string) =>
       `grep -n init ${dir}/model.py | sed -n '1,60p'; echo ===; grep ${flags} 'unconstrain\\|init' ${dir}/services.py 2>/dev/null | head`;
 
     expect(evaluate(batch('-rn'))).toMatchObject({
+      actionKey: 'bash:grep-file-search',
+      decision: 'denied',
+    });
+    expect(evaluate(batch('-rn'), 'ask')).toMatchObject({
       actionKey: 'bash:recursive-read',
       decision: 'required',
     });
