@@ -9,38 +9,48 @@
   "dataset_commit": "75f945578aa00cbdb8f46e4d42e4f4e98f704b4f",
   "full_run_started": false,
   "ready_for_full_run": false,
-  "latest_selection": "Latest attempted result per task on the patched image, including failures; not best-of selection.",
-  "latest_smoke_attempt_ids": [3, 5, 6],
+  "latest_selection": "Latest attempt per task, including interrupted attempts. Artifact scores from budget-interrupted runs are provisional and excluded from valid score means.",
+  "latest_smoke_attempt_ids": [
+    3,
+    5,
+    7
+  ],
   "latest_smoke_totals": {
     "attempts": 3,
-    "wall_minutes": 10.913672339598998,
-    "average_wall_minutes_per_task": 3.6378907798663325,
-    "observed_cost_usd": 1.26199212,
-    "average_usd_per_task": 0.42066404,
-    "mean_score_percent": 65.09,
-    "accounting_complete": true
+    "scored_attempts": 2,
+    "wall_minutes": 19.317916102783055,
+    "average_wall_minutes_per_task": 6.4393053675943515,
+    "observed_cost_usd": 2.0701756800000024,
+    "average_usd_per_task": 0.6900585600000008,
+    "mean_score_percent": null,
+    "provisional_mean_artifact_score_percent": 88.45,
+    "accounting_complete": false
   },
   "all_attempt_totals": {
-    "attempts": 6,
-    "wall_minutes": 31.263804254866166,
-    "average_wall_minutes_per_task": 5.210634042477694,
-    "observed_cost_usd": 2.7369433,
-    "average_usd_per_task": 0.45615722,
-    "mean_score_percent": 49.211666666666666,
+    "attempts": 7,
+    "scored_attempts": 6,
+    "wall_minutes": 42.37122338888294,
+    "average_wall_minutes_per_task": 6.053031912697563,
+    "observed_cost_usd": 4.152206720000002,
+    "average_usd_per_task": 0.593172388571429,
+    "mean_score_percent": null,
+    "provisional_mean_artifact_score_percent": 52.19285714285714,
     "accounting_complete": false
   },
   "cost_basis": "Nebius reported tokens priced at list rates plus OpenRouter billed generation metadata. Observed costs exclude any unpriced requests; false accounting_complete marks incomplete billing.",
-  "source_note": "Live measurements used frozen 0.44.0 experiment images. The replay fix was subsequently applied to current main as PR #2342; current-main validation was offline/CI, not another live smoke run.",
+  "source_note": "The first six measurements used frozen 0.44.0 images. Attempt 7 used the 0.44.1 reasoning-replay source plus a recorded experimental approval-recovery patch. Each row records its actual image, source and patch hash. This is not a uniform-revision full run.",
   "fix_pr": "https://github.com/HybridAIOne/hybridclaw/pull/2342",
   "runtime_fix_pr_commit": "1e22dfce4df96b7acb127ba4b8233aba94c955f7",
   "qualifications": [
     "This is a three-task smoke sample, not a 60-task benchmark score or a model ranking.",
-    "All six attempts are retained; all-attempt means include repeated calendar calibration variants.",
-    "Task prompts, official per-task deadlines, graders and approval policy were unchanged.",
-    "Calendar and SCP used native helper defaults. The final BibTeX attempt configured nebius/zai-org/GLM-5.3-Flash for vision with a 32768-token ceiling, but never invoked it.",
     "A 100% artifact score does not imply completed execution: the patched calendar stopped at an approval prompt.",
-    "Two attempts have requests without usage. Their costs are observed minimum estimates, not settled totals.",
-    "Per-attempt source revisions, immutable image IDs and prompt hashes identify the exact experiment; these results do not represent a live run on the rebased PR head."
+    "Three attempts have requests without usage. Their costs are observed minimum estimates, not settled totals.",
+    "Per-attempt source revisions, immutable image IDs and prompt hashes identify the exact experiment; these results do not represent a live run on the rebased PR head.",
+    "All seven attempts are retained; attempt 7 is budget-interrupted and its artifact score is provisional.",
+    "The original prompts, dataset, graders and timeout ceilings are unchanged. Attempt 7 adds explicit denials of protected actions and native continuation; no protected action is auto-approved.",
+    "The latest three-task sample mixes runtime revisions. Its provisional artifact mean is not a 60-task score.",
+    "The Flash vision helper was successfully called once in attempt 7.",
+    "Attempt 7 was independently regraded with pristine inputs; all 21 renamed copies match source bytes, and all official grading criteria reproduce exactly."
   ],
   "attempts": [
     {
@@ -54,7 +64,7 @@
       "agent_seconds": 121.84693216701271,
       "observed_cost_usd": 0.2811685,
       "nebius_estimated_usd": 0.2811494,
-      "openrouter_billed_usd": 1.91e-5,
+      "openrouter_billed_usd": 1.91e-05,
       "accounting_complete": true,
       "requests_without_usage": 0,
       "blocker": "File-write conflict after a malformed revision hash; no result files.",
@@ -98,7 +108,7 @@
       "agent_seconds": 900,
       "observed_cost_usd": 0.5832233,
       "nebius_estimated_usd": 0.5832042,
-      "openrouter_billed_usd": 1.91e-5,
+      "openrouter_billed_usd": 1.91e-05,
       "accounting_complete": false,
       "requests_without_usage": 2,
       "blocker": "Original task deadline reached after outputs were written; a non-streaming request hit UND_ERR_HEADERS_TIMEOUT.",
@@ -147,7 +157,7 @@
       "agent_seconds": 106.6236190830241,
       "observed_cost_usd": 0.15667846,
       "nebius_estimated_usd": 0.15665936,
-      "openrouter_billed_usd": 1.91e-5,
+      "openrouter_billed_usd": 1.91e-05,
       "accounting_complete": true,
       "requests_without_usage": 0,
       "blocker": "Inline Node verification required approval after all scored outputs were written.",
@@ -196,7 +206,7 @@
       "agent_seconds": 145.50591537501896,
       "observed_cost_usd": 0.61055938,
       "nebius_estimated_usd": 0.61053908,
-      "openrouter_billed_usd": 2.03e-5,
+      "openrouter_billed_usd": 2.03e-05,
       "accounting_complete": false,
       "requests_without_usage": 4,
       "blocker": "Text-only primary rejected vision calls; credential-search diagnostics then required approval before outputs were written.",
@@ -240,7 +250,7 @@
       "agent_seconds": 362.4858084169682,
       "observed_cost_usd": 0.4982338,
       "nebius_estimated_usd": 0.4982038,
-      "openrouter_billed_usd": 3e-5,
+      "openrouter_billed_usd": 3e-05,
       "accounting_complete": true,
       "requests_without_usage": 0,
       "blocker": null,
@@ -298,7 +308,7 @@
       "agent_seconds": 151.61250916705467,
       "observed_cost_usd": 0.60707986,
       "nebius_estimated_usd": 0.60705916,
-      "openrouter_billed_usd": 2.07e-5,
+      "openrouter_billed_usd": 2.07e-05,
       "accounting_complete": true,
       "requests_without_usage": 0,
       "blocker": "Environment and /etc/hosts diagnostics required approval before outputs were written. The configured Flash vision helper was never called.",
@@ -338,6 +348,79 @@
           "cost_usd": 0.6070591600000002
         }
       }
+    },
+    {
+      "attempt": 7,
+      "variant": "bibtex_denial_recovery",
+      "task": "01_Productivity_Flow_task_3_bibtex",
+      "reasoning_effort": "high",
+      "execution_status": "failed",
+      "score": null,
+      "artifact_score": 0.7008,
+      "score_status": "provisional_budget_interruption",
+      "measurement_valid": false,
+      "wall_seconds": 666.4451480410062,
+      "agent_seconds": 650.4274206249975,
+      "observed_cost_usd": 1.4152634200000025,
+      "nebius_estimated_usd": 1.41524192,
+      "openrouter_billed_usd": 2.15e-05,
+      "accounting_complete": false,
+      "requests_without_usage": 4,
+      "blocker": "Spending guard interrupted the task after three HTTP 400 responses without usage and an additional in-flight request. The original 900-second ceiling was retained; the agent did not finish.",
+      "vision_helper_configured": "nebius/zai-org/GLM-5.3-Flash",
+      "vision_helper_called": true,
+      "denials_recorded": 5,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "67f76466342bdd38a8531d1cb22373aee51aec08",
+        "experiment_patch_sha256": "c868aa9940135c20c7ee54f641e771fee66a29e83d3e240466979dca013f2ab8",
+        "hybridclaw_version": "0.44.1",
+        "image_id": "sha256:0d210569e1b6208c6c2f547c14be246c57255645adc14631227522932a4c4464",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "auxiliary_vision_model": "nebius/zai-org/GLM-5.3-Flash",
+        "auxiliary_vision_max_tokens": 32768,
+        "timeout_seconds": 900,
+        "prompt_sha256": "e24d7c1f3c8519586cb1a44d8e936e0ff1454205c1b0a3fe48a9be44deff210f"
+      },
+      "artifact_reference": "output-bibtex-goal-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_3_bibtex/GLM-5.3_20261125_1419_8abd2b",
+      "evidence_sha256": {
+        "score.json": "91ac4929a49965f8f3cbae19d732f3f706b792e3d833b82306604fb3fad42bce",
+        "execution.json": "f63d7710cc5ee7da8d52e4637ae3064671d29b46d7e49edb14fd2029ff925354",
+        "usage.json": "37bbcd0f3421e06866d2a2ab6ffdc8c3bb83772b755e53791d4ad23298475c92",
+        "provenance.json": "b328c0ac151e15dd9fffdbe8e424e4815daaa6b430386340656d28dba9ac4229"
+      },
+      "nebius_per_model": {
+        "nebius/zai-org/GLM-5.3-Flash": {
+          "request_count": 1,
+          "cost_usd": 0.0008288
+        },
+        "nebius/zai-org/GLM-5.3": {
+          "request_count": 62,
+          "cost_usd": 1.4144131199999999
+        }
+      },
+      "integrity_verification": {
+        "official_grader_unchanged": true,
+        "pristine_source_inputs": 21,
+        "renamed_copies_checked": 21,
+        "all_copies_match_source_bytes": true,
+        "changed_original_pdfs_exported": 0,
+        "independent_score_matches_all_criteria": true,
+        "overall_score": 0.7008,
+        "agent_outputs_edited": false
+      },
+      "independent_pristine_score_sha256": "be87a466b3517feafa95ebee6fa96c5bd57a24c857b601725b02a73411954fc7"
     }
-  ]
+  ],
+  "approval_recovery_pr": "https://github.com/HybridAIOne/hybridclaw/pull/2346"
 }

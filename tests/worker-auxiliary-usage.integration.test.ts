@@ -279,7 +279,7 @@ test('a revision-only preservation review retains helper usage and protects the 
   );
 });
 
-test('a host-interpreted approval denial reports no worker inference', async () => {
+test('a host-interpreted denial counts resumed inference', async () => {
   const worker = await runConversation(
     [
       {
@@ -296,9 +296,10 @@ test('a host-interpreted approval denial reports no worker inference', async () 
           },
         ],
       },
+      { role: 'assistant', content: 'Stopped.', usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
     ],
     { messages: [{ role: 'user', content: 'Run the prepared sample.' }] },
-    { 'sample.sh': 'printf sample\n' },
+    { 'sample.sh': 'printf sample > executed.txt\n' },
   );
   const approvalId = worker.output.pendingApproval?.approvalId;
   if (!approvalId) throw new Error('Expected the script approval fixture.');
@@ -314,12 +315,13 @@ test('a host-interpreted approval denial reports no worker inference', async () 
     },
     messages: [{ role: 'user', content: 'Cancel the sample.' }],
   });
-  expect(worker.requests).toHaveLength(1);
+  expect(worker.requests).toHaveLength(2);
+  expect(fs.existsSync(path.join(worker.dir, 'executed.txt'))).toBe(false);
+  expect(denied.tokenUsage?.costUsd).toBeUndefined();
   expect(denied.tokenUsage).toMatchObject({
-    modelCalls: 0,
-    apiTotalTokens: 0,
-    costUsd: 0,
-    modelUsage: [],
+    modelCalls: 1,
+    apiTotalTokens: 15,
+    modelUsage: [{ status: 'success' }],
   });
 });
 
