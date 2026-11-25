@@ -17,6 +17,7 @@ await build({
       export { startGatewayHttpServer } from './src/gateway/gateway-http-server.ts';
       export { GATEWAY_API_TOKEN, GATEWAY_CLIENT_BASE_URL } from './src/config/config.ts';
       export { SHELL_RUNTIME_ENV_PATH } from '@hybridclaw/shared/shell-runtime-env';
+      export { configureHarborSandboxPolicy } from './eval-harness/harbor-adapter/sandbox-policy.mjs';
     `,
     resolveDir: process.cwd(),
     sourcefile: 'harbor-adapter-api.ts',

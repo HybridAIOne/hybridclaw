@@ -69,12 +69,14 @@ const {
   GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   SHELL_RUNTIME_ENV_PATH,
+  configureHarborSandboxPolicy,
 } = await import(`${root}/dist/harbor-adapter-api.js`);
 const installed = JSON.parse(fs.readFileSync(`${root}/package.json`, 'utf8'));
 if (installed.version !== run.version)
   throw new Error(`Unexpected HybridClaw version: ${installed.version}`);
 if (resolveModelProvider(model) !== 'vllm')
   throw new Error('The adapter model resolved to the wrong provider');
+configureHarborSandboxPolicy(run.sandboxSystemWrites);
 initDatabase({ quiet: true });
 initAgentRegistry(getRuntimeConfig().agents);
 startGatewayHttpServer().setReady();

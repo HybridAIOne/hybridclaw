@@ -49,6 +49,7 @@ The process that runs Harbor trials reads these variables:
 | `HYBRIDCLAW_HARBOR_RUNTIME` | Path to the runtime archive. Required. |
 | `HYBRIDCLAW_HARBOR_CONTEXT_WINDOW` | Context window of the served model, in tokens. HybridClaw assumes 128,000 when it is unset. |
 | `HYBRIDCLAW_HARBOR_PROXY_HOST` | Host name or address under which a sandbox reaches this machine. `--expose direct` advertises it instead of `127.0.0.1`; local Docker sandboxes need it. |
+| `HYBRIDCLAW_HARBOR_SYSTEM_WRITES` | Set to `1` for system administration tasks in an unprivileged Docker sandbox with no extra mounts. This turns off the workspace fence for that trial. Sensitive paths and other approval and safety rules still apply. |
 
 ## One rollout
 
