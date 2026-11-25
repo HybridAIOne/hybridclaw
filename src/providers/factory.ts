@@ -18,6 +18,7 @@ import {
   vllmProvider,
 } from './local-openai-compat.js';
 import { mistralProvider } from './mistral.js';
+import { resolveStaticModelCatalogMetadata } from './model-metadata.js';
 import { openAIAPIProvider, openAIProvider } from './openai.js';
 import { getOpenAICompatRemoteProvider } from './openai-compat-remote.js';
 import { openrouterProvider } from './openrouter.js';
@@ -160,5 +161,8 @@ export async function resolveModelRuntimeCredentials(
     enableRag: params?.enableRag ?? HYBRIDAI_ENABLE_RAG,
     agentId: params?.agentId,
   });
-  return resolved;
+  const context =
+    resolved.contextWindow ??
+    resolveStaticModelCatalogMetadata(model).contextWindow;
+  return context ? { ...resolved, contextWindow: context } : resolved;
 }
