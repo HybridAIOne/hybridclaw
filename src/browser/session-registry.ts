@@ -1,13 +1,16 @@
 /**
  * Gateway browser session cache — owns open `BrowserSession` handles across
- * tool calls and ensures every cached session is closed on explicit close,
- * config change, plugin unload/reload, or gateway shutdown.
+ * tool calls and closes every cached session on explicit close, browser config
+ * change, plugin unload/reload, or gateway shutdown.
  *
- * Each entry captures its provider's `dispose` hook and registration
- * fingerprint at creation time and removes itself from the map before awaiting
- * teardown, so concurrent closes never double-stop a remote session. Shutdown
- * and unload disposals are bounded by a short timeout with an `AbortSignal` so
- * a hung provider cannot block gateway shutdown or plugin reloads.
+ * Concurrent launches for one `sessionId` share a single launch. A launch is
+ * discarded (and its session closed) when its provider kind's close generation
+ * moves while `launchSession` is in flight, so only closes that target that
+ * kind invalidate it; an unrelated plugin reload does not. Shutdown is sticky:
+ * once it starts, no new session launches. Each entry leaves the map before
+ * `provider.closeSession(session, { signal })` runs, bounded by a timeout, so
+ * concurrent closes never double-stop and a hung provider never stalls
+ * shutdown.
  *
  * NOT the provider registry (`provider-factory.ts` maps a kind to its plugin)
  * and not the HTTP route handler (`gateway-http-server.ts`).
@@ -17,11 +20,7 @@ import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import type { BrowserProvider, BrowserSession } from './provider.js';
 import {
-  type BrowserProviderDisposeContext,
-  type BrowserProviderDisposeReason,
-  browserProviderFingerprint,
   createBrowserProvider,
-  getBrowserProviderDispose,
   LOCAL_BROWSER_PROVIDER,
 } from './provider-factory.js';
 import { browserSessionConfigSignature } from './session-config-signature.js';
@@ -29,41 +28,62 @@ import { browserSessionConfigSignature } from './session-config-signature.js';
 // 4s (below gateway.ts SHUTDOWN_STEP_TIMEOUT_MS = 5s): gives cloud stop/delete
 // requests time to finish while ensuring the per-session AbortController aborts
 // hung providers cleanly before the outer gateway shutdown timer fires.
-export const DEFAULT_BROWSER_SESSION_DISPOSE_TIMEOUT_MS = 4_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 4_000;
+
+type CloseReason =
+  | 'shutdown'
+  | 'plugin-unload'
+  | 'plugin-reload'
+  | 'config-change';
 
 export interface GatewayBrowserSessionEntry {
   providerKind: string;
   provider: BrowserProvider;
-  dispose?: (context: BrowserProviderDisposeContext) => Promise<void> | void;
   configSignature: string;
-  registrationFingerprint: string;
   session: BrowserSession;
   skillName: string;
 }
 
-const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
-let closeGeneration = 0;
+interface PendingLaunch {
+  providerKind: string;
+  configSignature: string;
+  promise: Promise<GatewayBrowserSessionEntry>;
+}
 
-async function disposeEntry(
+const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
+const pendingLaunches = new Map<string, PendingLaunch>();
+let shuttingDown = false;
+let closeTimeoutMs = DEFAULT_CLOSE_TIMEOUT_MS;
+// Plugin reloads in progress that keep unchanged sessions; plugin shutdowns
+// inside one leave sessions open and the reload closes outdated ones after.
+let keepingSessionsReloads = 0;
+// Close generations: bumped for every plugin provider kind, or for one kind.
+let pluginCloseGeneration = 0;
+const kindCloseGenerations = new Map<string, number>();
+
+function closeGeneration(providerKind: string): number {
+  const pluginGeneration =
+    providerKind === LOCAL_BROWSER_PROVIDER ? 0 : pluginCloseGeneration;
+  return pluginGeneration + (kindCloseGenerations.get(providerKind) ?? 0);
+}
+
+function isPluginEntry(entry: { providerKind: string }): boolean {
+  return entry.providerKind !== LOCAL_BROWSER_PROVIDER;
+}
+
+async function closeEntry(
   sessionId: string,
   entry: GatewayBrowserSessionEntry,
-  reason: BrowserProviderDisposeReason,
-  timeoutMs: number,
+  reason: CloseReason,
 ): Promise<void> {
+  const timeoutMs = closeTimeoutMs;
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const operation = Promise.resolve()
     .then(() =>
-      entry.dispose
-        ? entry.dispose({
-            provider: entry.provider,
-            session: entry.session,
-            reason,
-            signal: controller.signal,
-          })
-        : entry.provider.closeSession(entry.session, {
-            signal: controller.signal,
-          }),
+      entry.provider.closeSession(entry.session, {
+        signal: controller.signal,
+      }),
     )
     .then(
       () => ({ status: 'done' as const }),
@@ -72,7 +92,7 @@ async function disposeEntry(
   const timeout = new Promise<{ status: 'timeout' }>((resolve) => {
     timeoutHandle = setTimeout(() => {
       controller.abort(
-        new Error(`Browser session dispose timed out after ${timeoutMs}ms`),
+        new Error(`Browser session close timed out after ${timeoutMs}ms`),
       );
       resolve({ status: 'timeout' });
     }, timeoutMs);
@@ -81,29 +101,42 @@ async function disposeEntry(
 
   try {
     const result = await Promise.race([operation, timeout]);
+    const fields = { sessionId, provider: entry.providerKind, reason };
     if (result.status === 'error') {
       logger.warn(
-        {
-          err: result.error,
-          sessionId,
-          provider: entry.providerKind,
-          reason,
-        },
+        { err: result.error, ...fields },
         'Failed to close cached gateway browser session',
       );
     } else if (result.status === 'timeout') {
       logger.warn(
-        {
-          sessionId,
-          provider: entry.providerKind,
-          reason,
-          timeoutMs,
-        },
+        { ...fields, timeoutMs },
         'Timed out closing cached gateway browser session; continuing',
       );
     }
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
+async function closeSessions(
+  reason: CloseReason,
+  matches: (entry: GatewayBrowserSessionEntry) => boolean,
+): Promise<number> {
+  const closing = [...gatewayBrowserSessions].filter(([, entry]) =>
+    matches(entry),
+  );
+  for (const [sessionId] of closing) gatewayBrowserSessions.delete(sessionId);
+  await Promise.allSettled(
+    closing.map(([sessionId, entry]) => closeEntry(sessionId, entry, reason)),
+  );
+  return closing.length;
+}
+
+function refuseDuringShutdown(): void {
+  if (shuttingDown) {
+    throw new Error(
+      'Gateway is shutting down; refusing to launch browser session.',
+    );
   }
 }
 
@@ -120,67 +153,76 @@ export async function getOrCreateGatewayBrowserSession(
     headed?: boolean;
     skillName?: string;
     pluginLoadError?: string;
-    disposeTimeoutMs?: number;
   },
 ): Promise<GatewayBrowserSessionEntry> {
+  refuseDuringShutdown();
   const browserConfig = getRuntimeConfig().browser;
   const configSignature = browserSessionConfigSignature(browserConfig);
   const existing = gatewayBrowserSessions.get(sessionId);
-  if (existing) {
-    if (existing.configSignature === configSignature) return existing;
-    gatewayBrowserSessions.delete(sessionId);
-    await disposeEntry(
-      sessionId,
-      existing,
-      'config-change',
-      opts?.disposeTimeoutMs ?? DEFAULT_BROWSER_SESSION_DISPOSE_TIMEOUT_MS,
-    );
+  if (existing?.configSignature === configSignature) return existing;
+  const pending = pendingLaunches.get(sessionId);
+  if (pending?.configSignature === configSignature) {
+    return await pending.promise;
   }
+  if (pending) {
+    await pending.promise.catch(() => undefined);
+    return await getOrCreateGatewayBrowserSession(sessionId, agentId, opts);
+  }
+  if (existing) gatewayBrowserSessions.delete(sessionId);
+
   const providerKind = browserConfig.provider;
-  const registrationFingerprint = browserProviderFingerprint(providerKind);
-  const dispose = getBrowserProviderDispose(providerKind);
-  const provider = createBrowserProvider(browserConfig, {
-    pluginLoadError: opts?.pluginLoadError,
-  });
-  const skillName = String(opts?.skillName || '').trim() || 'browser';
-  const launchGeneration = closeGeneration;
-  const session = await provider.launchSession({
-    headed: opts?.headed,
-    timeoutMs: 60_000,
-    metering: {
-      sessionId,
-      agentId,
-      auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+  const launchGeneration = closeGeneration(providerKind);
+  const launch = async (): Promise<GatewayBrowserSessionEntry> => {
+    if (existing) await closeEntry(sessionId, existing, 'config-change');
+    refuseDuringShutdown();
+    const provider = createBrowserProvider(browserConfig, {
+      pluginLoadError: opts?.pluginLoadError,
+    });
+    const skillName = String(opts?.skillName || '').trim() || 'browser';
+    const session = await provider.launchSession({
+      headed: opts?.headed,
+      timeoutMs: 60_000,
+      metering: {
+        sessionId,
+        agentId,
+        auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+        skillName,
+      },
+    });
+    const entry = {
+      providerKind,
+      provider,
+      configSignature,
+      session,
       skillName,
-    },
-  });
-  const entry: GatewayBrowserSessionEntry = {
-    providerKind,
-    provider,
-    dispose,
-    configSignature,
-    registrationFingerprint,
-    session,
-    skillName,
+    };
+    if (shuttingDown || closeGeneration(providerKind) !== launchGeneration) {
+      await closeEntry(
+        sessionId,
+        entry,
+        shuttingDown ? 'shutdown' : 'plugin-reload',
+      );
+      throw new Error(
+        `Browser session for provider "${providerKind}" was closed while launching.`,
+      );
+    }
+    gatewayBrowserSessions.set(sessionId, entry);
+    return entry;
   };
-  // If shutdown or a provider unload happened while launchSession was in
-  // flight, tear down the brand-new session instead of caching an orphan.
-  const providerUnloaded =
-    providerKind !== LOCAL_BROWSER_PROVIDER &&
-    browserProviderFingerprint(providerKind) !== registrationFingerprint;
-  if (closeGeneration !== launchGeneration || providerUnloaded) {
-    await disposeEntry(
-      sessionId,
-      entry,
-      providerUnloaded ? 'plugin-unload' : 'shutdown',
-      opts?.disposeTimeoutMs ?? DEFAULT_BROWSER_SESSION_DISPOSE_TIMEOUT_MS,
-    );
-    throw new Error(
-      `Browser session for provider "${providerKind}" was closed while launching.`,
-    );
+
+  const record: PendingLaunch = {
+    providerKind,
+    configSignature,
+    promise: launch(),
+  };
+  pendingLaunches.set(sessionId, record);
+  try {
+    return await record.promise;
+  } finally {
+    if (pendingLaunches.get(sessionId) === record) {
+      pendingLaunches.delete(sessionId);
+    }
   }
-  gatewayBrowserSessions.set(sessionId, entry);
-  return entry;
 }
 
 export async function closeGatewayBrowserSession(
@@ -193,89 +235,83 @@ export async function closeGatewayBrowserSession(
   return true;
 }
 
-export interface CloseBrowserSessionsOptions {
-  reason: BrowserProviderDisposeReason;
-  timeoutMs?: number;
-  predicate?: (entry: GatewayBrowserSessionEntry) => boolean;
+/** Gateway shutdown: closes every session and refuses later launches. */
+export async function closeAllGatewayBrowserSessions(): Promise<number> {
+  shuttingDown = true;
+  return await closeSessions('shutdown', () => true);
 }
 
-export async function closeGatewayBrowserSessions(
-  options: CloseBrowserSessionsOptions,
+/** Closes sessions, cached or launching, whose browser config is outdated. */
+export async function closeBrowserSessionsOnConfigChange(): Promise<number> {
+  return await closeOutdatedBrowserSessions('config-change');
+}
+
+async function closeOutdatedBrowserSessions(
+  reason: CloseReason,
 ): Promise<number> {
-  const timeoutMs =
-    options.timeoutMs ?? DEFAULT_BROWSER_SESSION_DISPOSE_TIMEOUT_MS;
-  const predicate = options.predicate;
-  if (!predicate) {
-    closeGeneration += 1;
+  const current = browserSessionConfigSignature(getRuntimeConfig().browser);
+  for (const pending of pendingLaunches.values()) {
+    if (pending.configSignature === current) continue;
+    const generation = kindCloseGenerations.get(pending.providerKind) ?? 0;
+    kindCloseGenerations.set(pending.providerKind, generation + 1);
   }
-  const toClose: Array<[string, GatewayBrowserSessionEntry]> = [];
-  for (const [sessionId, entry] of gatewayBrowserSessions.entries()) {
-    if (!predicate || predicate(entry)) {
-      gatewayBrowserSessions.delete(sessionId);
-      toClose.push([sessionId, entry]);
+  // The signature carries the provider's plugin fingerprint, so a provider
+  // whose plugin or plugin config changed, or that is gone, is outdated too.
+  return await closeSessions(
+    reason,
+    (entry) => entry.configSignature !== current,
+  );
+}
+
+async function closePluginSessions(reason: CloseReason): Promise<number> {
+  pluginCloseGeneration += 1;
+  return await closeSessions(reason, isPluginEntry);
+}
+
+/**
+ * Plugin unload: closes every plugin-provided session unless a reload that
+ * keeps unchanged sessions is in progress.
+ */
+export async function closePluginBrowserSessions(): Promise<void> {
+  if (keepingSessionsReloads > 0) return;
+  await closePluginSessions('plugin-unload');
+}
+
+/**
+ * Runs a plugin reload. By default sessions whose provider and config are
+ * unchanged stay open and outdated ones close afterwards; `'close-browsers'`
+ * (explicit `/plugin reload` or reinstall) closes every plugin session first.
+ */
+export async function reloadKeepingBrowserSessions<T>(
+  reload: () => Promise<T>,
+  mode?: 'close-browsers',
+): Promise<T> {
+  if (mode === 'close-browsers') {
+    await closePluginSessions('plugin-reload');
+    return await reload();
+  }
+  keepingSessionsReloads += 1;
+  try {
+    return await reload();
+  } finally {
+    keepingSessionsReloads -= 1;
+    // A concurrent reload that is still running sweeps when it finishes.
+    if (keepingSessionsReloads === 0) {
+      await closeOutdatedBrowserSessions('plugin-reload');
     }
   }
-  if (toClose.length === 0) return 0;
-  await Promise.allSettled(
-    toClose.map(([sessionId, entry]) =>
-      disposeEntry(sessionId, entry, options.reason, timeoutMs),
-    ),
-  );
-  return toClose.length;
 }
 
-export async function closeAllGatewayBrowserSessions(
-  reason: BrowserProviderDisposeReason = 'shutdown',
-  timeoutMs?: number,
-): Promise<number> {
-  return await closeGatewayBrowserSessions({ reason, timeoutMs });
+export function setBrowserSessionCloseTimeoutForTests(timeoutMs: number): void {
+  closeTimeoutMs = timeoutMs;
 }
 
-export async function closePluginGatewayBrowserSessions(
-  reason: BrowserProviderDisposeReason = 'plugin-unload',
-  timeoutMs?: number,
-): Promise<number> {
-  return await closeGatewayBrowserSessions({
-    reason,
-    timeoutMs,
-    predicate: (entry) => entry.providerKind !== LOCAL_BROWSER_PROVIDER,
-  });
-}
-
-export interface PluginBrowserShutdownOptions {
-  preserveBrowserSessions?: boolean;
-  browserSessionCloseReason?: BrowserProviderDisposeReason;
-  browserSessionCloseTimeoutMs?: number;
-}
-
-export async function closeBrowserSessionsForPluginShutdown(
-  opts?: PluginBrowserShutdownOptions,
-): Promise<void> {
-  if (opts?.preserveBrowserSessions) return;
-  await closePluginGatewayBrowserSessions(
-    opts?.browserSessionCloseReason ?? 'plugin-unload',
-    opts?.browserSessionCloseTimeoutMs,
-  );
-}
-
-export async function closeStaleGatewayBrowserSessions(
-  reason: BrowserProviderDisposeReason = 'plugin-reload',
-  timeoutMs?: number,
-): Promise<number> {
-  const currentConfig = getRuntimeConfig().browser;
-  const currentSignature = browserSessionConfigSignature(currentConfig);
-  return await closeGatewayBrowserSessions({
-    reason,
-    timeoutMs,
-    predicate: (entry) => {
-      if (reason === 'config-change') {
-        return entry.configSignature !== currentSignature;
-      }
-      if (entry.providerKind === LOCAL_BROWSER_PROVIDER) return false;
-      return (
-        browserProviderFingerprint(entry.providerKind) !==
-        entry.registrationFingerprint
-      );
-    },
-  });
+export function resetGatewayBrowserSessionsForTests(): void {
+  gatewayBrowserSessions.clear();
+  pendingLaunches.clear();
+  shuttingDown = false;
+  closeTimeoutMs = DEFAULT_CLOSE_TIMEOUT_MS;
+  keepingSessionsReloads = 0;
+  pluginCloseGeneration = 0;
+  kindCloseGenerations.clear();
 }

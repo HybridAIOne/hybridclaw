@@ -19,8 +19,6 @@ export default {
           defaultTenantId: config.defaultTenantId || undefined,
           pricing: config.pricing,
         }),
-      dispose: ({ provider, session, signal }) =>
-        provider.closeSession(session, { signal }),
     });
 
     api.registerCommand({

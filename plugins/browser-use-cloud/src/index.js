@@ -14,8 +14,6 @@ export default {
           browser: config.browser,
           pricing: config.pricing,
         }),
-      dispose: ({ provider, session, signal }) =>
-        provider.closeSession(session, { signal }),
     });
   },
 };

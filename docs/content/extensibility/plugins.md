@@ -388,7 +388,7 @@ plugin tools, and plugin commands.
 
 ### Browser providers
 
-`api.registerBrowserProvider({ kind, create(host), dispose? })` supplies a
+`api.registerBrowserProvider({ kind, create(host) })` supplies a
 `browser.provider` kind other than the built-in `local`. The gateway calls
 `create(host)` when a chat opens a browser session and drives the returned
 `BrowserProvider` from its browser tool route; the sandbox never runs plugin
@@ -404,16 +404,16 @@ evaluation. Set `session.headed` when the session shows a window on the
 gateway host; the gateway reports it to the agent.
 
 Register the provider with the plugin's own config and credentials in the
-closure. Provide an optional `dispose({ provider, session, reason, signal })`
-hook to tear down cached sessions on gateway shutdown, plugin unload/reload,
-or config change (when omitted, the gateway calls
-`provider.closeSession(session, { signal })`); every teardown is bounded by a
-short timeout so a hung remote provider cannot block shutdown. Config edits to
-another plugin keep unchanged browser sessions open, while editing or disabling
-a browser plugin, running `/plugin reload`, uninstalling plugins, or shutting
-down the gateway closes cached sessions immediately. A `browser.provider` that
-no plugin registers fails with an install hint, or with the plugin's load error
-when it failed to load; it never falls back to `local`.
+closure. The gateway calls `provider.closeSession(session, { signal })` to tear
+down cached sessions on gateway shutdown, plugin unload/reload, or browser
+config changes; every teardown is bounded by a short timeout so a hung remote
+provider cannot block shutdown. Config edits, installs, or uninstalls of
+unrelated plugins keep unchanged browser sessions open, while editing,
+disabling, or uninstalling the active browser plugin, running `/plugin reload`
+or `/plugin reinstall`, or shutting down the gateway closes cached sessions
+immediately. A `browser.provider` that no plugin registers fails with an install
+hint, or with the plugin's load error when it failed to load; it never falls
+back to `local`.
 
 ```js
 export default {
@@ -426,8 +426,6 @@ export default {
           host,
           getApiKey: () => api.getCredential('EXAMPLE_BROWSER_API_KEY'),
         }),
-      dispose: ({ provider, session, signal }) =>
-        provider.closeSession(session, { signal }),
     });
   },
 };

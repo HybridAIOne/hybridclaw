@@ -15,7 +15,7 @@ import {
   type LocalBrowserPlaywrightModule,
   LocalBrowserProvider,
 } from './local-provider.js';
-import type { BrowserProvider, BrowserSession } from './provider.js';
+import type { BrowserProvider } from './provider.js';
 import {
   type BrowserProviderHost,
   createBrowserProviderHost,
@@ -23,29 +23,10 @@ import {
 
 export const LOCAL_BROWSER_PROVIDER = 'local';
 
-export type BrowserProviderDisposeReason =
-  | 'shutdown'
-  | 'plugin-unload'
-  | 'plugin-reload'
-  | 'config-change';
-
-export interface BrowserProviderDisposeContext {
-  provider: BrowserProvider;
-  session: BrowserSession;
-  reason: BrowserProviderDisposeReason;
-  signal: AbortSignal;
-}
-
 export interface BrowserProviderRegistration {
   /** The `browser.provider` value that selects this provider. */
   kind: string;
   create(host: BrowserProviderHost): BrowserProvider;
-  /**
-   * Optional teardown called for each cached session on gateway shutdown,
-   * plugin unload/reload, or browser config change. When omitted, the gateway
-   * falls back to `provider.closeSession(session, { signal })`.
-   */
-  dispose?(context: BrowserProviderDisposeContext): Promise<void> | void;
 }
 
 interface RegisteredBrowserProvider {
@@ -69,24 +50,10 @@ export function registerBrowserProvider(
   if (typeof registration.create !== 'function') {
     throw new Error(`Browser provider "${kind}" is missing \`create\`.`);
   }
-  if (
-    registration.dispose !== undefined &&
-    typeof registration.dispose !== 'function'
-  ) {
-    throw new Error(
-      `Browser provider "${kind}" \`dispose\` must be a function when provided.`,
-    );
-  }
   if (kind === LOCAL_BROWSER_PROVIDER || providers.has(kind)) {
     throw new Error(`Browser provider "${kind}" is already registered.`);
   }
   providers.set(kind, { registration, fingerprint });
-}
-
-export function getBrowserProviderDispose(
-  kind: string,
-): BrowserProviderRegistration['dispose'] {
-  return providers.get(kind)?.registration.dispose;
 }
 
 /**

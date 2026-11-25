@@ -25,11 +25,7 @@ import {
   restoreBrowserProviders,
   snapshotBrowserProviders,
 } from '../browser/provider-factory.js';
-import {
-  closeBrowserSessionsForPluginShutdown,
-  closeStaleGatewayBrowserSessions,
-  type PluginBrowserShutdownOptions,
-} from '../browser/session-registry.js';
+import { closePluginBrowserSessions } from '../browser/session-registry.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
   listChannels,
@@ -926,14 +922,16 @@ export class PluginManager {
     }
   }
 
-  async shutdown(opts?: PluginBrowserShutdownOptions): Promise<void> {
+  async shutdown(): Promise<void> {
     if (!this.initialized && !this.initializing) {
-      await this.clearRuntimeRegistrations(opts);
+      await closePluginBrowserSessions();
+      this.clearRuntimeRegistrations();
       return;
     }
     if (this.initializing) {
       await this.initializing.catch(() => {});
     }
+    await closePluginBrowserSessions();
     const startedAt = this.gatewayStartedAt || new Date().toISOString();
     await this.dispatchHook('gateway_stop', { startedAt });
 
@@ -961,19 +959,16 @@ export class PluginManager {
       }
     }
 
-    await this.clearRuntimeRegistrations(opts);
+    this.clearRuntimeRegistrations();
   }
 
-  private async clearRuntimeRegistrations(
-    opts?: PluginBrowserShutdownOptions,
-  ): Promise<void> {
+  private clearRuntimeRegistrations(): void {
     for (const entry of [...this.channelTransports].reverse()) {
       unregisterChannelTransport(entry.transport.kind);
     }
     this.channelTransports = [];
     clearChannelPluginLoadFailures();
     clearEmbeddingProviders();
-    await closeBrowserSessionsForPluginShutdown(opts);
     clearBrowserProviders();
     clearLocalClassifiers();
     this.cleanupImportSnapshots();
@@ -2777,44 +2772,14 @@ export function findPluginLoadError(pluginId: string): string | undefined {
     ?.error;
 }
 
-export async function shutdownPluginManager(
-  opts?: PluginBrowserShutdownOptions,
-): Promise<void> {
-  if (!singleton) {
-    await closeBrowserSessionsForPluginShutdown(opts);
-    return;
-  }
+export async function shutdownPluginManager(): Promise<void> {
+  if (!singleton) return;
   const manager = singleton;
   singleton = null;
-  await manager.shutdown(opts);
+  await manager.shutdown();
 }
 
-export async function reloadPluginManager(opts?: {
-  preserveUnchangedBrowserSessions?: boolean;
-  browserSessionCloseTimeoutMs?: number;
-}): Promise<PluginManager> {
-  const preserve = opts?.preserveUnchangedBrowserSessions === true;
-  await shutdownPluginManager({
-    preserveBrowserSessions: preserve,
-    browserSessionCloseReason: 'plugin-reload',
-    browserSessionCloseTimeoutMs: opts?.browserSessionCloseTimeoutMs,
-  });
-  try {
-    const manager = await ensurePluginManagerInitialized();
-    if (preserve) {
-      await closeStaleGatewayBrowserSessions(
-        'plugin-reload',
-        opts?.browserSessionCloseTimeoutMs,
-      );
-    }
-    return manager;
-  } catch (error) {
-    if (preserve) {
-      await closeStaleGatewayBrowserSessions(
-        'plugin-unload',
-        opts?.browserSessionCloseTimeoutMs,
-      );
-    }
-    throw error;
-  }
+export async function reloadPluginManager(): Promise<PluginManager> {
+  await shutdownPluginManager();
+  return ensurePluginManagerInitialized();
 }

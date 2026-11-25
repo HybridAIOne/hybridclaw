@@ -7,7 +7,6 @@ import {
   type BrowserProviderRegistration,
   clearBrowserProviders,
   createBrowserProvider,
-  getBrowserProviderDispose,
   registerBrowserProvider,
 } from '../src/browser/provider-factory.js';
 import type { BrowserProviderHost } from '../src/browser/provider-host.js';
@@ -110,14 +109,6 @@ test.each<[string, Partial<BrowserProviderRegistration>, RegExp]>([
     { kind: 'browserbase', create: undefined },
     /missing `create`/u,
   ],
-  [
-    'a registration with a non-function dispose',
-    {
-      kind: 'browserbase',
-      dispose: 'not-a-function' as unknown as BrowserProviderRegistration['dispose'],
-    },
-    /`dispose` must be a function/u,
-  ],
 ])('rejects registering %s', (_label, patch, error) => {
   expect(() =>
     registerBrowserProvider(
@@ -145,22 +136,6 @@ test('rejects a second registration of the same kind', () => {
   expect(() =>
     createBrowserProvider(browserConfig({ provider: 'browserbase' })),
   ).toThrow(/not available/u);
-});
-
-test('stores and clears an optional dispose hook on registration', () => {
-  const dispose = vi.fn();
-  registerBrowserProvider(
-    {
-      kind: 'browserbase',
-      create: () => ({ launchSession: vi.fn(), closeSession: vi.fn() }),
-      dispose,
-    },
-    'browserbase:{}',
-  );
-
-  expect(getBrowserProviderDispose('browserbase')).toBe(dispose);
-  clearBrowserProviders();
-  expect(getBrowserProviderDispose('browserbase')).toBeUndefined();
 });
 
 test('names the load error of a plugin that failed instead of asking to install it', () => {

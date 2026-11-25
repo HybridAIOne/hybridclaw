@@ -8,6 +8,7 @@ const {
   runAgentMock,
   ensurePluginManagerInitializedMock,
   reloadPluginManagerMock,
+  reloadKeepingBrowserSessionsMock,
   shutdownPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
   checkPluginMock,
@@ -75,6 +76,9 @@ const {
     runAgentMock: vi.fn(),
     ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
     reloadPluginManagerMock: vi.fn(async () => pluginManager),
+    reloadKeepingBrowserSessionsMock: vi.fn(
+      async (reload: () => Promise<unknown>) => await reload(),
+    ),
     shutdownPluginManagerMock: vi.fn(async () => {}),
     setPluginInboundMessageDispatcherMock: vi.fn(),
     checkPluginMock: vi.fn(async (pluginId: string) => ({
@@ -223,6 +227,13 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
+vi.mock('../src/browser/session-registry.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('../src/browser/session-registry.js')
+  >()),
+  reloadKeepingBrowserSessions: reloadKeepingBrowserSessionsMock,
+}));
+
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
   reloadPluginManager: reloadPluginManagerMock,
@@ -256,6 +267,7 @@ const { setupHome } = setupGatewayTest({
     runAgentMock.mockReset();
     ensurePluginManagerInitializedMock.mockClear();
     reloadPluginManagerMock.mockClear();
+    reloadKeepingBrowserSessionsMock.mockClear();
     setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
@@ -1004,7 +1016,10 @@ test('handleGatewayCommand updates plugin config from a local TUI/web session an
     'searchMode',
     'query',
   );
-  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(reloadKeepingBrowserSessionsMock).toHaveBeenCalledWith(
+    reloadPluginManagerMock,
+    undefined,
+  );
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
@@ -1818,6 +1833,10 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
     approveDependencyInstall: true,
     onDependenciesAlreadySatisfied: expect.any(Function),
   });
+  expect(reloadKeepingBrowserSessionsMock).toHaveBeenCalledWith(
+    reloadPluginManagerMock,
+    'close-browsers',
+  );
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -2092,7 +2111,12 @@ test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', 
   });
 
   expect(uninstallPluginMock).toHaveBeenCalledWith('demo-plugin');
-  expect(shutdownPluginManagerMock).toHaveBeenCalled();
+  expect(reloadKeepingBrowserSessionsMock).toHaveBeenCalledWith(
+    reloadPluginManagerMock,
+    undefined,
+  );
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(shutdownPluginManagerMock).not.toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
@@ -2104,7 +2128,7 @@ test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', 
   expect(result.text).toContain(
     'Removed 1 matching `plugins.list[]` override.',
   );
-  expect(result.text).toContain('Plugin runtime will reload on the next turn.');
+  expect(result.text).toContain('Plugin runtime reloaded.');
 });
 
 test('handleGatewayCommand reloads plugins without inlining the plugin list', async () => {
@@ -2138,6 +2162,10 @@ test('handleGatewayCommand reloads plugins without inlining the plugin list', as
     args: ['plugin', 'reload'],
   });
 
+  expect(reloadKeepingBrowserSessionsMock).toHaveBeenCalledWith(
+    reloadPluginManagerMock,
+    'close-browsers',
+  );
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {

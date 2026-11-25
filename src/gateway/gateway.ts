@@ -33,7 +33,7 @@ import {
 import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
 import {
   closeAllGatewayBrowserSessions,
-  closeStaleGatewayBrowserSessions,
+  closeBrowserSessionsOnConfigChange,
 } from '../browser/session-registry.js';
 import type { ExternalChannelKind } from '../channels/channel.js';
 import type { ChannelDescriptor } from '../channels/channel-descriptor.js';
@@ -408,11 +408,20 @@ function setupShutdown(broadcastShutdown: () => void): void {
       broadcastShutdown();
       stopAllExecutions();
     }
+    // Close paid cloud sessions alongside channel stops, before plugins and the
+    // database go away; launches after this point are refused.
+    const browserSessionsClose = runShutdownStep(
+      'close gateway browser sessions',
+      async () => {
+        await closeAllGatewayBrowserSessions();
+      },
+    );
     for (const descriptor of Object.values(CHANNEL_DESCRIPTORS)) {
       await runShutdownStep(`stop ${descriptor.kind} runtime`, () =>
         descriptor.stop(opts),
       );
     }
+    await browserSessionsClose;
     await runShutdownStep('run managed media cleanup', () =>
       runManagedMediaCleanup('shutdown'),
     );
@@ -429,9 +438,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
     if (!opts?.drain) {
       stopAllExecutions();
     }
-    await runShutdownStep('close gateway browser sessions', async () => {
-      await closeAllGatewayBrowserSessions('shutdown');
-    });
     await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopDashboardRefresher();
@@ -651,7 +657,7 @@ async function main(): Promise<void> {
       localBackendsProbe.invalidate();
     }
     if (JSON.stringify(next.browser) !== JSON.stringify(prev.browser)) {
-      void closeStaleGatewayBrowserSessions('config-change').catch((error) => {
+      void closeBrowserSessionsOnConfigChange().catch((error) => {
         logger.warn(
           { error },
           'Failed to close stale gateway browser sessions after browser config change',

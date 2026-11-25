@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { reloadKeepingBrowserSessions } from '../browser/session-registry.js';
 import {
   getChannelPluginCatalogEntryByPluginId,
   getOfficialChannelPluginCatalogEntries,
@@ -453,15 +454,13 @@ async function notifyChannelPluginAvailabilityChanges(
   }
 }
 
-export async function reloadPluginRuntime(opts?: {
-  preserveUnchangedBrowserSessions?: boolean;
-}): Promise<{
+export async function reloadPluginRuntime(mode?: 'close-browsers'): Promise<{
   ok: boolean;
   message: string;
 }> {
   const availabilityBefore = snapshotChannelPluginTransportAvailability();
   try {
-    await reloadPluginManager(opts);
+    await reloadKeepingBrowserSessions(reloadPluginManager, mode);
   } catch (error) {
     return {
       ok: false,
@@ -485,9 +484,7 @@ async function rollbackPluginRuntimeConfigChange(
   },
 ): Promise<string[]> {
   saveRuntimeConfig(previousConfig);
-  const rollbackReloadResult = await reloadPluginRuntime({
-    preserveUnchangedBrowserSessions: true,
-  });
+  const rollbackReloadResult = await reloadPluginRuntime();
   if (rollbackReloadResult.ok) {
     return ['Previous runtime config was restored.'];
   }
@@ -644,9 +641,7 @@ export async function handlePluginGatewayCommand(params: {
         rawValue === '--unset'
           ? await unsetPluginConfigValue(pluginId, key)
           : await writePluginConfigValue(pluginId, key, rawValue);
-      const reloadResult = await reloadPluginRuntime({
-        preserveUnchangedBrowserSessions: true,
-      });
+      const reloadResult = await reloadPluginRuntime();
       // A config that breaks a plugin which loaded before is rolled back too,
       // instead of leaving it failed behind a "config updated" message.
       const loadError =
@@ -746,9 +741,7 @@ export async function handlePluginGatewayCommand(params: {
               approveDependencyInstall,
             });
             await setPluginEnabled(pluginId, true);
-            const reloadResult = await reloadPluginRuntime({
-              preserveUnchangedBrowserSessions: true,
-            });
+            const reloadResult = await reloadPluginRuntime();
             return infoCommand(
               'Plugin Enabled',
               [
@@ -808,9 +801,7 @@ export async function handlePluginGatewayCommand(params: {
     const previousConfig = getRuntimeConfig();
     try {
       const result = await setPluginEnabled(pluginId, enabled);
-      const reloadResult = await reloadPluginRuntime({
-        preserveUnchangedBrowserSessions: true,
-      });
+      const reloadResult = await reloadPluginRuntime();
       if (!reloadResult.ok) {
         const rollbackLines = await rollbackPluginRuntimeConfigChange(
           previousConfig,
@@ -894,9 +885,7 @@ export async function handlePluginGatewayCommand(params: {
         approveDependencyInstall: yes === '--yes',
         onDependenciesAlreadySatisfied,
       });
-      const reloadResult = await reloadPluginRuntime({
-        preserveUnchangedBrowserSessions: true,
-      });
+      const reloadResult = await reloadPluginRuntime();
       const lines = [
         result.alreadyInstalled
           ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
@@ -926,9 +915,7 @@ export async function handlePluginGatewayCommand(params: {
           const result = await installPlugin(source, {
             approveDependencyInstall: true,
           });
-          const reloadResult = await reloadPluginRuntime({
-            preserveUnchangedBrowserSessions: true,
-          });
+          const reloadResult = await reloadPluginRuntime();
           const lines = [
             result.alreadyInstalled
               ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
@@ -1007,7 +994,7 @@ export async function handlePluginGatewayCommand(params: {
         approveDependencyInstall: yes === '--yes',
         onDependenciesAlreadySatisfied: onReinstallDependenciesAlreadySatisfied,
       });
-      const reloadResult = await reloadPluginRuntime();
+      const reloadResult = await reloadPluginRuntime('close-browsers');
       const lines = [
         result.replacedExistingInstall
           ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
@@ -1037,7 +1024,7 @@ export async function handlePluginGatewayCommand(params: {
           const result = await reinstallPlugin(source, {
             approveDependencyInstall: true,
           });
-          const reloadResult = await reloadPluginRuntime();
+          const reloadResult = await reloadPluginRuntime('close-browsers');
           const lines = [
             result.replacedExistingInstall
               ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
@@ -1115,7 +1102,6 @@ export async function handlePluginGatewayCommand(params: {
     }
     try {
       const result = await uninstallPlugin(pluginId);
-      await shutdownPluginManager();
       const lines = [
         result.removedPluginDir
           ? `Uninstalled plugin \`${result.pluginId}\` from \`${result.pluginDir}\`.`
@@ -1123,7 +1109,7 @@ export async function handlePluginGatewayCommand(params: {
         result.removedConfigOverrides > 0
           ? `Removed ${result.removedConfigOverrides} matching \`plugins.list[]\` override${result.removedConfigOverrides === 1 ? '' : 's'}.`
           : 'No matching `plugins.list[]` overrides were removed.',
-        'Plugin runtime will reload on the next turn.',
+        (await reloadPluginRuntime()).message,
       ];
       return infoCommand('Plugin Uninstalled', lines.join('\n'));
     } catch (error) {
@@ -1135,7 +1121,7 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'reload') {
-    const reloadResult = await reloadPluginRuntime();
+    const reloadResult = await reloadPluginRuntime('close-browsers');
     if (!reloadResult.ok) {
       return badCommand('Plugin Reload Failed', reloadResult.message);
     }
