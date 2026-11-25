@@ -1,3 +1,13 @@
+/**
+ * Runtime-config persistence for `agents.list[]` entries in `config.json`.
+ *
+ * Keeps config-backed agents aligned with admin edits and activations through
+ * `updateRuntimeConfig` (normalizing, validating, and recording config
+ * revisions), while leaving SQLite-only agents untouched in `config.json`.
+ *
+ * NOT the SQLite agent registry (`agent-registry.ts`); callers persist DB
+ * state there and call this module to mirror config-backed entries.
+ */
 import {
   EXTERNAL_CHANNEL_KINDS,
   type ExternalChannelKind,
@@ -9,6 +19,7 @@ import {
   type RuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import type { RuntimeConfigChangeMeta } from '../config/runtime-config-revisions.js';
 import type {
   AgentConfig,
   AgentModelConfig,
@@ -18,6 +29,7 @@ import {
   agentCvEquals,
   agentEscalationTargetEquals,
   agentProxyConfigEquals,
+  DEFAULT_AGENT_ID,
   resolveConfiguredDefaultAgentId,
 } from './agent-types.js';
 
@@ -37,6 +49,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
   return (
     Boolean(a) &&
     a?.id === b.id &&
+    a.extends === b.extends &&
     a.name === b.name &&
     a.displayName === b.displayName &&
     a.imageAsset === b.imageAsset &&
@@ -57,6 +70,53 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget) &&
     agentProxyConfigEquals(a.proxy, b.proxy)
   );
+}
+
+const AGENT_REF_FIELDS = new Set([
+  'extends',
+  'reportsTo',
+  'delegatesTo',
+  'peers',
+]);
+
+function primaryModel(model: AgentModelConfig | undefined): string | undefined {
+  return typeof model === 'string' ? model : model?.primary;
+}
+
+function patchConfiguredAgentInList(
+  agentsList: AgentConfig[] | undefined,
+  agentId: string,
+  patch: Partial<AgentConfig>,
+): AgentConfig[] | null {
+  const list = Array.isArray(agentsList) ? [...agentsList] : [];
+  const index = list.findIndex((entry) => entry?.id?.trim() === agentId);
+  if (index < 0) return null;
+  const configuredIds = new Set<unknown>([
+    DEFAULT_AGENT_ID,
+    ...list.map((entry) => entry.id),
+  ]);
+  const existing = list[index];
+  const next: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(patch)) {
+    // config.json validation rejects refs to DB-only agents; leaving the key
+    // out lets config sync keep the stored DB value instead.
+    const refs: unknown[] = AGENT_REF_FIELDS.has(key) ? [value].flat() : [];
+    if (value === undefined || refs.some((id) => !configuredIds.has(id))) {
+      delete next[key];
+    } else {
+      next[key] = value;
+    }
+  }
+  if (
+    patch.model &&
+    primaryModel(patch.model) === primaryModel(existing.model)
+  ) {
+    next.model = existing.model;
+  }
+  const updated = next as unknown as AgentConfig;
+  if (sameAgentConfig(existing, updated)) return null;
+  list[index] = updated;
+  return list;
 }
 
 function upsertActivatedAgentInList(
@@ -132,4 +192,33 @@ export function activateAgentInRuntimeConfig(agent: AgentConfig): boolean {
     applyActivatedAgentToRuntimeConfigDraft(draft, agent);
   });
   return true;
+}
+
+/** Mirrors an admin edit into the agent's `agents.list[]` entry, if any. */
+export function syncConfiguredAgentInRuntimeConfig(
+  agentId: string,
+  patch: Partial<AgentConfig>,
+  meta: RuntimeConfigChangeMeta,
+): void {
+  if (
+    !patchConfiguredAgentInList(getRuntimeConfig().agents.list, agentId, patch)
+  ) {
+    return;
+  }
+  updateRuntimeConfig((draft) => {
+    const list = patchConfiguredAgentInList(draft.agents.list, agentId, patch);
+    if (list) draft.agents.list = list;
+  }, meta);
+}
+
+/** Drops the agent's `agents.list[]` entry so config sync cannot re-create it. */
+export function removeConfiguredAgentFromRuntimeConfig(
+  agentId: string,
+  meta: RuntimeConfigChangeMeta,
+): void {
+  const isEntry = (entry: AgentConfig) => entry?.id?.trim() === agentId;
+  if (!getRuntimeConfig().agents.list?.some(isEntry)) return;
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = draft.agents.list?.filter((entry) => !isEntry(entry));
+  }, meta);
 }

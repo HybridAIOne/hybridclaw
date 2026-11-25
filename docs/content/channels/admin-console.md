@@ -97,7 +97,9 @@ prices remain unknown, and estimates can differ from the provider's bill.
   runtime workspace
 - `/admin/agents?tab=configure` edits one agent's display name, workspace
   directory, pinned model, skill allowlist, and tool allowlist, and saves the
-  whole set in one request
+  whole set in one request; for an agent defined in `config.json`
+  `agents.list[]`, edits and deletes are also written to that entry (with a
+  config revision), so a restart or config reload does not revert them
 - `/admin/agents?tab=configure` treats an empty allowlist state as "everything
   available": unchecking an entry converts the agent to an explicit allowlist,
   and "Reset to all" clears it again so future skills and tools stay available
