@@ -85,9 +85,8 @@ describe('useLiveEvents', () => {
     );
 
     expect(result.current.connection).toBe('connecting');
-    await waitFor(() => expect(result.current.connection).toBe('open'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/events');
     expect(String(url)).not.toContain('test-token');
@@ -101,6 +100,11 @@ describe('useLiveEvents', () => {
     });
     expect(init?.signal).toBeInstanceOf(AbortSignal);
 
+    await act(async () => {
+      stream.push(`event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`);
+    });
+    await waitFor(() => expect(result.current.connection).toBe('open'));
+
     unmount();
   });
 
@@ -110,7 +114,7 @@ describe('useLiveEvents', () => {
 
     const { result, unmount } = renderHook(() => useLiveEvents(''));
 
-    await waitFor(() => expect(result.current.connection).toBe('open'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/events');
@@ -118,6 +122,11 @@ describe('useLiveEvents', () => {
     expect(init?.headers).toEqual({
       Accept: 'text/event-stream',
     });
+
+    await act(async () => {
+      stream.push(`event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`);
+    });
+    await waitFor(() => expect(result.current.connection).toBe('open'));
 
     unmount();
   });
@@ -127,7 +136,7 @@ describe('useLiveEvents', () => {
     vi.mocked(fetch).mockResolvedValue(stream.response);
 
     const { result, unmount } = renderHook(() => useLiveEvents('test-token'));
-    await waitFor(() => expect(result.current.connection).toBe('open'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
     const status = makeStatus({ sessions: 7 });
     const overview = makeOverview(status);
@@ -143,6 +152,7 @@ describe('useLiveEvents', () => {
     });
 
     await waitFor(() => expect(result.current.overview).toEqual(overview));
+    expect(result.current.connection).toBe('open');
     expect(result.current.lastEventAt).not.toBeNull();
 
     const updatedStatus = makeStatus({ sessions: 9, activeContainers: 2 });
@@ -224,16 +234,116 @@ describe('useLiveEvents', () => {
     unmount();
   });
 
+  it('backs off without opening when a 200 response has a non-SSE content-type', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.mocked(fetch).mockImplementation(
+      async () =>
+        new Response('<html><body>fallback</body></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+    );
+
+    const seenConnections: string[] = [];
+    const { result, unmount } = renderHook(() => {
+      const state = useLiveEvents('test-token');
+      seenConnections.push(state.connection);
+      return state;
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.connection).toBe('error');
+    expect(seenConnections).not.toContain('open');
+
+    // First retry after 1000ms.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.connection).toBe('error');
+
+    // Second retry backs off to 2000ms.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(seenConnections).not.toContain('open');
+
+    unmount();
+  });
+
+  it('backs off without opening when a 200 text/event-stream closes before any frame', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.mocked(fetch).mockImplementation(async () => {
+      const stream = createSseStream();
+      stream.close();
+      return stream.response;
+    });
+
+    const seenConnections: string[] = [];
+    const { result, unmount } = renderHook(() => {
+      const state = useLiveEvents('test-token');
+      seenConnections.push(state.connection);
+      return state;
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.connection).toBe('error');
+    expect(seenConnections).not.toContain('open');
+
+    // First retry fires at 1000ms.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.connection).toBe('error');
+
+    // Because no frame was parsed, backoff grows to 2000ms instead of resetting to 1000ms.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(seenConnections).not.toContain('open');
+
+    unmount();
+  });
+
   it('reconnects with exponential backoff on network errors and stream disconnects', async () => {
     vi.useFakeTimers();
     const firstStream = createSseStream();
     const secondStream = createSseStream();
+    const thirdStream = createSseStream();
     const fetchMock = vi
       .mocked(fetch)
       .mockRejectedValueOnce(new TypeError('network down'))
       .mockResolvedValueOnce(new Response('bad gateway', { status: 502 }))
       .mockResolvedValueOnce(firstStream.response)
-      .mockResolvedValueOnce(secondStream.response);
+      .mockResolvedValueOnce(secondStream.response)
+      .mockResolvedValueOnce(thirdStream.response);
 
     const { result, unmount } = renderHook(() => useLiveEvents('test-token'));
 
@@ -261,9 +371,14 @@ describe('useLiveEvents', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Third attempt opens -> resets backoff to 1000ms.
+    // Third attempt parses a frame -> opens and resets backoff to 1000ms.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
+      firstStream.push(
+        `event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.current.connection).toBe('open');
@@ -278,13 +393,16 @@ describe('useLiveEvents', () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
+      secondStream.push(
+        `event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(result.current.connection).toBe('open');
 
     // Mid-stream read error also transitions to error and schedules reconnect.
-    const thirdStream = createSseStream();
-    fetchMock.mockResolvedValueOnce(thirdStream.response);
     await act(async () => {
       secondStream.error(new Error('socket reset'));
       await Promise.resolve();
@@ -294,6 +412,11 @@ describe('useLiveEvents', () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
+      thirdStream.push(
+        `event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(result.current.connection).toBe('open');
@@ -314,7 +437,14 @@ describe('useLiveEvents', () => {
       { initialProps: { token: 'token-a' } },
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      firstStream.push(
+        `event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`,
+      );
+    });
     await waitFor(() => expect(result.current.connection).toBe('open'));
+
     const firstSignal = fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal;
     expect(firstSignal.aborted).toBe(false);
 
@@ -323,6 +453,11 @@ describe('useLiveEvents', () => {
     expect(firstSignal.aborted).toBe(true);
     expect(firstStream.canceled()).toBe(true);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      secondStream.push(
+        `event: status\ndata: ${JSON.stringify(makeStatus())}\n\n`,
+      );
+    });
     await waitFor(() => expect(result.current.connection).toBe('open'));
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
       Authorization: 'Bearer token-b',
