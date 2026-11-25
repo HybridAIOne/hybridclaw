@@ -579,6 +579,7 @@ import {
   WEBCHAT_VOICE_TOKEN_PATH,
   webchatVoiceManager,
 } from './webchat-voice.js';
+import { resolveWhatsAppChatTarget } from './whatsapp-chat-target.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -3550,14 +3551,18 @@ async function handleApiChat(
     body.agentId = scopedAgentId;
   }
 
+  const channelId = body.channelId || 'web';
+  const target = resolveWhatsAppChatTarget(
+    channelId,
+    normalizeOptionalString(body.sessionId),
+    normalizeOptionalString(body.agentId),
+  );
   const sessionId =
-    normalizeOptionalString(body.sessionId) ||
-    generateDefaultWebSessionId(body.agentId);
+    target.sessionId || generateDefaultWebSessionId(target.agentId);
   if (isMalformedCanonicalSessionId(sessionId)) {
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
-  const channelId = body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
     operatorId: operatorId ?? undefined,
     sessionId,
@@ -3581,7 +3586,7 @@ async function handleApiChat(
       ? { approvalUserText: null }
       : {}),
     ...(media.length > 0 ? { media } : {}),
-    agentId: body.agentId,
+    agentId: target.agentId ?? undefined,
     ...(body.scope !== undefined ? { scope: body.scope } : {}),
     ...(agentScope !== null ? { allowedAgentIds: agentScope } : {}),
     chatbotId: body.chatbotId,
