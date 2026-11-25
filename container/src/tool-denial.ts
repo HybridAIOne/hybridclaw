@@ -5,6 +5,7 @@
  * Unlike approval-reply, this cannot resolve a pending human decision.
  */
 import type { ToolApprovalEvaluation } from './approval-policy.js';
+import { GREP_FILE_SEARCH_REPLAN } from './bash-grep-files.js';
 import { BASH_SAFETY_ACTION_KEY } from './bash-safety.js';
 import { statusOutputPresentation } from './chat-segments.js';
 import { emitRuntimeEvent } from './extensions.js';
@@ -43,6 +44,7 @@ export function canReplanAfterDenial(
   // Per-file preservation recovery cannot authorize a denied effect.
   return (
     (approval.actionKey === BASH_SAFETY_ACTION_KEY ||
+      approval.actionKey === GREP_FILE_SEARCH_REPLAN ||
       (!approval.pinned && approval.actionKey.startsWith('network:'))) &&
     !executions.some((entry) => entry.approvalDecision === 'denied')
   );
@@ -81,7 +83,9 @@ export async function handleToolDenial(params: {
       FILE_WRITE_CONFLICT_ACTION_PREFIX,
     )
       ? 'Nothing in this tool call ran. Continue with read-only inspection or checked file tools for authorized changes. Create unrelated new work at a separate path and leave existing files in place. Do not retry the blocked mutation through another shell or script. If the task requires this command, request its approval instead.'
-      : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.';
+      : approval.actionKey === GREP_FILE_SEARCH_REPLAN
+        ? 'Nothing in this tool call ran. Inspect the package location in a separate call. Search named files with grep -n -- PATTERN FILE. For a directory search, use the grep tool where available. Do not repeat the unverified recursive search.'
+        : 'Nothing in this tool call ran. Continue the original task only if you can omit the prohibited effects and complete permitted work. Do not repeat this call or reproduce the blocked effects through another tool, host alias or route. Other operations still require their own policy evaluation. Leave optional cleanup undone; explain a blocker only if it prevents the requested result.';
     for (const unrun of params.unrunCalls) {
       const content =
         unrun === call

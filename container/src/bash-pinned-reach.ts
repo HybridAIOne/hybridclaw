@@ -24,6 +24,11 @@ import {
   scriptCommands,
   xargsCommandWords,
 } from './bash-commands.js';
+import {
+  grepOperandIsFileOnly,
+  hasLiteralGrepFileOperands,
+  initialGrepFileSearch,
+} from './bash-grep-files.js';
 import { sedLiteralDataArgs } from './bash-sed-data.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
 import { expandUserPath, WORKSPACE_ROOT } from './runtime-paths.js';
@@ -32,7 +37,7 @@ export interface BashPinnedReach {
   // Pinned paths the command names, as written or resolved against its `cd`.
   namedPaths: string[];
   // The first recursive read that can reach pinned files it does not name.
-  walk: { program: string; reaches: string[] } | null;
+  walk: { program: string; reaches: string[]; fileSearchRetry: boolean } | null;
 }
 
 // Sample file names for each slash-free hard pattern. A walk filter that lets
@@ -636,6 +641,7 @@ interface ScanState {
   namesPinnedPath: (candidate: string) => boolean;
   namedPaths: Set<string>;
   walk: BashPinnedReach['walk'];
+  initialGrep: ScriptCommand | undefined;
 }
 
 // Recursive flags do not turn existing regular-file operands into directories.
@@ -643,12 +649,12 @@ interface ScanState {
 // are still pinned even if the command names a harmless-looking parent alias.
 function searchDirectories(
   walk: Walk,
-  cwd: Cwd,
+  command: ScriptCommand,
   state: ScanState,
 ): Walk | null {
   if (walk.roots.length === 0) return walk;
   const roots = walk.roots.filter((root) => {
-    const resolved = resolvePath(root, cwd);
+    const resolved = resolvePath(root, command.cwd);
     if (resolved === null || GLOB_CHAR_RE.test(resolved)) return true;
     const absolute = path.resolve(WORKSPACE_ROOT, resolved);
     try {
@@ -697,15 +703,27 @@ function scanScript(
     }
 
     if (!piped) listing = null;
+    const fileOnly =
+      scan.walk !== null &&
+      hasLiteralGrepFileOperands(command) &&
+      scan.walk.roots.every((root) =>
+        grepOperandIsFileOnly(root, state.namesPinnedPath),
+      );
     const reached =
       program === 'xargs'
         ? listing
-        : scan.walk && ['grep', 'egrep', 'fgrep', 'rg'].includes(program)
-          ? searchDirectories(scan.walk, cwd, state)
-          : scan.walk;
-    if (!state.walk && scan.reads && reached) {
+        : fileOnly && command === state.initialGrep
+          ? null
+          : scan.walk && ['grep', 'egrep', 'fgrep', 'rg'].includes(program)
+            ? searchDirectories(scan.walk, command, state)
+            : scan.walk;
+    if ((!state.walk || state.walk.fileSearchRetry) && scan.reads && reached) {
       const reaches = walkReaches(reached, cwd);
-      if (reaches.length > 0) state.walk = { program, reaches };
+      if (reaches.length > 0) {
+        const fileSearchRetry =
+          fileOnly && depth === 0 && !piped && command !== commands[0];
+        state.walk = { program, reaches, fileSearchRetry };
+      }
     }
     if (scan.walk) listing = scan.walk;
     else if (program === 'xargs') listing = null;
@@ -718,12 +736,14 @@ function scanScript(
 
 export function findBashPinnedReach(
   commands: ScriptCommand[],
+  script: string,
   namesPinnedPath: (candidate: string) => boolean,
 ): BashPinnedReach {
   const state: ScanState = {
     namesPinnedPath,
     namedPaths: new Set(),
     walk: null,
+    initialGrep: initialGrepFileSearch(script, commands),
   };
   scanScript(state, commands, 0);
   return { namedPaths: [...state.namedPaths], walk: state.walk };
