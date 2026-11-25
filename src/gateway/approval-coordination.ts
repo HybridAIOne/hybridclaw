@@ -86,6 +86,7 @@ export function coordinateGatewayApproval(
         createdAt: Date.now(),
         expiresAt: approval.expiresAt ?? Number.MAX_SAFE_INTEGER,
         executionContext: {
+          executionSessionId: resumed.executionSessionId,
           workspacePathOverride: resumed.workspacePathOverride,
           workspaceDisplayRootOverride: resumed.workspaceDisplayRootOverride,
           autoApproveTools: resumed.autoApproveTools,

@@ -59,6 +59,7 @@ export interface PendingApprovalPrompt {
   /** Gateway-owned dispatch facts; never populated from an HTTP body. */
   executionContext?: Pick<
     GatewayChatRequest,
+    | 'executionSessionId'
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
     | 'autoApproveTools'
@@ -125,6 +126,14 @@ function normalizeDurablePendingApproval(
       if (typeof context[key] !== 'string' || !path.isAbsolute(context[key]))
         return null;
       executionContext[key] = context[key];
+    }
+    if (context.executionSessionId !== undefined) {
+      if (
+        typeof context.executionSessionId !== 'string' ||
+        !context.executionSessionId.trim()
+      )
+        return null;
+      executionContext.executionSessionId = context.executionSessionId;
     }
     if (context.autoApproveTools !== undefined) {
       if (typeof context.autoApproveTools !== 'boolean') return null;

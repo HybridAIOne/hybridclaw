@@ -234,6 +234,7 @@ test('OpenAI approval recovery retains gateway dispatch context across restart a
     '../src/gateway/approval-coordination.js'
   );
   const context = {
+    executionSessionId: 'fixture-worker-session',
     workspacePathOverride: '/fixture/task',
     workspaceDisplayRootOverride: '/fixture/task',
     autoApproveTools: true,
