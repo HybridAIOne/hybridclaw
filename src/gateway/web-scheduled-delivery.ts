@@ -5,6 +5,7 @@
  * best-effort alert and cannot turn a stored reminder into a failed job.
  */
 
+import { createHash } from 'node:crypto';
 import { logger } from '../logger.js';
 import {
   getAgentMainSession,
@@ -12,13 +13,14 @@ import {
 } from '../memory/agent-main-session.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { setMessageEmailDraft } from '../memory/db.js';
+import { claimMemoryValue } from '../memory/kv.js';
 import { memoryService } from '../memory/memory-service.js';
 import { setMessageApproval } from '../memory/message-approval.js';
 import { recordTrackedDraft } from '../tracking/follow-through.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
-import { readWork, updateWork } from '../work/work-store.js';
+import { readWork, updateWork, type WorkRecord } from '../work/work-store.js';
 import { waitWhileAtComputer } from './computer-presence.js';
 import type { StoredProactiveMessage } from './fullauto-runtime.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
@@ -127,6 +129,19 @@ export function mainChatForWebTask(
   return main && main.session_key !== origin.session_key ? main : null;
 }
 
+function claimNotice(work: WorkRecord, agentId: string): boolean {
+  if (!work.owner || work.agentId !== agentId) return false;
+  const reference = work.evidence[0]?.reference.trim() ?? '';
+  if (/^event:\S+$/.test(reference)) return true;
+  if (!/^mail:[a-z][a-z0-9_-]*:[^:\s]+:\S+$/.test(reference)) return false;
+  // Use the verified owner and agent, independently of the task and chat IDs.
+  // Store a digest so this index does not duplicate connector identifiers.
+  const key = createHash('sha256')
+    .update(JSON.stringify([work.owner, reference]))
+    .digest('hex');
+  return claimMemoryValue(agentId, `proactive-mail:${key}`, true);
+}
+
 export function deliverWebScheduledMessage(
   sessionId: string,
   text: string,
@@ -134,30 +149,39 @@ export function deliverWebScheduledMessage(
   artifacts?: ArtifactMetadata[],
   storedMessage?: StoredProactiveMessage,
   workId?: string,
-): { status: 'delivered'; messageId: number } {
+):
+  | { status: 'delivered'; messageId: number }
+  | { status: 'suppressed'; messageId?: never } {
   const session = memoryService.getSessionById(sessionId);
   if (session?.channel_id !== 'web')
     throw new Error('Scheduled web delivery requires an existing web session.');
-  const messageId = withMemoryDatabase((db) =>
+  const saved = withMemoryDatabase((db) =>
     db.transaction(() => {
       const previous = workId ? readWork(workId) : null;
-      const messageId =
-        previous?.sessionId === session.id &&
-        previous.savedAt &&
-        previous.messageId
+      const alreadySaved =
+        previous?.sessionId === session.id && previous.savedAt
           ? previous.messageId
-          : storedMessage?.sessionId === session.id
-            ? storedMessage.id
-            : memoryService.storeMessage({
-                sessionId: session.id,
-                userId: 'scheduler',
-                username: 'Hy',
-                role: 'assistant',
-                content: text,
-                agentId: session.agent_id,
-                artifacts,
-                source,
-              });
+          : null;
+      // Claim the mail and save the visible reply in one transaction. A failed
+      // save rolls the claim back. Delivery retries never ring twice.
+      if (previous?.noticeEvidence) {
+        if (alreadySaved) return { messageId: alreadySaved, replayed: true };
+        if (!claimNotice(previous, session.agent_id)) return null;
+      }
+      const messageId =
+        alreadySaved ??
+        (storedMessage?.sessionId === session.id
+          ? storedMessage.id
+          : memoryService.storeMessage({
+              sessionId: session.id,
+              userId: 'scheduler',
+              username: 'Hy',
+              role: 'assistant',
+              content: text,
+              agentId: session.agent_id,
+              artifacts,
+              source,
+            }));
       // A run kept apart from this chat stored its reply elsewhere; the copy here
       // shows the same email or approval card.
       if (storedMessage && storedMessage.sessionId !== session.id) {
@@ -172,9 +196,12 @@ export function deliverWebScheduledMessage(
           work.messageId = messageId;
           work.savedAt ??= new Date().toISOString();
         });
-      return messageId;
+      return { messageId, replayed: false };
     })(),
   );
+  if (!saved) return { status: 'suppressed' };
+  const { messageId, replayed } = saved;
+  if (replayed) return { status: 'delivered', messageId };
   recordTrackedDraft(session.id, messageId, workId);
   // Feed and Ideas replies are app data, never reminders for the user.
   if (isAppDataChat(session.session_key)) {

@@ -15,6 +15,7 @@ import {
 } from '../scheduler/routine-editions.js';
 import { ScheduledDeliveryLifecycle } from '../scheduler/scheduled-delivery-lifecycle.js';
 import type { SchedulerDispatchRequest } from '../scheduler/scheduler.js';
+import { noteTaskRun } from '../scheduler/task-runs.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
@@ -216,6 +217,8 @@ export async function runScheduledTask(
         `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
       );
     }
+    if (resolvedDeliveryChannelId === 'web' && outcome.status === 'suppressed')
+      noteTaskRun(request.taskRunId, { skipped: true });
     lifecycle.settle(outcome.status);
     logger.info(
       { jobId: request.jobId, taskId: request.taskId, ...lifecycle.finish() },

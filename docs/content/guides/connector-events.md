@@ -66,6 +66,15 @@ It supplies the authenticated event entry point. No message body or event
 payload is placed in the model prompt; Hy rereads current connected sources
 using the original proactive policy and its existing approval rules.
 
+An owner-bound web policy with `[notice-evidence]` after its opening label
+requires a primary source reference recorded during the run. For mail, the
+gateway claims the provider, mailbox and immutable message identity in the
+same transaction that saves the visible reply. The claim is scoped to the
+verified owner and agent and survives task replacement. A repeat, a missing
+reference or a malformed reference stays quiet. The gateway uses the reference
+for delivery control. It does not treat the model's evidence as authorization
+to act on the connected source.
+
 ## Owner bindings for hosted mail
 
 A host can configure `ownerUserId` instead of a fixed task ID:
