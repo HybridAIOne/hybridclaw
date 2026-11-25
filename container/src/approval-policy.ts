@@ -293,6 +293,7 @@ export interface ApprovalPrelude {
 
 export interface ToolApprovalEvaluation {
   approvalObservation?: ApprovalObservation;
+  approvalUnavailable?: boolean;
   baseTier: ApprovalTier;
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;
@@ -4088,7 +4089,14 @@ export class TrustedAgentApprovalRuntime {
       return true;
     }
     if (changesApprovalState(input.toolName, input.pathHints)) return true;
-    if (fullText.includes('git push --force')) return true;
+    const toolName = input.toolName.toLowerCase();
+    if (
+      toolName !== 'write' &&
+      toolName !== 'edit' &&
+      fullText.includes('git push --force')
+    ) {
+      return true;
+    }
 
     for (const rule of this.loadedPolicy.pinnedRed) {
       if (

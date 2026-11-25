@@ -12,6 +12,9 @@ import type {
 } from './approval-policy.js';
 import { FILE_WRITE_CONFLICT_ACTION_PREFIX } from './file-write-conflicts.js';
 
+export const NO_APPROVER_REASON =
+  'another bot or a webhook started this turn, so no person can approve this step';
+
 export function observeLearningApproval(
   evaluation: ToolApprovalEvaluation,
   mode: ApprovalMode,
@@ -83,8 +86,8 @@ export function resolveApprovalPrompt(
       ...evaluation,
       decision: 'denied',
       escalationRoute: 'policy_denial',
-      reason:
-        'another bot or a webhook started this turn, so no person can approve this step',
+      reason: NO_APPROVER_REASON,
+      approvalUnavailable: context.helpers.approvalMode() === 'full',
     };
   }
   const request = context.helpers.getOrCreatePending({

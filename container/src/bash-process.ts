@@ -1,10 +1,11 @@
 /**
  * Approved shells run without blocking the worker, with bounded output and
- * process-group cancellation on timeout or shutdown (including docker exec).
+ * process-group cancellation on timeout, shutdown, or a dedicated sandbox OOM.
  * Unlike the bash dispatcher, this module neither approves commands nor resolves
  * credentials: command text stays on stdin and credential values stay in env.
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
 import {
   BASH_DOCKER_CONTAINER,
@@ -28,6 +29,9 @@ export type BashProcessResult = {
 // 2026-10-02, Codex: allow TERM handlers 250ms, then kill the entire group;
 // configurable grace periods and background-job management are deferred.
 const KILL_GRACE_MS = 250;
+const OOM_POLL_MS = 500;
+const OOM_ERROR =
+  'The task sandbox recorded an out-of-memory kill. Reduce peak memory before retrying.';
 const DOCKER_PID_PREFIX = 'hybridclaw-bash-pgid:';
 const DOCKER_PID_MAX_BYTES =
   DOCKER_PID_PREFIX.length + String(Number.MAX_SAFE_INTEGER).length;
@@ -60,6 +64,16 @@ function killGroup(pid: number, signal: NodeJS.Signals): void {
     process.kill(-pid, signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
+
+function readOomKillCount(): number | undefined {
+  try {
+    const events = fs.readFileSync('/sys/fs/cgroup/memory.events', 'utf8');
+    const count = Number(/^oom_kill (\d+)$/m.exec(events)?.[1]);
+    return Number.isSafeInteger(count) ? count : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -103,6 +117,18 @@ export async function runBashProcess(
   },
   stdinFields: string[] = [],
 ): Promise<BashProcessResult> {
+  // A shared host cgroup or the docker-exec client's cgroup cannot attribute
+  // its memory events to this task.
+  const initialOomKills =
+    !TASK_SANDBOX_FS_ENABLED &&
+    process.env.HYBRIDCLAW_AGENT_DEDICATED_CGROUP === '1'
+      ? readOomKillCount()
+      : undefined;
+  const oomKillRecorded = () => {
+    if (initialOomKills === undefined) return false;
+    const current = readOomKillCount();
+    return current !== undefined && current > initialOomKills;
+  };
   const env = buildSanitizedEnv(process.env);
   const gatewayUrl = String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim();
   const gatewayToken = String(
@@ -206,6 +232,12 @@ export async function runBashProcess(
       new Error(`ETIMEDOUT: Command timed out after ${params.timeoutMs}ms`),
     );
   }, params.timeoutMs);
+  const oomTimer =
+    initialOomKills === undefined
+      ? undefined
+      : setInterval(() => {
+          if (oomKillRecorded()) void cancel(new Error(OOM_ERROR));
+        }, OOM_POLL_MS);
   const collect = (chunks: Buffer[], chunk: Buffer) => {
     const remaining = BASH_EXEC_MAX_BUFFER_BYTES - bytes;
     if (remaining > 0) {
@@ -264,6 +296,7 @@ export async function runBashProcess(
   try {
     const result = await closed;
     await cancellation;
+    if (!error && oomKillRecorded()) error = new Error(OOM_ERROR);
     return {
       ...result,
       stdout: Buffer.concat(stdout).toString('utf8'),
@@ -272,6 +305,7 @@ export async function runBashProcess(
     };
   } finally {
     clearTimeout(timer);
+    clearInterval(oomTimer);
     activeCommands.delete(shutdownCancel);
   }
 }

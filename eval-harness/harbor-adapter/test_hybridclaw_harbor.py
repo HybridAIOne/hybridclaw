@@ -70,6 +70,7 @@ class AdapterTest(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         os.environ.pop(hybridclaw_harbor.CONTEXT_WINDOW_ENV, None)
+        os.environ.pop(hybridclaw_harbor.SYSTEM_WRITES_ENV, None)
 
     def write_manifest(self, sha256):
         self.archive.with_suffix(".json").write_text(
@@ -133,6 +134,46 @@ class AdapterTest(unittest.TestCase):
         ):
             self.assertEqual(self.agent().run_config()["contextWindow"], 32768)
 
+    def test_system_writes_reject_an_unverified_environment(self):
+        environment = FakeEnvironment()
+        with mock.patch.dict(
+            os.environ, {hybridclaw_harbor.SYSTEM_WRITES_ENV: "1"}
+        ), self.assertRaises(hybridclaw_harbor.HybridClawSetupError):
+            asyncio.run(self.agent().upload_run_config(environment, "task"))
+        self.assertEqual(environment.uploads, {})
+
+    def test_system_writes_require_inspected_docker_isolation(self):
+        environment = mock.MagicMock(spec=hybridclaw_harbor.DockerEnvironment)
+        environment._uses_compose = False
+        environment._run_docker_compose_command.return_value = SimpleNamespace(
+            stdout="a" * 64
+        )
+        host = {
+            "Privileged": False, "CapAdd": None, "Devices": [], "DeviceRequests": None,
+            "VolumesFrom": None, "PidMode": "", "IpcMode": "private", "UTSMode": "",
+            "NetworkMode": "trial_default",
+        }
+        cases = [
+            ([], host, True),
+            ([{"Type": "bind"}], host, False),
+            ([], {**host, "Privileged": True}, False),
+            ([], {**host, "PidMode": "host"}, False),
+            ([], {**host, "NetworkMode": "container:test"}, False),
+        ]
+        for mounts, config, allowed in cases:
+            with self.subTest(mounts=mounts, config=config), mock.patch.object(
+                hybridclaw_harbor.subprocess,
+                "run",
+                return_value=SimpleNamespace(
+                    stdout=json.dumps({"mounts": mounts, "host": config})
+                ),
+            ):
+                if allowed:
+                    asyncio.run(hybridclaw_harbor.require_isolated_docker(environment))
+                else:
+                    with self.assertRaises(hybridclaw_harbor.HybridClawSetupError):
+                        asyncio.run(hybridclaw_harbor.require_isolated_docker(environment))
+
     def test_missing_endpoint_fails_instead_of_using_a_default_provider(self):
         for missing in INTERCEPT:
             with self.subTest(missing=missing):
@@ -192,6 +233,8 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(uploaded["instruction"], "do the task")
         _, env = environment.commands[0]
         self.assertEqual(env["HYBRIDCLAW_DATA_DIR"], hybridclaw_harbor.STATE_DIR)
+        self.assertIn("/usr/sbin", env["PATH"].split(":"))
+        self.assertIn("/sbin", env["PATH"].split(":"))
         self.assertEqual(
             (context.n_input_tokens, context.n_output_tokens, context.n_cache_tokens),
             (11, 7, 3),

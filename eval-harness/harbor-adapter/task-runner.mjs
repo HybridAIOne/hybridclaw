@@ -19,6 +19,7 @@ const dataDir = process.env.HYBRIDCLAW_DATA_DIR;
 if (!['/opt/hybridclaw-check', '/opt/hybridclaw-state'].includes(dataDir))
   throw new Error('The adapter requires its isolated runtime directory');
 process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+process.env.HYBRIDCLAW_AGENT_DEDICATED_CGROUP = '1';
 
 const trace = (type, value) => {
   if (!check)
@@ -68,12 +69,14 @@ const {
   GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   SHELL_RUNTIME_ENV_PATH,
+  configureHarborSandboxPolicy,
 } = await import(`${root}/dist/harbor-adapter-api.js`);
 const installed = JSON.parse(fs.readFileSync(`${root}/package.json`, 'utf8'));
 if (installed.version !== run.version)
   throw new Error(`Unexpected HybridClaw version: ${installed.version}`);
 if (resolveModelProvider(model) !== 'vllm')
   throw new Error('The adapter model resolved to the wrong provider');
+configureHarborSandboxPolicy(run.sandboxSystemWrites);
 initDatabase({ quiet: true });
 initAgentRegistry(getRuntimeConfig().agents);
 startGatewayHttpServer().setReady();
@@ -96,13 +99,15 @@ try {
     executionSessionId: 'harbor-adapter-trial',
     executorModeOverride: 'host',
     autoApproveTools: true,
+    approvalUserIsBot: true,
+    approvalUserText: null,
     workspacePathOverride: process.cwd(),
     workspaceDisplayRootOverride: process.cwd(),
     guildId: null,
     channelId: 'cli',
     userId: 'harbor',
     username: 'harbor',
-    content: run.instruction,
+    content: `Carry out the task using the available tools in this isolated Harbor sandbox. Harbor verifies the sandbox state after your turn.\n\n${run.instruction}`,
     agentId: 'main',
     model,
     reasoningEffort: 'none',

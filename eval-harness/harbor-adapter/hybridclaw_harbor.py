@@ -17,19 +17,24 @@ import asyncio
 import hashlib
 import json
 import os
+import re
+import subprocess
 import sys
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 from harbor.agents.base import BaseAgent
+from harbor.constants import MAIN_SERVICE_NAME
 from harbor.environments.base import BaseEnvironment
+from harbor.environments.docker.docker import DockerEnvironment
 from harbor.models.agent.context import AgentContext
 
 HERE = Path(__file__).resolve().parent
 RUNTIME_ENV = "HYBRIDCLAW_HARBOR_RUNTIME"
 CONTEXT_WINDOW_ENV = "HYBRIDCLAW_HARBOR_CONTEXT_WINDOW"
 PROXY_HOST_ENV = "HYBRIDCLAW_HARBOR_PROXY_HOST"
+SYSTEM_WRITES_ENV = "HYBRIDCLAW_HARBOR_SYSTEM_WRITES"
 NODE = "/opt/hybridclaw-node/bin/node"
 TASK_RUNNER = "/tmp/hybridclaw-task.mjs"
 RUN_CONFIG = "/tmp/hybridclaw-run.json"
@@ -54,6 +59,41 @@ def load_runtime() -> tuple[Path, dict[str, Any]]:
     archive = Path(configured)
     manifest = json.loads(archive.with_suffix(".json").read_text())
     return archive, manifest
+
+
+async def require_isolated_docker(environment: BaseEnvironment) -> None:
+    """Verify the actual task container before installing a permissive fence."""
+    message = "Harbor system writes require a plain Docker task without host mounts"
+    if not isinstance(environment, DockerEnvironment) or environment._uses_compose:
+        raise HybridClawSetupError(message)
+    container = await environment._run_docker_compose_command(
+        ["ps", "-q", MAIN_SERVICE_NAME], timeout_sec=10
+    )
+    container_id = (container.stdout or "").strip()
+    if not re.fullmatch(r"[a-f0-9]{64}", container_id):
+        raise HybridClawSetupError(message)
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "docker", "inspect", "--type", "container", "--format",
+            '{"mounts":{{json .Mounts}},"host":{{json .HostConfig}}}',
+            container_id,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    report = json.loads(result.stdout)
+    host = report["host"]
+    if report["mounts"] or any(
+        host[key]
+        for key in ("Privileged", "CapAdd", "Devices", "DeviceRequests", "VolumesFrom")
+    ) or any(
+        host[key] == "host" or host[key].startswith("container:")
+        for key in ("PidMode", "IpcMode", "UTSMode", "NetworkMode")
+    ):
+        raise HybridClawSetupError(message)
 
 
 class HybridClaw(BaseAgent):
@@ -97,8 +137,12 @@ class HybridClaw(BaseAgent):
     async def upload_run_config(
         self, environment: BaseEnvironment, instruction: str | None = None
     ) -> None:
+        config = self.run_config(instruction)
+        if os.environ.get(SYSTEM_WRITES_ENV) == "1":
+            await require_isolated_docker(environment)
+            config["sandboxSystemWrites"] = True
         path = self.logs_dir / "hybridclaw-run.json"
-        path.write_text(json.dumps(self.run_config(instruction)))
+        path.write_text(json.dumps(config))
         try:
             await environment.upload_file(path, RUN_CONFIG)
         finally:
@@ -157,7 +201,7 @@ class HybridClaw(BaseAgent):
                     "> /tmp/hybridclaw-process.log 2>&1"
                 ),
                 env={
-                    "PATH": "/opt/hybridclaw-node/bin:/usr/local/bin:/usr/bin:/bin",
+                    "PATH": "/opt/hybridclaw-node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                     "HYBRIDCLAW_DATA_DIR": STATE_DIR,
                 },
             )
