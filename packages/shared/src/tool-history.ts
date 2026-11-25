@@ -2,11 +2,16 @@
  * Portable tool exchanges preserve call/result pairing across worker lifetimes.
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
+ * Opaque reasoning retains its originating provider/model identity for replay.
  * The result-digest field a reply carries is wire data
  * (`@hybridclaw/contracts/tool-history`).
  */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import {
+  type ChatMessage,
+  ProviderReasoningReplaySchema,
+} from '@hybridclaw/contracts/agent-io';
 import type { FileBackedToolResult } from '@hybridclaw/contracts/tool-history';
 import type { VisualAttachmentMessage } from '@hybridclaw/contracts/visual-snapshots';
 import { validateVisualAttachments } from './visual-snapshots.ts';
@@ -30,6 +35,7 @@ export interface HistoryMessage
   is_error?: boolean;
   anthropic_content?: Array<{ type: string; [key: string]: unknown }>;
   openai_response_items?: Array<Record<string, unknown>>;
+  provider_reasoning?: ChatMessage['provider_reasoning'];
 }
 
 export const TOOL_RESULTS_DIR: string = '.tool-results';
@@ -182,6 +188,16 @@ export function validateToolHistory(value: unknown): HistoryMessage[] {
           }
           next[key] = message[key] as never;
         }
+      }
+      if (message.provider_reasoning !== undefined) {
+        const replay = message.provider_reasoning;
+        if (!ProviderReasoningReplaySchema.check(replay))
+          throw new Error('Invalid provider reasoning replay metadata.');
+        next.provider_reasoning = {
+          provider: replay.provider,
+          model: replay.model,
+          content: replay.content,
+        };
       }
       messages.push(next);
     } else if (

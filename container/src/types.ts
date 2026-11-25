@@ -7,6 +7,7 @@
 
 import type {
   AnthropicContentBlock,
+  ChatMessage,
   ChatMessageContent,
   EscalationTarget,
   TaskModelKey,
@@ -78,6 +79,7 @@ export interface ChatCompletionResponse {
       content: ChatMessageContent;
       tool_calls?: ToolCall[];
       reasoning_content?: string | null;
+      provider_reasoning?: ChatMessage['provider_reasoning'];
       anthropic_content?: AnthropicContentBlock[];
       openai_response_items?: Array<Record<string, unknown>>;
     };

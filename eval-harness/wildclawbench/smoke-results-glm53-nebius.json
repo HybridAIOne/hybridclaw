@@ -1,0 +1,343 @@
+{
+  "agent": "hybridclaw",
+  "benchmark": "wildclawbench",
+  "run_date": "2026-11-25",
+  "kind": "GLM-5.3 Nebius calibration attempts and latest patched smoke sample",
+  "model": "nebius/zai-org/GLM-5.3",
+  "judge_model_setting": "openai/gpt-5.4",
+  "primary_output_allowance_tokens": 131072,
+  "dataset_commit": "75f945578aa00cbdb8f46e4d42e4f4e98f704b4f",
+  "full_run_started": false,
+  "ready_for_full_run": false,
+  "latest_selection": "Latest attempted result per task on the patched image, including failures; not best-of selection.",
+  "latest_smoke_attempt_ids": [3, 5, 6],
+  "latest_smoke_totals": {
+    "attempts": 3,
+    "wall_minutes": 10.913672339598998,
+    "average_wall_minutes_per_task": 3.6378907798663325,
+    "observed_cost_usd": 1.26199212,
+    "average_usd_per_task": 0.42066404,
+    "mean_score_percent": 65.09,
+    "accounting_complete": true
+  },
+  "all_attempt_totals": {
+    "attempts": 6,
+    "wall_minutes": 31.263804254866166,
+    "average_wall_minutes_per_task": 5.210634042477694,
+    "observed_cost_usd": 2.7369433,
+    "average_usd_per_task": 0.45615722,
+    "mean_score_percent": 49.211666666666666,
+    "accounting_complete": false
+  },
+  "cost_basis": "Nebius reported tokens priced at list rates plus OpenRouter billed generation metadata. Observed costs exclude any unpriced requests; false accounting_complete marks incomplete billing.",
+  "source_note": "Live measurements used frozen 0.44.0 experiment images. The replay fix was subsequently applied to current main as PR #2342; current-main validation was offline/CI, not another live smoke run.",
+  "fix_pr": "https://github.com/HybridAIOne/hybridclaw/pull/2342",
+  "runtime_fix_pr_commit": "1e22dfce4df96b7acb127ba4b8233aba94c955f7",
+  "qualifications": [
+    "This is a three-task smoke sample, not a 60-task benchmark score or a model ranking.",
+    "All six attempts are retained; all-attempt means include repeated calendar calibration variants.",
+    "Task prompts, official per-task deadlines, graders and approval policy were unchanged.",
+    "Calendar and SCP used native helper defaults. The final BibTeX attempt configured nebius/zai-org/GLM-5.3-Flash for vision with a 32768-token ceiling, but never invoked it.",
+    "A 100% artifact score does not imply completed execution: the patched calendar stopped at an approval prompt.",
+    "Two attempts have requests without usage. Their costs are observed minimum estimates, not settled totals.",
+    "Per-attempt source revisions, immutable image IDs and prompt hashes identify the exact experiment; these results do not represent a live run on the rebased PR head."
+  ],
+  "attempts": [
+    {
+      "attempt": 1,
+      "variant": "low_baseline",
+      "task": "01_Productivity_Flow_task_6_calendar_scheduling",
+      "reasoning_effort": "low",
+      "execution_status": "awaiting_approval",
+      "score": 0.0,
+      "wall_seconds": 140.55922733299667,
+      "agent_seconds": 121.84693216701271,
+      "observed_cost_usd": 0.2811685,
+      "nebius_estimated_usd": 0.2811494,
+      "openrouter_billed_usd": 1.91e-5,
+      "accounting_complete": true,
+      "requests_without_usage": 0,
+      "blocker": "File-write conflict after a malformed revision hash; no result files.",
+      "vision_helper_configured": null,
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "859b021cfdd398d9a03c72d4309d8319a3c8c1d4",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:b7efbd044cd983e30ffc90e76d50d250ec111ae3b3aca3199ad2d06fed52bb97",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "low",
+        "reasoning_effort": "low",
+        "timeout_seconds": 900,
+        "prompt_sha256": "79747adffa522436c811c7f7138f5ca9bee04a6ca1ed2d87d8985d7f494e756c"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_6_calendar_scheduling/GLM-5.3_20261125_1002_15f0cd",
+      "evidence_sha256": {
+        "score.json": "555f827b43bddd0cca546f9a13508b989a9076e00fddd527070b7cfb166dda1d",
+        "execution.json": "2dc710e1b040ff6b28becee6e0af8c4a423bc3b9685acf72a9f8ffe532a03576",
+        "usage.json": "b1e794f61b459020dffef116819cea072115ebdfc1b9b9070e91b9d0474f0d50",
+        "provenance.json": "3a57177159ab4f62cdd5696541234720cab6e19b031ab847417fac52a998b6ff"
+      }
+    },
+    {
+      "attempt": 2,
+      "variant": "high_baseline",
+      "task": "01_Productivity_Flow_task_6_calendar_scheduling",
+      "reasoning_effort": "high",
+      "execution_status": "timed_out",
+      "score": 1.0,
+      "wall_seconds": 922.5142352079856,
+      "agent_seconds": 900,
+      "observed_cost_usd": 0.5832233,
+      "nebius_estimated_usd": 0.5832042,
+      "openrouter_billed_usd": 1.91e-5,
+      "accounting_complete": false,
+      "requests_without_usage": 2,
+      "blocker": "Original task deadline reached after outputs were written; a non-streaming request hit UND_ERR_HEADERS_TIMEOUT.",
+      "vision_helper_configured": null,
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "859b021cfdd398d9a03c72d4309d8319a3c8c1d4",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:b7efbd044cd983e30ffc90e76d50d250ec111ae3b3aca3199ad2d06fed52bb97",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "timeout_seconds": 900,
+        "prompt_sha256": "79747adffa522436c811c7f7138f5ca9bee04a6ca1ed2d87d8985d7f494e756c"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_6_calendar_scheduling/GLM-5.3_20261125_1006_612118",
+      "evidence_sha256": {
+        "score.json": "18a71b9a96d5d3b995f7e6380c36bde3e1ec286ab88f39c823f236133ccd9e28",
+        "execution.json": "93fa7f3fb16b198cb175b0d47c85ba65160a76631860defe0afb5fbbd8f90454",
+        "usage.json": "9301ab8d4960f56a4b005a8da6892407e5abd0b7b6c9455e3616046880b5cedb",
+        "provenance.json": "05a08ef3c58b7470f6e78facb4068bf9f34e1d2b4816c3ff5e98d9ecd05e4521"
+      },
+      "pristine_input_regrade": {
+        "score": 1.0,
+        "checks_passed": 17,
+        "model_calls": 0
+      }
+    },
+    {
+      "attempt": 3,
+      "variant": "high_reasoning_replay",
+      "task": "01_Productivity_Flow_task_6_calendar_scheduling",
+      "reasoning_effort": "high",
+      "execution_status": "awaiting_approval",
+      "score": 1.0,
+      "wall_seconds": 123.1334519169759,
+      "agent_seconds": 106.6236190830241,
+      "observed_cost_usd": 0.15667846,
+      "nebius_estimated_usd": 0.15665936,
+      "openrouter_billed_usd": 1.91e-5,
+      "accounting_complete": true,
+      "requests_without_usage": 0,
+      "blocker": "Inline Node verification required approval after all scored outputs were written.",
+      "vision_helper_configured": null,
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "6061ae17952d6b85eadb27b46ce74231aabd7178",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:0c3cc05e1ada1d37697d6dd09ea1a4394e07a325334834180bdffbebfb5c562a",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "timeout_seconds": 900,
+        "prompt_sha256": "79747adffa522436c811c7f7138f5ca9bee04a6ca1ed2d87d8985d7f494e756c"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_6_calendar_scheduling/GLM-5.3_20261125_1022_48808c",
+      "evidence_sha256": {
+        "score.json": "18a71b9a96d5d3b995f7e6380c36bde3e1ec286ab88f39c823f236133ccd9e28",
+        "execution.json": "a5be14dfa8b5d1927765fcec03e8a023423071beccd868871bc99f5abbb7fb0f",
+        "usage.json": "a5e7c7641cc4f5e94d521670dc6e27c0dd77bed1843a02887096ab81503a4fc2",
+        "provenance.json": "d5de15c26ca44a14ffdd73a6354161113b37d463f8f4df807a250cdd9110ea78"
+      },
+      "pristine_input_regrade": {
+        "score": 1.0,
+        "checks_passed": 17,
+        "model_calls": 0
+      }
+    },
+    {
+      "attempt": 4,
+      "variant": "bibtex_default_vision",
+      "task": "01_Productivity_Flow_task_3_bibtex",
+      "reasoning_effort": "high",
+      "execution_status": "awaiting_approval",
+      "score": 0.0,
+      "wall_seconds": 157.93445237504784,
+      "agent_seconds": 145.50591537501896,
+      "observed_cost_usd": 0.61055938,
+      "nebius_estimated_usd": 0.61053908,
+      "openrouter_billed_usd": 2.03e-5,
+      "accounting_complete": false,
+      "requests_without_usage": 4,
+      "blocker": "Text-only primary rejected vision calls; credential-search diagnostics then required approval before outputs were written.",
+      "vision_helper_configured": null,
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "6061ae17952d6b85eadb27b46ce74231aabd7178",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:0c3cc05e1ada1d37697d6dd09ea1a4394e07a325334834180bdffbebfb5c562a",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "timeout_seconds": 900,
+        "prompt_sha256": "e24d7c1f3c8519586cb1a44d8e936e0ff1454205c1b0a3fe48a9be44deff210f"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_3_bibtex/GLM-5.3_20261125_1028_063f1b",
+      "evidence_sha256": {
+        "score.json": "bb77eae27a155ec0fa7d7b1e9572fd111488397f08124868a9e94619b93d2766",
+        "execution.json": "4b2b928adb65da9d0a18e66626631fca0856f0fdacdec3fb70300679ba7098f4",
+        "usage.json": "ce3b3e2a8076b4ee2a3298b4a662ce6fd4e72df1aed07bc9acccfdc1c10836c0",
+        "provenance.json": "6d8d368f94b9afeb300b4c9e72822fafdb47f3f3c77819e715d813c713a2dd61"
+      }
+    },
+    {
+      "attempt": 5,
+      "variant": "scp_reasoning_replay",
+      "task": "01_Productivity_Flow_task_9_scp_crawl",
+      "reasoning_effort": "high",
+      "execution_status": "completed",
+      "score": 0.9527,
+      "wall_seconds": 369.4963662090013,
+      "agent_seconds": 362.4858084169682,
+      "observed_cost_usd": 0.4982338,
+      "nebius_estimated_usd": 0.4982038,
+      "openrouter_billed_usd": 3e-5,
+      "accounting_complete": true,
+      "requests_without_usage": 0,
+      "blocker": null,
+      "vision_helper_configured": null,
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "6061ae17952d6b85eadb27b46ce74231aabd7178",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:0c3cc05e1ada1d37697d6dd09ea1a4394e07a325334834180bdffbebfb5c562a",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "timeout_seconds": 1200,
+        "prompt_sha256": "ee744d7890e6b31d1a3165f1b4fd322e9d3fc5767b5d7876b687b47558cd1a86"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_9_scp_crawl/GLM-5.3_20261125_1034_5d9cdb",
+      "evidence_sha256": {
+        "score.json": "95c363c77cb20961407a177fdce7303342bea40fa9550884ce5e1540fe76242c",
+        "execution.json": "f933a70272d3b79425c2425547c9bc4562dac73bfda460de15fe1477ea73876e",
+        "usage.json": "1b0146fb5aae24d4e172fb0d49e72c3364fad9f785478e3e9f64c8581d45da14",
+        "provenance.json": "53b02b1d19b3dd9e57de6a900ffc99c8fb3c70babcd97460d3452dcdc2392619"
+      },
+      "score_details": {
+        "output_root_exists": 1.0,
+        "item_directories_created": 1.0,
+        "summary_exists": 1.0,
+        "summary_valid_jsonl": 1.0,
+        "summary_item_coverage": 1.0,
+        "summary_class_accuracy": 0.98,
+        "summary_n_mask_accuracy": 0.96,
+        "text_files_present": 1.0,
+        "text_anchor_recall": 1.0,
+        "image_count_accuracy": 1.0,
+        "jpeg_file_validity": 0.7209,
+        "overall_score": 0.9527
+      }
+    },
+    {
+      "attempt": 6,
+      "variant": "bibtex_explicit_vision",
+      "task": "01_Productivity_Flow_task_3_bibtex",
+      "reasoning_effort": "high",
+      "execution_status": "awaiting_approval",
+      "score": 0.0,
+      "wall_seconds": 162.19052224996267,
+      "agent_seconds": 151.61250916705467,
+      "observed_cost_usd": 0.60707986,
+      "nebius_estimated_usd": 0.60705916,
+      "openrouter_billed_usd": 2.07e-5,
+      "accounting_complete": true,
+      "requests_without_usage": 0,
+      "blocker": "Environment and /etc/hosts diagnostics required approval before outputs were written. The configured Flash vision helper was never called.",
+      "vision_helper_configured": "nebius/zai-org/GLM-5.3-Flash",
+      "vision_helper_called": false,
+      "provenance": {
+        "wildclawbench_commit": "2c906fc79886684f0629ac91b6ffc04a626a4e3d",
+        "hybridclaw_baseline_commit": "1360759541d32fa89b428e155d53a180c7f3f80b",
+        "hybridclaw_commit": "6061ae17952d6b85eadb27b46ce74231aabd7178",
+        "hybridclaw_version": "0.44.0",
+        "image_id": "sha256:0c3cc05e1ada1d37697d6dd09ea1a4394e07a325334834180bdffbebfb5c562a",
+        "model": "nebius/zai-org/GLM-5.3",
+        "judge_model": "openai/gpt-5.4",
+        "comparison_variant": "custom_model_or_judge",
+        "container_limits": {
+          "cpus": 4,
+          "memory": "2g",
+          "memory_swap": "3g"
+        },
+        "thinking": "high",
+        "reasoning_effort": "high",
+        "auxiliary_vision_model": "nebius/zai-org/GLM-5.3-Flash",
+        "auxiliary_vision_max_tokens": 32768,
+        "timeout_seconds": 900,
+        "prompt_sha256": "e24d7c1f3c8519586cb1a44d8e936e0ff1454205c1b0a3fe48a9be44deff210f"
+      },
+      "artifact_reference": "output-glm53-tuning-20261125/hybridclaw/01_Productivity_Flow/01_Productivity_Flow_task_3_bibtex/GLM-5.3_20261125_1042_3fc7dc",
+      "evidence_sha256": {
+        "score.json": "bb77eae27a155ec0fa7d7b1e9572fd111488397f08124868a9e94619b93d2766",
+        "execution.json": "2e0716f599ffccc86835dc5acabe8b3c0bf0a56df7efb18a4f385e47df17acc5",
+        "usage.json": "9e10e5e46f7fe9601d77395bd0e6dfe7ee3c95fbd0ef71e4f44e718d2c6c81e9",
+        "provenance.json": "9572c4e19faaf268b2b0b4da1b804e4d03873923ec34cf11943bc53c1935925d"
+      },
+      "nebius_per_model": {
+        "nebius/zai-org/GLM-5.3": {
+          "request_count": 34,
+          "cost_usd": 0.6070591600000002
+        }
+      }
+    }
+  ]
+}

@@ -76,7 +76,13 @@ export interface AnthropicContentBlock {
   [key: string]: unknown;
 }
 
-/** Model messages keep tool ids and opaque provider replay metadata. */
+export const ProviderReasoningReplaySchema = object({
+  provider: string(),
+  model: string(),
+  content: string(),
+});
+
+/** Model messages keep tool ids and model-bound, opaque provider replay metadata. */
 export interface ChatMessage
   extends VisualAttachmentMessage,
     FileBackedToolResult {
@@ -87,6 +93,7 @@ export interface ChatMessage
   is_error?: boolean;
   anthropic_content?: AnthropicContentBlock[];
   openai_response_items?: Array<Record<string, unknown>>;
+  provider_reasoning?: Infer<typeof ProviderReasoningReplaySchema>;
 }
 
 export interface ToolCall {

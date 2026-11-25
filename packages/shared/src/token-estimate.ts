@@ -29,6 +29,7 @@ export type EstimatedMessage = Pick<ChatMessage, 'role' | 'content'> &
       | 'tool_call_id'
       | 'anthropic_content'
       | 'openai_response_items'
+      | 'provider_reasoning'
       | 'visualAttachments'
     >
   >;
@@ -73,6 +74,7 @@ export function estimateChatMessageTokens(
   total += estimateTextTokens(message.tool_call_id);
   total += estimateJsonTokens(message.anthropic_content);
   total += estimateJsonTokens(message.openai_response_items);
+  total += estimateJsonTokens(message.provider_reasoning);
   for (const attachment of message.visualAttachments ?? []) {
     total += (attachment.pages.length || 1) * VISUAL_PAGE_TOKENS;
   }

@@ -198,6 +198,11 @@ Cooperative file locks persist a unique owner entry beside the locked file.
 Ownership is limited to one boot and PID namespace; [file-write transactions](#agent-tool-and-runtime-internals)
 describe confirmed-death recovery and unknown-owner handling.
 
+Nebius tool-call reasoning travels unchanged in private tool history, bound to
+its originating provider and model. Gateway validation and worker checkpoints
+preserve it across worker replacement; model/provider changes discard it.
+The context estimator counts these bytes, and they never become visible answers.
+
 Native Responses reasoning items travel with assistant tool-call history for
 OpenAI and OpenAI Codex workers, including after worker replacement. Both
 encrypted items and compatible providers' plaintext reasoning items are replayed

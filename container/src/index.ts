@@ -1217,6 +1217,11 @@ async function processRequestInner(
       delete next.anthropic_content;
     if (provider !== 'openai-codex' && provider !== 'openai')
       delete next.openai_response_items;
+    if (
+      next.provider_reasoning?.provider !== provider ||
+      next.provider_reasoning?.model !== model
+    )
+      delete next.provider_reasoning;
     return next;
   });
   if (toolCatalog && tools === toolCatalog.tools) {
@@ -1883,6 +1888,7 @@ async function processRequestInner(
     const assistantMessage: ChatMessage = {
       role: 'assistant',
       content: choice.message.content,
+      provider_reasoning: choice.message.provider_reasoning,
     };
 
     if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
