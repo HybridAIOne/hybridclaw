@@ -100,8 +100,8 @@ missing from the install, or the id is unknown, `plugin install` fails without
 contacting npm. To install an unscoped package from npm, pass the explicit
 `npm:<package>` form (for example
 `hybridclaw plugin install npm:hybridclaw-plugin-example`); scoped packages
-(`@scope/<package>`) still check local plugin catalogs first before falling back
-to npm. Installing from the npm registry asks for confirmation unless `--yes` is
+(`@scope/<package>`) check local plugin catalogs first before contacting npm.
+Installing from the npm registry asks for confirmation unless `--yes` is
 passed.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/extensions?tab=plugins` for browser-based inspection.

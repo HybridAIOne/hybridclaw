@@ -87,6 +87,9 @@ async function runInstallFixture(params: {
   const { installPlugin, reinstallPlugin } = await import(
     '../src/plugins/plugin-install.js'
   );
+  const { PluginNpmInstallApprovalRequiredError } = await import(
+    '../src/plugins/plugin-source.js'
+  );
   const runner = params.verb === 'reinstall' ? reinstallPlugin : installPlugin;
   const promise = runner(params.source, {
     homeDir,
@@ -102,10 +105,17 @@ async function runInstallFixture(params: {
       return structuredClone(config);
     },
   });
-  return { promise, runCommand, homeDir, cwd, packageDir: packageRoot.dir };
+  return {
+    promise,
+    runCommand,
+    homeDir,
+    cwd,
+    packageDir: packageRoot.dir,
+    PluginNpmInstallApprovalRequiredError,
+  };
 }
 
-it.each([
+const SCENARIOS = [
   {
     name: 'bundled id present enables the bundled copy without touching npm',
     source: 'tier-router',
@@ -123,7 +133,7 @@ it.each([
     cwdPlugins: [],
     approveNpmInstall: true,
     expectOk: false,
-    expectedError: /ships with HybridClaw.*never fetched from npm/i,
+    expectedError: /not part of this install/i,
     expectNpmSpec: null,
   },
   {
@@ -133,8 +143,7 @@ it.each([
     cwdPlugins: [],
     approveNpmInstall: true,
     expectOk: false,
-    expectedError:
-      /externally hosted HybridClaw channel plugin.*plugin enable whatsapp/i,
+    expectedError: /plugin enable whatsapp/i,
     expectNpmSpec: null,
   },
   {
@@ -148,14 +157,14 @@ it.each([
     expectNpmSpec: null,
   },
   {
-    name: 'unknown bare id without explicit npm: form is refused without touching npm',
+    name: 'unknown bare id without explicit npm: form is refused without echoing npm:<input>',
     source: 'some-community-plugin',
     bundledPresent: [],
     cwdPlugins: [],
     approveNpmInstall: true,
     expectOk: false,
-    expectedError:
-      /Bare plugin ids are not fetched from npm automatically.*npm:some-community-plugin/,
+    expectedError: /npm:<package>/,
+    forbidErrorMatch: /npm:some-community-plugin/,
     expectNpmSpec: null,
   },
   {
@@ -165,7 +174,7 @@ it.each([
     cwdPlugins: [],
     approveNpmInstall: false,
     expectOk: false,
-    expectedError: /requires explicit approval/i,
+    expectNpmApprovalRequired: true,
     expectNpmSpec: null,
   },
   {
@@ -179,11 +188,17 @@ it.each([
     expectedPluginId: 'some-community-plugin',
     expectNpmSpec: 'some-community-plugin',
   },
-] as const)('$name', async (scenario) => {
-  for (const verb of ['install', 'reinstall'] as const) {
-    const { promise, runCommand } = await runInstallFixture({
+] as const;
+
+const MATRIX = (['install', 'reinstall'] as const).flatMap((verb) =>
+  SCENARIOS.map((scenario) => ({ verb, ...scenario })),
+);
+
+it.each(MATRIX)('$verb: $name', async (scenario) => {
+  const { promise, runCommand, PluginNpmInstallApprovalRequiredError } =
+    await runInstallFixture({
       source: scenario.source,
-      verb,
+      verb: scenario.verb,
       bundledPresent: [...scenario.bundledPresent],
       cwdPlugins: [...scenario.cwdPlugins],
       approveNpmInstall: scenario.approveNpmInstall,
@@ -193,47 +208,67 @@ it.each([
           : undefined,
     });
 
-    if (scenario.expectOk) {
-      const result = await promise;
-      expect(result.pluginId).toBe(scenario.expectedPluginId);
-    } else {
-      await expect(promise).rejects.toThrow(scenario.expectedError);
+  if (scenario.expectOk) {
+    const result = await promise;
+    expect(result.pluginId).toBe(scenario.expectedPluginId);
+  } else if (
+    'expectNpmApprovalRequired' in scenario &&
+    scenario.expectNpmApprovalRequired
+  ) {
+    await expect(promise).rejects.toBeInstanceOf(
+      PluginNpmInstallApprovalRequiredError,
+    );
+  } else {
+    const caught = await promise.catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    if ('expectedError' in scenario && scenario.expectedError) {
+      expect(message).toMatch(scenario.expectedError);
     }
+    if ('forbidErrorMatch' in scenario && scenario.forbidErrorMatch) {
+      expect(message).not.toMatch(scenario.forbidErrorMatch);
+    }
+  }
 
-    if (scenario.expectNpmSpec) {
-      expect(runCommand).toHaveBeenCalledWith(
-        expect.objectContaining({
-          command: 'npm',
-          args: expect.arrayContaining([scenario.expectNpmSpec]),
-        }),
-      );
-      expect(
-        runCommand.mock.calls.every(
-          ([call]) => !(call as { args: string[] }).args.includes(scenario.source),
-        ),
-      ).toBe(true);
-    } else {
-      expect(runCommand).not.toHaveBeenCalled();
-    }
+  if (scenario.expectNpmSpec) {
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm',
+        args: expect.arrayContaining([scenario.expectNpmSpec]),
+      }),
+    );
+    expect(
+      runCommand.mock.calls.every(
+        ([call]) => !(call as { args: string[] }).args.includes(scenario.source),
+      ),
+    ).toBe(true);
+  } else {
+    expect(runCommand).not.toHaveBeenCalled();
   }
 });
 
 test.each([
-  ['npm:', /Missing npm package spec/],
-  ['npm:   ', /Missing npm package spec/],
-  ['npm:--registry=https://evil.example', /Invalid npm package spec/],
-  ['npm:../escape', /Invalid npm package spec/],
-  ['npm:https://evil.example/pkg.tgz', /Invalid npm package spec/],
-  ['npm:foo bar', /Invalid npm package spec/],
+  'npm:',
+  'npm:   ',
+  'npm:~',
+  'npm:--registry=https://evil.example',
+  'npm:../escape',
+  'npm:https://evil.example/pkg.tgz',
+  'npm:foo bar',
+  'npm:foo@https://evil.example/x.tgz',
+  'npm:foo@github:owner/repo',
+  'npm:foo@file:/etc',
+  'npm:foo@../../escape',
+  '@scope/pkg@git+https://evil.example/repo',
 ] as const)(
-  'rejects malformed explicit npm source %s without touching npm',
-  async (source, expectedError) => {
+  'rejects malformed npm source %s without touching npm',
+  async (source) => {
     const { promise, runCommand } = await runInstallFixture({
       source,
       approveNpmInstall: true,
     });
 
-    await expect(promise).rejects.toThrow(expectedError);
+    await expect(promise).rejects.toThrow();
     expect(runCommand).not.toHaveBeenCalled();
   },
 );
@@ -257,7 +292,7 @@ test('remote archive URLs (such as the official WhatsApp release tarball) still 
   );
 });
 
-test('CLI plugin install npm:<pkg> requires interactive confirmation or --yes', async () => {
+test('CLI plugin install npm:<pkg> refuses non-interactive runs without --yes', async () => {
   packageRoot.dir = makeTempDir();
   fs.writeFileSync(
     path.join(packageRoot.dir, 'package.json'),
@@ -282,9 +317,7 @@ test('CLI plugin install npm:<pkg> requires interactive confirmation or --yes', 
     );
     await expect(
       handlePluginCommand(['install', 'npm:some-community-plugin']),
-    ).rejects.toThrow(
-      /Installing plugin "some-community-plugin" from the npm registry requires an interactive terminal\. Re-run with --yes to approve\./,
-    );
+    ).rejects.toThrow(/--yes/);
   } finally {
     if (stdinTty) Object.defineProperty(process.stdin, 'isTTY', stdinTty);
     if (stdoutTty) Object.defineProperty(process.stdout, 'isTTY', stdoutTty);

@@ -113,56 +113,95 @@ describe('PluginsPage', () => {
     expect(fetchPluginsMock).toHaveBeenCalledTimes(1);
   });
 
-  it('installs a trimmed plugin source and refreshes the registry', async () => {
+  it('confirms npm registry sources before installing and refreshes the registry', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     installPluginMock.mockResolvedValue({
       kind: 'info',
       title: 'Plugin Installed',
       text: 'Installed plugin `demo-plugin`.',
     });
 
-    renderWithProviders(<PluginsPage />);
-    await screen.findByText('Memory Store');
+    try {
+      renderWithProviders(<PluginsPage />);
+      await screen.findByText('Memory Store');
 
-    fireEvent.change(screen.getByLabelText('Plugin source'), {
-      target: { value: '  @example/demo-plugin  ' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+      fireEvent.change(screen.getByLabelText('Plugin source'), {
+        target: { value: '  @example/demo-plugin  ' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
 
-    await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
-        'test-token',
-        '@example/demo-plugin',
+      expect(confirmSpy).toHaveBeenCalledWith(
+        expect.stringContaining('@example/demo-plugin'),
       );
-      expect(fetchPluginsMock).toHaveBeenCalledTimes(2);
-    });
-    expect(
-      (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
-    ).toBe('');
-    expect(await screen.findByText('Plugin Installed')).toBeTruthy();
-    expect(screen.getByText('Official · channel')).toBeTruthy();
+      await waitFor(() => {
+        expect(installPluginMock).toHaveBeenCalledWith(
+          'test-token',
+          '@example/demo-plugin',
+        );
+        expect(fetchPluginsMock).toHaveBeenCalledTimes(2);
+      });
+      expect(
+        (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
+      ).toBe('');
+      expect(await screen.findByText('Plugin Installed')).toBeTruthy();
+      expect(screen.getByText('Official · channel')).toBeTruthy();
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
-  it('surfaces source install errors and keeps the source for correction', async () => {
+  it('aborts npm: source install when confirmation is declined', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      renderWithProviders(<PluginsPage />);
+      await screen.findByText('Memory Store');
+
+      fireEvent.change(screen.getByLabelText('Plugin source'), {
+        target: { value: 'npm:some-community-plugin' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(
+        expect.stringContaining('npm:some-community-plugin'),
+      );
+      expect(installPluginMock).not.toHaveBeenCalled();
+      expect(
+        (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
+      ).toBe('npm:some-community-plugin');
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
+
+  it('surfaces source install errors and keeps the source for correction without npm confirmation for local paths', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     installPluginMock.mockResolvedValue({
       kind: 'error',
       title: 'Plugin Install Failed',
       text: 'Plugin manifest was not found.',
     });
 
-    renderWithProviders(<PluginsPage />);
-    await screen.findByText('Memory Store');
+    try {
+      renderWithProviders(<PluginsPage />);
+      await screen.findByText('Memory Store');
 
-    fireEvent.change(screen.getByLabelText('Plugin source'), {
-      target: { value: './missing-plugin' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+      fireEvent.change(screen.getByLabelText('Plugin source'), {
+        target: { value: './missing-plugin' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
 
-    expect(await screen.findByText('Plugin installation failed')).toBeTruthy();
-    expect(screen.getByText('Plugin manifest was not found.')).toBeTruthy();
-    expect(
-      (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
-    ).toBe('./missing-plugin');
-    expect(fetchPluginsMock).toHaveBeenCalledTimes(1);
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(
+        await screen.findByText('Plugin installation failed'),
+      ).toBeTruthy();
+      expect(screen.getByText('Plugin manifest was not found.')).toBeTruthy();
+      expect(
+        (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
+      ).toBe('./missing-plugin');
+      expect(fetchPluginsMock).toHaveBeenCalledTimes(1);
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it('does not allow an empty plugin source', async () => {

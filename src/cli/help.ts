@@ -689,8 +689,8 @@ Examples:
   hybridclaw plugin enable whatsapp --yes
   hybridclaw plugin enable line --yes
   hybridclaw plugin install ./plugins/example-plugin --yes
-  hybridclaw plugin install mem0-memory --yes
-  hybridclaw plugin install mempalace-memory --yes
+  hybridclaw plugin install ./plugins/mem0-memory --yes
+  hybridclaw plugin install ./plugins/mempalace-memory --yes
   hybridclaw plugin install npm:hybridclaw-plugin-example --yes
   hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
   hybridclaw plugin reinstall ./plugins/example-plugin --yes

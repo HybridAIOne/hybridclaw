@@ -37,7 +37,6 @@ import {
 } from './plugin-manager.js';
 import { fetchPluginDirFromNpmSpec } from './plugin-npm-fetch.js';
 import {
-  isPluginNpmInstallApprovalRequiredError,
   listPluginCatalogRoots,
   PluginNpmInstallApprovalRequiredError,
   type PluginSource,
@@ -48,11 +47,6 @@ import type {
   PluginBinaryRequirement,
   PluginManifest,
 } from './plugin-types.js';
-
-export {
-  isPluginNpmInstallApprovalRequiredError,
-  PluginNpmInstallApprovalRequiredError,
-};
 
 const PACKAGE_ROOT = resolveInstallRoot();
 

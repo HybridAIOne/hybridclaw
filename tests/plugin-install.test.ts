@@ -620,8 +620,10 @@ describe('plugin install', () => {
     const runtimeConfig = createRuntimeConfigState();
 
     const runCommand = vi.fn();
-    const { installPlugin, PluginNpmInstallApprovalRequiredError } =
-      await import('../src/plugins/plugin-install.js');
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const { PluginNpmInstallApprovalRequiredError } = await import(
+      '../src/plugins/plugin-source.js'
+    );
 
     await expect(
       installPlugin('@scope/demo-plugin', {

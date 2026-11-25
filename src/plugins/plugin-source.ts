@@ -58,8 +58,9 @@ export function isPluginNpmInstallApprovalRequiredError(
 }
 
 const SCOPED_NPM_SPEC_RE =
-  /^@[A-Za-z0-9~][A-Za-z0-9._~-]*\/[A-Za-z0-9~][A-Za-z0-9._~-]*(?:@[^\s]+)?$/;
-const UNSCOPED_NPM_SPEC_RE = /^[A-Za-z0-9~][A-Za-z0-9._~-]*(?:@[^\s]+)?$/;
+  /^@[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(?:@[A-Za-z0-9._^*~<>=|+-]+)?$/;
+const UNSCOPED_NPM_SPEC_RE =
+  /^[A-Za-z0-9][A-Za-z0-9._-]*(?:@[A-Za-z0-9._^*~<>=|+-]+)?$/;
 const REMOTE_PLUGIN_URL_RE =
   /^(?:https?:\/\/|git\+(?:https?|ssh):\/\/|git:\/\/|file:)\S+$/i;
 
@@ -67,7 +68,7 @@ function expandUserPath(input: string, cwd: string): string {
   return path.resolve(cwd, expandHomePath(input));
 }
 
-export function looksLikeLocalPath(input: string): boolean {
+function looksLikeLocalPath(input: string): boolean {
   return (
     input.startsWith('.') ||
     input.startsWith('/') ||
@@ -76,11 +77,11 @@ export function looksLikeLocalPath(input: string): boolean {
   );
 }
 
-export function isScopedNpmPackageSpec(input: string): boolean {
+function isScopedNpmPackageSpec(input: string): boolean {
   return SCOPED_NPM_SPEC_RE.test(input);
 }
 
-export function isValidNpmPackageSpec(input: string): boolean {
+function isValidNpmPackageSpec(input: string): boolean {
   return SCOPED_NPM_SPEC_RE.test(input) || UNSCOPED_NPM_SPEC_RE.test(input);
 }
 
@@ -114,7 +115,7 @@ export function listPluginCatalogRoots(
   });
 }
 
-export function resolveProjectPluginDir(
+function resolveProjectPluginDir(
   input: string,
   cwd: string,
   packageRoot: string,
@@ -254,12 +255,7 @@ export function resolvePluginSource(
   }
 
   const channelEntry = getChannelPluginCatalogEntryByPluginId(input);
-  if (channelEntry) {
-    if (channelEntry.installSource === input) {
-      throw new Error(
-        `Bundled plugin "${input}" is not part of this install; it is never fetched from npm.`,
-      );
-    }
+  if (channelEntry && channelEntry.installSource !== input) {
     throw new Error(
       `Plugin "${input}" is an externally hosted HybridClaw channel plugin and is never fetched from npm by bare id. Install it with \`hybridclaw plugin enable ${channelEntry.pluginId}\` or \`${getChannelPluginInstallCommand(channelEntry.channel)}\`.`,
     );
@@ -267,7 +263,7 @@ export function resolvePluginSource(
 
   if (isValidNpmPackageSpec(input)) {
     throw new Error(
-      `Plugin "${input}" was not found in bundled plugins or ./plugins/${input}. Bare plugin ids are not fetched from npm automatically. To install from npm, pass \`npm:${input}\` (for example \`hybridclaw plugin install npm:${input}\`).`,
+      `Plugin "${input}" was not found in bundled plugins or ./plugins/. Run \`hybridclaw plugin list available\` to see local plugins, or pass \`npm:<package>\` to install a package from npm.`,
     );
   }
 

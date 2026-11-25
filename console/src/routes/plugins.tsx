@@ -158,7 +158,16 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
   function handleSourceInstall(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const source = installSource.trim();
-    if (source) sourceInstallMutation.mutate(source);
+    if (!source) return;
+    if (
+      (source.startsWith('npm:') || source.startsWith('@')) &&
+      !window.confirm(
+        `Download and install "${source}" from the npm registry? Plugins run in-process in the gateway.`,
+      )
+    ) {
+      return;
+    }
+    sourceInstallMutation.mutate(source);
   }
 
   const isInstalling =
