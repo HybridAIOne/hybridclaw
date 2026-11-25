@@ -32,18 +32,14 @@ function createHarness(mode: 'turn' | 'realtime') {
     getDefaultAgentId: vi.fn(() => 'main'),
     isRealtimeVoiceAvailable: () => true,
     releaseSessionWorker: vi.fn(async () => true),
+    getVoiceConfig: () => ({ relay: { welcomeGreeting: 'Hello!' } }),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   };
   const runtime = createVonageRuntime(api, {
     applicationId: 'app-id',
     publicBaseUrl: 'https://voice.example.com',
     signatureSecret: SIGNATURE_SECRET,
-    callerPolicy: 'open',
-    allowFrom: [],
     mode,
-    language: 'en-US',
-    welcomeGreeting: 'Hello!',
-    interruptible: true,
     maxConcurrentCalls: 5,
   });
   async function post(

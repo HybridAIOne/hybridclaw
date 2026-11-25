@@ -23,16 +23,6 @@ export function resolveConfig(api) {
   }
   if (!privateKey) throw new Error('VONAGE_PRIVATE_KEY is required.');
   if (!signatureSecret) throw new Error('VONAGE_SIGNATURE_SECRET is required.');
-  // Caller gating, the turn-mode greeting, language, and barge-in are
-  // properties of the phone channel rather than of this transport, so they
-  // come from the core voice config the same way speech.realtime.* does.
-  const voice = api.config?.voice || {};
-  const relay = voice.relay || {};
-  const callerPolicy =
-    typeof voice.callerPolicy === 'string' ? voice.callerPolicy : 'open';
-  const allowFrom = Array.isArray(voice.allowFrom)
-    ? voice.allowFrom.map((value) => String(value))
-    : [];
   const mode = String(config.mode || 'turn').trim() || 'turn';
   if (mode !== 'turn' && mode !== 'realtime') {
     throw new Error('Vonage mode must be "turn" or "realtime".');
@@ -43,15 +33,29 @@ export function resolveConfig(api) {
     publicBaseUrl,
     privateKey,
     signatureSecret,
-    callerPolicy,
-    allowFrom,
     mode,
+    maxConcurrentCalls: Number(config.maxConcurrentCalls || 5),
+  };
+}
+
+/**
+ * Caller gating, the turn-mode greeting, language, and barge-in belong to the
+ * phone channel rather than this transport, so they come from the core voice
+ * config, read per call so edits apply without a plugin reload.
+ */
+export function resolveVoiceSettings(voice) {
+  const relay = voice?.relay || {};
+  return {
+    callerPolicy:
+      typeof voice?.callerPolicy === 'string' ? voice.callerPolicy : 'open',
+    allowFrom: Array.isArray(voice?.allowFrom)
+      ? voice.allowFrom.map((value) => String(value))
+      : [],
     language: String(relay.language || 'en-US').trim() || 'en-US',
     welcomeGreeting:
       String(relay.welcomeGreeting || '').trim() ||
       'Hello! How can I help you today?',
     interruptible: relay.interruptible !== false,
-    maxConcurrentCalls: Number(config.maxConcurrentCalls || 5),
   };
 }
 

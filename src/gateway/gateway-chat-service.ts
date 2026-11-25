@@ -1292,6 +1292,7 @@ async function handleGatewayMessageInner(
   const skillWorkspacePath = path.resolve(
     scopeRun?.workspaceDir ?? agentWorkspaceDir(agentId),
   );
+  const hostExecutor = resolveExecutorMode(req.executorModeOverride) === 'host';
   const workspaceBootstrap = workspacePathOverride
     ? {
         workspacePath,
@@ -1991,10 +1992,10 @@ async function handleGatewayMessageInner(
       sessionContext,
       workspacePath: workspaceDisplayPath,
       skillWorkspacePath:
-        resolveExecutorMode(req.executorModeOverride) === 'host' &&
-        workspacePath !== skillWorkspacePath
+        hostExecutor && workspacePath !== skillWorkspacePath
           ? skillWorkspacePath
           : undefined,
+      ...(hostExecutor ? { gatewayShell: true } : {}),
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools,

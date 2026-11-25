@@ -67,6 +67,22 @@ test('buildSystemPromptFromHooks reflects restricted tool availability', () => {
   expect(prompt).not.toContain('**Delegation**:');
 });
 
+// Only a shell beside the gateway can run `hybridclaw config` on its config.
+test('settings requests route to the config CLI only when bash runs beside the gateway', () => {
+  const promptFor = (gatewayShell: boolean, allowedTools: string[]) =>
+    buildSystemPromptFromHooks({
+      agentId: 'test-agent',
+      skills: [],
+      allowedTools,
+      runtimeInfo: { gatewayShell },
+    });
+  const line = 'make them yourself with `hybridclaw config` in `bash`';
+
+  expect(promptFor(true, ['bash'])).toContain(line);
+  expect(promptFor(false, ['bash'])).not.toContain(line);
+  expect(promptFor(true, ['read'])).not.toContain(line);
+});
+
 test('buildToolsSummary groups MCP tools separately from other tools', () => {
   const summary = buildToolsSummary({
     allowedTools: ['read', 'playwright__navigate', 'tavily__search'],

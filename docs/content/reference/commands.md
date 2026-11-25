@@ -34,6 +34,7 @@ hybridclaw config check
 hybridclaw config reload
 hybridclaw config get <key>
 hybridclaw config set <key> <value>
+hybridclaw config add|remove <key> <entry>
 hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw token list
 hybridclaw token create --label <label> (--role <role>|--actions <a,b>|--agents <a,b>) [--expires-at <iso>]
@@ -70,6 +71,9 @@ local eval and prompt-surface experiments.
 `hybridclaw config get <key>` prints one resolved dotted runtime config value,
 which is useful when checking active settings without dumping the whole config
 file.
+`hybridclaw config add|remove <key> <entry>` adds or removes one text entry of
+a list key such as `voice.allowFrom` and keeps the others; `set` replaces the
+whole list.
 
 ## Scoped API Tokens
 

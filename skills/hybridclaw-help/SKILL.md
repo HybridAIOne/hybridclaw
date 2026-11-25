@@ -1,6 +1,6 @@
 ---
 name: hybridclaw-help
-description: HybridClaw help. Primary skill for product questions about setup, configuration, commands, runtime behavior, and release notes.
+description: HybridClaw help and self-configuration. Primary skill for product questions about setup, configuration, commands, runtime behavior, and release notes, and for any request to change how this assistant itself is set up, such as who may call or message it, its channels, models, or tools.
 user-invocable: true
 metadata:
   hybridclaw:
@@ -21,7 +21,7 @@ metadata:
 Use this skill for product-specific HybridClaw questions such as:
 
 - how to configure a feature
-- where config lives
+- where config lives, or changing a setting
 - what a command does
 - how a subsystem behaves
 - what changed in a recent release
@@ -72,6 +72,30 @@ exists in the workspace.
 4. If needed, confirm with the matching implementation file or GitHub source instead of guessing.
 5. Answer narrowly and concretely.
 6. Include the exact config keys, command names, URLs, file paths, or version headings that support the answer.
+
+## Changing Config
+
+When the user asks for a settings change ("add +4915123456789 to the numbers
+that can call"), make it yourself with the `hybridclaw` CLI in a shell. Do not
+send them to the admin console or open it in a browser: it needs a human login.
+
+1. Find the exact key in the docs, e.g. `voice.allowFrom` for phone callers.
+2. Read it: `hybridclaw config get <key>`.
+3. Change it:
+   - one entry of a list: `hybridclaw config add <key> <entry>` or
+     `hybridclaw config remove <key> <entry>`. Other entries stay. To remove,
+     pass the entry exactly as `get` printed it.
+   - anything else: `hybridclaw config set <key> <value>` (JSON when possible).
+     `set` replaces the whole value, so never use it to add to a list.
+4. Check the value the command printed against the user's message, digit by
+   digit for phone numbers, and fix a mismatch before you reply. Report it.
+   Most changes apply without a restart; the docs say when one is needed.
+
+Changes that only take effect together say so in the docs, e.g. callers are
+gated only while `voice.callerPolicy` is `allowlist`: if it is `open`, adding a
+number changes nothing, so tell the user and ask before switching the policy.
+`hybridclaw config revisions` lists earlier versions and
+`hybridclaw config revisions rollback <id>` restores one.
 
 ## Answer Style
 

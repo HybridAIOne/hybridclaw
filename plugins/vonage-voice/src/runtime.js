@@ -1,5 +1,6 @@
 import { transferVonageCallToNcco } from './api.js';
 import { isCallerAllowed, normalizeCallerIdentity } from './caller-policy.js';
+import { resolveVoiceSettings } from './config.js';
 import {
   extractBearerToken,
   verifyVonageWebhookJwt,
@@ -56,6 +57,7 @@ export function createVonageRuntime(api, config) {
     config.mode === 'realtime'
       ? createVonageRealtimeStreams(api, config)
       : null;
+  const voiceSettings = () => resolveVoiceSettings(api.getVoiceConfig());
 
   function validateWebhook(ctx, rawBody) {
     const token = extractBearerToken(ctx.req.headers.authorization);
@@ -92,6 +94,7 @@ export function createVonageRuntime(api, config) {
   }
 
   async function transferReply(session, text) {
+    const voice = voiceSettings();
     await transferVonageCallToNcco({
       applicationId: config.applicationId,
       privateKey: config.privateKey,
@@ -99,8 +102,8 @@ export function createVonageRuntime(api, config) {
       regionUrl: session.regionUrl,
       ncco: buildReplyNcco({
         text,
-        language: config.language,
-        interruptible: config.interruptible,
+        language: voice.language,
+        interruptible: voice.interruptible,
         inputEventUrl,
       }),
     });
@@ -139,6 +142,7 @@ export function createVonageRuntime(api, config) {
     eventUrl: `${webhookBase}/event`,
 
     async handleAnswer(ctx) {
+      const voice = voiceSettings();
       const body = await readSignedPayload(ctx);
       if (!body) return;
       const answer = parseVonageAnswerWebhook(body);
@@ -148,8 +152,8 @@ export function createVonageRuntime(api, config) {
       }
       if (
         !isCallerAllowed({
-          callerPolicy: config.callerPolicy,
-          allowFrom: config.allowFrom,
+          callerPolicy: voice.callerPolicy,
+          allowFrom: voice.allowFrom,
           from: answer.from,
         })
       ) {
@@ -158,7 +162,7 @@ export function createVonageRuntime(api, config) {
         ctx.logger.warn(
           {
             callUuid: answer.uuid,
-            callerPolicy: config.callerPolicy,
+            callerPolicy: voice.callerPolicy,
             caller: normalizeCallerIdentity(answer.from) || 'withheld',
           },
           'Vonage call refused: caller not permitted by callerPolicy',
@@ -168,7 +172,7 @@ export function createVonageRuntime(api, config) {
           200,
           buildGoodbyeNcco({
             message: CALLER_REFUSED_MESSAGE,
-            language: config.language,
+            language: voice.language,
           }),
         );
         return;
@@ -182,7 +186,7 @@ export function createVonageRuntime(api, config) {
           200,
           buildGoodbyeNcco({
             message: 'All assistants are busy. Please try again later.',
-            language: config.language,
+            language: voice.language,
           }),
         );
         return;
@@ -198,7 +202,7 @@ export function createVonageRuntime(api, config) {
           buildGoodbyeNcco({
             message:
               'The voice assistant is not available right now. Please try again later.',
-            language: config.language,
+            language: voice.language,
           }),
         );
         return;
@@ -231,15 +235,16 @@ export function createVonageRuntime(api, config) {
         ctx.res,
         200,
         buildReplyNcco({
-          text: config.welcomeGreeting,
-          language: config.language,
-          interruptible: config.interruptible,
+          text: voice.welcomeGreeting,
+          language: voice.language,
+          interruptible: voice.interruptible,
           inputEventUrl,
         }),
       );
     },
 
     async handleInput(ctx) {
+      const voice = voiceSettings();
       const body = await readSignedPayload(ctx);
       if (!body) return;
       const input = parseVonageInputWebhook(body);
@@ -260,12 +265,12 @@ export function createVonageRuntime(api, config) {
           session.silentTimeouts >= MAX_SILENT_TIMEOUTS
             ? buildGoodbyeNcco({
                 message: 'Goodbye.',
-                language: config.language,
+                language: voice.language,
               })
             : buildReplyNcco({
                 text: 'I did not hear anything. Please try again.',
-                language: config.language,
-                interruptible: config.interruptible,
+                language: voice.language,
+                interruptible: voice.interruptible,
                 inputEventUrl,
               }),
         );
@@ -275,7 +280,7 @@ export function createVonageRuntime(api, config) {
       sendJson(
         ctx.res,
         200,
-        buildParkNcco({ language: config.language, inputEventUrl }),
+        buildParkNcco({ language: voice.language, inputEventUrl }),
       );
       if (!session.busy) {
         session.busy = true;

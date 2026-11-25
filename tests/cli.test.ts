@@ -3863,6 +3863,29 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('adds and removes one list entry while keeping the others', async () => {
+    const { cli, getRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'set', 'voice.allowFrom', '["+4915111111111"]']);
+    await cli.main(['config', 'add', 'voice.allowFrom', '+49 172 5342440']);
+    await cli.main(['config', 'add', 'voice.allowFrom', '+49 172 5342440']);
+    expect(getRuntimeConfig().voice.allowFrom).toEqual([
+      '+4915111111111',
+      '+49 172 5342440',
+    ]);
+    expect(logSpy).toHaveBeenCalledWith(
+      'No change: `+49 172 5342440` was already in the list.',
+    );
+
+    await cli.main(['config', 'remove', 'voice.allowFrom', '+4915111111111']);
+    expect(getRuntimeConfig().voice.allowFrom).toEqual(['+49 172 5342440']);
+    await expect(
+      cli.main(['config', 'add', 'hybridai.maxTokens', '1']),
+    ).rejects.toThrow('Config key `hybridai.maxTokens` is not a list.');
+  });
+
   it('runs hybridai login with explicit browser mode', async () => {
     const { cli, loginHybridAIInteractive } = await importFreshCli({
       hybridAILoginResult: {

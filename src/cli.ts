@@ -45,6 +45,7 @@ import {
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
+  editRuntimeConfigListAtPath,
   formatRuntimeConfigValue,
   getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
@@ -1463,9 +1464,37 @@ async function handleConfigCommand(args: string[]): Promise<void> {
     console.log(formatRuntimeConfigValue(value));
     return;
   }
+  if (sub === 'add' || sub === 'remove') {
+    const key = String(normalized[1] || '').trim();
+    const entry = normalized.slice(2).join(' ').trim();
+    if (!key || !entry) {
+      throw new Error(`Usage: \`hybridclaw config ${sub} <key> <entry>\``);
+    }
+    let changed = false;
+    const nextConfig = updateRuntimeConfig(
+      (draft) => {
+        changed = editRuntimeConfigListAtPath(draft, key, sub, entry);
+      },
+      {
+        route: `cli.config.${sub}:${key}`,
+        source: 'internal',
+      },
+    );
+    console.log(
+      changed
+        ? `Updated runtime config at ${runtimeConfigPath()}.`
+        : `No change: \`${entry}\` was ${sub === 'add' ? 'already' : 'not'} in the list.`,
+    );
+    console.log(`Key: ${key}`);
+    console.log(
+      formatRuntimeConfigValue(getRuntimeConfigValueAtPath(nextConfig, key)),
+    );
+    await runRuntimeConfigFileCheck();
+    return;
+  }
   if (sub !== 'set') {
     throw new Error(
-      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, `hybridclaw config add|remove <key> <entry>`, or `hybridclaw config revisions`.',
     );
   }
 

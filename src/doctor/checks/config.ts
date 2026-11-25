@@ -447,6 +447,19 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
         : undefined,
     ),
   ];
+  const voice = (rawConfig.voice ?? {}) as Record<string, unknown>;
+  const allowFrom = Array.isArray(voice.allowFrom) ? voice.allowFrom : [];
+  const callerPolicy = voice.callerPolicy ?? 'open';
+  if (allowFrom.length > 0 && callerPolicy !== 'allowlist') {
+    results.push(
+      makeResult(
+        'config',
+        'Voice callers',
+        'warn',
+        `voice.allowFrom lists ${allowFrom.length} caller${allowFrom.length === 1 ? '' : 's'} but has no effect: voice.callerPolicy is \`${callerPolicy}\`, so ${callerPolicy === 'disabled' ? 'every caller is refused' : 'every caller is answered'}. Switching it to \`allowlist\` would refuse every caller not on the list.`,
+      ),
+    );
+  }
 
   return results;
 }

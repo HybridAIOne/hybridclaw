@@ -62,6 +62,36 @@ export function setRuntimeConfigValueAtPath(
   current[leaf] = value;
 }
 
+export type RuntimeConfigListEdit = 'add' | 'remove';
+
+/**
+ * Adds or removes one text entry of a list key, keeping every other entry, so
+ * editing an allowlist never means rewriting it whole. Returns whether the
+ * list changed.
+ */
+export function editRuntimeConfigListAtPath(
+  config: RuntimeConfig,
+  keyPath: string,
+  edit: RuntimeConfigListEdit,
+  entry: string,
+): boolean {
+  const list = getRuntimeConfigValueAtPath(config, keyPath);
+  if (!Array.isArray(list)) {
+    throw new Error(`Config key \`${keyPath}\` is not a list.`);
+  }
+  const value = entry.trim();
+  if (!value) throw new Error('List entry must not be empty.');
+  const index = list.findIndex((item) => String(item) === value);
+  if (edit === 'add') {
+    if (index !== -1) return false;
+    list.push(value);
+    return true;
+  }
+  if (index === -1) return false;
+  list.splice(index, 1);
+  return true;
+}
+
 export function getRuntimeConfigValueAtPath(
   config: RuntimeConfig,
   keyPath: string,

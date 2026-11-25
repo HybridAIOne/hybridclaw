@@ -269,7 +269,9 @@ Notes:
 - the refused number is written to the gateway log, so you can see which number
   to add
 - both settings are editable in the admin console under
-  Channels → Voice → Caller access
+  Channels → Voice → Caller access, with
+  `hybridclaw config add voice.allowFrom <number>`, or by asking the agent to
+  add a number. Changes apply to the next call without a restart.
 - an allowlist gates unknown callers; it is not a defence against caller ID
   spoofing. Restrict the agent's tools as well if the assistant can act on
   anything sensitive.

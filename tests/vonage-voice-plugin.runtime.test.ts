@@ -39,6 +39,7 @@ test('each call keeps the default agent that was live when it was answered', asy
       getDefaultAgentId: () => agents.defaultAgentId,
       dispatchInboundMessage,
       isRealtimeVoiceAvailable: () => false,
+      getVoiceConfig: () => ({}),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     },
     {
@@ -46,8 +47,6 @@ test('each call keeps the default agent that was live when it was answered', asy
       privateKey: 'test-key',
       signatureSecret: 'test-secret',
       publicBaseUrl: 'https://voice.example.com',
-      callerPolicy: 'open',
-      allowFrom: [],
       maxConcurrentCalls: 8,
       mode: 'turn',
     },
@@ -74,4 +73,35 @@ test('each call keeps the default agent that was live when it was answered', asy
     ['main', expect.stringContaining('agent:main:')],
     ['support', expect.stringContaining('agent:support:')],
   ]);
+});
+
+// An allowlist edited while the gateway runs (admin console, or the agent's
+// `config add`) gates the next call without a plugin reload.
+test('the caller allowlist is read when each call is answered', async () => {
+  const voice = { callerPolicy: 'allowlist', allowFrom: ['+15550001111'] };
+  const runtime = createVonageRuntime(
+    {
+      getDefaultAgentId: () => 'main',
+      getVoiceConfig: () => voice,
+      isRealtimeVoiceAvailable: () => false,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    },
+    {
+      applicationId: 'app-id',
+      privateKey: 'test-key',
+      signatureSecret: 'test-secret',
+      publicBaseUrl: 'https://voice.example.com',
+      maxConcurrentCalls: 8,
+      mode: 'turn',
+    },
+  );
+  const answer = async (uuid: string) => {
+    const ctx = webhookCtx({ uuid, from: '+15550002222' });
+    await runtime.handleAnswer(ctx);
+    return JSON.stringify(ctx.res.end.mock.calls[0]?.[0]);
+  };
+
+  expect(await answer('call-1')).toContain('not available for your call');
+  voice.allowFrom = [...voice.allowFrom, '+1 555 000 2222'];
+  expect(await answer('call-2')).not.toContain('not available for your call');
 });

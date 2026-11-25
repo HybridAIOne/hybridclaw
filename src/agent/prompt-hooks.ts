@@ -119,6 +119,8 @@ export interface PromptRuntimeInfo {
   workspacePath?: string;
   /** Host-visible skill root when execution uses a separate working directory. */
   skillWorkspacePath?: string;
+  /** `bash` runs beside the gateway, so `hybridclaw config` edits its config. */
+  gatewayShell?: boolean;
 }
 
 export interface PromptHookContext {
@@ -738,6 +740,11 @@ function buildRuntimeHook(context: PromptHookContext): string {
     ...(runtimeInfo.skillWorkspacePath
       ? [
           `Skill workspace: ${sanitizePromptInlineValue(runtimeInfo.skillWorkspacePath)}. Run commands using \`skills/...\` or \`.agents/skills/...\` helper paths from this directory; use the execution workspace above for task inputs and deliverables.`,
+        ]
+      : []),
+    ...(runtimeInfo.gatewayShell && isToolOffered(context, 'bash')
+      ? [
+          "Requests to change how you are set up, such as who may call or message you, your channels, model, or tools, are edits to this gateway's config: make them yourself with `hybridclaw config` in `bash` as the `hybridclaw-help` skill describes, not in the admin console. Copy values such as phone numbers digit for digit and check the stored value against the request.",
         ]
       : []),
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,

@@ -712,7 +712,7 @@ Notes:
 }
 
 export function printConfigUsage(): void {
-  console.log(`Usage: hybridclaw config [check|reload|get <key>|set <key> <value>]
+  console.log(`Usage: hybridclaw config [check|reload|get <key>|set <key> <value>|add <key> <entry>|remove <key> <entry>]
 
 Commands:
   hybridclaw config
@@ -720,6 +720,8 @@ Commands:
   hybridclaw config reload
   hybridclaw config get <key>
   hybridclaw config set <key> <value>
+  hybridclaw config add <key> <entry>
+  hybridclaw config remove <key> <entry>
   hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 
 Examples:
@@ -733,6 +735,7 @@ Examples:
   hybridclaw config revisions rollback 12
   hybridclaw config set discord.enabled true
   hybridclaw config set local.backends.ollama.models '["llama3.2"]'
+  hybridclaw config add voice.allowFrom +4915123456789
 
 Notes:
   - \`config\` prints the current runtime config from ${runtimeConfigPath()}.
@@ -740,6 +743,7 @@ Notes:
   - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
   - \`get\` prints one existing dotted key path from the current runtime config.
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
+  - \`add\`/\`remove\` change one text entry of a list key and keep the others; \`set\` replaces the whole list.
   - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
