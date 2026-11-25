@@ -441,6 +441,49 @@ test('persists edits to the default main agent and removes deleted config-backed
   expect(getAgentById('writer')).toBeNull();
 });
 
+test.each([
+  {
+    label: 'the default agent',
+    agents: { defaultAgentId: 'writer' },
+    error: /is the default agent/,
+  },
+  {
+    label: 'an agent bound to a channel',
+    agents: { channels: { slack: 'writer' } },
+    error: /answers on slack/,
+  },
+])('refuses to delete $label instead of moving its traffic', async ({
+  agents,
+  error,
+}) => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig, runtimeConfigPath, updateRuntimeConfig } =
+    await import('../src/config/runtime-config.ts');
+  const { getAgentById, initAgentRegistry } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { deleteAdminAgentRecord } = await import(
+    '../src/gateway/admin-agents.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents = {
+      ...draft.agents,
+      ...agents,
+      list: [{ id: 'main' }, { id: 'writer', name: 'Writer' }],
+    };
+  });
+  initAgentRegistry(getRuntimeConfig().agents);
+  const configBefore = fs.readFileSync(runtimeConfigPath(), 'utf-8');
+
+  expect(() => deleteAdminAgentRecord('writer')).toThrow(error);
+  expect(getAgentById('writer')?.name).toBe('Writer');
+  expect(fs.readFileSync(runtimeConfigPath(), 'utf-8')).toBe(configBefore);
+});
+
 test('keeps config.json valid when a config-backed agent references a DB-only agent', async () => {
   setupHome();
 

@@ -4,6 +4,7 @@
  * An agent defined in `agents.list[]` gets each admin edit or delete mirrored
  * into that entry, so config sync cannot revert it; if the config write fails
  * the SQLite change is rolled back. DB-only agents never touch `agents.list[]`.
+ * Delete refuses the default agent and channel-bound agents.
  *
  * NOT the HTTP payload parser (`gateway-http-server.ts`) or the response
  * mapper (`gateway-service.ts`).
@@ -19,7 +20,12 @@ import {
   removeConfiguredAgentFromRuntimeConfig,
   syncConfiguredAgentInRuntimeConfig,
 } from '../agents/agent-runtime-config.js';
-import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  type AgentConfig,
+  DEFAULT_AGENT_ID,
+  resolveConfiguredDefaultAgentId,
+} from '../agents/agent-types.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 
 const TRIMMED_STRING_FIELDS = [
   'extends',
@@ -144,6 +150,22 @@ export function deleteAdminAgentRecord(agentId: string): {
   }
   if (id === DEFAULT_AGENT_ID) {
     throw new Error('The main agent cannot be deleted.');
+  }
+  // Removing the entry would silently move the default route or a channel
+  // binding to another agent; make the operator pick the new one first.
+  const agents = getRuntimeConfig().agents;
+  if (id === resolveConfiguredDefaultAgentId(agents)) {
+    throw new Error(
+      `Agent "${id}" is the default agent. Activate another agent first with \`hybridclaw agent activate <agent-id>\`.`,
+    );
+  }
+  const boundChannels = Object.entries(agents.channels ?? {}).flatMap(
+    ([kind, boundId]) => (boundId === id ? [kind] : []),
+  );
+  if (boundChannels.length > 0) {
+    throw new Error(
+      `Agent "${id}" answers on ${boundChannels.join(', ')}. Bind them to another agent first with \`hybridclaw agent bind <agent-id> ${boundChannels.join(' ')}\`.`,
+    );
   }
   const previous = getStoredAgentConfig(id);
   const deleted = deleteRegisteredAgent(id);
