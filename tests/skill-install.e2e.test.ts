@@ -701,7 +701,7 @@ describe.skipIf(!DOCKER_E2E)(
     });
 
     // https://github.com/HybridAIOne/hybridclaw/issues/1661: admin agent
-    // edits write the registry only; config.json wins on the next sync.
+    // edits to a config-backed agent are written back to config.json.
     describe('a skill added to an allowlist in the admin console', () => {
       test('is used by the agent', async () => {
         await slashCommand([
@@ -722,7 +722,7 @@ describe.skipIf(!DOCKER_E2E)(
 
       describe('after a gateway restart', () => {
         beforeAll(restartGateway, STARTUP_TIMEOUT_MS + 30_000);
-        test.fails('is still used by the agent', () =>
+        test('is still used by the agent', () =>
           expectInstalled('e2e-admin-allowlist', EDITOR_AGENT));
       });
     });
