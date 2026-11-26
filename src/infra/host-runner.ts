@@ -220,7 +220,6 @@ export const hostRunner = createWorkerRunner({
       );
     }
   },
-  dropsEntryOnAbort: false,
   guardsStdinErrors: true,
   memoryKey: (entry) =>
     typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
