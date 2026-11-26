@@ -62,6 +62,8 @@ export interface RunnerMode {
   /** How many times the runner asked a worker to stop. */
   stopCount(run: StartedRunner): number;
   wasStopped(worker: FakeWorker, run: StartedRunner): boolean;
+  /** A stored runtime env value as the worker at `index` received it. */
+  storedEnvValue(run: StartedRunner, index: number, name: string): unknown;
   runtimeLabel: string;
   repairHint: string;
   claimedWarm: { message: string; fields: Record<string, unknown> };
@@ -89,6 +91,10 @@ export const RUNNER_MODES: RunnerMode[] = [
       run.spawn.mock.calls.some(
         ([, args]) => args?.[0] === 'stop' && args[1] === worker.name,
       ),
+    storedEnvValue: (run, index, name) =>
+      (firstInput(run.workers[index]).runtimeEnv as Record<string, string>)?.[
+        name
+      ],
     runtimeLabel: 'Container runtime',
     repairHint: 'npm run build:container',
     claimedWarm: {
@@ -117,6 +123,8 @@ export const RUNNER_MODES: RunnerMode[] = [
       run.workers.reduce((sum, worker) => sum + worker.kill.mock.calls.length, 0),
     wasStopped: (worker) =>
       worker.kill.mock.calls.some(([signal]) => signal === 'SIGTERM'),
+    storedEnvValue: (run, index, name) =>
+      run.workerCalls[index]?.[2]?.env?.[name],
     runtimeLabel: 'Host agent process',
     repairHint: 'postinstall-container.mjs',
     claimedWarm: { message: 'Claimed warm host agent process', fields: {} },

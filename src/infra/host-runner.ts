@@ -229,9 +229,9 @@ export const hostRunner = createWorkerRunner({
     return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
   },
   logFields: () => ({}),
+  runtimeEnvAtSpawn: true,
   mapHostUrl: (url) => url,
   stateRoot: (request) => hostWorkspaceStateRoot(request),
-  sendsRuntimeEnv: false,
   capacityWaitMs: (background) =>
     background ? BACKGROUND_HOST_CAPACITY_WAIT_MS : HOST_CAPACITY_WAIT_MS,
 });

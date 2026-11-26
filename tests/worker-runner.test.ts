@@ -106,9 +106,9 @@ async function loadRunner(params: {
     memoryKey: (entry) => entry.name ?? null,
     readMemoryBytes: async () => 0,
     logFields: (entry) => ({ workerName: entry.name }),
+    runtimeEnvAtSpawn: false,
     mapHostUrl: (url) => url.replace('localhost', 'gateway.example.com'),
     stateRoot: (_request, workspacePath) => workspacePath,
-    sendsRuntimeEnv: false,
     ...params.strategy,
   };
   const { createWorkerRunner } = await import('../src/infra/worker-runner.js');
@@ -138,13 +138,8 @@ function firstStdinInput(child: FakeChild): ContainerInput {
 }
 
 describe('createWorkerRunner strategy seam', () => {
-  it.each([
-    true,
-    false,
-  ])('sends stored runtime env only when the strategy asks (%s), and maps host URLs', async (sendsRuntimeEnv) => {
-    const { runner, children } = await loadRunner({
-      strategy: { sendsRuntimeEnv },
-    });
+  it('sends the stored runtime env and maps host URLs', async () => {
+    const { runner, children } = await loadRunner({});
 
     await expect(runner.exec(request('session-a'))).resolves.toMatchObject(
       success,
@@ -153,7 +148,7 @@ describe('createWorkerRunner strategy seam', () => {
     const input = firstStdinInput(children[0]);
     expect(input.baseUrl).toBe('http://gateway.example.com:4000/v1');
     expect(input.gatewayBaseUrl).not.toContain('localhost');
-    expect('runtimeEnv' in input).toBe(sendsRuntimeEnv);
+    expect(input.runtimeEnv).toEqual({});
     expect(input).toHaveProperty('ipcAuthSecret');
   });
 

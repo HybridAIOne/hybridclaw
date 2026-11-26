@@ -1,8 +1,10 @@
 /**
  * Worker reuse requires the same routing and startup credentials.
- * Unlike per-turn input, this signature covers process-cached settings;
- * it is private comparison state and must never be logged.
+ * Unlike per-turn input, this signature covers process-cached settings. It is
+ * a SHA-256 digest, so the value a pool entry keeps holds no credential or
+ * runtime env value even if the entry is logged.
  */
+import { createHash } from 'node:crypto';
 import type { WebSearchConfig } from '@hybridclaw/contracts/web-search-config';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
@@ -102,7 +104,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     ]),
   );
 
-  return JSON.stringify({
+  const canonical = JSON.stringify({
     agentId: String(input.agentId || '').trim(),
     provider: String(input.provider || '').trim(),
     providerMethod: String(input.providerMethod || '').trim(),
@@ -137,4 +139,5 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
           }
         : null,
   });
+  return createHash('sha256').update(canonical).digest('hex');
 }

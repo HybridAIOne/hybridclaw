@@ -440,6 +440,29 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     );
   });
 
+  test('respawns the pooled worker when the stored runtime env changes', async () => {
+    const run = await startRunner(mode);
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.js'
+    );
+    const request = { ...baseRequest, sessionId: 'session-runtime-env' };
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-a' });
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(mode.storedEnvValue(run, 0, 'EXAMPLE_REGION')).toBe('region-a');
+
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-b' });
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.storedEnvValue(run, 1, 'EXAMPLE_REGION')).toBe('region-b');
+    const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
+    expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
   test('runs as many concurrent sessions as the pool holds', async () => {
     const { runner, workers } = await startRunner(mode, {
       readOutput: () =>
