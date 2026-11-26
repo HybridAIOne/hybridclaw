@@ -107,7 +107,11 @@ try {
     channelId: 'cli',
     userId: 'harbor',
     username: 'harbor',
-    content: `Carry out the task using the available tools in this isolated Harbor sandbox. Harbor verifies the sandbox state after your turn.\n\n${run.instruction}`,
+    content: [
+      'Carry out the task using the available tools in this isolated Harbor sandbox. Harbor verifies the sandbox state after your turn.',
+      run.instruction,
+      'Before reporting completion, validate the actual saved outputs with their intended reader or consumer. Check the task’s stated format, field order, and semantics. When piping a validation command, use pipefail so its failure status stays visible.',
+    ].join('\n\n'),
     agentId: 'main',
     model,
     reasoningEffort: 'none',
