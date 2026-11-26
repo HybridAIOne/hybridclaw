@@ -10315,37 +10315,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('passes null skill allowlists through admin agent update requests', async () => {
+  test('passes null field clears through admin agent update requests', async () => {
     const state = await importFreshHealth();
+    const cleared = {
+      extends: null,
+      name: null,
+      model: null,
+      skills: null,
+      tools: null,
+      chatbotId: null,
+      enableRag: null,
+      proxy: null,
+      role: null,
+      reportsTo: null,
+      delegatesTo: null,
+      peers: null,
+      workspace: null,
+    };
     const req = makeRequest({
       method: 'PUT',
       url: '/api/admin/agents/writer',
       headers: {
         'content-type': 'application/json',
       },
-      body: {
-        skills: null,
-      },
+      body: cleared,
     });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
-      name: undefined,
-      model: undefined,
-      skills: null,
-      chatbotId: undefined,
-      enableRag: undefined,
-      archived: undefined,
-      proxy: undefined,
-      role: undefined,
-      reportsTo: undefined,
-      delegatesTo: undefined,
-      peers: undefined,
-      workspace: undefined,
-    });
+    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith(
+      'writer',
+      cleared,
+    );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       agent: {
@@ -10395,18 +10398,7 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
-      name: undefined,
-      model: undefined,
-      skills: undefined,
-      chatbotId: undefined,
-      enableRag: undefined,
       archived: true,
-      proxy: undefined,
-      role: undefined,
-      reportsTo: undefined,
-      delegatesTo: undefined,
-      peers: undefined,
-      workspace: undefined,
     });
     expect(res.statusCode).toBe(200);
   });
