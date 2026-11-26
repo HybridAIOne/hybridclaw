@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
@@ -461,6 +462,23 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(mode.storedEnvValue(run, 1, 'EXAMPLE_REGION')).toBe('region-b');
     const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
     expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
+  test.runIf(process.platform !== 'win32')('creates the shared browser profile dir owner-only before spawn', async () => {
+    const run = await startRunner(mode);
+    const profileDir = path.join(
+      run.homeDir,
+      '.hybridclaw',
+      'data',
+      'browser-profiles',
+    );
+    fs.mkdirSync(profileDir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(profileDir, 0o755);
+
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-profile' });
+
+    expect(run.workers).toHaveLength(1);
+    expect(fs.statSync(profileDir).mode & 0o777).toBe(0o700);
   });
 
   test('runs as many concurrent sessions as the pool holds', async () => {

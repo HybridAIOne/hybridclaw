@@ -1,3 +1,11 @@
+/**
+ * Browser profile roots — where shared browser profiles live and the checks
+ * that keep a requested profile under its root.
+ *
+ * The profile root holds logged-in browser sessions, so every directory made
+ * here is owner-only (0700), whether a gateway-side browser or an agent worker
+ * in either sandbox mode uses it. NOT browser login (`browser-login.ts`).
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
@@ -24,6 +32,13 @@ function ensurePrivateDir(dir: string): void {
     // Some mounted filesystems ignore chmod; profile confinement still relies
     // on path validation before browsers receive the directory.
   }
+}
+
+/** The shared profile root an agent worker gets, created owner-only. */
+export function ensureBrowserProfileHostDir(): string {
+  const dir = path.resolve(getBrowserProfileDir(DATA_DIR));
+  ensurePrivateDir(dir);
+  return dir;
 }
 
 export function resolveBrowserProfileRoot(

@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
+import { ensureBrowserProfileHostDir } from '../browser/profile-dir.js';
 import {
   CONTAINER_BINDS,
   CONTAINER_CPUS,
@@ -22,6 +23,7 @@ import {
 } from '../config/config.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
+import { resolveDiscordMediaCacheHostDir } from '../media/media-host-path.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
@@ -41,8 +43,6 @@ import {
 import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
-  resolveBrowserProfileHostDir,
-  resolveDiscordMediaCacheHostDir,
   type WorkerSpawnRequest,
 } from './worker-runner.js';
 
@@ -138,18 +138,9 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
-  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  const browserProfileHostPath = ensureBrowserProfileHostDir();
   const behaviorAnomalyTrajectoryStoreDir =
     ensureBehaviorAnomalyTrajectoryStoreDir();
-  fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
-  try {
-    fs.chmodSync(browserProfileHostPath, 0o700);
-  } catch (err) {
-    logger.warn(
-      { err, dir: browserProfileHostPath },
-      'Failed to set permissions on browser profile directory',
-    );
-  }
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
