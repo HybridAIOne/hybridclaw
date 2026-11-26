@@ -67,11 +67,7 @@ export interface RunnerMode {
   runtimeLabel: string;
   repairHint: string;
   claimedWarm: { message: string; fields: Record<string, unknown> };
-  /** Expected behaviour where the two modes still differ. */
-  expected: {
-    busyError: RegExp;
-    fullPoolWaits: boolean;
-  };
+  busyError: RegExp;
 }
 
 const dockerArg = (args: string[], flag: string) =>
@@ -101,10 +97,8 @@ export const RUNNER_MODES: RunnerMode[] = [
       message: 'Claimed warm container',
       fields: { containerName: expect.stringContaining('warm-') },
     },
-    expected: {
-      busyError: /^Too many active containers \(5\/5\)\. Try again later\.$/,
-      fullPoolWaits: false,
-    },
+    busyError:
+      /^Too many active containers \(5\/5\) after waiting 15000ms\. Try again later\.$/,
   },
   {
     mode: 'host',
@@ -128,11 +122,8 @@ export const RUNNER_MODES: RunnerMode[] = [
     runtimeLabel: 'Host agent process',
     repairHint: 'postinstall-container.mjs',
     claimedWarm: { message: 'Claimed warm host agent process', fields: {} },
-    expected: {
-      busyError:
-        /^Too many active host agent processes \(5\/5\) after waiting 15000ms\. Try again later\.$/,
-      fullPoolWaits: true,
-    },
+    busyError:
+      /^Too many active host agent processes \(5\/5\) after waiting 15000ms\. Try again later\.$/,
   },
 ];
 

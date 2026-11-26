@@ -81,6 +81,12 @@ import {
 } from './worker-recovery.js';
 
 const CAPACITY_POLL_MS = 100;
+// 15 s for a user turn, 5 min for a background run that nobody watches, so it
+// can queue behind user turns. Host-only since 2026-04-07 (user turns) and
+// 2026-10-08 (background runs); applied to container mode too in this change,
+// pending the owner's confirmation. Retrying on `busy` is deferred.
+const CAPACITY_WAIT_MS = 15_000;
+const BACKGROUND_CAPACITY_WAIT_MS = 300_000;
 
 type WorkerSpawnParams = Pick<
   ExecutorRequest,
@@ -124,8 +130,6 @@ export interface WorkerStrategy {
   mapHostUrl(url: string): string;
   /** Root for turn-checkpoint recovery evidence. */
   stateRoot(request: ExecutorRequest, workspacePath: string): string;
-  /** Waits this long for a free worker; without it a full pool fails at once. */
-  capacityWaitMs?(background: boolean | undefined): number;
   /** Rewrites `input` to go through a gateway-side relay for this turn. */
   startModelRelay?(params: {
     input: ContainerInput;
@@ -397,23 +401,24 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       params.background,
     );
     if (totalProcessCount() >= processLimit && !pool.has(sessionId)) {
-      const waitMs = strategy.capacityWaitMs?.(params.background);
-      const capacity =
-        waitMs === undefined
-          ? freeCapacity(processLimit)
-            ? 'available'
-            : 'timed_out'
-          : await waitForCapacity(sessionId, processLimit, waitMs, abortSignal);
+      const waitMs = params.background
+        ? BACKGROUND_CAPACITY_WAIT_MS
+        : CAPACITY_WAIT_MS;
+      const capacity = await waitForCapacity(
+        sessionId,
+        processLimit,
+        waitMs,
+        abortSignal,
+      );
       if (capacity === 'aborted') {
         return interruptedAgentOutput(abortSignal?.reason);
       }
       if (capacity === 'timed_out') {
-        const waited = waitMs === undefined ? '' : ` after waiting ${waitMs}ms`;
         return {
           status: 'error',
           result: null,
           toolsUsed: [],
-          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit})${waited}. Try again later.`,
+          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit}) after waiting ${waitMs}ms. Try again later.`,
           errorCode: 'busy',
         };
       }

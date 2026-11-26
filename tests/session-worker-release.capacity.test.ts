@@ -110,24 +110,38 @@ async function loadRuntime(readOutput: () => Promise<ContainerOutput>) {
   };
 }
 
+// Left to the idle timeout, a call over the cap waits until an idle worker is
+// old enough to evict (10 s), within its 15 s capacity wait, so each of the
+// two calls over the cap stops at least one idle worker.
 test.each([
-  ['released at hangup', true, 0],
-  ['left to the idle timeout', false, 2],
+  ['released at hangup', true, 0, 7],
+  ['left to the idle timeout', false, 0, 2],
 ])(
   'calls in a row past the container cap with workers %s',
-  async (_label, releaseAtHangup, expectedBusy) => {
+  async (_label, releaseAtHangup, expectedBusy, minStops) => {
     const runtime = await loadRuntime(async () => SUCCESS);
     const outputs: ContainerOutput[] = [];
-    for (let call = 0; call < runtime.capacity + 2; call += 1) {
-      const sessionId = `voice-call-${call}`;
-      outputs.push(await runtime.runTurn(sessionId));
-      if (releaseAtHangup) await runtime.releaseSessionWorker(sessionId);
+    // Advance the clock through capacity waits instead of sleeping.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const skipWait = setInterval(() => vi.setSystemTime(Date.now() + 16_000), 50);
+    let stops = 0;
+    try {
+      for (let call = 0; call < runtime.capacity + 2; call += 1) {
+        const sessionId = `voice-call-${call}`;
+        outputs.push(await runtime.runTurn(sessionId));
+        if (releaseAtHangup) await runtime.releaseSessionWorker(sessionId);
+      }
+      stops = runtime.dockerStops();
+    } finally {
+      clearInterval(skipWait);
+      vi.useRealTimers();
+      runtime.stopAllExecutions();
     }
-    runtime.stopAllExecutions();
 
     expect(outputs.filter((output) => output.errorCode === 'busy')).toHaveLength(
       expectedBusy,
     );
+    expect(stops).toBeGreaterThanOrEqual(minStops);
   },
 );
 

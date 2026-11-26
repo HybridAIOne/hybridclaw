@@ -181,24 +181,10 @@ describe('createWorkerRunner strategy seam', () => {
     expect(runner.getActiveSessionCount()).toBe(0);
   });
 
-  it.each([
-    {
-      capacityWaitMs: undefined,
-      error: 'Too many active test workers (1/1). Try again later.',
-    },
-    {
-      capacityWaitMs: () => 30,
-      error:
-        'Too many active test workers (1/1) after waiting 30ms. Try again later.',
-    },
-  ])('refuses a run over capacity without spawning (wait $capacityWaitMs)', async ({
-    capacityWaitMs,
-    error,
-  }) => {
+  it('refuses a run over capacity without spawning once the wait runs out', async () => {
     const { runner, strategy } = await loadRunner({
       maxConcurrent: 1,
       readOutput: onAbortOutput(),
-      strategy: { capacityWaitMs },
     });
     const controller = new AbortController();
     const busy = runner.exec(
@@ -206,24 +192,31 @@ describe('createWorkerRunner strategy seam', () => {
     );
     await vi.waitFor(() => expect(runner.getInFlightSessionCount()).toBe(1));
 
-    await expect(runner.exec(request('session-b'))).resolves.toEqual({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error,
-      errorCode: 'busy',
-    });
-    expect(strategy.spawn).toHaveBeenCalledOnce();
-
-    controller.abort();
-    await busy;
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const refused = runner.exec(request('session-b'));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      vi.setSystemTime(Date.now() + 15_001);
+      await expect(refused).resolves.toEqual({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error:
+          'Too many active test workers (1/1) after waiting 15000ms. Try again later.',
+        errorCode: 'busy',
+      });
+      expect(strategy.spawn).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      controller.abort();
+      await busy;
+    }
   });
 
   it('returns an interrupt, not busy, when aborted while waiting for capacity', async () => {
     const { runner, strategy } = await loadRunner({
       maxConcurrent: 1,
       readOutput: onAbortOutput(),
-      strategy: { capacityWaitMs: () => 60_000 },
     });
     const holder = new AbortController();
     const busy = runner.exec(
