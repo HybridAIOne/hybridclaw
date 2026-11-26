@@ -464,7 +464,6 @@ function buildWebRetrievalLines(
   return [
     `## Web Retrieval Routing (${webSearchTool}${webFetch ? '/web_fetch' : ''}${browser ? ' vs browser_*' : ''})`,
     `Use connected source-specific tools when their documented scope covers the request. If results lack the requested evidence, continue with a relevant source. For an unknown source URL use \`${webSearchTool}\`; for a known public source, retrieve it directly.`,
-    'For faithful page or section extraction, preserve all visible text, including figure and table captions, when excluding images or other media. In custom converters, retain caption text rather than discarding its enclosing figure or table. Compare the converted content with the source before reporting it complete.',
     ...(httpRequest
       ? [
           'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
