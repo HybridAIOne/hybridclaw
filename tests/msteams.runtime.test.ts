@@ -146,6 +146,8 @@ async function importRuntime() {
   vi.doMock('../src/config/config.js', () => ({
     APP_VERSION: '0.7.1',
     DATA_DIR: '/tmp/hybridclaw-test-data',
+    HYBRIDAI_API_KEY: '',
+    HYBRIDAI_BASE_URL: '',
     MSTEAMS_APP_ID: 'teams-app-id',
     get MSTEAMS_APP_PASSWORD() {
       return msteamsAppPassword;

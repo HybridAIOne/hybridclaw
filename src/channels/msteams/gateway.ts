@@ -6,11 +6,7 @@
 import type { Attachment } from '@microsoft/agents-activity';
 import { isSilentReply, stripSilentToken } from '../../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../../agent/silent-reply-stream.js';
-import {
-  getConfigSnapshot,
-  MSTEAMS_APP_ID,
-  MSTEAMS_APP_PASSWORD,
-} from '../../config/config.js';
+import { getConfigSnapshot } from '../../config/config.js';
 import { createApprovalPresentation } from '../../gateway/approval-presentation.js';
 import {
   handlePendingApprovalRouting,
@@ -55,6 +51,7 @@ import {
   recordMSTeamsRatingTargets,
   resolveMSTeamsRatingTarget,
 } from './reactions.js';
+import { resolveMSTeamsMode } from './relay.js';
 
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
@@ -73,9 +70,6 @@ function formatMSTeamsActivityVerb(toolName: string): string {
 
 export async function startMSTeamsIntegration(): Promise<boolean> {
   const teamsConfig = getConfigSnapshot().msteams;
-  const hasCredentials =
-    Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
-    Boolean(String(MSTEAMS_APP_PASSWORD || '').trim());
 
   if (!teamsConfig.enabled) {
     logger.info('Microsoft Teams integration disabled');
@@ -413,7 +407,7 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
       }
     },
   );
-  if (!hasCredentials) {
+  if (resolveMSTeamsMode() === 'incomplete') {
     logger.info(
       'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
     );

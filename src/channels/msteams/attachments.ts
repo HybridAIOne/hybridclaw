@@ -30,7 +30,9 @@ import {
 } from '../../media/uploaded-media-cache.js';
 import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
+import { isMSTeamsRelayServiceUrl } from './adapter.js';
 import { requireMSTeamsConnectorClient } from './connector.js';
+import { resolveMSTeamsRelay } from './relay.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
@@ -480,6 +482,7 @@ function buildRemoteFallbackMediaItem(params: {
   filename: string;
   mimeType?: string | null;
   sizeBytes?: number;
+  relayBase?: string | null;
 }): MediaContextItem | null {
   const url = normalizeValue(params.url);
   if (!url) return null;
@@ -507,7 +510,10 @@ function buildRemoteFallbackMediaItem(params: {
   }
 
   const allowHosts = getEffectiveMediaAllowHosts();
-  if (!isAllowedHost(host, allowHosts)) {
+  if (
+    !relayCredentialFor(url, params.relayBase) &&
+    !isAllowedHost(host, allowHosts)
+  ) {
     logger.debug(
       { host, name: params.filename || null },
       'Skipping Teams attachment from non-allowlisted host',
@@ -600,11 +606,49 @@ async function acquireClientCredentialsToken(
   return accessToken;
 }
 
+/**
+ * A relay that owns the bot rewrites the links of attachments only the bot may
+ * fetch to its own address. The relay credential goes to such a link only when
+ * the activity itself came through the relay, and nowhere else: a link to the
+ * platform inside a message from Microsoft is just a link.
+ */
+function resolveRelayAttachmentBase(
+  activity: Partial<Activity>,
+): string | null {
+  const relay = resolveMSTeamsRelay();
+  const serviceUrl = normalizeValue(activity.serviceUrl);
+  return relay && isMSTeamsRelayServiceUrl(relay, serviceUrl)
+    ? `${serviceUrl.replace(/\/+$/, '')}/v3/`
+    : null;
+}
+
+function relayCredentialFor(
+  url: string,
+  relayBase: string | null | undefined,
+): string | null {
+  const relay = resolveMSTeamsRelay();
+  return relay &&
+    relayBase &&
+    url.startsWith(relayBase) &&
+    isMSTeamsRelayServiceUrl(relay, url)
+    ? relay.token
+    : null;
+}
+
 async function fetchTeamsMediaResponse(
   url: string,
   authToken?: string | null,
+  relayBase?: string | null,
 ): Promise<Response> {
   const requestSignal = AbortSignal.timeout(REMOTE_MEDIA_FETCH_TIMEOUT_MS);
+  const relayToken = relayCredentialFor(url, relayBase);
+  if (relayToken) {
+    return fetchWithTimeout(
+      url,
+      { headers: { Accept: '*/*', Authorization: `Bearer ${relayToken}` } },
+      requestSignal,
+    );
+  }
   const normalizedAuthToken = normalizeValue(authToken);
   if (normalizedAuthToken) {
     const tokenResponse = await fetchWithTimeout(
@@ -771,6 +815,7 @@ async function buildMediaItem(params: {
   mimeType?: string | null;
   sizeBytes?: number;
   authToken?: string | null;
+  relayBase?: string | null;
 }): Promise<MediaContextItem | null> {
   const fallback = buildRemoteFallbackMediaItem(params);
   if (!fallback) {
@@ -813,7 +858,11 @@ async function buildMediaItem(params: {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= REMOTE_MEDIA_STAGE_ATTEMPTS; attempt += 1) {
     try {
-      return await stageRemoteTeamsMedia(fallback, params.authToken);
+      return await stageRemoteTeamsMedia(
+        fallback,
+        params.authToken,
+        params.relayBase,
+      );
     } catch (error) {
       if (isUploadedMediaLimitError(error)) {
         logger.warn(
@@ -874,8 +923,13 @@ async function buildMediaItem(params: {
 async function stageRemoteTeamsMedia(
   fallback: MediaContextItem,
   authToken: string | null | undefined,
+  relayBase: string | null | undefined,
 ): Promise<MediaContextItem> {
-  const response = await fetchTeamsMediaResponse(fallback.url, authToken);
+  const response = await fetchTeamsMediaResponse(
+    fallback.url,
+    authToken,
+    relayBase,
+  );
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
     throw new TeamsMediaFetchError(response.status, response.statusText);
@@ -1328,6 +1382,7 @@ export async function buildTeamsAttachmentContext(params: {
   const maxBytes = getMaxInboundTeamsMediaBytes();
   const media: MediaContextItem[] = [];
   const htmlAttachments: Attachment[] = [];
+  const relayBase = resolveRelayAttachmentBase(params.activity);
 
   for (const attachment of attachments) {
     const fallbackName = normalizeValue(attachment.name) || 'teams-attachment';
@@ -1355,6 +1410,7 @@ export async function buildTeamsAttachmentContext(params: {
     // that is going to be rejected anyway. Still tell the model it existed.
     if (normalizedSizeBytes > maxBytes) {
       const oversized = buildRemoteFallbackMediaItem({
+        relayBase,
         url: downloadInfo?.url || attachmentUrl,
         filename: downloadInfo?.filename || fallbackName,
         mimeType: downloadInfo?.mimeType || contentType || null,
@@ -1375,6 +1431,7 @@ export async function buildTeamsAttachmentContext(params: {
     // attachment, so never fall through and fetch the same file again.
     if (downloadInfo) {
       const mediaItem = await buildMediaItem({
+        relayBase,
         url: downloadInfo.url,
         filename: downloadInfo.filename,
         mimeType: downloadInfo.mimeType,
@@ -1389,6 +1446,7 @@ export async function buildTeamsAttachmentContext(params: {
 
     if (attachmentUrl) {
       const mediaItem = await buildMediaItem({
+        relayBase,
         url: attachmentUrl,
         filename: extractAttachmentFilename(attachmentUrl, fallbackName),
         mimeType: inferMimeTypeFromFilename(fallbackName, contentType),
@@ -1415,6 +1473,7 @@ export async function buildTeamsAttachmentContext(params: {
       if (src && !src.startsWith('cid:')) {
         const filename = extractAttachmentFilename(src, fallbackName);
         const mediaItem = await buildMediaItem({
+          relayBase,
           url: src,
           filename,
           mimeType: inferMimeTypeFromFilename(filename, 'image/png'),

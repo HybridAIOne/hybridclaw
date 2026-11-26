@@ -435,6 +435,35 @@ If authentication fails, confirm that `MSTEAMS_APP_PASSWORD` contains the
 client secret **Value**, that the secret has not expired, and that all four
 resources use the same Application (client) ID.
 
+## Teams through a relay that owns the bot
+
+A gateway signed in to HybridAI (`HYBRIDAI_API_KEY`) can serve Teams without
+any bot credentials of its own. The platform owns the bot registration,
+verifies each request from Teams, and delivers the activity to
+`POST /api/msteams/relay`, a route behind the gateway's normal API
+authentication. The gateway acknowledges at once and runs the turn afterwards.
+
+The activity's `serviceUrl` is the relay, so every reply, edit, typing
+indicator and later proactive message goes back through it, carrying the
+gateway's HybridAI key. The relay adds the bot credentials. An activity whose
+`serviceUrl` is not under `hybridai.baseUrl` is refused, so the key never
+leaves the platform.
+
+The route takes the gateway's API token or a full API token; a console session
+cannot call it. Only an address on the relay's own path of the platform
+(`<hybridai.baseUrl>/api/hybridclaw/msteams/…`) counts as the relay.
+
+To use it, set `msteams.enabled` and leave `msteams.appId`,
+`msteams.tenantId` and `MSTEAMS_APP_PASSWORD` unset. With no tenant set the
+gateway checks no tenant itself: the relay did that before it delivered. `hybridclaw doctor`
+then reports `Teams relayed through HybridAI`. `dmPolicy` and the allowlists
+still apply on the gateway.
+
+Images that Teams serves only to the bot arrive as links below the relay and
+are downloaded there with the same key. An image uploaded for a group chat or
+channel is linked below the relay as well; the relay hands Microsoft its own
+address.
+
 ## CLI alternative
 
 You can save the same three HybridClaw values from the command line instead of

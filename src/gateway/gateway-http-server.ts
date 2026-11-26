@@ -11456,6 +11456,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiConfigReload(res);
             return;
           }
+          if (pathname === '/api/msteams/relay' && method === 'POST') {
+            // A relay is a machine. A console session, whatever its role,
+            // does not speak for Teams.
+            if (
+              authContext.kind !== 'master' &&
+              authContext.kind !== 'apiToken'
+            ) {
+              sendJson(res, 403, { error: 'Forbidden.' });
+              return;
+            }
+            const { handleMSTeamsRelayActivity } = await import(
+              '../channels/msteams/runtime.js'
+            );
+            await handleMSTeamsRelayActivity(req, res);
+            return;
+          }
           if (
             pathname === '/api/connector-approvals/decision' &&
             method === 'POST'
