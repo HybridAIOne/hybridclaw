@@ -33,7 +33,9 @@ import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
+import { isA2ADeliveryTarget } from './proactive-delivery.js';
 import {
+  assertOwnTeamsTarget,
   canManageScheduledTask,
   listManageableScheduledTasks,
 } from './scheduled-task-access.js';
@@ -149,7 +151,10 @@ function toResult(
 
 /** Shared by "add" (fields read straight from the request) and "update"
  * (fields merged onto the stored job first), so both enforce the same rules. */
-function validateScheduledTaskFields(fields: ScheduledTaskFields): void {
+function validateScheduledTaskFields(
+  fields: ScheduledTaskFields,
+  session: Session,
+): void {
   const scheduleFields = [
     fields.cronExpr,
     fields.runAt,
@@ -180,6 +185,13 @@ function validateScheduledTaskFields(fields: ScheduledTaskFields): void {
   if (!fields.channelId) {
     throw new GatewayRequestError(400, 'Missing delivery `channelId`.');
   }
+  if (isA2ADeliveryTarget(fields.channelId)) {
+    throw new GatewayRequestError(
+      400,
+      'A2A targets do not support proactive scheduled delivery. Specify a supported delivery channel target instead.',
+    );
+  }
+  assertOwnTeamsTarget(fields.channelId, session);
 }
 
 export function runScheduledTaskToolAction(
@@ -271,7 +283,7 @@ export function runScheduledTaskToolAction(
       prompt: normalizeTrimmedString(body.prompt) || job.prompt,
       channelId: normalizeTrimmedString(body.channelId) || job.channel_id,
     };
-    validateScheduledTaskFields(fields);
+    validateScheduledTaskFields(fields, session);
 
     updateScheduledTask(taskId, {
       cronExpr: fields.cronExpr || undefined,
@@ -299,7 +311,7 @@ export function runScheduledTaskToolAction(
       normalizeTrimmedString(body.channelId) ||
       normalizeTrimmedString(session.channel_id),
   };
-  validateScheduledTaskFields(fields);
+  validateScheduledTaskFields(fields, session);
 
   const taskId = createJob({
     kind: 'scheduled_task',

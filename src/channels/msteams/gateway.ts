@@ -47,6 +47,7 @@ import { formatMSTeamsApprovalPrompt } from './approval-prompt.js';
 import {
   buildResponseText as buildMSTeamsResponseText,
   buildMSTeamsSessionSwitcherCard,
+  MSTEAMS_ARTIFACT_DELIVERY_NOTICE,
   stripUnusableMSTeamsArtifactLinks,
 } from './delivery.js';
 import {
@@ -271,11 +272,9 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
               },
               'Failed to build Teams artifact attachments',
             );
-            const deliveryNotice =
-              'The artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.';
             responseText = responseText
-              ? `${responseText}\n\n${deliveryNotice}`
-              : deliveryNotice;
+              ? `${responseText}\n\n${MSTEAMS_ARTIFACT_DELIVERY_NOTICE}`
+              : MSTEAMS_ARTIFACT_DELIVERY_NOTICE;
           }
 
           if (attachments?.length && sawTextDelta) {

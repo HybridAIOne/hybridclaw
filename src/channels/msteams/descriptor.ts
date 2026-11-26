@@ -18,7 +18,9 @@ function isMSTeamsTarget(target: string): boolean {
 export const descriptor = {
   kind: 'msteams',
   matchesTarget: isMSTeamsTarget,
-  supportsProactive: false,
+  supportsProactive: true,
+  sendProactive: async (...args) =>
+    (await import('./proactive.js')).sendProactive(...args),
 
   start: async () => (await import('./gateway.js')).startMSTeamsIntegration(),
   // Shared HTTP ingress checks enabled config per request and local-mode policy.

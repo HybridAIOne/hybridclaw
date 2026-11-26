@@ -604,6 +604,82 @@ test('web cron access excludes other agents and messaging sessions', async () =>
   ).toBe(404);
 });
 
+test('rejects A2A delivery targets on add and update without creating jobs', async () => {
+  const { getAllJobs, getOrCreateSession, rearmScheduler, runScheduledTaskToolAction } =
+    await setup();
+  const a2aSession = getOrCreateSession('a2a-session-1', null, 'a2a', 'main');
+
+  for (const request of [
+    {
+      action: 'add',
+      sessionId: a2aSession.id,
+      cronExpr: '0 9 * * *',
+      prompt: 'Ping peer.',
+    },
+    {
+      action: 'add',
+      sessionId: 'session-1',
+      channelId: 'a2a',
+      cronExpr: '0 9 * * *',
+      prompt: 'Ping peer.',
+    },
+    {
+      action: 'add',
+      sessionId: 'session-1',
+      channelId: 'a2a:peer-1',
+      everyMs: 60_000,
+      prompt: 'Ping peer.',
+    },
+  ]) {
+    expect(() => runScheduledTaskToolAction(request)).toThrow(
+      'A2A targets do not support proactive scheduled delivery',
+    );
+    expect(statusOf(() => runScheduledTaskToolAction(request))).toBe(400);
+  }
+  expect(getAllJobs({ kind: 'scheduled_task' })).toHaveLength(0);
+  expect(rearmScheduler).not.toHaveBeenCalled();
+
+  const created = runScheduledTaskToolAction({
+    action: 'add',
+    sessionId: 'session-1',
+    channelId: 'ops@example.com',
+    cronExpr: '0 9 * * *',
+    prompt: 'Briefing',
+  });
+  expect(() =>
+    runScheduledTaskToolAction({
+      action: 'update',
+      sessionId: 'session-1',
+      taskId: created.taskId,
+      channelId: 'a2a:peer-1',
+    }),
+  ).toThrow('A2A targets do not support proactive scheduled delivery');
+});
+
+test('a turn may schedule Teams delivery only into its own Teams conversation', async () => {
+  const { getOrCreateSession, runScheduledTaskToolAction } = await setup();
+  const teams = getOrCreateSession('teams-session-1', null, 'a:personal-chat');
+  const request = {
+    action: 'add',
+    cronExpr: '0 9 * * *',
+    prompt: 'Briefing',
+  };
+
+  expect(
+    runScheduledTaskToolAction({ ...request, sessionId: teams.id }),
+  ).toMatchObject({ ok: true, channelId: 'a:personal-chat' });
+  for (const [sessionId, channelId] of [
+    [teams.id, '19:other-chat@thread.v2'],
+    ['session-1', 'a:personal-chat'],
+  ]) {
+    expect(
+      statusOf(() =>
+        runScheduledTaskToolAction({ ...request, sessionId, channelId }),
+      ),
+    ).toBe(403);
+  }
+});
+
 // "update" shares validateScheduledTaskFields() with "add", so its
 // multi-schedule-field rejection is already covered by the "add" test
 // above; the container-level equivalent still exercises update directly.

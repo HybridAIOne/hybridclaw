@@ -152,7 +152,7 @@ interface ActiveMSTeamsSession {
   turnContext: TurnContext;
 }
 
-interface StoredMSTeamsSession {
+export interface StoredMSTeamsSession {
   channelId: string;
   isDm: boolean;
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
@@ -205,7 +205,7 @@ function persistConversationReference(
   setMemoryValue(sessionId, MSTEAMS_CONVERSATION_REFERENCE_KEY, session);
 }
 
-function readStoredConversationReference(
+export function readStoredConversationReference(
   sessionId: string,
 ): StoredMSTeamsSession | null {
   const stored = getMemoryValue(sessionId, MSTEAMS_CONVERSATION_REFERENCE_KEY);
@@ -283,17 +283,16 @@ async function buildTeamsMessageAttachments(
   ];
 }
 
-async function sendViaConversationReference(
+// Sends into a stored conversation; `prepare` runs inside the proactive turn
+// because Teams builds attachments (file-consent cards) against that turn.
+export async function sendViaConversationReference(
   session: Pick<
     StoredMSTeamsSession,
     'isDm' | 'reference' | 'replyStyle' | 'replyToId'
   >,
-  params: {
-    text: string;
-    filePath?: string | null;
-    filename?: string | null;
-    mimeType?: string | null;
-  },
+  prepare: (
+    turnContext: TurnContext,
+  ) => Promise<{ text: string; attachments?: Attachment[] }>,
 ): Promise<number> {
   let attachmentCount = 0;
   const { bot, ...reference } = session.reference;
@@ -301,14 +300,11 @@ async function sendViaConversationReference(
     MSTEAMS_APP_ID,
     { ...reference, agent: bot },
     async (proactiveContext) => {
-      const attachments = await buildTeamsMessageAttachments(
-        proactiveContext,
-        params,
-      );
+      const { text, attachments } = await prepare(proactiveContext);
       attachmentCount = attachments?.length || 0;
       await sendChunkedReply({
         turnContext: proactiveContext,
-        text: params.text,
+        text,
         attachments,
         replyStyle:
           attachmentCount > 0 && session.isDm
@@ -419,6 +415,10 @@ export async function sendToActiveMSTeamsSession(params: {
 }): Promise<{ attachmentCount: number; channelId: string }> {
   const sessionId = normalizeValue(params.sessionId);
   const activeSession = ACTIVE_MSTEAMS_SESSIONS.get(sessionId);
+  const prepare = async (turnContext: TurnContext) => ({
+    text: params.text,
+    attachments: await buildTeamsMessageAttachments(turnContext, params),
+  });
   if (!activeSession) {
     const storedSession = readStoredConversationReference(sessionId);
     if (!storedSession) {
@@ -428,7 +428,7 @@ export async function sendToActiveMSTeamsSession(params: {
     }
     const attachmentCount = await sendViaConversationReference(
       storedSession,
-      params,
+      prepare,
     );
     return {
       attachmentCount,
@@ -454,7 +454,7 @@ export async function sendToActiveMSTeamsSession(params: {
         replyStyle: activeSession.replyStyle,
         replyToId: activeSession.replyToId || null,
       },
-      params,
+      prepare,
     );
     return {
       attachmentCount,

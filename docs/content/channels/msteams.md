@@ -277,6 +277,32 @@ JSON, CSV, Markdown, plain text, and XML retain their media type. Downloads are
 streamed into the managed cache with a default per-file limit of 100 MB,
 controlled by `msteams.mediaMaxMb` under **Advanced delivery settings**.
 
+## Proactive and scheduled messages
+
+Scheduled tasks, heartbeat output, and other proactive notices can be delivered
+to Teams direct messages, group chats, and team channels.
+
+- **The bot must have heard from the conversation first.** HybridClaw stores
+  the Bot Framework conversation reference when the bot receives an allowed
+  message or command in a Teams conversation, and proactive delivery only
+  reuses a stored reference. It cannot start a conversation the bot has never
+  received a message in. A target without a stored reference fails with an
+  explicit error, as does a reference Teams has since rejected; send the bot a
+  message in that conversation to store a fresh one.
+- **Team channels:** a target that names a team channel (without
+  `;messageid=`) posts a new top-level message, reusing the reference stored
+  from any thread in that channel.
+- **Agent-created tasks stay in their conversation.** A task or trigger the
+  agent creates with the `cron` or `trigger` tool can only deliver to the Teams
+  conversation it was created in, and the agent's `message` tool only sends to
+  the current Teams conversation. Escalation and browser-interaction notices
+  cannot name a Teams conversation. Admin scheduler jobs and the heartbeat
+  channel can target any conversation with a stored reference.
+- **Attachments** follow Teams bot file limits: personal chats use
+  file-consent cards (with `"supportsFiles": true` in the Teams app manifest);
+  team channels and group chats cannot receive bot file uploads, so the message
+  is sent with a note instead.
+
 ## Memory footer
 
 Every Teams answer ends with a short memory-transparency footer such as

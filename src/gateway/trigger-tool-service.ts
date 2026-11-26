@@ -24,6 +24,7 @@ import { normalizeTrimmedString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { resolvePublicGatewayBaseUrl } from './gateway-url-utils.js';
 import {
+  assertOwnTeamsTarget,
   canManageScheduledTask,
   listManageableScheduledTasks,
 } from './scheduled-task-access.js';
@@ -92,11 +93,14 @@ export function runTriggerToolAction(body: unknown): {
       'Invalid `action`. Allowed: "add", "list", "remove".',
     );
   }
+  const channelId =
+    normalizeTrimmedString(body.channelId) || session.channel_id;
+  assertOwnTeamsTarget(channelId, session);
   let task: ScheduledTask;
   try {
     task = createTrigger({
       sessionId: session.id,
-      channelId: normalizeTrimmedString(body.channelId) || session.channel_id,
+      channelId,
       ownerUserId: currentTurnUser(session.id)?.userId,
       source: normalizeTrimmedString(body.on),
       prompt: normalizeTrimmedString(body.prompt),

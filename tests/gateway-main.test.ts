@@ -763,6 +763,7 @@ async function importFreshGatewayMain(options?: {
     }),
     isSupportedProactiveChannelId: vi.fn(() => true),
     isLocalProactivePullChannelId: vi.fn((id: string) => id.trim() === 'tui'),
+    isWebProactiveTarget: vi.fn((id: string) => id.trim() === 'web'),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),

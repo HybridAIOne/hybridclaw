@@ -6,6 +6,7 @@
  */
 
 import type { ProactiveDeliveryOutcome } from '../channels/channel-descriptor.js';
+import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { getJob } from '../memory/jobs.js';
 import { outOfCredit, outOfCreditNotice } from '../scheduler/out-of-credit.js';
@@ -21,6 +22,7 @@ import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
 import { isHeartbeatOkText } from './proactive-delivery.js';
 import {
+  agentMainChatForWebTarget,
   deliverWebScheduledMessage,
   mainChatForWebTask,
 } from './web-scheduled-delivery.js';
@@ -76,6 +78,18 @@ export async function runScheduledTask(
     );
   }
 
+  // A web task from a side chat replies in its agent's main chat. It then runs
+  // apart like `--reply-only`, so the side chat's history is not mixed into the
+  // main chat and the run's turn does not land in the side chat. An admin job
+  // has no chat of its own, so its web output always goes to the main chat.
+  const mainChat =
+    request.routine || resolvedDeliveryChannelId !== 'web'
+      ? null
+      : request.source === 'scheduler-job'
+        ? agentMainChatForWebTarget(request.agentId || resolveDefaultAgentId())
+        : mainChatForWebTask(request.sessionId, request.taskOwner?.userId);
+  const deliverySessionId = mainChat?.id ?? request.sessionId;
+
   if (request.actionKind === 'system_event') {
     if (request.delivery.kind === 'webhook') {
       await deliverWebhookMessage(
@@ -93,7 +107,7 @@ export async function runScheduledTask(
     const outcome =
       resolvedDeliveryChannelId === 'web'
         ? deliverWebScheduledMessage(
-            request.sessionId,
+            deliverySessionId,
             request.prompt,
             `${sourceLabel}:system`,
           )
@@ -110,16 +124,6 @@ export async function runScheduledTask(
     return;
   }
 
-  // A web task from a side chat replies in its agent's main chat. It then runs
-  // apart like `--reply-only`, so the side chat's history is not mixed into the
-  // main chat and the run's turn does not land in the side chat.
-  const mainChat =
-    !request.routine &&
-    request.source === 'scheduled-task' &&
-    resolvedDeliveryChannelId === 'web'
-      ? mainChatForWebTask(request.sessionId, request.taskOwner?.userId)
-      : null;
-  const deliverySessionId = mainChat?.id ?? request.sessionId;
   const runChannelId =
     request.channelId || resolvedDeliveryChannelId || 'scheduler';
   const taskId = request.taskId ?? -1;

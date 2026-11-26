@@ -81,6 +81,7 @@ import type {
   GatewayCommandResult,
 } from './gateway-types.js';
 import { resolvePublicGatewayBaseUrl } from './gateway-url-utils.js';
+import { isA2ADeliveryTarget } from './proactive-delivery.js';
 import {
   handleRoutineCommand,
   routineCapabilities,
@@ -290,6 +291,12 @@ function add(
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
+  if (isA2ADeliveryTarget(req.channelId)) {
+    return badCommand(
+      'Unsupported Channel',
+      'A2A targets do not support proactive scheduled delivery. Create the schedule from a supported channel instead.',
+    );
+  }
   const at = spec.match(/^at\s+"([^"]+)"\s+(.+)$/is);
   const every = spec.match(/^every\s+(\d+)\s+(.+)$/is);
   const cron = spec.match(/^"([^"]+)"\s+(.+)$/s);
