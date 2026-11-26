@@ -90,6 +90,12 @@ official archive after checking the official SHA-256 list. Docker credentials,
 host API keys, and task data are not build inputs. The root `.dockerignore` is
 unchanged, and explicit `COPY` statements exclude `.env` files.
 
+The `python-tools` build stage installs the standard agent helper libraries from
+`container/tools/requirements.txt` with hash verification, plus Poppler for PDF
+rendering. An offline build check creates, extracts and renders a PDF, then
+checks image and spreadsheet round trips. Package pins stay in the shared
+requirements file used by the normal HybridClaw runtime images.
+
 Download `workspace/**` from the dataset at `dataset_commit` in the manifest,
 then run the unchanged preparation script:
 
