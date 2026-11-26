@@ -1,13 +1,24 @@
 # Build context: HybridClaw checkout. The benchmark's published Ubuntu image
 # supplies task dependencies; no task data or graders enter this image.
 ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS python-tools
 USER root
 # Published image inherits its builder's unreachable local proxy.
 ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= all_proxy=
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY container/tools/requirements.txt /opt/hybridclaw-tools/requirements.txt
+COPY eval-harness/wildclawbench/check-python-tools.py /opt/wildclawbench/check-python-tools.py
+RUN python3 -m pip install --no-cache-dir --require-hashes \
+      -r /opt/hybridclaw-tools/requirements.txt \
+    && python3 /opt/wildclawbench/check-python-tools.py
+
+FROM python-tools AS runtime
 ARG NODE_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl xz-utils python3 make g++ \
+    ca-certificates curl xz-utils make g++ \
     && rm -rf /var/lib/apt/lists/*
 RUN set -eu; arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) arch=x64 ;; arm64) ;; *) exit 1 ;; esac; \
