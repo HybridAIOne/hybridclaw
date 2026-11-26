@@ -4,15 +4,16 @@ import { runScheduledTask } from '../src/gateway/gateway-scheduled-dispatch.js';
 import { resetOutOfCreditNotices } from '../src/scheduler/out-of-credit.js';
 import { useCleanMocks } from './test-utils.js';
 
-const mocks = vi.hoisted(() => ({ run: vi.fn(), deliverWeb: vi.fn() }));
+const mocks = vi.hoisted(() => ({ run: vi.fn(), deliverWeb: vi.fn(), agentMainChat: vi.fn() }));
 vi.mock('../src/gateway/gateway-scheduled-task-service.js', () => ({ runGatewayScheduledTask: mocks.run }));
-vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ deliverWebScheduledMessage: mocks.deliverWeb, mainChatForWebTask: () => null }));
+vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ deliverWebScheduledMessage: mocks.deliverWeb, mainChatForWebTask: () => null, agentMainChatForWebTarget: mocks.agentMainChat }));
 vi.mock('../src/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 useCleanMocks();
 beforeEach(() => {
   vi.clearAllMocks();
   resetOutOfCreditNotices();
   mocks.deliverWeb.mockReturnValue({ status: 'delivered' });
+  mocks.agentMainChat.mockImplementation((agentId: string) => ({ id: `main:${agentId}` }));
   mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, onResult) => {
     await onResult({ workId: 'work-1', text: 'Reminder', artifacts: [], storedMessage: { sessionId: 'session-a', id: 42 } });
   });
@@ -75,15 +76,30 @@ test('runs refused for lack of credit tell each chat once, with the way to add c
   mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, _onResult, onError) => {
     onError(new Error('Provider API error 429: Free usage limit reached; add credits or try again after 2026-11-28 05:00 UTC.'));
   });
-  const job = { ...request(), source: 'scheduler-job' as const, taskId: undefined, jobId: 'daily' };
+  const job = { ...request(), source: 'scheduler-job' as const, taskId: undefined, jobId: 'daily', agentId: 'a' };
   await expect(runScheduledTask(job, dependencies())).rejects.toThrow('Free usage limit');
   await expect(runScheduledTask({ ...job, jobId: 'weekly' }, dependencies())).rejects.toThrow('Free usage limit');
   expect(mocks.deliverWeb).toHaveBeenCalledTimes(1);
   expect(mocks.deliverWeb).toHaveBeenCalledWith(
-    'session-a',
+    'main:a',
     "Hy's free use is used up until Sat, Nov 28, 05:00 UTC, so your routines wait until then. [Add credit](https://hybridai.one/app/admin/account) to keep them going now.",
     'schedule-job:daily:failure',
   );
-  await expect(runScheduledTask({ ...job, sessionId: 'session-b' }, dependencies())).rejects.toThrow('Free usage limit');
+  await expect(runScheduledTask({ ...job, agentId: 'b' }, dependencies())).rejects.toThrow('Free usage limit');
   expect(mocks.deliverWeb).toHaveBeenCalledTimes(2);
+});
+
+test('admin jobs deliver web output to their agent main chat and fail before running without one', async () => {
+  const job: SchedulerDispatchRequest = { ...request(), source: 'scheduler-job', taskId: undefined, jobId: 'daily', agentId: 'writer', sessionId: 'scheduler:daily' };
+  await runScheduledTask(job, dependencies());
+  expect(mocks.agentMainChat).toHaveBeenCalledWith('writer');
+  expect(mocks.run.mock.calls[0][8]).toBe(true);
+  expect(mocks.deliverWeb).toHaveBeenCalledWith('main:writer', 'Reminder', 'schedule-job:daily', [], { sessionId: 'session-a', id: 42 }, 'work-1');
+  await runScheduledTask({ ...job, actionKind: 'system_event' }, dependencies());
+  expect(mocks.deliverWeb).toHaveBeenLastCalledWith('main:writer', 'Reminder', 'schedule-job:daily:system');
+
+  mocks.run.mockClear();
+  mocks.agentMainChat.mockImplementation(() => { throw new Error('Agent "writer" has no main web chat to deliver to.'); });
+  await expect(runScheduledTask(job, dependencies())).rejects.toThrow('no main web chat');
+  expect(mocks.run).not.toHaveBeenCalled();
 });

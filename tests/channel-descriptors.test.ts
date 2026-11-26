@@ -24,11 +24,11 @@ const targets = [
   ['imessage', 'imessage:peer@example.com', true],
   ['imessage', 'imessage:peer@thread.v2', true],
   ['line', 'line:u' + 'a'.repeat(32), true],
-  ['msteams', '19:conversation@thread.tacv2', false],
-  ['msteams', 'teams:conversation', false],
-  ['msteams', 'a:personal-chat', false],
-  ['msteams', 'conversation@thread.v2', false],
-  ['msteams', 'conversation@thread.tacv2;messageid=175', false],
+  ['msteams', '19:conversation@thread.tacv2', true],
+  ['msteams', 'teams:conversation', true],
+  ['msteams', 'a:personal-chat', true],
+  ['msteams', 'conversation@thread.v2', true],
+  ['msteams', 'conversation@thread.tacv2;messageid=175', true],
   ['signal', 'signal:+14155551212', true],
   ['signal', 'signal:00000000-0000-4000-8000-000000000001', true],
   ['signal', 'signal:group:abcdefgh', true],
@@ -49,7 +49,10 @@ describe('channel descriptors', () => {
     expect(getChannelDescriptorForTarget(padded)?.kind).toBe(kind);
     expect(resolveChannelTargetKind(padded)).toBe(kind);
     expect(getChannelByContextId(padded)?.kind).toBe(kind);
-    expect(isSupportedProactiveChannelId(padded)).toBe(proactive);
+    // Teams receives schedule and queue output only; a route cannot name it.
+    expect(isSupportedProactiveChannelId(padded)).toBe(
+      proactive && kind !== 'msteams',
+    );
     expect(hasImmediateProactiveDeliveryPath({ channel_id: padded })).toBe(proactive);
     expect(shouldDropQueuedProactiveMessage({ channel_id: padded, source: 'delegate' })).toBe(!proactive);
   });

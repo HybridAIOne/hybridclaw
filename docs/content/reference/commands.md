@@ -576,6 +576,13 @@ one. Tasks of agents without a main chat, tasks of messaging channels, and
 tasks of the apps' hidden data chats (`feed-…`, `ideas-…`, whose replies are
 JSON for the app) reply in the chat that created them.
 
+Output sent to a bare `web` target that has no chat of its own (an admin
+scheduler job, heartbeat, or a recently used web channel) goes to the agent's
+main chat (the default agent's for heartbeat), right away rather than queued
+outside active hours. Without a main chat the delivery fails with an explicit
+error; it is never posted into another web chat. A2A sessions cannot be a scheduling target: `/schedule add`,
+triggers, the `cron` tool, and admin jobs reject them.
+
 `--alert <kind>` (before the schedule) rings the creating operator's phones
 when a run's reply lists items: a JSON array of objects with a `title`, read
 from its first `[` to its last `]`. The alert shows the assistant's name and

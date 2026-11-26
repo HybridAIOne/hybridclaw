@@ -626,6 +626,8 @@ async function importFreshGatewayMain(options?: {
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: options?.emailPassword ?? '',
+    HYBRIDAI_API_KEY: '',
+    HYBRIDAI_BASE_URL: '',
     MSTEAMS_APP_ID:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
@@ -770,6 +772,7 @@ async function importFreshGatewayMain(options?: {
     }),
     isSupportedProactiveChannelId: vi.fn(() => true),
     isLocalProactivePullChannelId: vi.fn((id: string) => id.trim() === 'tui'),
+    isWebProactiveTarget: vi.fn((id: string) => id.trim() === 'web'),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),

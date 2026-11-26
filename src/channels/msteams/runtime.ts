@@ -36,7 +36,13 @@ import {
   sendWebhookJson,
   WebhookHttpError,
 } from '../webhook-http.js';
-import { authorizeMSTeamsWebhook, createMSTeamsAdapter } from './adapter.js';
+import {
+  authorizeMSTeamsWebhook,
+  createMSTeamsAdapter,
+  createMSTeamsRelayAdapter,
+  isMSTeamsPathId,
+  isMSTeamsRelayServiceUrl,
+} from './adapter.js';
 import {
   buildTeamsAttachmentContext,
   buildTeamsUploadedFileAttachment,
@@ -54,6 +60,7 @@ import {
   parseCommand,
   resolveTeamsConversationKind,
 } from './inbound.js';
+import { resolveMSTeamsRelay } from './relay.js';
 import {
   type ResolveMSTeamsChannelPolicyResult,
   resolveMSTeamsChannelPolicy,
@@ -124,6 +131,7 @@ export interface MSTeamsReactionEvent {
 export type ReactionHandler = (event: MSTeamsReactionEvent) => Promise<void>;
 
 let adapter: CloudAdapter | null = null;
+let relayAdapter: CloudAdapter | null = null;
 let messageHandler: MessageHandler | null = null;
 let commandHandler: CommandHandler | null = null;
 let reactionHandler: ReactionHandler | null = null;
@@ -152,7 +160,7 @@ interface ActiveMSTeamsSession {
   turnContext: TurnContext;
 }
 
-interface StoredMSTeamsSession {
+export interface StoredMSTeamsSession {
   channelId: string;
   isDm: boolean;
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
@@ -205,7 +213,7 @@ function persistConversationReference(
   setMemoryValue(sessionId, MSTEAMS_CONVERSATION_REFERENCE_KEY, session);
 }
 
-function readStoredConversationReference(
+export function readStoredConversationReference(
   sessionId: string,
 ): StoredMSTeamsSession | null {
   const stored = getMemoryValue(sessionId, MSTEAMS_CONVERSATION_REFERENCE_KEY);
@@ -283,32 +291,32 @@ async function buildTeamsMessageAttachments(
   ];
 }
 
-async function sendViaConversationReference(
+// Sends into a stored conversation; `prepare` runs inside the proactive turn
+// because Teams builds attachments (file-consent cards) against that turn.
+export async function sendViaConversationReference(
   session: Pick<
     StoredMSTeamsSession,
     'isDm' | 'reference' | 'replyStyle' | 'replyToId'
   >,
-  params: {
-    text: string;
-    filePath?: string | null;
-    filename?: string | null;
-    mimeType?: string | null;
-  },
+  prepare: (
+    turnContext: TurnContext,
+  ) => Promise<{ text: string; attachments?: Attachment[] }>,
 ): Promise<number> {
   let attachmentCount = 0;
   const { bot, ...reference } = session.reference;
-  await ensureTeamsRuntimeReady().continueConversation(
-    MSTEAMS_APP_ID,
+  const relayed = isRelayedServiceUrl(reference.serviceUrl);
+  await (relayed
+    ? relayedAdapter()
+    : ensureTeamsRuntimeReady()
+  ).continueConversation(
+    relayed ? normalizeValue(bot?.id) || 'msteams-relay' : MSTEAMS_APP_ID,
     { ...reference, agent: bot },
     async (proactiveContext) => {
-      const attachments = await buildTeamsMessageAttachments(
-        proactiveContext,
-        params,
-      );
+      const { text, attachments } = await prepare(proactiveContext);
       attachmentCount = attachments?.length || 0;
       await sendChunkedReply({
         turnContext: proactiveContext,
-        text: params.text,
+        text,
         attachments,
         replyStyle:
           attachmentCount > 0 && session.isDm
@@ -419,6 +427,10 @@ export async function sendToActiveMSTeamsSession(params: {
 }): Promise<{ attachmentCount: number; channelId: string }> {
   const sessionId = normalizeValue(params.sessionId);
   const activeSession = ACTIVE_MSTEAMS_SESSIONS.get(sessionId);
+  const prepare = async (turnContext: TurnContext) => ({
+    text: params.text,
+    attachments: await buildTeamsMessageAttachments(turnContext, params),
+  });
   if (!activeSession) {
     const storedSession = readStoredConversationReference(sessionId);
     if (!storedSession) {
@@ -428,7 +440,7 @@ export async function sendToActiveMSTeamsSession(params: {
     }
     const attachmentCount = await sendViaConversationReference(
       storedSession,
-      params,
+      prepare,
     );
     return {
       attachmentCount,
@@ -454,7 +466,7 @@ export async function sendToActiveMSTeamsSession(params: {
         replyStyle: activeSession.replyStyle,
         replyToId: activeSession.replyToId || null,
       },
-      params,
+      prepare,
     );
     return {
       attachmentCount,
@@ -497,9 +509,13 @@ function buildAdapter(): CloudAdapter {
     return adapter;
   }
 
-  adapter = createMSTeamsAdapter(credentials);
+  adapter = withTurnFailureNotice(createMSTeamsAdapter(credentials));
   adapterCredentials = credentials;
-  adapter.onTurnError = async (turnContext, error) => {
+  return adapter;
+}
+
+function withTurnFailureNotice(target: CloudAdapter): CloudAdapter {
+  target.onTurnError = async (turnContext, error) => {
     logger.error({ error }, 'Teams turn failed');
     try {
       await turnContext.sendActivity(
@@ -512,7 +528,19 @@ function buildAdapter(): CloudAdapter {
       );
     }
   };
-  return adapter;
+  return target;
+}
+
+function isRelayedServiceUrl(serviceUrl: unknown): boolean {
+  const relay = resolveMSTeamsRelay();
+  return relay !== null && isMSTeamsRelayServiceUrl(relay, serviceUrl);
+}
+
+function relayedAdapter(): CloudAdapter {
+  relayAdapter ??= withTurnFailureNotice(
+    createMSTeamsRelayAdapter(resolveMSTeamsRelay),
+  );
+  return relayAdapter;
 }
 
 function ensureTeamsRuntimeReady(): CloudAdapter {
@@ -888,15 +916,83 @@ export async function handleMSTeamsWebhook(
     );
     return;
   }
-  await activeAdapter.process(request, response, async (turnContext) => {
-    if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) return;
-    if (await maybeHandleMSTeamsMessageReaction(turnContext)) return;
-    await handleIncomingMessage(turnContext);
-  });
+  await activeAdapter.process(request, response, handleTeamsTurn);
   if (res.statusCode === 400) {
     logger.warn(
       { statusCode: res.statusCode },
       'Rejected invalid Teams webhook activity',
     );
   }
+}
+
+async function handleTeamsTurn(turnContext: TurnContext): Promise<void> {
+  if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) return;
+  if (await maybeHandleMSTeamsMessageReaction(turnContext)) return;
+  await handleIncomingMessage(turnContext);
+}
+
+/**
+ * An activity the relay already verified. The gateway's own API authentication
+ * guards this route. The relay answered Teams itself, so the turn runs after
+ * the acknowledgement and its HTTP result is discarded.
+ */
+export async function handleMSTeamsRelayActivity(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!MSTEAMS_ENABLED) {
+    sendWebhookJson(res, 422, {
+      error: 'Microsoft Teams integration is disabled in config.',
+    });
+    return;
+  }
+  const request = req as ParsedWebhookRequest;
+  try {
+    request.body = await readWebhookBody(request);
+  } catch (error) {
+    if (error instanceof WebhookHttpError) {
+      sendWebhookJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    throw error;
+  }
+  if (!isRelayedServiceUrl(request.body?.serviceUrl)) {
+    sendWebhookJson(res, 400, {
+      error: 'Activity service URL is not the Teams relay.',
+    });
+    return;
+  }
+  // These ids become path segments on the relay, called with the relay credential.
+  const body = request.body ?? {};
+  const record = (value: unknown) => (isRecord(value) ? value : {});
+  const teamId = record(record(body.channelData).team).id;
+  const pathIds = [
+    body.id,
+    body.replyToId,
+    record(body.from).id,
+    record(body.recipient).id,
+    teamId,
+  ];
+  if (
+    !isMSTeamsPathId(record(body.conversation).id) ||
+    pathIds.some((id) => id !== undefined && !isMSTeamsPathId(id))
+  ) {
+    sendWebhookJson(res, 400, { error: 'Invalid Teams id in activity.' });
+    return;
+  }
+  const activeAdapter = relayedAdapter();
+  sendWebhookJson(res, 202, {});
+  const discarded: WebResponse = {
+    headersSent: false,
+    writableEnded: false,
+    setHeader: () => discarded,
+    status: () => discarded,
+    send: () => discarded,
+    end: () => discarded,
+  };
+  void activeAdapter
+    .process(request, discarded, handleTeamsTurn)
+    .catch((error) => {
+      logger.error({ error }, 'Relayed Teams activity failed');
+    });
 }

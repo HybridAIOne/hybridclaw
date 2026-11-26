@@ -129,6 +129,20 @@ export function mainChatForWebTask(
   return main && main.session_key !== origin.session_key ? main : null;
 }
 
+/**
+ * Where a bare `web` target goes when the run has no web chat of its own (an
+ * admin job, heartbeat, a queued notice): its agent's main chat. Throws rather
+ * than guess another web chat, which may belong to a different user or agent.
+ */
+export function agentMainChatForWebTarget(agentId: string): Session {
+  const main = getAgentMainSession(agentId);
+  if (!main)
+    throw new Error(
+      `Agent "${agentId}" has no main web chat to deliver to. Open the agent's chat in the HybridAI app, or schedule from the web chat that should receive the output.`,
+    );
+  return main;
+}
+
 function claimNotice(work: WorkRecord, agentId: string): boolean {
   if (!work.owner || work.agentId !== agentId) return false;
   const reference = work.evidence[0]?.reference.trim() ?? '';

@@ -3,10 +3,12 @@ import { describe, expect, test } from 'vitest';
 import {
   hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
+  isA2ADeliveryTarget,
   isDiscordChannelId,
   isEmailAddress,
   isLocalProactivePullChannelId,
   isSupportedProactiveChannelId,
+  isWebProactiveTarget,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -52,18 +54,45 @@ describe('proactive delivery helpers', () => {
       true,
     );
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
+    // Teams is delivered from validated schedules and the queue, but a route,
+    // escalation, or tool can never name it.
+    expect(isSupportedProactiveChannelId('19:conversation@thread.tacv2')).toBe(
+      false,
+    );
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: '19:conversation@thread.tacv2',
+      }),
+    ).toBe(true);
+    // `web` is dispatch-only: never named by a route and never flushed from the queue.
+    expect(isSupportedProactiveChannelId('web')).toBe(false);
+    expect(hasQueuedProactiveDeliveryPath({ channel_id: 'web' })).toBe(false);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
+    expect(isSupportedProactiveChannelId('a2a')).toBe(false);
+    expect(isSupportedProactiveChannelId('a2a:peer-1')).toBe(false);
     expect(isSupportedProactiveChannelId('smoke')).toBe(false);
+    expect(isWebProactiveTarget('  web  ')).toBe(true);
+    expect(isWebProactiveTarget('tui')).toBe(false);
+    expect(isA2ADeliveryTarget('a2a')).toBe(true);
+    expect(isA2ADeliveryTarget(' A2A:peer-1 ')).toBe(true);
+    expect(isA2ADeliveryTarget('web')).toBe(false);
   });
 
   test('distinguishes local pull queues from immediate delivery paths', () => {
     expect(isLocalProactivePullChannelId('tui')).toBe(true);
     expect(isLocalProactivePullChannelId('  tui  ')).toBe(true);
+    expect(isLocalProactivePullChannelId('web')).toBe(false);
     expect(isLocalProactivePullChannelId('123456789012345678')).toBe(false);
 
     expect(
       hasImmediateProactiveDeliveryPath({
         channel_id: 'tui',
+      }),
+    ).toBe(false);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: 'web',
       }),
     ).toBe(false);
 

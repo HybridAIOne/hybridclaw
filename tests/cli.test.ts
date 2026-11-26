@@ -3142,6 +3142,7 @@ describe('CLI hybridai commands', () => {
     expect(installPlugin).toHaveBeenCalledWith(
       getChannelPluginCatalogEntry('whatsapp')?.installSource,
       {
+        approveNpmInstall: true,
         approveDependencyInstall: true,
         onDependenciesAlreadySatisfied: expect.any(Function),
       },
@@ -3181,6 +3182,7 @@ describe('CLI hybridai commands', () => {
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
       {
+        approveNpmInstall: true,
         approveDependencyInstall: true,
         onDependenciesAlreadySatisfied: expect.any(Function),
       },
@@ -3364,6 +3366,7 @@ describe('CLI hybridai commands', () => {
     ]);
 
     expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin', {
+      approveNpmInstall: true,
       approveDependencyInstall: true,
       onDependenciesAlreadySatisfied: expect.any(Function),
     });

@@ -48,6 +48,7 @@ import type {
   GatewayAdminSchedulerJob,
   GatewayAdminSchedulerResponse,
 } from './gateway-types.js';
+import { isA2ADeliveryTarget } from './proactive-delivery.js';
 
 function isRunOnceScheduleKind(
   kind: RuntimeSchedulerJob['schedule']['kind'],
@@ -168,6 +169,11 @@ function parseAdminSchedulerJob(value: unknown): RuntimeSchedulerJob {
   const webhookUrl = String(rawDelivery.webhookUrl || '').trim();
   if (deliveryKind === 'channel' && !deliveryTo) {
     throw new Error('`delivery.to` is required for channel deliveries.');
+  }
+  if (deliveryKind === 'channel' && isA2ADeliveryTarget(deliveryTo)) {
+    throw new Error(
+      'A2A targets do not support proactive scheduled delivery. Choose a supported delivery channel.',
+    );
   }
   if (deliveryKind === 'webhook' && !webhookUrl) {
     throw new Error(

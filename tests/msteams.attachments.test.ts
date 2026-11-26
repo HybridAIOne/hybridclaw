@@ -20,6 +20,8 @@ async function importAttachmentsModule(
   const baseConfig = {
     CONTAINER_SANDBOX_MODE: 'host',
     DATA_DIR: dataDir,
+    HYBRIDAI_API_KEY: '',
+    HYBRIDAI_BASE_URL: '',
     MSTEAMS_APP_ID: 'teams-app-id',
     MSTEAMS_APP_PASSWORD: 'teams-secret',
     MSTEAMS_MEDIA_ALLOW_HOSTS: [
@@ -1607,4 +1609,71 @@ test('channel image upload sends base64 through the real authenticated SDK clien
   });
   expect(String(fetchMock.mock.calls[0][0])).toBe('https://smba.trafficmanager.net/example/v3/conversations/conversation%2Fwith%3Fquery/attachments');
   expect(attachment.contentUrl).toContain('example-attachment');
+});
+
+test('the relay credential goes only to attachment links of an activity that came through the relay', async () => {
+  // The usual cloud gateway: its own bot credentials and a HybridAI key.
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    HYBRIDAI_API_KEY: 'platform-key',
+    HYBRIDAI_BASE_URL: 'https://platform.example',
+  });
+  const requests: Array<{ url: string; authorization: string }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({
+        url,
+        authorization:
+          (init?.headers as Record<string, string> | undefined)
+            ?.Authorization ?? '',
+      });
+      return new Response(Buffer.from([24, 25, 26]), {
+        status: 200,
+        headers: { 'content-length': '3', 'content-type': 'image/png' },
+      });
+    }),
+  );
+  const relay = 'https://platform.example/api/hybridclaw/msteams/app-1/';
+  const relayed = `${relay}v3/conversations/a:1chat/attachments/att-1/views/original`;
+  const image = (contentUrl: string) => ({
+    contentType: 'image/png',
+    contentUrl,
+    name: 'pasted.png',
+  });
+
+  // Straight from Microsoft, a link to the platform is just a link: skipped
+  // like any host that is not a Teams media host, and never given the key.
+  const direct = await buildTeamsAttachmentContext({
+    activity: {
+      serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+      attachments: [
+        image(relayed),
+        image('https://platform.example/v1/models'),
+        {
+          contentType: 'text/html',
+          content: `<img src="${relayed}">`,
+        },
+      ],
+    },
+  });
+  expect(direct).toEqual([]);
+  expect(requests).toEqual([]);
+
+  // Through the relay, its own links are fetched with the key; any other
+  // platform address is still just a link.
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      serviceUrl: relay,
+      attachments: [
+        image(relayed),
+        image('https://platform.example/v1/models'),
+        image(`${relay}v3/../../../../v1/models`),
+      ],
+    },
+  });
+  trackTempDirFromMediaPath(media[0]?.path);
+  expect(media).toHaveLength(1);
+  expect(requests).toEqual([
+    { url: relayed, authorization: 'Bearer platform-key' },
+  ]);
 });

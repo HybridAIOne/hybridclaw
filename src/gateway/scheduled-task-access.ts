@@ -5,12 +5,15 @@
  * cannot list or change another peer's schedules or read another peer's
  * audit trail. Cron task access follows the
  * session the task was created in; a task's results are also readable from
- * the agent's main chat its web replies are delivered to.
+ * the agent's main chat its web replies are delivered to. A turn may aim a
+ * task or trigger at another chat's channel, except a Teams conversation.
  *
  * NOT the admin scheduler or admin audit, which deliberately operate across
  * all sessions for the local operator.
  */
 
+import { getChannelDescriptorForTarget } from '../channels/channel-descriptors.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { getSessionById } from '../memory/db.js';
 import { getAllJobs } from '../memory/jobs.js';
 import { resolveSessionIdCompat } from '../memory/sessions.js';
@@ -58,6 +61,24 @@ export function canReadScheduledTaskResults(
   if (isCreatingChat(task, requester)) return true;
   const mainChat = mainChatForWebTask(task.session_id);
   return mainChat !== null && mainChat.session_key === requester.session_key;
+}
+
+/**
+ * Like the message tool, a turn reaches only its own Teams conversation
+ * (#1462); admin scheduler jobs may target any conversation the bot knows.
+ */
+export function assertOwnTeamsTarget(
+  channelId: string,
+  requester: Session,
+): void {
+  if (
+    getChannelDescriptorForTarget(channelId)?.kind === 'msteams' &&
+    channelId !== requester.channel_id
+  )
+    throw new GatewayRequestError(
+      403,
+      'A task may only deliver to the Teams conversation it was created in.',
+    );
 }
 
 export function canManageScheduledTask(

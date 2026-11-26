@@ -158,7 +158,16 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
   function handleSourceInstall(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const source = installSource.trim();
-    if (source) sourceInstallMutation.mutate(source);
+    if (!source) return;
+    if (
+      /^(?:npm:|@|https?:\/\/|git\+|git:\/\/|file:)/i.test(source) &&
+      !window.confirm(
+        `Download and install "${source}"? Plugins run in-process in the gateway.`,
+      )
+    ) {
+      return;
+    }
+    sourceInstallMutation.mutate(source);
   }
 
   const isInstalling =
@@ -263,9 +272,9 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
         <CardHeader>
           <CardTitle>Install from a source</CardTitle>
           <CardDescription>
-            Install any compatible plugin by ID, npm package, local path, or
-            archive URL. The gateway installs declared dependencies and reloads
-            the runtime.
+            Install any compatible plugin by bundled ID, npm:package, scoped
+            package, local path, or archive URL. The gateway installs declared
+            dependencies and reloads the runtime.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -273,7 +282,7 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
             <Input
               value={installSource}
               onChange={(event) => setInstallSource(event.target.value)}
-              placeholder="Plugin ID, package, path, or archive URL"
+              placeholder="Plugin ID, npm:package, path, or archive URL"
               aria-label="Plugin source"
               autoComplete="off"
               spellCheck={false}

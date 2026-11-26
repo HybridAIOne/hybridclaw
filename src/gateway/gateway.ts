@@ -118,6 +118,7 @@ import {
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   hasQueuedProactiveDeliveryPath,
+  isWebProactiveTarget,
   resolveHeartbeatDeliveryChannelId,
 } from './proactive-delivery.js';
 import { deliverProactiveMessage } from './proactive-dispatch.js';
@@ -237,7 +238,8 @@ function logGatewayStartup(params: {
 function resolveLastUsedDeliverableChannelId(): string | null {
   const channelId = getMostRecentSessionChannelId();
   if (!channelId) return null;
-  return hasQueuedProactiveDeliveryPath({ channel_id: channelId })
+  return isWebProactiveTarget(channelId) ||
+    hasQueuedProactiveDeliveryPath({ channel_id: channelId })
     ? channelId
     : null;
 }

@@ -69,7 +69,6 @@ import {
 } from '../agents/agent-install-source.js';
 import { BOOTSTRAP_AUTOSTART_MARKER_PREFIX } from '../agents/agent-onboarding.js';
 import {
-  deleteRegisteredAgent,
   findAgentConfig,
   getAgentById,
   getRegisteredAgentTeamStructureRevision,
@@ -80,7 +79,6 @@ import {
   resolveAgentForRequest,
   resolveAgentModel,
   restoreRegisteredAgentTeamStructureRevision,
-  setRegisteredAgentArchived,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -124,6 +122,7 @@ import {
   normalizeDiscordWebhookTargetName,
   normalizeDiscordWebhookUrl,
 } from '../channels/discord-webhook/target.js';
+import { resolveMSTeamsMode } from '../channels/msteams/relay.js';
 import { getPluginChannelGatewayStatuses } from '../channels/plugin-channel/status.js';
 import {
   getSignalCliAvailability,
@@ -464,10 +463,7 @@ import {
   recordWorkerAuxiliaryUsage,
 } from '../usage/worker-model-usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
-import {
-  dedupeStrings,
-  normalizeOptionalTrimmedUniqueStringArray,
-} from '../utils/normalized-strings.js';
+import { dedupeStrings } from '../utils/normalized-strings.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
@@ -481,6 +477,13 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import { readWorkspaceTemplate } from '../workspace-templates.js';
+import {
+  createAdminAgentRecord,
+  deleteAdminAgentRecord,
+  type GatewayAdminAgentCreateParams,
+  type GatewayAdminAgentUpdateParams,
+  updateAdminAgentRecord,
+} from './admin-agents.js';
 import {
   getActiveThreadAgentId,
   resolveAgentAddressing,
@@ -3361,6 +3364,9 @@ function buildMSTeamsAuthStatusLines(): string[] {
   const tenantId = MSTEAMS_TENANT_ID;
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
+    ...(resolveMSTeamsMode() === 'relay'
+      ? ['Mode: relayed through HybridAI, which holds the bot credentials']
+      : []),
     ...(credential.source ? [`Source: ${credential.source}`] : []),
     ...(credential.value ? ['App password: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
@@ -4738,143 +4744,20 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   });
 }
 
-type GatewayAdminAgentOrgChartParams = {
-  role?: string | null;
-  reportsTo?: string | null;
-  delegatesTo?: string[] | null;
-  peers?: string[] | null;
-};
-
-function buildGatewayAdminAgentOrgChartPatch(
-  params: GatewayAdminAgentOrgChartParams,
-): Partial<Pick<AgentConfig, 'role' | 'reportsTo' | 'delegatesTo' | 'peers'>> {
+export function createGatewayAdminAgent(
+  params: GatewayAdminAgentCreateParams,
+): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   return {
-    ...(params.role !== undefined
-      ? { role: params.role?.trim() || undefined }
-      : {}),
-    ...(params.reportsTo !== undefined
-      ? { reportsTo: params.reportsTo?.trim() || undefined }
-      : {}),
-    ...(params.delegatesTo !== undefined
-      ? {
-          delegatesTo:
-            params.delegatesTo == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
-        }
-      : {}),
-    ...(params.peers !== undefined
-      ? {
-          peers:
-            params.peers == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
-        }
-      : {}),
-  };
-}
-
-export function createGatewayAdminAgent(params: {
-  id: string;
-  extends?: string | null;
-  name?: string | null;
-  model?: string | null;
-  skills?: string[] | null;
-  tools?: string[] | null;
-  chatbotId?: string | null;
-  enableRag?: boolean | null;
-  proxy?: AgentConfig['proxy'] | null;
-  role?: string | null;
-  reportsTo?: string | null;
-  delegatesTo?: string[] | null;
-  peers?: string[] | null;
-  workspace?: string | null;
-}): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
-  const saved = upsertRegisteredAgent({
-    id: params.id,
-    ...(params.extends?.trim() ? { extends: params.extends.trim() } : {}),
-    ...(params.name?.trim() ? { name: params.name.trim() } : {}),
-    ...(params.model?.trim() ? { model: params.model.trim() } : {}),
-    ...(params.skills !== undefined
-      ? { skills: params.skills == null ? undefined : [...params.skills] }
-      : {}),
-    ...(params.tools !== undefined
-      ? { tools: params.tools == null ? undefined : [...params.tools] }
-      : {}),
-    ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
-    ...(typeof params.enableRag === 'boolean'
-      ? { enableRag: params.enableRag }
-      : {}),
-    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
-    ...buildGatewayAdminAgentOrgChartPatch(params),
-    ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
-  });
-  return {
-    agent: mapGatewayAdminAgent(saved),
+    agent: mapGatewayAdminAgent(createAdminAgentRecord(params)),
   };
 }
 
 export function updateGatewayAdminAgent(
   agentId: string,
-  params: {
-    extends?: string | null;
-    name?: string | null;
-    model?: string | null;
-    skills?: string[] | null;
-    tools?: string[] | null;
-    chatbotId?: string | null;
-    enableRag?: boolean | null;
-    proxy?: AgentConfig['proxy'] | null;
-    role?: string | null;
-    reportsTo?: string | null;
-    delegatesTo?: string[] | null;
-    peers?: string[] | null;
-    workspace?: string | null;
-    archived?: boolean | null;
-  },
+  params: GatewayAdminAgentUpdateParams,
 ): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
-  const existing = getAgentById(agentId);
-  if (!existing) {
-    throw new Error(`Agent "${agentId}" was not found.`);
-  }
-  if (params.archived === true && agentId === DEFAULT_AGENT_ID) {
-    throw new Error('The main agent cannot be archived.');
-  }
-  const saved = upsertRegisteredAgent({
-    ...existing,
-    ...(params.extends !== undefined
-      ? { extends: params.extends?.trim() || undefined }
-      : {}),
-    ...(params.name !== undefined
-      ? { name: params.name?.trim() || undefined }
-      : {}),
-    ...(params.model !== undefined
-      ? { model: params.model?.trim() || undefined }
-      : {}),
-    ...(params.skills !== undefined
-      ? { skills: params.skills == null ? undefined : [...params.skills] }
-      : {}),
-    ...(params.tools !== undefined
-      ? { tools: params.tools == null ? undefined : [...params.tools] }
-      : {}),
-    ...(params.chatbotId !== undefined
-      ? { chatbotId: params.chatbotId?.trim() || undefined }
-      : {}),
-    ...(params.workspace !== undefined
-      ? { workspace: params.workspace?.trim() || undefined }
-      : {}),
-    ...(typeof params.enableRag === 'boolean'
-      ? { enableRag: params.enableRag }
-      : {}),
-    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
-    ...buildGatewayAdminAgentOrgChartPatch(params),
-  });
-  const finalAgent =
-    typeof params.archived === 'boolean'
-      ? setRegisteredAgentArchived(agentId, params.archived)
-      : saved;
   return {
-    agent: mapGatewayAdminAgent(finalAgent),
+    agent: mapGatewayAdminAgent(updateAdminAgentRecord(agentId, params)),
   };
 }
 
@@ -4882,17 +4765,7 @@ export function deleteGatewayAdminAgent(agentId: string): {
   deleted: boolean;
   agentId: string;
 } {
-  const normalizedAgentId = agentId.trim();
-  if (!normalizedAgentId) {
-    throw new Error('Agent id is required.');
-  }
-  if (normalizedAgentId === DEFAULT_AGENT_ID) {
-    throw new Error('The main agent cannot be deleted.');
-  }
-  return {
-    deleted: deleteRegisteredAgent(normalizedAgentId),
-    agentId: normalizedAgentId,
-  };
+  return deleteAdminAgentRecord(agentId);
 }
 
 export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {

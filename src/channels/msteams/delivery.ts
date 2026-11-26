@@ -44,6 +44,9 @@ export function buildResponseText(
   return body;
 }
 
+export const MSTEAMS_ARTIFACT_DELIVERY_NOTICE =
+  'The artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.';
+
 export function stripUnusableMSTeamsArtifactLinks(text: string): string {
   return text.replace(
     /\[([^\]\n]+)\]\(([^)\n]+)\)/g,

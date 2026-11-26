@@ -277,6 +277,32 @@ JSON, CSV, Markdown, plain text, and XML retain their media type. Downloads are
 streamed into the managed cache with a default per-file limit of 100 MB,
 controlled by `msteams.mediaMaxMb` under **Advanced delivery settings**.
 
+## Proactive and scheduled messages
+
+Scheduled tasks, heartbeat output, and other proactive notices can be delivered
+to Teams direct messages, group chats, and team channels.
+
+- **The bot must have heard from the conversation first.** HybridClaw stores
+  the Bot Framework conversation reference when the bot receives an allowed
+  message or command in a Teams conversation, and proactive delivery only
+  reuses a stored reference. It cannot start a conversation the bot has never
+  received a message in. A target without a stored reference fails with an
+  explicit error, as does a reference Teams has since rejected; send the bot a
+  message in that conversation to store a fresh one.
+- **Team channels:** a target that names a team channel (without
+  `;messageid=`) posts a new top-level message, reusing the reference stored
+  from any thread in that channel.
+- **Agent-created tasks stay in their conversation.** A task or trigger the
+  agent creates with the `cron` or `trigger` tool can only deliver to the Teams
+  conversation it was created in, and the agent's `message` tool only sends to
+  the current Teams conversation. Escalation and browser-interaction notices
+  cannot name a Teams conversation. Admin scheduler jobs and the heartbeat
+  channel can target any conversation with a stored reference.
+- **Attachments** follow Teams bot file limits: personal chats use
+  file-consent cards (with `"supportsFiles": true` in the Teams app manifest);
+  team channels and group chats cannot receive bot file uploads, so the message
+  is sent with a note instead.
+
 ## Memory footer
 
 Every Teams answer ends with a short memory-transparency footer such as
@@ -408,6 +434,35 @@ in the message.
 If authentication fails, confirm that `MSTEAMS_APP_PASSWORD` contains the
 client secret **Value**, that the secret has not expired, and that all four
 resources use the same Application (client) ID.
+
+## Teams through a relay that owns the bot
+
+A gateway signed in to HybridAI (`HYBRIDAI_API_KEY`) can serve Teams without
+any bot credentials of its own. The platform owns the bot registration,
+verifies each request from Teams, and delivers the activity to
+`POST /api/msteams/relay`, a route behind the gateway's normal API
+authentication. The gateway acknowledges at once and runs the turn afterwards.
+
+The activity's `serviceUrl` is the relay, so every reply, edit, typing
+indicator and later proactive message goes back through it, carrying the
+gateway's HybridAI key. The relay adds the bot credentials. An activity whose
+`serviceUrl` is not under `hybridai.baseUrl` is refused, so the key never
+leaves the platform.
+
+The route takes the gateway's API token or a full API token; a console session
+cannot call it. Only an address on the relay's own path of the platform
+(`<hybridai.baseUrl>/api/hybridclaw/msteams/…`) counts as the relay.
+
+To use it, set `msteams.enabled` and leave `msteams.appId`,
+`msteams.tenantId` and `MSTEAMS_APP_PASSWORD` unset. With no tenant set the
+gateway checks no tenant itself: the relay did that before it delivered. `hybridclaw doctor`
+then reports `Teams relayed through HybridAI`. `dmPolicy` and the allowlists
+still apply on the gateway.
+
+Images that Teams serves only to the bot arrive as links below the relay and
+are downloaded there with the same key. An image uploaded for a group chat or
+channel is linked below the relay as well; the relay hands Microsoft its own
+address.
 
 ## CLI alternative
 

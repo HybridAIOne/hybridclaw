@@ -841,6 +841,18 @@ test('send action queues local targets like tui', async () => {
   });
 });
 
+test.each([
+  'teams:conversation',
+  'web',
+])('send action never queues %s around channel send rules', async (channelId) => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({ action: 'send', channelId, content: 'hi' }),
+  ).rejects.toThrow();
+  expect(state.enqueueProactiveMessage).not.toHaveBeenCalled();
+});
+
 test('send action rejects unknown targets instead of defaulting to Discord', async () => {
   const state = await importFreshMessageToolActions();
 

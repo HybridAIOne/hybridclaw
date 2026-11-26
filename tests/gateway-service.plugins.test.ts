@@ -1209,7 +1209,7 @@ test('handleGatewayCommand installs a registered on-demand plugin when enabling 
 
   expect(installPluginMock).toHaveBeenCalledWith(
     getChannelPluginCatalogEntry('whatsapp')?.installSource,
-    { approveDependencyInstall: false },
+    { approveNpmInstall: true, approveDependencyInstall: false },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
   expect(reloadPluginManagerMock).toHaveBeenCalled();
@@ -1298,7 +1298,7 @@ test('handleTextChannelApprovalCommand approves install-on-demand plugin enable 
   expect(installPluginMock).toHaveBeenNthCalledWith(
     3,
     getChannelPluginCatalogEntry('whatsapp')?.installSource,
-    { approveDependencyInstall: true },
+    { approveNpmInstall: true, approveDependencyInstall: true },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
   expect(reloadPluginManagerMock).toHaveBeenCalled();
@@ -1350,6 +1350,7 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   });
 
   expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveNpmInstall: true,
     approveDependencyInstall: true,
     onDependenciesAlreadySatisfied: expect.any(Function),
   });
@@ -1830,6 +1831,7 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
   });
 
   expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveNpmInstall: true,
     approveDependencyInstall: true,
     onDependenciesAlreadySatisfied: expect.any(Function),
   });

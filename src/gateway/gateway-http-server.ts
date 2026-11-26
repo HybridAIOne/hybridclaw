@@ -5251,19 +5251,19 @@ type ApiAdminAgentPayloadBody = {
 type ApiAdminAgentPayload = {
   id?: string;
   extends?: string | null;
-  name?: string;
-  model?: string;
+  name?: string | null;
+  model?: string | null;
   skills?: string[] | null;
   tools?: string[] | null;
-  chatbotId?: string;
-  enableRag?: boolean;
+  chatbotId?: string | null;
+  enableRag?: boolean | null;
   archived?: boolean;
   proxy?: AgentProxyConfig | null;
-  role?: string;
+  role?: string | null;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
   peers?: string[] | null;
-  workspace?: string;
+  workspace?: string | null;
 };
 
 type ApiAdminAgentsRouteMatch =
@@ -5374,20 +5374,6 @@ function requireAdminAgentIdPathValue(agentId: string): string {
   return normalizedAgentId;
 }
 
-function normalizeApiAdminAgentSkills(
-  skills: unknown,
-): string[] | null | undefined {
-  if (skills === undefined) return undefined;
-  if (skills === null) return null;
-  if (!Array.isArray(skills)) {
-    throw new GatewayRequestError(
-      400,
-      'Expected `skills` to be an array or null.',
-    );
-  }
-  return normalizeTrimmedUniqueStringArray(skills);
-}
-
 function normalizeApiAdminAgentStringArray(
   fieldName: string,
   value: unknown,
@@ -5403,14 +5389,21 @@ function normalizeApiAdminAgentStringArray(
   return normalizeTrimmedUniqueStringArray(value);
 }
 
+function normalizeApiAdminNullableString(
+  value: unknown,
+): string | null | undefined {
+  if (typeof value === 'string') return value;
+  return value === null ? null : undefined;
+}
+
 function normalizeApiAdminNullableStringAlias(
   value: object,
   camelKey: string,
   snakeKey: string,
 ): string | null | undefined {
-  const input = resolveSnakeCamelAlias(value, camelKey, snakeKey);
-  if (typeof input === 'string') return input;
-  return input === null ? null : undefined;
+  return normalizeApiAdminNullableString(
+    resolveSnakeCamelAlias(value, camelKey, snakeKey),
+  );
 }
 
 function normalizeApiAdminAgentProxy(
@@ -5433,21 +5426,21 @@ async function readApiAdminAgentPayload(
   );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
-    extends:
-      typeof body.extends === 'string'
-        ? body.extends
-        : body.extends === null
+    extends: normalizeApiAdminNullableString(body.extends),
+    name: normalizeApiAdminNullableString(body.name),
+    model: normalizeApiAdminNullableString(body.model),
+    skills: normalizeApiAdminAgentStringArray('skills', body.skills),
+    tools: normalizeApiAdminAgentStringArray('tools', body.tools),
+    chatbotId: normalizeApiAdminNullableString(body.chatbotId),
+    enableRag:
+      typeof body.enableRag === 'boolean'
+        ? body.enableRag
+        : body.enableRag === null
           ? null
           : undefined,
-    name: typeof body.name === 'string' ? body.name : undefined,
-    model: typeof body.model === 'string' ? body.model : undefined,
-    skills: normalizeApiAdminAgentSkills(body.skills),
-    tools: normalizeApiAdminAgentStringArray('tools', body.tools),
-    chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
-    enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     archived: typeof body.archived === 'boolean' ? body.archived : undefined,
     proxy: normalizeApiAdminAgentProxy(body.proxy),
-    role: typeof body.role === 'string' ? body.role : undefined,
+    role: normalizeApiAdminNullableString(body.role),
     reportsTo: normalizeApiAdminNullableStringAlias(
       body,
       'reportsTo',
@@ -5458,7 +5451,7 @@ async function readApiAdminAgentPayload(
       delegatesToInput,
     ),
     peers: normalizeApiAdminAgentStringArray('peers', body.peers),
-    workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
+    workspace: normalizeApiAdminNullableString(body.workspace),
   };
   if (options?.requireId && !payload.id) {
     throw new GatewayRequestError(
@@ -11419,6 +11412,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
           if (pathname === '/api/admin/config/reload' && method === 'POST') {
             handleApiConfigReload(res);
+            return;
+          }
+          if (pathname === '/api/msteams/relay' && method === 'POST') {
+            // A relay is a machine. A console session, whatever its role,
+            // does not speak for Teams.
+            if (
+              authContext.kind !== 'master' &&
+              authContext.kind !== 'apiToken'
+            ) {
+              sendJson(res, 403, { error: 'Forbidden.' });
+              return;
+            }
+            const { handleMSTeamsRelayActivity } = await import(
+              '../channels/msteams/runtime.js'
+            );
+            await handleMSTeamsRelayActivity(req, res);
             return;
           }
           if (

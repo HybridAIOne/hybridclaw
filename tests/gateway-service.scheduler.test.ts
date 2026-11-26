@@ -153,6 +153,17 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
   );
 
+  expect(() =>
+    upsertGatewayAdminSchedulerJob({
+      job: {
+        id: 'a2a-target',
+        schedule: { kind: 'every', everyMs: 60_000, at: null, expr: null },
+        action: { kind: 'agent_turn', message: 'Ping' },
+        delivery: { kind: 'channel', channel: 'a2a', to: 'a2a:peer-1' },
+      },
+    }),
+  ).toThrow('A2A targets do not support proactive scheduled delivery.');
+
   upsertGatewayAdminSchedulerJob({
     job: {
       id: 'board-status-job',
