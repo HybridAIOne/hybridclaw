@@ -2,7 +2,8 @@
  * Tool implementations execute only after the agent loop's permission checks.
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
  * Run limits reserve attempts before dispatch; pixel analysis also requires the
- * gateway's visual-data permission. This never grants action approval.
+ * gateway's visual-data permission. Recognized bytes determine image MIME;
+ * this never grants action approval.
  */
 
 import fs from 'node:fs';
@@ -15,6 +16,7 @@ import {
 import { describeBashStatePersistence } from '@hybridclaw/shared/bash-state';
 import type { BoostAnswer } from '@hybridclaw/shared/boost-offer';
 import { throwIfExecutionDeadlineExceeded } from '@hybridclaw/shared/execution-deadline';
+import { sniffImageMimeType } from '@hybridclaw/shared/image-mime';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
@@ -1897,10 +1899,9 @@ async function readVisionImageFromLocalPath(
       : null;
     return normalizedEntryPath === normalizedPath;
   });
-  const mimeType = inferImageMimeTypeFromPath(
-    normalizedPath,
-    mediaHint?.mimeType,
-  );
+  const mimeType =
+    sniffImageMimeType(buffer) ??
+    inferImageMimeTypeFromPath(normalizedPath, mediaHint?.mimeType);
   if (!mimeType.startsWith('image/')) {
     throw new Error(`unsupported local image type: ${mimeType}`);
   }
@@ -1953,7 +1954,7 @@ async function readVisionImageFromUrl(
     }
     return {
       buffer,
-      mimeType,
+      mimeType: sniffImageMimeType(buffer) ?? mimeType,
       source: rawUrl,
     };
   } finally {
