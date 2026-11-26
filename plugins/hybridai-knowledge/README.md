@@ -37,6 +37,14 @@ plugin runs the `llm-wiki` lint workflow once a day on a session of its own:
 duplicates merged, orphans linked, pages refreshed from newer sources, missing
 `sources/` pages written, at most twelve writes per run.
 
+Agents can report knowledge that is missing, wrong, or stale with the
+platform's `hybridai__knowledge_flag` tool, which arrives over the HybridAI
+connection like the other knowledge tools; this plugin adds no tool of its own.
+A flag only records the gap (readers of a collection may flag it, and repeats
+of an open flag are counted, not duplicated); fixing it is left to a curator.
+`hybridai__knowledge_flags` lists open flags for those who can write the
+collection, or for the company's admins.
+
 Needs the `HYBRIDAI_API_KEY` credential, the same key the HybridAI provider
 uses; the gateway URL follows `hybridai.baseUrl`.
 
