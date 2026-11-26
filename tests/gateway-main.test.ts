@@ -624,6 +624,8 @@ async function importFreshGatewayMain(options?: {
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: options?.emailPassword ?? '',
+    HYBRIDAI_API_KEY: '',
+    HYBRIDAI_BASE_URL: '',
     MSTEAMS_APP_ID:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
