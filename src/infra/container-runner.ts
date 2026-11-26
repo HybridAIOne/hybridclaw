@@ -270,7 +270,6 @@ export const containerRunner = createWorkerRunner({
     'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
   spawn: spawnContainer,
   stop: (entry) => stopContainer(entry.name || ''),
-  guardsStdinErrors: false,
   memoryKey: (entry) => entry.name || null,
   readMemoryBytes: async (containerNames) => {
     const memoryByContainer = await readContainerMemoryBytes(containerNames);

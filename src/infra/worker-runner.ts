@@ -113,8 +113,6 @@ export interface WorkerStrategy {
   spawn(request: WorkerSpawnRequest): { process: ChildProcess; name?: string };
   /** Ends the worker; called once, after its lifecycle accepted the stop. */
   stop(entry: WorkerEntry): void;
-  /** Handle stdin write failures after the worker died as an interrupt. */
-  guardsStdinErrors: boolean;
   memoryKey(entry: WorkerEntry): string | null;
   readMemoryBytes(keys: string[]): Promise<number>;
   logFields(entry: WorkerEntry): Record<string, unknown>;
@@ -564,10 +562,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
             `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
           );
         } catch (err) {
-          if (
-            strategy.guardsStdinErrors &&
-            isStdinWriteInterrupt(err, entry.process, abortSignal)
-          ) {
+          if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
             logger.info(
               { sessionId, error: err },
               `${Worker} input write interrupted by process shutdown`,

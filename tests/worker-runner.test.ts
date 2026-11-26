@@ -103,7 +103,6 @@ async function loadRunner(params: {
       return { process: child as never, name: `worker-${children.length}` };
     }),
     stop: vi.fn(),
-    guardsStdinErrors: false,
     memoryKey: (entry) => entry.name ?? null,
     readMemoryBytes: async () => 0,
     logFields: (entry) => ({ workerName: entry.name }),
@@ -271,16 +270,9 @@ describe('createWorkerRunner strategy seam', () => {
     expect(strategy.stop).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    { guardsStdinErrors: true, error: 'Interrupted by user.' },
-    { guardsStdinErrors: false, error: expect.stringContaining('write EPIPE') },
-  ])('handles a stdin write to a dead worker per strategy (guards $guardsStdinErrors)', async ({
-    guardsStdinErrors,
-    error,
-  }) => {
+  it('treats a stdin write to a dead worker as an interrupt', async () => {
     const { runner, strategy, readOutput } = await loadRunner({
       strategy: {
-        guardsStdinErrors,
         spawn: () => {
           const child = makeFakeChildProcess();
           child.stdin.write.mockImplementation(() => {
@@ -294,10 +286,10 @@ describe('createWorkerRunner strategy seam', () => {
 
     await expect(runner.exec(request('session-a'))).resolves.toMatchObject({
       status: 'error',
-      error,
+      error: 'Interrupted by user.',
     });
     expect(readOutput).not.toHaveBeenCalled();
-    expect(strategy.stop).toHaveBeenCalledTimes(guardsStdinErrors ? 0 : 1);
+    expect(strategy.stop).not.toHaveBeenCalled();
   });
 
   it('routes a turn through the strategy relay and always stops it', async () => {

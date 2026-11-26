@@ -683,7 +683,59 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
   });
 });
 
-describe.each(RUNNER_MODES.filter((mode) => mode.mode === 'host'))('$mode runner stdin guard', (mode) => {
+describe.each(RUNNER_MODES)('$mode runner stdin guard', (mode) => {
+  test('an EPIPE on stdin after the worker died is not an unhandled error', async () => {
+    const escaped: unknown[] = [];
+    const run = await startRunner(mode, {
+      makeWorker: () => {
+        const proc = makeFakeWorker();
+        proc.stdin.write.mockImplementation(() => {
+          proc.exitCode = 1;
+          proc.emit('close', 1, null);
+          // A destroyed stream reports the failed write asynchronously.
+          setImmediate(() => {
+            try {
+              proc.stdin.emit(
+                'error',
+                Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }),
+              );
+            } catch (err) {
+              escaped.push(err);
+            }
+          });
+          return true;
+        });
+        return proc;
+      },
+      readOutput: async (
+        _sessionId: string,
+        _requestId: string,
+        _timeoutMs: number,
+        opts?: ReadOutputOptions,
+      ) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return {
+          status: 'error' as const,
+          result: null,
+          toolsUsed: [],
+          error: opts?.terminalError?.() || 'missing terminal error',
+        };
+      },
+    });
+
+    const output = await run.runner.exec({
+      ...baseRequest,
+      sessionId: 'session-stdin-epipe',
+    });
+
+    expect(escaped).toEqual([]);
+    expect(output).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(`${mode.runtimeLabel} exited`),
+    });
+    expect(run.runner.getActiveSessionCount()).toBe(0);
+  });
+
   test('treats an interrupted stdin EPIPE as a user interrupt', async () => {
     const controller = new AbortController();
     const { runner, readOutput } = await startRunner(mode, {
