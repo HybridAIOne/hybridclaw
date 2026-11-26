@@ -7,7 +7,7 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: vi.fn(),
+  hostRunner: { stopSession: vi.fn() },
 }));
 const runWorker = useContainerAgentHarness();
 const { setupHome } = setupGatewayTest({

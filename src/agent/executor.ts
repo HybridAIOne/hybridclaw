@@ -15,7 +15,7 @@ import {
   MOUNT_ALLOWLIST_PATH,
 } from '../config/config.js';
 import { containerRunner } from '../infra/container-runner.js';
-import { HostExecutor } from '../infra/host-runner.js';
+import { hostRunner } from '../infra/host-runner.js';
 import { parseBindSpecs } from '../security/mount-config.js';
 import type {
   Executor,
@@ -40,15 +40,15 @@ export interface SandboxDiagnostics {
 }
 
 let containerExecutor: Executor | null = null;
-let hostExecutor: HostExecutor | null = null;
+let hostExecutor: Executor | null = null;
 
 function getContainerExecutor(): Executor {
   containerExecutor ??= containerRunner;
   return containerExecutor;
 }
 
-function getHostExecutor(): HostExecutor {
-  hostExecutor ??= new HostExecutor();
+function getHostExecutor(): Executor {
+  hostExecutor ??= hostRunner;
   return hostExecutor;
 }
 

@@ -1,48 +1,25 @@
 /**
- * Host workers keep one session owner and one bounded request lease per process.
- * Lifecycle transitions reject reuse after stop; Docker transport stays in
- * container-runner. Durable conversation and recovery evidence live elsewhere.
+ * Host worker strategy — how an unsandboxed agent worker process starts on the
+ * gateway host, stops and reports memory. Pooling, capacity and the request
+ * lifecycle are `worker-runner.ts`; this module only decides the child env.
+ *
+ * The child gets a sanitized copy of the gateway env, the stored runtime env
+ * and the allowed roots its path guard enforces; host mode has no OS-level
+ * isolation. Unlike container-runner, a full pool waits for capacity instead
+ * of failing at once.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
-import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
-import { generateIpcAuthSecret } from '@hybridclaw/shared/ipc-input-auth';
-import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
-import type {
-  ExecutorRequest,
-  ExecutorSessionHealthSnapshot,
-} from '../agent/executor-types.js';
-import {
-  resolveLocalStarterTools,
-  resolveLocalToolMode,
-  resolveMcpToolMode,
-} from '../agent/local-tool-config.js';
-import { mergeAllowedToolNames } from '../agent/tool-policy.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { resolveEmailSenderAddress } from '../channels/email/sender-address.js';
-import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
+import type { ExecutorRequest } from '../agent/executor-types.js';
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
-  BROWSER_PROVIDER,
   CONTAINER_BINDS,
-  CONTAINER_PERSIST_BASH_STATE,
-  CONTAINER_TIMEOUT,
-  CONTAINER_WARM_POOL,
-  CONTEXT_GUARD_COMPACTION_RATIO,
-  CONTEXT_GUARD_ENABLED,
-  CONTEXT_GUARD_MAX_RETRIES,
-  CONTEXT_GUARD_OVERFLOW_RATIO,
   GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
-  MAX_CONCURRENT_CONTAINERS,
-  MCP_SERVERS,
-  onConfigChange,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
@@ -54,113 +31,28 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
-import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
-import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
-import { withSpan } from '../observability/otel.js';
-import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveSupportedReasoningEffort } from '../providers/model-catalog.js';
-import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
-import { redactCredentialSecrets } from '../security/redact.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
-import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
-import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
-import { parseApprovalProgress } from './approval-progress.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
-import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
-import {
-  agentWorkspaceDir,
-  cleanupIpc,
-  createActivityTracker,
-  ensureAgentDirs,
-  ensureSessionDirs,
-  getSessionPaths,
-  interruptedAgentOutput,
-  readOutput,
-  removeUnclaimedWarmSessionDir,
-  writeInput,
-} from './ipc.js';
-import {
-  consumeModelResponseDebugFileLine,
-  isModelResponseDebugEnabled,
-} from './model-response-debug.js';
-import {
-  consumeCollapsedStreamDebugLine,
-  createStreamDebugState,
-  decodeStreamDelta,
-  decodeThinkingDelta,
-  flushCollapsedStreamDebugSummary,
-  isStreamActivityLine,
-  isThinkingDeltaLine,
-  type StreamDebugState,
-} from './stream-debug.js';
-import { parseToolProgressLine } from './tool-progress-parser.js';
-import { WarmProcessPool } from './warm-process-pool.js';
-import {
-  claimWarmEntry,
-  collectIdleSessionEvictions,
-  enforceWarmPoolPressure,
-  formatWarmRunnerTerminalError,
-  getCachedObservedMemoryBytes,
-  getTotalWarmProcessCount,
-  IDLE_TIMEOUT_MS,
-  isTimedOutAgentOutput,
-  type MemorySample,
-  maintainWarmPool,
-  normalizeWarmProcessPoolRuntimeConfig,
-  observeAgentLifecycleLine,
-  pingWarmRunnerHealthEntry,
-  processLimitForRun,
-  rememberStderrLine,
-  removeWarmPoolEntry,
-  sendWarmWorkerFrame,
-  stopWarmEntries as stopWarmPoolEntries,
-  type WarmRunnerEntry,
-} from './warm-runner-utils.js';
+import { IDLE_TIMEOUT_MS } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
 import {
-  type BrowserFrameSink,
-  remapOutputArtifacts,
-  stashBrowserFrameLine,
-  stashSlideSamplesLine,
-  takeBrowserFrame,
-  takeSlideSamples,
-} from './worker-artifacts.js';
-import { collectConfiguredDiscordChannelIds } from './worker-input.js';
-import { WorkerLifecycle } from './worker-lifecycle.js';
-import {
-  recoverWorkerFailure,
-  recoverWorkerOutput,
-} from './worker-recovery.js';
-import {
+  createWorkerRunner,
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
+  type WorkerSpawnRequest,
 } from './worker-runner.js';
-import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 // Nobody watches a background run, so it can queue behind user turns longer.
 const BACKGROUND_HOST_CAPACITY_WAIT_MS = 300_000;
-const HOST_CAPACITY_POLL_MS = 100;
-
-function resolveExecutorMaxTokens(params: {
-  model: string;
-  discoveredMaxTokens?: number;
-}): number | undefined {
-  return resolveProviderRequestMaxTokens({
-    model: params.model,
-    discoveredMaxTokens: params.discoveredMaxTokens,
-  });
-}
 
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
@@ -178,17 +70,6 @@ function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
       ...configured.mounts.map((mount) => path.resolve(mount.hostPath)),
     ]),
   );
-}
-
-function getHostWorkspacePath(params: {
-  sessionId: string;
-  agentId: string;
-  workspacePathOverride?: string;
-}): string {
-  const trimmed = params.workspacePathOverride?.trim();
-  if (trimmed) return path.resolve(trimmed);
-  const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
-  return workspacePath;
 }
 
 function resolveHostAgentBrowserBinary(): string | undefined {
@@ -217,198 +98,6 @@ function buildHostGatewayRuntimeEnv(
   };
 }
 
-interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
-  process: ChildProcess;
-  sessionId: string;
-  ipcSessionId: string;
-  agentId: string;
-  startedAt: number;
-  lastUsedAt: number;
-  pendingColdStartProbeStartedAt: number | null;
-  stderrBuffer: string;
-  stderrHistory: string[];
-  streamDebug: StreamDebugState;
-  workerSignature: string;
-  /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
-  ipcAuthSecret: string;
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  /** Activity tracker that resets the IPC read timeout on agent progress. */
-  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
-}
-
-const pool = new Map<string, PoolEntry>();
-const hostSessionQueue = new KeyedSerialQueue();
-const warmPool = new WarmProcessPool<PoolEntry>(
-  normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
-  (entries) => stopWarmEntries(entries),
-);
-let hostMemorySample: MemorySample | null = null;
-let hostMemoryRefreshInFlight = false;
-
-async function waitForHostCapacity(
-  sessionId: string,
-  limit: number,
-  waitMs: number,
-  abortSignal?: AbortSignal,
-): Promise<'available' | 'aborted' | 'timed_out'> {
-  const deadline = Date.now() + waitMs;
-  while (getTotalHostProcessCount() >= limit && !pool.has(sessionId)) {
-    stopWarmEntries(
-      warmPool.evictForPressure({
-        totalProcessCount: getTotalHostProcessCount() + 1,
-        maxProcessCount: limit,
-      }),
-    );
-    if (getTotalHostProcessCount() < limit) break;
-    for (const entry of collectIdleSessionEvictions({
-      pool,
-      warmPool,
-      maxProcessCount: limit,
-    })) {
-      logger.info(
-        { sessionId: entry.sessionId, agentId: entry.agentId },
-        'Evicting idle host agent process to free capacity',
-      );
-      stopHostProcess(entry);
-      removePoolEntry(entry);
-    }
-    if (getTotalHostProcessCount() < limit) break;
-    if (abortSignal?.aborted) return 'aborted';
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) return 'timed_out';
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.min(HOST_CAPACITY_POLL_MS, remainingMs)),
-    );
-  }
-  return abortSignal?.aborted ? 'aborted' : 'available';
-}
-
-function isStdinWriteInterrupt(
-  error: unknown,
-  proc: Pick<ChildProcess, 'killed' | 'exitCode'>,
-  abortSignal?: AbortSignal,
-): boolean {
-  if (abortSignal?.aborted) return true;
-  const code =
-    error && typeof error === 'object' && 'code' in error
-      ? String((error as { code?: unknown }).code || '')
-      : '';
-  return (
-    (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED') &&
-    (proc.killed || proc.exitCode !== null)
-  );
-}
-
-export function getActiveHostSessionIds(): string[] {
-  return Array.from(pool.keys()).sort((left, right) =>
-    left.localeCompare(right),
-  );
-}
-
-export function getInFlightHostSessionIds(): string[] {
-  return Array.from(pool.entries())
-    .filter(([, entry]) => Boolean(entry.lifecycle.activity))
-    .map(([sessionId]) => sessionId)
-    .sort((left, right) => left.localeCompare(right));
-}
-
-export async function getActiveHostSessionHealthSnapshots(): Promise<
-  ExecutorSessionHealthSnapshot[]
-> {
-  const snapshots = await Promise.all(
-    Array.from(pool.values()).map((entry) =>
-      pingWarmRunnerHealthEntry('host', entry),
-    ),
-  );
-  return snapshots.sort((left, right) =>
-    left.sessionId.localeCompare(right.sessionId),
-  );
-}
-
-export function getWarmHostColdStartP95Ms(): number | null {
-  return warmPool.coldStartP95Ms();
-}
-
-export function isWarmHostColdStartWithinBudget(): boolean {
-  return warmPool.isWithinColdStartBudget();
-}
-
-function emitTextDelta(entry: PoolEntry, line: string): void {
-  const callback = entry.onTextDelta;
-  if (!callback) return;
-  const delta = decodeStreamDelta(line);
-  if (delta == null) return;
-
-  try {
-    if (delta) callback(redactCredentialSecrets(delta));
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Text delta callback failed',
-    );
-  }
-}
-
-function emitThinkingDelta(entry: PoolEntry, line: string): void {
-  const callback = entry.onThinkingDelta;
-  if (!callback) return;
-  const delta = decodeThinkingDelta(line);
-  if (delta == null) return;
-
-  try {
-    if (delta) callback(redactCredentialSecrets(delta));
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Thinking delta callback failed',
-    );
-  }
-}
-
-function emitToolProgress(entry: PoolEntry, line: string): void {
-  const callback = entry.onToolProgress;
-  if (!callback) return;
-  if (stashBrowserFrameLine(entry, line)) return;
-  if (stashSlideSamplesLine(entry, line)) return;
-  const parsed = parseToolProgressLine(line);
-  if (!parsed) return;
-  const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
-  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
-
-  try {
-    callback({
-      sessionId: entry.sessionId,
-      ...parsed,
-      preview: redactCredentialSecrets(parsed.preview || ''),
-      ...(browser ? { browser } : {}),
-      ...(slideSamples ? { slideSamples } : {}),
-    });
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Tool progress callback failed',
-    );
-  }
-}
-
-function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
-  const approval = parseApprovalProgress(line);
-  if (!approval) return false;
-  if (!entry.onApprovalProgress) return true;
-  try {
-    entry.onApprovalProgress(approval);
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Approval progress callback failed',
-    );
-  }
-  return true;
-}
-
 function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
   const packageRoot = resolveInstallRoot();
   const sourceNodeModules = path.join(packageRoot, 'node_modules');
@@ -433,50 +122,6 @@ function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
 
   fs.symlinkSync(sourceNodeModules, targetNodeModules, 'dir');
 }
-
-function stopHostProcess(entry: PoolEntry): void {
-  if (!entry.lifecycle.stop()) return;
-  try {
-    entry.process.kill('SIGTERM');
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Failed to stop host agent',
-    );
-  }
-}
-
-// Runs past their capacity check whose process is not in the pool yet. They
-// count, or runs that start together all pass the check and overshoot it.
-let startingHostProcesses = 0;
-
-function getTotalHostProcessCount(): number {
-  return getTotalWarmProcessCount(pool, warmPool) + startingHostProcesses;
-}
-
-function removePoolEntry(entry: PoolEntry): void {
-  removeWarmPoolEntry(pool, warmPool, entry);
-}
-
-function stopWarmEntries(entries: PoolEntry[]): void {
-  stopWarmPoolEntries(entries, {
-    log: (entry) =>
-      logger.info(
-        { agentId: entry.agentId },
-        'Evicting warm host agent process',
-      ),
-    stop: stopHostProcess,
-  });
-}
-
-onConfigChange((config) => {
-  stopWarmEntries(
-    warmPool.reconfigure(
-      normalizeWarmProcessPoolRuntimeConfig(config.container.warmPool),
-    ),
-  );
-  hostMemorySample = null;
-});
 
 async function readProcessRssBytes(pid: number | undefined): Promise<number> {
   if (!pid) return 0;
@@ -516,127 +161,9 @@ async function readProcessRssBytes(pid: number | undefined): Promise<number> {
   });
 }
 
-function getObservedHostProcessMemoryBytes(): number {
-  return getCachedObservedMemoryBytes({
-    cache: hostMemorySample,
-    setCache: (sample) => {
-      hostMemorySample = sample;
-    },
-    isRefreshInFlight: () => hostMemoryRefreshInFlight,
-    setRefreshInFlight: (value) => {
-      hostMemoryRefreshInFlight = value;
-    },
-    activeEntries: Array.from(pool.values()),
-    warmEntries: warmPool.values(),
-    memoryPressureEnabled: warmPool.memoryPressureEnabled,
-    keyForEntry: (entry) =>
-      typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
-    refreshTotalBytes: async (pids) => {
-      const rssValues = await Promise.all(
-        pids.map((pid) => readProcessRssBytes(Number(pid))),
-      );
-      return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
-    },
-  });
-}
-
-function enforceWarmHostPressure(): void {
-  enforceWarmPoolPressure({
-    pool,
-    warmPool,
-    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-    getObservedMemoryBytes: getObservedHostProcessMemoryBytes,
-    stopEntries: stopWarmEntries,
-  });
-}
-
-function claimWarmHostProcess(params: {
-  sessionId: string;
-  agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): PoolEntry | null {
-  return claimWarmEntry({
-    pool,
-    warmPool,
-    sessionId: params.sessionId,
-    agentId: params.agentId,
-    eligibility: params,
-    logClaim: (entry) =>
-      logger.info(
-        {
-          sessionId: params.sessionId,
-          ipcSessionId: entry.ipcSessionId,
-          agentId: params.agentId,
-        },
-        'Claimed warm host agent process',
-      ),
-  });
-}
-
-function maintainWarmHostPool(params: {
-  agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): void {
-  maintainWarmPool({
-    pool,
-    warmPool,
-    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-    agentId: params.agentId,
-    eligibility: params,
-    stopEntries: stopWarmEntries,
-    spawnWarm: (sessionId, agentId) => {
-      const entry = getOrSpawnHostProcess({ sessionId, agentId, warm: true });
-      void sendWarmWorkerFrame(entry, resolveHostMcpServers);
-    },
-  });
-}
-
-function resolveHostMcpServers() {
-  return resolveMcpServersForRuntime(
-    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
-  );
-}
-
-function getOrSpawnHostProcess(
-  params: Pick<
-    ExecutorRequest,
-    | 'sessionId'
-    | 'agentId'
-    | 'workspacePathOverride'
-    | 'workspaceDisplayRootOverride'
-    | 'runtimeScope'
-    | 'bashProxy'
-  > & { ipcSessionId?: string; warm?: boolean },
-): PoolEntry {
-  const sessionId = params.sessionId;
-  const ipcSessionId = params.ipcSessionId || sessionId;
-  const agentId = params.agentId || DEFAULT_AGENT_ID;
-  const existing = params.warm ? null : pool.get(sessionId);
-  if (
-    existing &&
-    existing.lifecycle.reusable &&
-    !existing.process.killed &&
-    existing.process.exitCode === null
-  ) {
-    logger.debug({ sessionId }, 'Reusing host agent process');
-    return existing;
-  }
-
-  if (existing) pool.delete(sessionId);
-
-  ensureSessionDirs(ipcSessionId);
-  ensureAgentDirs(agentId);
-  const { ipcPath } = getSessionPaths(ipcSessionId, agentId);
-  const workspacePath = getHostWorkspacePath({
-    sessionId,
-    agentId,
-    workspacePathOverride: params.workspacePathOverride,
-  });
-  fs.mkdirSync(workspacePath, { recursive: true });
+function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
+  const { request: params, sessionId, agentId, warm } = spawnRequest;
+  const { ipcPath, workspacePath } = spawnRequest;
   const stateRoot = hostWorkspaceStateRoot(params);
   fs.mkdirSync(stateRoot, { recursive: true });
   ensureWorkspaceNodeModulesLink(stateRoot);
@@ -707,668 +234,53 @@ function getOrSpawnHostProcess(
   logger.info(
     {
       sessionId,
-      ipcSessionId,
+      ipcSessionId: sessionId,
       agentId,
       command: runtime.command,
       args: runtime.args,
-      warm: params.warm,
+      warm,
     },
     'Spawning host agent process',
   );
-
-  const proc = spawn(runtime.command, runtime.args, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    cwd: workspacePath,
-    env,
-  });
-
-  const entry: PoolEntry = {
-    id: ipcSessionId,
-    process: proc,
-    get sessionId() {
-      return entry.lifecycle.owner.kind === 'session'
-        ? entry.lifecycle.owner.sessionId
-        : ipcSessionId;
-    },
-    ipcSessionId,
-    agentId,
-    startedAt: Date.now(),
-    lastUsedAt: Date.now(),
-    lifecycle: new WorkerLifecycle(params.warm ? null : sessionId),
-    pendingColdStartProbeStartedAt: null,
-    stderrBuffer: '',
-    stderrHistory: [],
-    streamDebug: createStreamDebugState(),
-    workerSignature: '',
-    ipcAuthSecret: generateIpcAuthSecret(),
-    isReady() {
-      return entry.lifecycle.phase === 'idle';
-    },
-    stop() {
-      stopHostProcess(entry);
-    },
-  };
-
-  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
-  // without stdio and emits 'error' next tick, fatal if nobody listens.
-  proc.on('error', (err) => {
-    entry.lifecycle.exit(
-      `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    removePoolEntry(entry);
-    logger.error({ sessionId, error: err }, 'Host agent process error');
-  });
-  if (!proc.stderr) {
-    throw new Error('stdio pipes not created (out of file descriptors)');
-  }
-
-  // One decoder per pipe: a chunk can end inside a multi-byte character.
-  const stderrDecoder = new StringDecoder('utf8');
-  proc.stderr.on('data', (data) => {
-    entry.stderrBuffer += stderrDecoder.write(data);
-    const lines = entry.stderrBuffer.split('\n');
-    entry.stderrBuffer = lines.pop() || '';
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
-      if (consumeModelResponseDebugFileLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (isStreamActivityLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      rememberStderrLine(entry, line);
-      emitTextDelta(entry, line);
-      emitThinkingDelta(entry, line);
-      if (isThinkingDeltaLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (
-        consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
-          logger.debug({ sessionId }, message);
-        })
-      ) {
-        // Stream debug lines indicate model activity — reset timeout.
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (emitApprovalProgress(entry, line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      emitToolProgress(entry, line);
-      // Any recognised stderr output (tool progress, model output, etc.)
-      // counts as activity and should keep the timeout alive.
-      entry.lifecycle.activity?.notify();
-      logger.debug({ sessionId }, line);
-    }
-  });
-
-  proc.on('close', (code, signal) => {
-    const tail = entry.stderrBuffer.trim();
-    if (tail) {
-      if (observeAgentLifecycleLine(entry, tail, warmPool)) {
-        entry.stderrBuffer = '';
-      } else if (consumeModelResponseDebugFileLine(tail)) {
-        entry.lifecycle.activity?.notify();
-        entry.stderrBuffer = '';
-      } else if (isStreamActivityLine(tail)) {
-        entry.lifecycle.activity?.notify();
-        entry.stderrBuffer = '';
-      } else {
-        rememberStderrLine(entry, tail);
-        emitTextDelta(entry, tail);
-        emitThinkingDelta(entry, tail);
-        if (isThinkingDeltaLine(tail)) {
-          entry.lifecycle.activity?.notify();
-        } else if (
-          !consumeCollapsedStreamDebugLine(
-            tail,
-            entry.streamDebug,
-            (message) => {
-              logger.debug({ sessionId }, message);
-            },
-          )
-        ) {
-          if (!emitApprovalProgress(entry, tail)) {
-            emitToolProgress(entry, tail);
-            logger.debug({ sessionId }, tail);
-          }
-        }
-        entry.stderrBuffer = '';
-      }
-    }
-    entry.lifecycle.exit(
-      formatWarmRunnerTerminalError(entry, 'Host agent process', {
-        code,
-        signal,
-      }),
-    );
-    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
-      logger.debug({ sessionId }, message);
-    });
-    removePoolEntry(entry);
-    if (entry.lifecycle.isSpare)
-      removeUnclaimedWarmSessionDir(entry.ipcSessionId);
-    logger.info({ sessionId, code, signal }, 'Host agent process exited');
-  });
-
-  proc.stdin?.on('error', (err) => {
-    if (isStdinWriteInterrupt(err, proc)) {
-      logger.debug(
-        { sessionId, error: err },
-        'Ignoring host agent stdin error after process shutdown',
-      );
-      return;
-    }
-    logger.error({ sessionId, error: err }, 'Host agent stdin error');
-  });
-
-  if (entry.lifecycle.isSpare) {
-    warmPool.add(entry);
-    getObservedHostProcessMemoryBytes();
-  } else {
-    pool.set(sessionId, entry);
-  }
-  return entry;
-}
-
-export function getActiveHostProcessCount(): number {
-  return pool.size;
-}
-
-export function getInFlightHostProcessCount(): number {
-  let count = 0;
-  for (const entry of pool.values()) {
-    if (entry.lifecycle.activity) count += 1;
-  }
-  return count;
-}
-
-export function stopSessionHostProcess(sessionId: string): boolean {
-  const entry = pool.get(sessionId);
-  if (!entry) return false;
-  stopHostProcess(entry);
-  removePoolEntry(entry);
-  return true;
-}
-
-export async function runHostProcess(
-  params: ExecutorRequest,
-): Promise<ContainerOutput> {
-  return hostSessionQueue.run(params.sessionId, () =>
-    withSpan(
-      'hybridclaw.host.execute',
-      {
-        'hybridclaw.session_id': params.sessionId,
-        'hybridclaw.agent_id': params.agentId || '',
-        'hybridclaw.model': params.model || '',
-      },
-      async () => runHostProcessInner(params),
-    ),
-  );
-}
-
-async function runHostProcessInner(
-  params: ExecutorRequest,
-): Promise<ContainerOutput> {
-  const {
-    sessionId,
-    messages,
-    chatbotId,
-    enableRag,
-    model = HYBRIDAI_MODEL,
-    agentId = DEFAULT_AGENT_ID,
-    addressEnvelope,
-    channelId = '',
-    ralphMaxIterations,
-    approvalMode,
-    dryRun,
-    approvalUserText = null,
-    approvalUserId,
-    approvalUserIsBot,
-    approvalReplyDecision,
-    fullAutoNeverApproveTools,
-    scheduleSideEffectsEnabled,
-    skipContainerSystemPrompt,
-    allowedTools,
-    blockedTools,
-    onTextDelta,
-    onThinkingDelta,
-    onToolProgress,
-    onApprovalProgress,
-    abortSignal,
-    media,
-    readableMediaPaths,
-    visualMediaAllowed,
-    primaryModelSupportsVisualMedia,
-    audioTranscriptsPrepended,
-    pluginTools,
-    escalationTarget,
-    maxWallClockMs,
-    inactivityTimeoutMs,
-  } = params;
-  const executionDeadlineAtMs = resolveExecutionDeadline(
-    maxWallClockMs,
-    params.executionDeadlineAtMs,
-  );
-  const effectiveAllowedTools = mergeAllowedToolNames({
-    agentId,
-    explicit: allowedTools,
-  });
-
-  const workspacePath = getHostWorkspacePath({
-    sessionId,
-    agentId,
-    workspacePathOverride: params.workspacePathOverride,
-  });
-  const modelRuntime = await resolveModelRuntimeCredentials({
-    model,
-    chatbotId,
-    enableRag,
-    agentId,
-  });
-  const taskModels = await resolveTaskModelPolicies({
-    agentId,
-    chatbotId: modelRuntime.chatbotId,
-    sessionModel: modelRuntime.model || model,
-  });
-  const runtimeModel = modelRuntime.model || model;
-
-  enforceWarmHostPressure();
-  const processLimit = processLimitForRun(
-    MAX_CONCURRENT_CONTAINERS,
-    params.background,
-  );
-  if (getTotalHostProcessCount() >= processLimit && !pool.has(sessionId)) {
-    const waitMs = params.background
-      ? BACKGROUND_HOST_CAPACITY_WAIT_MS
-      : HOST_CAPACITY_WAIT_MS;
-    const capacityState = await waitForHostCapacity(
-      sessionId,
-      processLimit,
-      waitMs,
-      abortSignal,
-    );
-    if (capacityState === 'aborted') {
-      return interruptedAgentOutput(abortSignal?.reason);
-    }
-    if (capacityState === 'timed_out') {
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error: `Too many active host agent processes (${getTotalHostProcessCount()}/${processLimit}) after waiting ${waitMs}ms. Try again later.`,
-        errorCode: 'busy',
-      };
-    }
-  }
-
-  const startTime = Date.now();
-  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  // The process is spawned without another await after this one.
-  const starting = pool.has(sessionId) ? 0 : 1;
-  startingHostProcesses += starting;
-  let mcpServers: Awaited<ReturnType<typeof resolveHostMcpServers>>;
-  try {
-    mcpServers = await resolveHostMcpServers();
-  } finally {
-    startingHostProcesses -= starting;
-  }
-  const existingEntry = pool.get(sessionId);
-  const requestId = randomUUID();
-
-  const input: ContainerInput = {
-    sessionId,
-    executionDeadlineAtMs,
-    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
-    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
-    runId: params.runId,
-    toolCallLimits: params.toolCallLimits,
-    requestId,
-    agentId,
-    messages,
-    chatbotId: modelRuntime.chatbotId,
-    enableRag: modelRuntime.enableRag,
-    apiKey: modelRuntime.apiKey,
-    baseUrl: modelRuntime.baseUrl,
-    provider: modelRuntime.provider,
-    addressEnvelope,
-    providerMethod: modelRuntime.providerMethod,
-    requestHeaders: modelRuntime.requestHeaders,
-    isLocal: modelRuntime.isLocal,
-    contextWindow: modelRuntime.contextWindow,
-    modelBehavior: modelRuntime.modelBehavior,
-    thinkingFormat: modelRuntime.thinkingFormat,
-    gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-    gatewayApiToken: resolveWorkerRuntimeToken(params.runtimeScope),
-    browserProvider: params.browserProvider || BROWSER_PROVIDER,
-    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    model: runtimeModel,
-    reasoningEffort: resolveSupportedReasoningEffort(
-      modelRuntime.provider,
-      runtimeModel,
-      params.reasoningEffort,
-    ),
-    ralphMaxIterations,
-    disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
-    approvalMode,
-    dryRun,
-    approvalUserText,
-    approvalUserId,
-    approvalUserIsBot,
-    approvalReplyDecision,
-    fullAutoNeverApproveTools,
-    scheduleSideEffectsEnabled,
-    skipContainerSystemPrompt,
-    streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: isModelResponseDebugEnabled(),
-    maxTokens: resolveExecutorMaxTokens({
-      model: runtimeModel,
-      discoveredMaxTokens: modelRuntime.maxTokens,
+  return {
+    process: spawn(runtime.command, runtime.args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: workspacePath,
+      env,
     }),
-    channelId,
-    client: params.client,
-    configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    activeMessageChannels: collectActiveMessageToolChannelKinds(),
-    emailSender: resolveEmailSenderAddress(agentId),
-    skillCatalog: params.skillCatalog,
-    localToolMode: modelRuntime.isLocal
-      ? resolveLocalToolMode(agentId)
-      : undefined,
-    localStarterTools: modelRuntime.isLocal
-      ? resolveLocalStarterTools(agentId)
-      : undefined,
-    mcpToolMode: modelRuntime.isLocal ? undefined : resolveMcpToolMode(agentId),
-    allowedTools: effectiveAllowedTools,
-    blockedTools,
-    media,
-    readableMediaPaths,
-    visualMediaAllowed,
-    primaryModelSupportsVisualMedia,
-    audioTranscriptsPrepended,
-    pluginTools,
-    mcpServers,
-    taskModels,
-    contextGuard: {
-      enabled: CONTEXT_GUARD_ENABLED,
-      compactionRatio: CONTEXT_GUARD_COMPACTION_RATIO,
-      overflowRatio: CONTEXT_GUARD_OVERFLOW_RATIO,
-      maxRetries: CONTEXT_GUARD_MAX_RETRIES,
-    },
-    webSearch: webSearchRuntime,
-    persistBashState: CONTAINER_PERSIST_BASH_STATE,
-    escalationTarget,
   };
-  const workerSignature = computeWorkerSignature({
-    agentId,
-    gatewayApiToken: input.gatewayApiToken,
-    webSearch: input.webSearch,
-    provider: input.provider,
-    providerMethod: input.providerMethod,
-    baseUrl: input.baseUrl,
-    apiKey: input.apiKey,
-    requestHeaders: input.requestHeaders,
-    modelBehavior: input.modelBehavior,
-    thinkingFormat: input.thinkingFormat,
-    browserProvider: params.browserProvider || BROWSER_PROVIDER,
-    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    taskModels: input.taskModels,
-    workspacePathOverride: params.workspacePathOverride,
-    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-    bashProxy: params.bashProxy,
-  });
-  if (existingEntry && existingEntry.workerSignature !== workerSignature) {
-    logger.info(
-      { sessionId, agentId, provider: input.provider },
-      'Worker routing changed; restarting host agent process',
-    );
-    stopHostProcess(existingEntry);
-    removePoolEntry(existingEntry);
-  }
+}
 
-  const isNewProcess =
-    !pool.has(sessionId) ||
-    pool.get(sessionId)?.process.killed ||
-    pool.get(sessionId)?.process.exitCode !== null;
-
-  let entry: PoolEntry;
-  try {
-    entry =
-      (isNewProcess
-        ? claimWarmHostProcess({
-            sessionId,
-            agentId,
-            workspacePathOverride: params.workspacePathOverride,
-            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-            bashProxy: params.bashProxy,
-          })
-        : null) ||
-      getOrSpawnHostProcess({
-        sessionId,
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        runtimeScope: params.runtimeScope,
-        bashProxy: params.bashProxy,
-      });
-  } catch (err) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Host agent spawn error: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-  cleanupIpc(entry.ipcSessionId);
-  ensureSessionDirs(entry.ipcSessionId);
-  params.steerInbox?.open({
-    ipcDir: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
-    requestId,
-    authSecret: entry.ipcAuthSecret,
-  });
-  entry.workerSignature = workerSignature;
-
-  const activity = createActivityTracker();
-  entry.onTextDelta = onTextDelta;
-  entry.onThinkingDelta = onThinkingDelta;
-  entry.onToolProgress = onToolProgress;
-  entry.pendingBrowserFrame = undefined;
-  entry.browserFrameWorkspace = {
-    path: workspacePath,
-    displayRoot: params.workspaceDisplayRootOverride,
-  };
-  entry.onApprovalProgress = onApprovalProgress;
-  entry.lifecycle.begin(requestId, activity);
-
-  const onAbort = () => {
-    logger.info(
-      { sessionId },
-      'Interrupt requested, stopping host agent process',
-    );
-    stopHostProcess(entry);
-  };
-  if (abortSignal) {
-    abortSignal.addEventListener('abort', onAbort, { once: true });
-    if (abortSignal.aborted) onAbort();
-  }
-
-  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
-  try {
-    if (abortSignal?.aborted) {
-      return interruptedAgentOutput(abortSignal?.reason);
-    }
-    if (isNewProcess) {
-      entry.pendingColdStartProbeStartedAt = Date.now();
-      try {
-        // First request carries the per-worker IPC auth secret via stdin only.
-        entry.process.stdin?.write(
-          `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
-        );
-      } catch (err) {
-        if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
-          logger.info(
-            { sessionId, error: err },
-            'Host agent input write interrupted by process shutdown',
-          );
-          return interruptedAgentOutput(abortSignal?.reason);
-        }
-        throw err;
-      }
-    } else {
-      writeInput(entry.ipcSessionId, input, {
-        authSecret: entry.ipcAuthSecret,
-      });
-    }
-
-    let output = await readOutput(
-      entry.ipcSessionId,
-      requestId,
-      inactivityTimeoutMs === undefined
-        ? CONTAINER_TIMEOUT
-        : inactivityTimeoutMs,
-      {
-        signal: abortSignal,
-        activity,
-        maxWallClockMs,
-        executionDeadlineAtMs,
-        terminalError: () => entry.lifecycle.terminalError,
-      },
-    );
-    // Before anything else can run: a note from here on is refused.
-    params.steerInbox?.close();
-    const timedOut = isTimedOutAgentOutput(output);
-    if (timedOut) {
-      logger.warn(
-        { sessionId },
-        'Agent output timed out; stopping stuck host agent process',
+export const hostRunner = createWorkerRunner({
+  mode: 'host',
+  noun: { one: 'host agent process', many: 'host agent processes' },
+  runtimeLabel: 'Host agent process',
+  spawnErrorLabel: 'Host agent spawn error',
+  spawn: spawnHostProcess,
+  stop: (entry) => {
+    try {
+      entry.process.kill('SIGTERM');
+    } catch (err) {
+      logger.debug(
+        { sessionId: entry.sessionId, err },
+        'Failed to stop host agent',
       );
-      stopSessionHostProcess(sessionId);
     }
-    output = recoverWorkerOutput(
-      output,
-      hostWorkspaceStateRoot(params),
-      sessionId,
-      input.runId || input.requestId,
-      Boolean(
-        timedOut || abortSignal?.aborted || entry.lifecycle.terminalError,
-      ),
+  },
+  dropsEntryOnAbort: false,
+  guardsStdinErrors: true,
+  memoryKey: (entry) =>
+    typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
+  readMemoryBytes: async (pids) => {
+    const rssValues = await Promise.all(
+      pids.map((pid) => readProcessRssBytes(Number(pid))),
     );
-    output = reviewContext.finish(output);
-    remapOutputArtifacts(
-      output,
-      workspacePath,
-      params.workspaceDisplayRootOverride,
-    );
-    if (typeof output.result === 'string') {
-      output.result = redactCredentialSecrets(output.result);
-    }
-    if (typeof output.error === 'string') {
-      output.error = redactCredentialSecrets(output.error);
-    }
-    if (output.pendingApproval) {
-      output.pendingApproval = {
-        ...output.pendingApproval,
-        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
-        intent: redactCredentialSecrets(output.pendingApproval.intent),
-        reason: redactCredentialSecrets(output.pendingApproval.reason),
-      };
-    }
-    const duration = Date.now() - startTime;
-    if (!timedOut) {
-      entry.lastUsedAt = Date.now();
-      warmPool.recordRequest(agentId, duration);
-      if (params.client === 'mobile') warmPool.recordPhoneUser(agentId);
-      // Best-effort: a failed refill must not discard the finished turn.
-      try {
-        maintainWarmHostPool({
-          agentId,
-          workspacePathOverride: params.workspacePathOverride,
-          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-          bashProxy: params.bashProxy,
-        });
-      } catch (err) {
-        logger.warn({ agentId, err }, 'Warm host agent process refill failed');
-      }
-    }
-    return output;
-  } catch (error) {
-    stopSessionHostProcess(sessionId);
-    return recoverWorkerFailure(
-      error,
-      hostWorkspaceStateRoot(params),
-      sessionId,
-      input.runId || input.requestId,
-    );
-  } finally {
-    reviewContext.close();
-    params.steerInbox?.close();
-    abortSignal?.removeEventListener('abort', onAbort);
-    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
-      logger.debug({ sessionId }, message);
-    });
-    if (entry.onTextDelta === onTextDelta) entry.onTextDelta = undefined;
-    if (entry.onThinkingDelta === onThinkingDelta)
-      entry.onThinkingDelta = undefined;
-    if (entry.onToolProgress === onToolProgress)
-      entry.onToolProgress = undefined;
-    if (entry.onApprovalProgress === onApprovalProgress) {
-      entry.onApprovalProgress = undefined;
-    }
-    entry.lifecycle.finish(requestId);
-  }
-}
-
-export function stopAllHostProcesses(): void {
-  for (const entry of pool.values()) {
-    stopHostProcess(entry);
-  }
-  pool.clear();
-  for (const entry of warmPool.clear()) {
-    logger.info({ agentId: entry.agentId }, 'Stopping warm host process');
-    stopHostProcess(entry);
-  }
-}
-
-export class HostExecutor {
-  exec(params: ExecutorRequest): Promise<ContainerOutput> {
-    return runHostProcess(params);
-  }
-
-  getWorkspacePath(agentId: string): string {
-    ensureAgentDirs(agentId);
-    return path.resolve(agentWorkspaceDir(agentId));
-  }
-
-  stopSession(sessionId: string): boolean {
-    return stopSessionHostProcess(sessionId);
-  }
-
-  stopAll(): void {
-    stopAllHostProcesses();
-  }
-
-  getActiveSessionCount(): number {
-    return getActiveHostProcessCount();
-  }
-
-  getInFlightSessionCount(): number {
-    return getInFlightHostProcessCount();
-  }
-
-  getActiveSessionIds(): string[] {
-    return getActiveHostSessionIds();
-  }
-
-  getInFlightSessionIds(): string[] {
-    return getInFlightHostSessionIds();
-  }
-
-  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
-    return getActiveHostSessionHealthSnapshots();
-  }
-}
+    return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
+  },
+  logFields: () => ({}),
+  mapHostUrl: (url) => url,
+  stateRoot: (request) => hostWorkspaceStateRoot(request),
+  sendsRuntimeEnv: false,
+  capacityWaitMs: (background) =>
+    background ? BACKGROUND_HOST_CAPACITY_WAIT_MS : HOST_CAPACITY_WAIT_MS,
+});

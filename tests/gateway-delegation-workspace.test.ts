@@ -8,7 +8,9 @@ const { runAgentMock, enqueueMock } = vi.hoisted(() => ({
   enqueueMock: vi.fn(),
 }));
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
-vi.mock('../src/infra/host-runner.js', () => ({ stopSessionHostProcess: vi.fn() }));
+vi.mock('../src/infra/host-runner.js', () => ({
+  hostRunner: { stopSession: vi.fn() },
+}));
 vi.mock('../src/agent/delegation-manager.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/agent/delegation-manager.js')>()),
   enqueueDelegation: enqueueMock,

@@ -13,7 +13,7 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: stopSessionHostProcessMock,
+  hostRunner: { stopSession: stopSessionHostProcessMock },
 }));
 
 const ORIGINAL_HOME = process.env.HOME;

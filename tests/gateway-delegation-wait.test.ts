@@ -11,7 +11,7 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: vi.fn(),
+  hostRunner: { stopSession: vi.fn() },
 }));
 
 const makeTempHome = useTempDir('hybridclaw-delegation-wait-');

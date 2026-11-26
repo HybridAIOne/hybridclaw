@@ -10,7 +10,7 @@ const { runAgentMock, stopMock } = vi.hoisted(() => ({
 }));
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: stopMock,
+  hostRunner: { stopSession: stopMock },
 }));
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'terminal-delegation-denial-',

@@ -160,8 +160,8 @@ const RUNNERS = [
           args: ['/tmp/container/dist/index.js'],
         }),
       }));
-      const { HostExecutor } = await import('../src/infra/host-runner.js');
-      return new HostExecutor();
+      const { hostRunner } = await import('../src/infra/host-runner.js');
+      return hostRunner;
     },
   },
 ];

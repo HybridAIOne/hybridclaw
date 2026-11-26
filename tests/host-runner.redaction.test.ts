@@ -127,8 +127,8 @@ test('HostExecutor preserves user-visible result and error strings from agent ou
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const output = await executor.exec({
     sessionId: 'session-redaction',
     messages: [{ role: 'user', content: 'hello' }],
@@ -231,8 +231,8 @@ test('HostExecutor preserves user-visible streamed text and tool progress while 
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const deltas: string[] = [];
   const toolEvents: Array<{ preview?: string }> = [];
   await executor.exec({
@@ -330,8 +330,8 @@ test('HostExecutor preserves user-visible approval details while redacting crede
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const output = await executor.exec({
     sessionId: 'session-approval-redaction',
     messages: [{ role: 'user', content: 'hello' }],
@@ -415,11 +415,11 @@ test('HostExecutor exposes the uploaded media cache root to host agent processes
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const { hostRunner } = await import('../src/infra/host-runner.js');
   const { resolveUploadedMediaCacheHostDir } = await import(
     '../src/media/uploaded-media-cache.ts'
   );
-  const executor = new HostExecutor();
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-uploaded-media-root',
@@ -546,8 +546,8 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-sanitized-env',
@@ -663,8 +663,8 @@ test('HostExecutor disables internal text streaming when no text callback is pro
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-no-stream-ipc',
@@ -754,8 +754,8 @@ test('HostExecutor does not apply the HybridAI token cap to remote OpenAI-compat
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-openrouter-max-tokens',
@@ -841,8 +841,8 @@ test.each([
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-openrouter-anthropic-max-tokens',
@@ -923,9 +923,9 @@ test.each(['nested', 'hoisted'] as const)('HostExecutor exposes the %s agent-bro
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const { hostRunner } = await import('../src/infra/host-runner.js');
   const { resolveInstallRoot } = await import('../src/infra/install-root.js');
-  const executor = new HostExecutor();
+  const executor = hostRunner;
   vi.stubEnv('AGENT_BROWSER_BIN', '');
   const binName = process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser';
   const nested = path.join(resolveInstallRoot(), 'container', 'node_modules', '.bin', binName);
@@ -1028,8 +1028,8 @@ test('HostExecutor treats interrupted stdin EPIPE as a user interrupt', async ()
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const output = await executor.exec({
     sessionId: 'session-interrupted-epipe',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1134,8 +1134,8 @@ test('HostExecutor surfaces missing packaged runtime dependencies as immediate e
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const output = await executor.exec({
     sessionId: 'session-missing-runtime-dep',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1219,8 +1219,8 @@ test('HostExecutor forwards maxWallClockMs to the IPC output reader', async () =
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-max-wall-clock',
@@ -1306,8 +1306,8 @@ test('HostExecutor forwards disabled inactivity timeout to the IPC output reader
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'session-no-inactivity-timeout',
@@ -1417,8 +1417,8 @@ test('HostExecutor treats heartbeat lines as activity without evicting stderr co
     },
   }));
   mockHostRuntimeReady();
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const output = await executor.exec({
     sessionId: 'session-heartbeat-history',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1511,9 +1511,9 @@ test('HostExecutor reports an in-flight session while readOutput is pending', as
   }));
   mockHostRuntimeReady();
 
-  const { HostExecutor, getInFlightHostProcessCount } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
-  expect(getInFlightHostProcessCount()).toBe(0);
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
+  expect(hostRunner.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionIds()).toEqual([]);
   const pending = executor.exec({
@@ -1527,14 +1527,14 @@ test('HostExecutor reports an in-flight session while readOutput is pending', as
   });
   await vi.waitFor(() => expect(readOutput).toHaveBeenCalledTimes(1));
 
-  expect(getInFlightHostProcessCount()).toBe(1);
+  expect(hostRunner.getInFlightSessionCount()).toBe(1);
   expect(executor.getInFlightSessionCount()).toBe(1);
   expect(executor.getInFlightSessionIds()).toEqual(['session-in-flight']);
 
   finishOutput?.();
   await pending;
 
-  expect(getInFlightHostProcessCount()).toBe(0);
+  expect(hostRunner.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionIds()).toEqual([]);
   // The worker stays attached after the turn; it is just no longer running.

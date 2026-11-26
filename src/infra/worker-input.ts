@@ -48,7 +48,7 @@ export type ModelRuntime = Awaited<
   ReturnType<typeof resolveModelRuntimeCredentials>
 >;
 
-export function collectConfiguredDiscordChannelIds(
+function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
 ): string[] {
   const seen = new Set<string>();

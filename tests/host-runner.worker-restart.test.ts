@@ -182,8 +182,8 @@ test('HostExecutor respawns the pooled worker when the provider changes for a se
   readOutputImpl = readOutput;
   resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'tui:local',
@@ -248,8 +248,8 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
   readOutputImpl = readOutput;
   resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   await executor.exec({
     sessionId: 'tui:local',
@@ -326,8 +326,8 @@ test('HostExecutor stops and respawns a timed out pooled worker', async () => {
   readOutputImpl = readOutput;
   resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   const firstOutput = await executor.exec({
     sessionId: 'tui:local',
@@ -403,8 +403,8 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
   readOutputImpl = readOutput;
   resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   const sessions = [
     'sess-1',
@@ -462,8 +462,8 @@ test('HostExecutor gives the worker the browser a run asks for, else the configu
     thinkingFormat: undefined,
   }));
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const request = {
     messages: [{ role: 'user' as const, content: 'open example.com' }],
     chatbotId: 'bot-a',
@@ -522,8 +522,8 @@ test('HostExecutor keeps the last process for a user turn while background runs 
     thinkingFormat: undefined,
   }));
 
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   const run = (sessionId: string, background: boolean, signal?: AbortSignal) =>
     executor.exec({
       sessionId,
@@ -587,8 +587,8 @@ test('HostExecutor turns an exception after dispatch into terminal journal evide
     journal.result({ role: 'tool', tool_call_id: 'a', content: 'Saved.' });
     throw new Error('IPC failed.');
   });
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
   try {
     const output = await executor.exec(params);
     expect(output.toolHistory?.[1].content).toBe('Saved.');

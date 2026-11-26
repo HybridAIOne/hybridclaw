@@ -26,7 +26,7 @@ import {
   SESSION_COMPACTION_KEEP_RECENT,
   SESSION_COMPACTION_THRESHOLD,
 } from '../config/config.js';
-import { stopSessionHostProcess } from '../infra/host-runner.js';
+import { hostRunner } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
@@ -315,7 +315,7 @@ export async function runPreCompactionMemoryFlush(params: {
     );
     return false;
   } finally {
-    stopSessionHostProcess(flushSessionId);
+    hostRunner.stopSession(flushSessionId);
   }
 }
 

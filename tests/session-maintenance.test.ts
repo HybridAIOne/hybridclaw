@@ -67,7 +67,7 @@ vi.mock('../src/config/config.js', () => ({
 }));
 
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: vi.fn(),
+  hostRunner: { stopSession: vi.fn() },
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({
