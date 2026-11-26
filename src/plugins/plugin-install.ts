@@ -16,8 +16,6 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { hasExecutableCommand } from '../utils/executables.js';
-import { expandHomePath } from '../utils/path.js';
-import { isPackagedPluginId } from './packaged-plugin-ids.js';
 import {
   allRequiredBinsAvailable,
   checkPluginDependencies,
@@ -38,6 +36,12 @@ import {
   PluginManager,
 } from './plugin-manager.js';
 import { fetchPluginDirFromNpmSpec } from './plugin-npm-fetch.js';
+import {
+  listPluginCatalogRoots,
+  PluginNpmInstallApprovalRequiredError,
+  type PluginSource,
+  resolvePluginSource,
+} from './plugin-source.js';
 import type {
   PluginAvailableSummary,
   PluginBinaryRequirement,
@@ -51,16 +55,6 @@ interface PluginCommand {
   args: string[];
   cwd: string;
 }
-
-type PluginSource =
-  | {
-      kind: 'local-dir';
-      path: string;
-    }
-  | {
-      kind: 'npm-spec';
-      spec: string;
-    };
 
 export type PluginInstallCommandRunner = (command: PluginCommand) => void;
 
@@ -87,6 +81,7 @@ export interface InstallPluginOptions {
   cwd?: string;
   runCommand?: PluginInstallCommandRunner;
   runCheckCommand?: PluginDependencyCommandChecker;
+  approveNpmInstall?: boolean;
   approveDependencyInstall?: boolean;
   onDependenciesAlreadySatisfied?: (plan: PluginDependencyPlan) => void;
   getRuntimeConfig?: PluginConfigGetter;
@@ -218,101 +213,13 @@ function defaultRunCommand({ command, args, cwd }: PluginCommand): void {
   }
 }
 
-function expandUserPath(input: string, cwd: string): string {
-  return path.resolve(cwd, expandHomePath(input));
-}
-
-function looksLikeLocalPath(input: string): boolean {
-  return (
-    input.startsWith('.') ||
-    input.startsWith('/') ||
-    input.startsWith('~') ||
-    /^[A-Za-z]:[\\/]/.test(input)
-  );
-}
-
-function resolveProjectPluginDir(input: string, cwd: string): string | null {
-  const installSource = String(input || '').trim();
-  if (!installSource || looksLikeLocalPath(installSource)) {
-    return null;
-  }
-  // A bare id names the package's bundled plugin first, so a `plugins/<id>`
-  // under the current directory cannot turn the in-place install of a
-  // bundled plugin into a copy of the cwd's version.
-  const roots = listPluginCatalogRoots(cwd).sort(
-    (left, right) =>
-      Number(right.source === 'bundled') - Number(left.source === 'bundled'),
-  );
-  for (const root of roots) {
-    const directCandidate = path.join(root.dir, installSource);
-    if (
-      fs.existsSync(directCandidate) &&
-      fs.statSync(directCandidate).isDirectory() &&
-      fs.existsSync(path.join(directCandidate, MANIFEST_FILE_NAME)) &&
-      fs.statSync(path.join(directCandidate, MANIFEST_FILE_NAME)).isFile()
-    ) {
-      return directCandidate;
-    }
-    if (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()) {
-      continue;
-    }
-    const entries = fs
-      .readdirSync(root.dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      const candidate = path.join(root.dir, entry.name);
-      const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
-      const packageJsonPath = path.join(candidate, 'package.json');
-      if (
-        !fs.existsSync(manifestPath) ||
-        !fs.statSync(manifestPath).isFile() ||
-        !fs.existsSync(packageJsonPath) ||
-        !fs.statSync(packageJsonPath).isFile()
-      ) {
-        continue;
-      }
-      try {
-        const packageJson = JSON.parse(
-          fs.readFileSync(packageJsonPath, 'utf-8'),
-        ) as { name?: unknown };
-        if (packageJson.name === installSource) {
-          return candidate;
-        }
-      } catch {}
-    }
-  }
-  return null;
-}
-
-function listPluginCatalogRoots(cwd: string): Array<{
-  dir: string;
-  source: PluginAvailableSummary['source'];
-}> {
-  const roots = [
-    {
-      dir: path.join(cwd, 'plugins'),
-      source: 'project' as const,
-    },
-    {
-      dir: path.join(PACKAGE_ROOT, 'plugins'),
-      source: 'bundled' as const,
-    },
-  ];
-  const seen = new Set<string>();
-  return roots.filter((root) => {
-    const resolved = path.resolve(root.dir);
-    if (seen.has(resolved)) return false;
-    seen.add(resolved);
-    return true;
-  });
-}
-
 export function listInstallablePlugins(options?: {
   cwd?: string;
 }): PluginAvailableSummary[] {
   const cwd = options?.cwd || process.cwd();
-  return listInstallablePluginsFromRoots(listPluginCatalogRoots(cwd));
+  return listInstallablePluginsFromRoots(
+    listPluginCatalogRoots(cwd, PACKAGE_ROOT),
+  );
 }
 
 export function listBundledInstallablePlugins(): PluginAvailableSummary[] {
@@ -363,42 +270,6 @@ function listInstallablePluginsFromRoots(
   );
 }
 
-function resolvePluginSource(input: string, cwd: string): PluginSource {
-  const resolvedPath = expandUserPath(input, cwd);
-  if (fs.existsSync(resolvedPath)) {
-    const stats = fs.statSync(resolvedPath);
-    if (stats.isDirectory()) {
-      return {
-        kind: 'local-dir',
-        path: resolvedPath,
-      };
-    }
-    return {
-      kind: 'npm-spec',
-      spec: resolvedPath,
-    };
-  }
-  const bundledPluginDir = resolveProjectPluginDir(input, cwd);
-  if (bundledPluginDir) {
-    return {
-      kind: 'local-dir',
-      path: bundledPluginDir,
-    };
-  }
-  if (looksLikeLocalPath(input)) {
-    throw new Error(`Plugin path not found: ${input}`);
-  }
-  if (isPackagedPluginId(PACKAGE_ROOT, input)) {
-    throw new Error(
-      `Plugin ${input} ships with HybridClaw but is missing from this install (${path.join(PACKAGE_ROOT, 'plugins', input)}); it is never fetched from npm.`,
-    );
-  }
-  return {
-    kind: 'npm-spec',
-    spec: input,
-  };
-}
-
 function normalizePluginId(input: string): string {
   const pluginId = String(input || '').trim();
   if (!pluginId) {
@@ -426,12 +297,19 @@ function assertPluginManifestDir(dir: string): void {
 function preparePluginSource(
   sourceRef: PluginSource,
   runCommand: PluginInstallCommandRunner,
+  approveNpmInstall: boolean,
 ): { sourceDir: string; cleanupDirs: string[] } {
   if (sourceRef.kind === 'local-dir') {
     return {
       sourceDir: sourceRef.path,
       cleanupDirs: [],
     };
+  }
+  if (
+    (sourceRef.kind === 'npm-registry' || sourceRef.kind === 'remote-url') &&
+    !approveNpmInstall
+  ) {
+    throw new PluginNpmInstallApprovalRequiredError(sourceRef.spec);
   }
 
   const fetchRoot = fs.mkdtempSync(
@@ -859,8 +737,12 @@ export async function installPlugin(
     options.runCheckCommand ?? defaultPluginDependencyCheckCommand;
   const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
   const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
-  const sourceRef = resolvePluginSource(trimmedSource, cwd);
-  const preparedSource = preparePluginSource(sourceRef, runCommand);
+  const sourceRef = resolvePluginSource(trimmedSource, cwd, PACKAGE_ROOT);
+  const preparedSource = preparePluginSource(
+    sourceRef,
+    runCommand,
+    options.approveNpmInstall === true,
+  );
 
   try {
     return installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
@@ -899,8 +781,12 @@ export async function reinstallPlugin(
     options.runCheckCommand ?? defaultPluginDependencyCheckCommand;
   const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
   const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
-  const sourceRef = resolvePluginSource(trimmedSource, cwd);
-  const preparedSource = preparePluginSource(sourceRef, runCommand);
+  const sourceRef = resolvePluginSource(trimmedSource, cwd, PACKAGE_ROOT);
+  const preparedSource = preparePluginSource(
+    sourceRef,
+    runCommand,
+    options.approveNpmInstall === true,
+  );
 
   try {
     assertPluginManifestDir(preparedSource.sourceDir);

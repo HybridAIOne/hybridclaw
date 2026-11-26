@@ -56,6 +56,7 @@ import {
   setPluginInboundMessageDispatcher,
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
+import { isPluginNpmInstallApprovalRequiredError } from '../plugins/plugin-source.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -736,7 +737,10 @@ export async function handlePluginGatewayCommand(params: {
           const installAndEnable = async (
             approveDependencyInstall: boolean,
           ): Promise<GatewayCommandResult> => {
+            // Registered install sources are pinned in code, so their
+            // download needs no prompt; dependency installs still do.
             const result = await installPlugin(installSource, {
+              approveNpmInstall: true,
               approveDependencyInstall,
             });
             await setPluginEnabled(pluginId, true);
@@ -841,13 +845,17 @@ export async function handlePluginGatewayCommand(params: {
     }
   }
 
-  if (sub === 'install' || sub === 'install-official') {
+  if (sub === 'install' || sub === 'install-official' || sub === 'reinstall') {
     const requestedSource = parseIdArg(req.args, 2);
     const yes = parseIdArg(req.args, 3);
+    const isReinstall = sub === 'reinstall';
     const officialOnly = sub === 'install-official';
+    const verb = isReinstall ? 'reinstall' : 'install';
+    const verbTitle = isReinstall ? 'Reinstall' : 'Install';
+    const verbPastTitle = isReinstall ? 'Reinstalled' : 'Installed';
     const usage = officialOnly
       ? 'Usage: `plugin install-official <plugin-id> [--yes]`'
-      : 'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`';
+      : `Usage: \`plugin ${verb} <path|plugin-id|npm-spec> [--yes]\``;
     if (!requestedSource) {
       return badCommand('Usage', usage);
     }
@@ -856,8 +864,8 @@ export async function handlePluginGatewayCommand(params: {
     }
     if (!isLocalSession(req)) {
       return badCommand(
-        'Plugin Install Restricted',
-        '`plugin install` is only available from local TUI/web sessions.',
+        `Plugin ${verbTitle} Restricted`,
+        `\`plugin ${verb}\` is only available from local TUI/web sessions.`,
       );
     }
     const source = officialOnly
@@ -879,126 +887,43 @@ export async function handlePluginGatewayCommand(params: {
         `[check] plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
       );
     };
-    try {
-      const result = await installPlugin(source, {
-        approveDependencyInstall: yes === '--yes',
-        onDependenciesAlreadySatisfied,
-      });
-      const reloadResult = await reloadPluginRuntime();
-      const lines = [
-        result.alreadyInstalled
-          ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
-          : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-        ...depsSatisfiedLines,
-        ...buildDependencyInstallLines(result),
-        ...formatPluginInstallGuidance(
-          result,
-          runtimeConfigPath(),
-          markdownCode,
-        ),
-        ...buildMissingBinaryGuidanceLines(
-          result.pluginId,
-          result.missingRequiredBins,
-        ),
-        reloadResult.message,
-      ];
-      return infoCommand('Plugin Installed', lines.join('\n'));
-    } catch (error) {
-      if (isDependencyApprovalRequiredError(error)) {
-        const step = resolveNextPluginDependencyApprovalStep({
-          sessionId: req.sessionId,
-          source,
-          plan: error.plan,
-        });
-        if (!step) {
-          const result = await installPlugin(source, {
-            approveDependencyInstall: true,
-          });
-          const reloadResult = await reloadPluginRuntime();
-          const lines = [
-            result.alreadyInstalled
-              ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
-              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-            ...buildDependencyInstallLines(result),
-            ...formatPluginInstallGuidance(
-              result,
-              runtimeConfigPath(),
-              markdownCode,
-            ),
-            ...buildMissingBinaryGuidanceLines(
-              result.pluginId,
-              result.missingRequiredBins,
-            ),
-            reloadResult.message,
-          ];
-          return infoCommand('Plugin Installed', lines.join('\n'));
-        }
-        await rememberPendingApproval({
-          sessionId: req.sessionId,
-          approvalId: step.approvalId,
-          prompt: step.prompt,
-          userId: String(req.userId || req.sessionId).trim() || req.sessionId,
-          commandAction: {
-            approveArgs: ['plugin', 'install', source],
-            actionKey: step.actionKey,
-            allowSession: step.allowSession,
-            allowAgent: step.allowAgent,
-            allowAll: step.allowAll,
-            denyTitle: 'Plugin Install Cancelled',
-            denyText: `Cancelled plugin install for \`${source}\`.`,
-          },
-        });
-        return infoCommand('Pending Approval', step.prompt);
-      }
-      return badCommand(
-        'Plugin Install Failed',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  if (sub === 'reinstall') {
-    const source = parseIdArg(req.args, 2);
-    const yes = parseIdArg(req.args, 3);
-    if (!source) {
-      return badCommand(
-        'Usage',
-        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
-      );
-    }
-    if (yes && yes !== '--yes') {
-      return badCommand(
-        'Usage',
-        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
-      );
-    }
-    if (!isLocalSession(req)) {
-      return badCommand(
-        'Plugin Reinstall Restricted',
-        '`plugin reinstall` is only available from local TUI/web sessions.',
-      );
-    }
-    const reinstallDepsSatisfiedLines: string[] = [];
-    const onReinstallDependenciesAlreadySatisfied = (plan: {
-      usesPackageJson: boolean;
-      nodePackages: string[];
-      pipPackages: string[];
-    }): void => {
-      reinstallDepsSatisfiedLines.push(
-        `[check] plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
-      );
+    const runInstall = (params: {
+      approveNpmInstall: boolean;
+      approveDependencyInstall: boolean;
+      includeSatisfiedCallback: boolean;
+    }) => {
+      // Official catalog sources are pinned in code, so their download needs
+      // no prompt; dependency installs still do.
+      const options = {
+        ...(params.approveNpmInstall || officialOnly
+          ? { approveNpmInstall: true }
+          : {}),
+        approveDependencyInstall: params.approveDependencyInstall,
+        ...(params.includeSatisfiedCallback
+          ? { onDependenciesAlreadySatisfied }
+          : {}),
+      };
+      return isReinstall
+        ? reinstallPlugin(source, options)
+        : installPlugin(source, options);
     };
-    try {
-      const result = await reinstallPlugin(source, {
-        approveDependencyInstall: yes === '--yes',
-        onDependenciesAlreadySatisfied: onReinstallDependenciesAlreadySatisfied,
-      });
+    const formatSuccess = async (
+      result: Awaited<ReturnType<typeof installPlugin>> & {
+        replacedExistingInstall?: boolean;
+      },
+      includeSatisfiedLines: boolean,
+    ): Promise<GatewayCommandResult> => {
       const reloadResult = await reloadPluginRuntime();
-      const lines = [
-        result.replacedExistingInstall
+      const headline = isReinstall
+        ? result.replacedExistingInstall
           ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
-          : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-        ...reinstallDepsSatisfiedLines,
+          : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
+        : result.alreadyInstalled
+          ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
+          : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`;
+      const lines = [
+        headline,
+        ...(includeSatisfiedLines ? depsSatisfiedLines : []),
         ...buildDependencyInstallLines(result),
         ...formatPluginInstallGuidance(
           result,
@@ -1011,8 +936,67 @@ export async function handlePluginGatewayCommand(params: {
         ),
         reloadResult.message,
       ];
-      return infoCommand('Plugin Reinstalled', lines.join('\n'));
-    } catch (error) {
+      return infoCommand(`Plugin ${verbPastTitle}`, lines.join('\n'));
+    };
+    const approvedByFlag = yes === '--yes';
+    let approvedNpmActionKey: string | null = null;
+    try {
+      const result = await runInstall({
+        approveNpmInstall: approvedByFlag,
+        approveDependencyInstall: approvedByFlag,
+        includeSatisfiedCallback: true,
+      });
+      return await formatSuccess(result, true);
+    } catch (firstError) {
+      let error: unknown = firstError;
+      if (isPluginNpmInstallApprovalRequiredError(error)) {
+        const npmActionKey = `plugin-npm-fetch:${error.spec}`;
+        if (
+          !consumeCommandApproval({
+            sessionId: req.sessionId,
+            actionKey: npmActionKey,
+          })
+        ) {
+          const approvalId = randomUUID();
+          const prompt = buildPluginDependencyApprovalPrompt({
+            approvalId,
+            intent: `download and ${verb} plugin \`${error.spec}\``,
+            reason:
+              'plugins run in-process in the gateway; downloading a plugin from npm or a URL executes third-party plugin code',
+            consequenceIfDenied: `plugin ${verb} will be cancelled.`,
+            allowSession: false,
+            allowAgent: false,
+            allowAll: false,
+          });
+          await rememberPendingApproval({
+            sessionId: req.sessionId,
+            approvalId,
+            prompt,
+            userId: String(req.userId || req.sessionId).trim() || req.sessionId,
+            commandAction: {
+              approveArgs: ['plugin', verb, source],
+              actionKey: npmActionKey,
+              allowSession: false,
+              allowAgent: false,
+              allowAll: false,
+              denyTitle: `Plugin ${verbTitle} Cancelled`,
+              denyText: `Cancelled plugin ${verb} for \`${source}\`.`,
+            },
+          });
+          return infoCommand('Pending Approval', prompt);
+        }
+        approvedNpmActionKey = npmActionKey;
+        try {
+          const result = await runInstall({
+            approveNpmInstall: true,
+            approveDependencyInstall: approvedByFlag,
+            includeSatisfiedCallback: true,
+          });
+          return await formatSuccess(result, true);
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
       if (isDependencyApprovalRequiredError(error)) {
         const step = resolveNextPluginDependencyApprovalStep({
           sessionId: req.sessionId,
@@ -1020,27 +1004,12 @@ export async function handlePluginGatewayCommand(params: {
           plan: error.plan,
         });
         if (!step) {
-          const result = await reinstallPlugin(source, {
+          const result = await runInstall({
+            approveNpmInstall: approvedByFlag || approvedNpmActionKey !== null,
             approveDependencyInstall: true,
+            includeSatisfiedCallback: false,
           });
-          const reloadResult = await reloadPluginRuntime();
-          const lines = [
-            result.replacedExistingInstall
-              ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
-              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-            ...buildDependencyInstallLines(result),
-            ...formatPluginInstallGuidance(
-              result,
-              runtimeConfigPath(),
-              markdownCode,
-            ),
-            ...buildMissingBinaryGuidanceLines(
-              result.pluginId,
-              result.missingRequiredBins,
-            ),
-            reloadResult.message,
-          ];
-          return infoCommand('Plugin Reinstalled', lines.join('\n'));
+          return await formatSuccess(result, false);
         }
         await rememberPendingApproval({
           sessionId: req.sessionId,
@@ -1048,19 +1017,22 @@ export async function handlePluginGatewayCommand(params: {
           prompt: step.prompt,
           userId: String(req.userId || req.sessionId).trim() || req.sessionId,
           commandAction: {
-            approveArgs: ['plugin', 'reinstall', source],
+            approveArgs: ['plugin', verb, source],
             actionKey: step.actionKey,
+            ...(approvedNpmActionKey
+              ? { carryActionKeys: [approvedNpmActionKey] }
+              : {}),
             allowSession: step.allowSession,
             allowAgent: step.allowAgent,
             allowAll: step.allowAll,
-            denyTitle: 'Plugin Reinstall Cancelled',
-            denyText: `Cancelled plugin reinstall for \`${source}\`.`,
+            denyTitle: `Plugin ${verbTitle} Cancelled`,
+            denyText: `Cancelled plugin ${verb} for \`${source}\`.`,
           },
         });
         return infoCommand('Pending Approval', step.prompt);
       }
       return badCommand(
-        'Plugin Reinstall Failed',
+        `Plugin ${verbTitle} Failed`,
         error instanceof Error ? error.message : String(error),
       );
     }

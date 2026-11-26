@@ -2009,14 +2009,14 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'source',
               description:
-                'Local plugin path, repo-local plugin id, or npm package spec',
+                'Local plugin path, bundled/project plugin id, archive URL, or npm:<package>',
               required: true,
             },
             {
               kind: 'string',
               name: 'yes',
               description:
-                'Optional --yes override to approve dependency installs',
+                'Optional --yes override to approve plugin downloads (npm or URL) and dependency installs',
               choices: [{ name: '--yes', value: '--yes' }],
             },
           ],
@@ -2035,14 +2035,14 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'source',
               description:
-                'Local plugin path, repo-local plugin id, or npm package spec',
+                'Local plugin path, bundled/project plugin id, archive URL, or npm:<package>',
               required: true,
             },
             {
               kind: 'string',
               name: 'yes',
               description:
-                'Optional --yes override to approve dependency installs',
+                'Optional --yes override to approve plugin downloads (npm or URL) and dependency installs',
               choices: [{ name: '--yes', value: '--yes' }],
             },
           ],

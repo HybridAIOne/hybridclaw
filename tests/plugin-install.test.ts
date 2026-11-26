@@ -325,6 +325,7 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveNpmInstall: true,
       approveDependencyInstall: true,
       getRuntimeConfig: runtimeConfig.getRuntimeConfig,
       updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
@@ -610,6 +611,30 @@ describe('plugin install', () => {
         updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
       }),
     ).rejects.toBeInstanceOf(PluginDependencyApprovalRequiredError);
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+
+  test('requires explicit npm approval before contacting the npm registry', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const runtimeConfig = createRuntimeConfigState();
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const { PluginNpmInstallApprovalRequiredError } = await import(
+      '../src/plugins/plugin-source.js'
+    );
+
+    await expect(
+      installPlugin('@scope/demo-plugin', {
+        homeDir,
+        cwd,
+        runCommand,
+        approveDependencyInstall: true,
+        getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+        updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+      }),
+    ).rejects.toBeInstanceOf(PluginNpmInstallApprovalRequiredError);
     expect(runCommand).not.toHaveBeenCalled();
   });
 
@@ -1012,6 +1037,7 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveNpmInstall: true,
       approveDependencyInstall: true,
       getRuntimeConfig: runtimeConfig.getRuntimeConfig,
       updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,

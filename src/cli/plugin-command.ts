@@ -8,40 +8,58 @@ import {
   formatPluginInstallGuidance,
   formatPluginSummaryList,
 } from '../plugins/plugin-formatting.js';
-import type { InstallPluginResult } from '../plugins/plugin-install.js';
+import type {
+  InstallPluginResult,
+  ReinstallPluginResult,
+} from '../plugins/plugin-install.js';
 import {
   formatDependencyPlanDetails,
   listInstallablePlugins,
 } from '../plugins/plugin-install.js';
+import { isPluginNpmInstallApprovalRequiredError } from '../plugins/plugin-source.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printPluginUsage } from './help.js';
 
 const green = (s: string): string =>
   process.stdout.isTTY ? `\x1b[32m${s}\x1b[0m` : s;
 
-async function confirmDependencyInstall(plan: {
-  usesPackageJson: boolean;
-  nodePackages: string[];
-  pipPackages: string[];
+async function confirmPrompt(params: {
+  question: string;
+  nonInteractiveMessage: string;
 }): Promise<boolean> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      'Plugin dependency installation requires an interactive terminal. Re-run with --yes to approve.',
-    );
+    throw new Error(params.nonInteractiveMessage);
   }
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
   try {
-    const answer = await rl.question(
-      `Install plugin dependencies (${formatDependencyPlanDetails(plan)})? [y/N] `,
-    );
+    const answer = await rl.question(params.question);
     const normalized = answer.trim().toLowerCase();
     return normalized === 'y' || normalized === 'yes';
   } finally {
     rl.close();
   }
+}
+
+async function confirmNpmInstall(spec: string): Promise<boolean> {
+  return confirmPrompt({
+    question: `Download and install plugin "${spec}"? Plugins run in-process in the gateway. [y/N] `,
+    nonInteractiveMessage: `Downloading plugin "${spec}" requires an interactive terminal. Re-run with --yes to approve.`,
+  });
+}
+
+async function confirmDependencyInstall(plan: {
+  usesPackageJson: boolean;
+  nodePackages: string[];
+  pipPackages: string[];
+}): Promise<boolean> {
+  return confirmPrompt({
+    question: `Install plugin dependencies (${formatDependencyPlanDetails(plan)})? [y/N] `,
+    nonInteractiveMessage:
+      'Plugin dependency installation requires an interactive terminal. Re-run with --yes to approve.',
+  });
 }
 
 function isDependencyApprovalRequiredError(error: unknown): error is {
@@ -161,31 +179,92 @@ function printDependencyInstallSummary(params: {
   }
 }
 
+async function runPluginInstallWithApproval<
+  T extends InstallPluginResult | ReinstallPluginResult,
+>(
+  verb: 'install' | 'reinstall',
+  runner: (options: {
+    approveNpmInstall: boolean;
+    approveDependencyInstall: boolean;
+    onDependenciesAlreadySatisfied: (plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    }) => void;
+  }) => Promise<T>,
+  approved: boolean,
+): Promise<T | null> {
+  let approveNpmInstall = approved;
+  let approveDependencyInstall = approved;
+  const onDependenciesAlreadySatisfied = (plan: {
+    usesPackageJson: boolean;
+    nodePackages: string[];
+    pipPackages: string[];
+  }): void => {
+    console.log(
+      `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+    );
+  };
+
+  for (;;) {
+    try {
+      return await runner({
+        approveNpmInstall,
+        approveDependencyInstall,
+        onDependenciesAlreadySatisfied,
+      });
+    } catch (error) {
+      if (
+        isPluginNpmInstallApprovalRequiredError(error) &&
+        !approveNpmInstall
+      ) {
+        const confirmed = await confirmNpmInstall(error.spec);
+        if (!confirmed) {
+          console.log(`Plugin ${verb} cancelled.`);
+          return null;
+        }
+        approveNpmInstall = true;
+        continue;
+      }
+      if (
+        isDependencyApprovalRequiredError(error) &&
+        !approveDependencyInstall
+      ) {
+        const confirmed = await confirmDependencyInstall(error.plan);
+        if (!confirmed) {
+          console.log(`Plugin ${verb} cancelled.`);
+          return null;
+        }
+        approveDependencyInstall = true;
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 async function installPluginWithApproval(
   source: string,
   approved: boolean,
 ): Promise<InstallPluginResult | null> {
   const { installPlugin } = await import('../plugins/plugin-install.js');
-  try {
-    return await installPlugin(source, {
-      approveDependencyInstall: approved,
-      onDependenciesAlreadySatisfied: (plan) => {
-        console.log(
-          `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
-        );
-      },
-    });
-  } catch (error) {
-    if (!isDependencyApprovalRequiredError(error) || approved) throw error;
-    const confirmed = await confirmDependencyInstall(error.plan);
-    if (!confirmed) {
-      console.log('Plugin install cancelled.');
-      return null;
-    }
-    return await installPlugin(source, {
-      approveDependencyInstall: true,
-    });
-  }
+  return runPluginInstallWithApproval(
+    'install',
+    (options) => installPlugin(source, options),
+    approved,
+  );
+}
+
+async function reinstallPluginWithApproval(
+  source: string,
+  approved: boolean,
+): Promise<ReinstallPluginResult | null> {
+  const { reinstallPlugin } = await import('../plugins/plugin-install.js');
+  return runPluginInstallWithApproval(
+    'reinstall',
+    (options) => reinstallPlugin(source, options),
+    approved,
+  );
 }
 
 function resolvePluginEnableInstallSource(pluginId: string): string | null {
@@ -418,8 +497,13 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
           `Plugin \`${pluginId}\` was not found and has no registered install source.`,
         );
       }
-      const installedPlugin = await installPluginWithApproval(
-        installSource,
+      const { installPlugin } = await import('../plugins/plugin-install.js');
+      // Registered install sources are pinned in code, so their download
+      // needs no prompt; dependency installs still do.
+      const installedPlugin = await runPluginInstallWithApproval(
+        'install',
+        (options) =>
+          installPlugin(installSource, { ...options, approveNpmInstall: true }),
         yes === '--yes',
       );
       if (!installedPlugin) return;
@@ -514,32 +598,8 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       );
     }
 
-    const { reinstallPlugin } = await import('../plugins/plugin-install.js');
-    let result: Awaited<ReturnType<typeof reinstallPlugin>>;
-    try {
-      result = await reinstallPlugin(source, {
-        approveDependencyInstall: yes === '--yes',
-        onDependenciesAlreadySatisfied: (plan) => {
-          console.log(
-            `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
-          );
-        },
-      });
-    } catch (error) {
-      if (isDependencyApprovalRequiredError(error)) {
-        if (yes === '--yes') throw error;
-        const confirmed = await confirmDependencyInstall(error.plan);
-        if (!confirmed) {
-          console.log('Plugin reinstall cancelled.');
-          return;
-        }
-        result = await reinstallPlugin(source, {
-          approveDependencyInstall: true,
-        });
-      } else {
-        throw error;
-      }
-    }
+    const result = await reinstallPluginWithApproval(source, yes === '--yes');
+    if (!result) return;
 
     if (result.replacedExistingInstall) {
       console.log(

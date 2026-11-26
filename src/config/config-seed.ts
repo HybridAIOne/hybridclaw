@@ -157,6 +157,7 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
   const installedIds = new Set<string>();
   for (const source of seed.plugins) {
     const installed = await reinstallPlugin(source, {
+      approveNpmInstall: true,
       approveDependencyInstall: true,
     });
     installedIds.add(installed.pluginId);
