@@ -73,11 +73,6 @@ import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { parseApprovalProgress } from './approval-progress.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
-import {
-  collectConfiguredDiscordChannelIds,
-  resolveBrowserProfileHostDir,
-  resolveDiscordMediaCacheHostDir,
-} from './container-runner.js';
 import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
@@ -140,11 +135,16 @@ import {
   takeBrowserFrame,
   takeSlideSamples,
 } from './worker-artifacts.js';
+import { collectConfiguredDiscordChannelIds } from './worker-input.js';
 import { WorkerLifecycle } from './worker-lifecycle.js';
 import {
   recoverWorkerFailure,
   recoverWorkerOutput,
 } from './worker-recovery.js';
+import {
+  resolveBrowserProfileHostDir,
+  resolveDiscordMediaCacheHostDir,
+} from './worker-runner.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;

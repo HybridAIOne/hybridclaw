@@ -145,10 +145,10 @@ const RUNNERS = [
   {
     runner: 'ContainerExecutor',
     createExecutor: async () => {
-      const { ContainerExecutor } = await import(
+      const { containerRunner } = await import(
         '../src/infra/container-runner.js'
       );
-      return new ContainerExecutor();
+      return containerRunner;
     },
   },
   {

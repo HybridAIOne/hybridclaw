@@ -117,10 +117,10 @@ test('ContainerExecutor preserves user-visible result and error strings from age
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
   const output = await executor.exec({
     sessionId: 'session-redaction',
     messages: [{ role: 'user', content: 'hello' }],
@@ -222,10 +222,10 @@ test('ContainerExecutor preserves user-visible streamed text and tool progress w
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
   const deltas: string[] = [];
   const toolEvents: Array<{ preview?: string }> = [];
   await executor.exec({
@@ -322,10 +322,10 @@ test('ContainerExecutor preserves user-visible approval details while redacting 
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
   const output = await executor.exec({
     sessionId: 'session-approval-redaction',
     messages: [{ role: 'user', content: 'hello' }],
@@ -418,10 +418,10 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   const firstOutput = await executor.exec({
     sessionId: 'heartbeat:main',
@@ -543,10 +543,10 @@ test('ContainerExecutor claims a warm container for a later session', async () =
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-before-warm',
@@ -654,10 +654,10 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-gateway-env',
@@ -756,10 +756,10 @@ test('ContainerExecutor stages the container node_modules symlink before docker 
     'dir',
   );
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-node-link',
@@ -846,10 +846,10 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-no-stream-ipc',
@@ -942,10 +942,10 @@ test('ContainerExecutor does not apply the HybridAI token cap to remote OpenAI-c
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-openrouter-max-tokens',
@@ -1030,10 +1030,10 @@ test.each([
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-openrouter-anthropic-max-tokens',
@@ -1134,10 +1134,10 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
   const output = await executor.exec({
     sessionId: 'session-missing-runtime-dep',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1222,10 +1222,10 @@ test('ContainerExecutor forwards maxWallClockMs to the IPC output reader', async
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-max-wall-clock',
@@ -1310,10 +1310,10 @@ test('ContainerExecutor forwards disabled inactivity timeout to the IPC output r
     },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  const executor = new ContainerExecutor();
+  const executor = containerRunner;
 
   await executor.exec({
     sessionId: 'session-no-inactivity-timeout',
@@ -1422,8 +1422,8 @@ test('ContainerExecutor treats heartbeat lines as activity without evicting stde
       error: vi.fn(),
     },
   }));
-  const { ContainerExecutor } = await import('../src/infra/container-runner.js');
-  const executor = new ContainerExecutor();
+  const { containerRunner } = await import('../src/infra/container-runner.js');
+  const executor = containerRunner;
   const output = await executor.exec({
     sessionId: 'session-heartbeat-history',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1515,9 +1515,9 @@ test('ContainerExecutor reports an in-flight session while readOutput is pending
     },
   }));
 
-  const { ContainerExecutor, getInFlightContainerCount } = await import('../src/infra/container-runner.js');
-  const executor = new ContainerExecutor();
-  expect(getInFlightContainerCount()).toBe(0);
+  const { containerRunner } = await import('../src/infra/container-runner.js');
+  const executor = containerRunner;
+  expect(containerRunner.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionIds()).toEqual([]);
   const pending = executor.exec({
@@ -1531,14 +1531,14 @@ test('ContainerExecutor reports an in-flight session while readOutput is pending
   });
   await vi.waitFor(() => expect(readOutput).toHaveBeenCalledTimes(1));
 
-  expect(getInFlightContainerCount()).toBe(1);
+  expect(containerRunner.getInFlightSessionCount()).toBe(1);
   expect(executor.getInFlightSessionCount()).toBe(1);
   expect(executor.getInFlightSessionIds()).toEqual(['session-in-flight']);
 
   finishOutput?.();
   await pending;
 
-  expect(getInFlightContainerCount()).toBe(0);
+  expect(containerRunner.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
   expect(executor.getInFlightSessionIds()).toEqual([]);
   // The worker stays attached after the turn; it is just no longer running.

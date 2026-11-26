@@ -14,7 +14,7 @@ import {
   getSandboxAutoDetectionState,
   MOUNT_ALLOWLIST_PATH,
 } from '../config/config.js';
-import { ContainerExecutor } from '../infra/container-runner.js';
+import { containerRunner } from '../infra/container-runner.js';
 import { HostExecutor } from '../infra/host-runner.js';
 import { parseBindSpecs } from '../security/mount-config.js';
 import type {
@@ -39,11 +39,11 @@ export interface SandboxDiagnostics {
   warning: string | null;
 }
 
-let containerExecutor: ContainerExecutor | null = null;
+let containerExecutor: Executor | null = null;
 let hostExecutor: HostExecutor | null = null;
 
-function getContainerExecutor(): ContainerExecutor {
-  containerExecutor ??= new ContainerExecutor();
+function getContainerExecutor(): Executor {
+  containerExecutor ??= containerRunner;
   return containerExecutor;
 }
 

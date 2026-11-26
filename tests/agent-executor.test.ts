@@ -24,17 +24,12 @@ test('getExecutor honors per-request host override when global mode is container
 
   const containerExecutor = makeExecutor('container', '/container-workspace');
   const hostExecutor = makeExecutor('host', '/host-workspace');
-  const ContainerExecutor = vi
-    .fn()
-    .mockImplementation(function MockContainerExecutor() {
-      return containerExecutor;
-    });
   const HostExecutor = vi.fn().mockImplementation(function MockHostExecutor() {
     return hostExecutor;
   });
 
   vi.doMock('../src/infra/container-runner.js', () => ({
-    ContainerExecutor,
+    containerRunner: containerExecutor,
   }));
   vi.doMock('../src/infra/host-runner.js', () => ({
     HostExecutor,
