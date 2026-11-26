@@ -411,11 +411,16 @@ evaluation. Set `session.headed` when the session shows a window on the
 gateway host; the gateway reports it to the agent.
 
 Register the provider with the plugin's own config and credentials in the
-closure. A plugin reload re-registers it; the gateway rebuilds open sessions of
-that kind on their next call only when the plugin or its config changed, so
-reloading another plugin keeps them open. A `browser.provider` that no plugin
-registers fails with an install hint, or with the plugin's load error when it
-failed to load; it never falls back to `local`.
+closure. The gateway calls `provider.closeSession(session, { signal })` to tear
+down cached sessions on gateway shutdown, plugin unload/reload, or browser
+config changes; every teardown is bounded by a short timeout so a hung remote
+provider cannot block shutdown. Config edits, installs, or uninstalls of
+unrelated plugins keep unchanged browser sessions open, while editing,
+disabling, or uninstalling the active browser plugin, running `/plugin reload`
+or `/plugin reinstall`, or shutting down the gateway closes cached sessions
+immediately. A `browser.provider` that no plugin registers fails with an install
+hint, or with the plugin's load error when it failed to load; it never falls
+back to `local`.
 
 ```js
 export default {

@@ -2,9 +2,17 @@ import type { Buffer } from 'node:buffer';
 import type { SecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 
+export interface CloseSessionOptions {
+  /** Aborted when a shutdown, unload, or reload timeout expires. */
+  signal?: AbortSignal;
+}
+
 export interface BrowserProvider {
   launchSession(opts: SessionOptions): Promise<BrowserSession>;
-  closeSession(session: BrowserSession): Promise<void>;
+  closeSession(
+    session: BrowserSession,
+    opts?: CloseSessionOptions,
+  ): Promise<void>;
   getCapabilities?(): BrowserProviderCapabilities;
 }
 

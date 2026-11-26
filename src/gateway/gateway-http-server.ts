@@ -73,13 +73,15 @@ import {
 } from '../board/card-store.js';
 import type {
   BrowserFillInput,
-  BrowserProvider,
-  BrowserSession,
   BrowserTwoFactorState,
   BrowserWaypointEvent,
 } from '../browser/provider.js';
-import { createBrowserProvider } from '../browser/provider-factory.js';
-import { browserSessionConfigSignature } from '../browser/session-config-signature.js';
+import {
+  closeGatewayBrowserSession,
+  type GatewayBrowserSessionEntry,
+  getCachedGatewayBrowserSession,
+  getOrCreateGatewayBrowserSession,
+} from '../browser/session-registry.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
@@ -697,15 +699,6 @@ type ApiAdminPolicyRequestBody = {
   rule?: unknown;
 };
 
-type GatewayBrowserSessionEntry = {
-  provider: BrowserProvider;
-  configSignature: string;
-  session: BrowserSession;
-  skillName: string;
-};
-
-const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
-
 function normalizeGatewayBrowserSessionId(value: unknown): string {
   const normalized = String(value || '').trim();
   if (!normalized) throw new GatewayRequestError(400, 'Missing `sessionId`.');
@@ -805,7 +798,7 @@ async function sendGatewayBrowserFrame(
   sessionId: string,
   args: Record<string, unknown>,
 ): Promise<void> {
-  const active = gatewayBrowserSessions.get(sessionId);
+  const active = getCachedGatewayBrowserSession(sessionId);
   if (!active?.session.liveFrame) {
     sendJson(res, 200, { success: true });
     return;
@@ -1070,42 +1063,11 @@ async function getGatewayBrowserSession(
   opts?: { headed?: boolean; skillName?: string },
 ): Promise<GatewayBrowserSessionEntry> {
   const browserConfig = getRuntimeConfig().browser;
-  const configSignature = browserSessionConfigSignature(browserConfig);
-  const existing = gatewayBrowserSessions.get(sessionId);
-  if (existing) {
-    if (existing.configSignature === configSignature) return existing;
-    try {
-      await existing.provider.closeSession(existing.session);
-    } catch (err) {
-      logger.warn(
-        { err, sessionId },
-        'Failed to close stale gateway browser session after browser config change',
-      );
-    }
-    gatewayBrowserSessions.delete(sessionId);
-  }
-  const provider = createBrowserProvider(browserConfig, {
+  return await getOrCreateGatewayBrowserSession(sessionId, agentId, {
+    headed: opts?.headed,
+    skillName: normalizeGatewayBrowserSkillName(opts?.skillName),
     pluginLoadError: findPluginLoadError(browserConfig.provider),
   });
-  const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
-  const session = await provider.launchSession({
-    headed: opts?.headed,
-    timeoutMs: 60_000,
-    metering: {
-      sessionId,
-      agentId,
-      auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
-      skillName,
-    },
-  });
-  const entry = {
-    provider,
-    configSignature,
-    session,
-    skillName,
-  };
-  gatewayBrowserSessions.set(sessionId, entry);
-  return entry;
 }
 
 async function handleApiBrowserTool(
@@ -1128,11 +1090,7 @@ async function handleApiBrowserTool(
   }
 
   if (toolName === 'browser_close') {
-    const active = gatewayBrowserSessions.get(sessionId);
-    if (active) {
-      await active.provider.closeSession(active.session);
-      gatewayBrowserSessions.delete(sessionId);
-    }
+    await closeGatewayBrowserSession(sessionId);
     sendJson(res, 200, { success: true, closed: true });
     return;
   }

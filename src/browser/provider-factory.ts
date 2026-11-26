@@ -6,7 +6,7 @@
  * operator who picked a remote pool or their own desktop browser must not get
  * a different browser with different reach.
  *
- * NOT the per-chat session cache (`gateway-http-server.ts`) and not the
+ * NOT the per-chat session cache (`session-registry.ts`) and not the
  * capability surface handed to providers (`provider-host.ts`).
  */
 import type { RuntimeBrowserConfig } from '../config/runtime-config.js';

@@ -853,3 +853,57 @@ test('browser-use cloud provider rejects malformed successful API payloads', asy
   ).rejects.toThrow(/without a valid id/u);
   expect(mock.connectOverCDP).not.toHaveBeenCalled();
 });
+
+test('browser-use cloud provider propagates closeSession abort signal to stop PATCH', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: 'cloud-session-abort',
+          status: 'active',
+          cdpUrl: 'wss://cdp.browser-use.test/abort',
+        },
+        201,
+      ),
+    )
+    .mockImplementationOnce(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(init.signal?.reason ?? new Error('aborted'));
+          });
+        }),
+    );
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    getApiKey: () => 'bu_test_key',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-abort',
+      agentId: 'agent-abort',
+    },
+  });
+  const controller = new AbortController();
+  const closing = provider.closeSession(session, { signal: controller.signal });
+  controller.abort(new Error('shutdown timeout'));
+
+  await expect(closing).rejects.toThrow(/shutdown timeout/u);
+  expect(mock.browser.close).toHaveBeenCalledTimes(1);
+});

@@ -19,6 +19,7 @@ export { recordAuditEvent } from '../audit/audit-events.js';
 export type {
   BrowserProvider,
   BrowserSession,
+  CloseSessionOptions as BrowserCloseSessionOptions,
   SessionOptions as BrowserSessionOptions,
 } from '../browser/provider.js';
 export type { BrowserProviderRegistration } from '../browser/provider-factory.js';

@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { reloadKeepingBrowserSessions } from '../browser/session-registry.js';
 import {
   getChannelPluginCatalogEntryByPluginId,
   getOfficialChannelPluginCatalogEntries,
@@ -454,13 +455,13 @@ async function notifyChannelPluginAvailabilityChanges(
   }
 }
 
-export async function reloadPluginRuntime(): Promise<{
+export async function reloadPluginRuntime(mode?: 'close-browsers'): Promise<{
   ok: boolean;
   message: string;
 }> {
   const availabilityBefore = snapshotChannelPluginTransportAvailability();
   try {
-    await reloadPluginManager();
+    await reloadKeepingBrowserSessions(reloadPluginManager, mode);
   } catch (error) {
     return {
       ok: false,
@@ -913,7 +914,9 @@ export async function handlePluginGatewayCommand(params: {
       },
       includeSatisfiedLines: boolean,
     ): Promise<GatewayCommandResult> => {
-      const reloadResult = await reloadPluginRuntime();
+      const reloadResult = await reloadPluginRuntime(
+        isReinstall ? 'close-browsers' : undefined,
+      );
       const headline = isReinstall
         ? result.replacedExistingInstall
           ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
@@ -1073,7 +1076,6 @@ export async function handlePluginGatewayCommand(params: {
     }
     try {
       const result = await uninstallPlugin(pluginId);
-      await shutdownPluginManager();
       const lines = [
         result.removedPluginDir
           ? `Uninstalled plugin \`${result.pluginId}\` from \`${result.pluginDir}\`.`
@@ -1081,7 +1083,7 @@ export async function handlePluginGatewayCommand(params: {
         result.removedConfigOverrides > 0
           ? `Removed ${result.removedConfigOverrides} matching \`plugins.list[]\` override${result.removedConfigOverrides === 1 ? '' : 's'}.`
           : 'No matching `plugins.list[]` overrides were removed.',
-        'Plugin runtime will reload on the next turn.',
+        (await reloadPluginRuntime()).message,
       ];
       return infoCommand('Plugin Uninstalled', lines.join('\n'));
     } catch (error) {
@@ -1093,7 +1095,7 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'reload') {
-    const reloadResult = await reloadPluginRuntime();
+    const reloadResult = await reloadPluginRuntime('close-browsers');
     if (!reloadResult.ok) {
       return badCommand('Plugin Reload Failed', reloadResult.message);
     }

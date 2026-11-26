@@ -263,6 +263,8 @@ function createGatewayMainTestState(options?: {
     failStaleDelegationJobs: vi.fn(() => 0),
     listAgents: vi.fn(() => []),
     setChannelPluginAvailabilityListener: vi.fn(),
+    closeAllGatewayBrowserSessions: vi.fn(async () => 0),
+    closeBrowserSessionsOnConfigChange: vi.fn(async () => 0),
     stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
     markQueuedProactiveMessageFailed: vi.fn(),
@@ -738,6 +740,11 @@ async function importFreshGatewayMain(options?: {
     migrateConfigSchedulerJobsToDatabase:
       state.migrateConfigSchedulerJobsToDatabase,
     runGatewayScheduledTask: state.runGatewayScheduledTask,
+  }));
+  vi.doMock('../src/browser/session-registry.js', () => ({
+    closeAllGatewayBrowserSessions: state.closeAllGatewayBrowserSessions,
+    closeBrowserSessionsOnConfigChange:
+      state.closeBrowserSessionsOnConfigChange,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     initGatewayService: state.initGatewayService,
@@ -3287,6 +3294,16 @@ describe('gateway bootstrap', () => {
     const broadcastOrder = broadcastShutdown.mock.invocationCallOrder[0];
     expect(broadcastOrder).toBeGreaterThan(pollOrders[pollOrders.length - 1]);
     expect(broadcastOrder).toBeLessThan(stopOrder);
+    expect(state.closeAllGatewayBrowserSessions).toHaveBeenCalledTimes(1);
+    expect(
+      state.closeAllGatewayBrowserSessions.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(stopOrder);
+    expect(
+      state.closeAllGatewayBrowserSessions.mock.invocationCallOrder[0],
+    ).toBeLessThan(state.shutdownDiscord.mock.invocationCallOrder[0]);
+    expect(
+      state.closeAllGatewayBrowserSessions.mock.invocationCallOrder[0],
+    ).toBeLessThan(state.stopGatewayPlugins.mock.invocationCallOrder[0]);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
@@ -3309,6 +3326,7 @@ describe('gateway bootstrap', () => {
     expect(
       state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
     ).not.toHaveBeenCalled();
+    expect(state.closeAllGatewayBrowserSessions).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

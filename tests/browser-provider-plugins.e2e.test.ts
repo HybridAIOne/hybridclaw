@@ -52,7 +52,12 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
   let pageUrl = '';
   let poolUrl = '';
   let browserUseUrl = '';
-  type Gateway = { dataDir: string; url: string; log: () => string };
+  type Gateway = {
+    child: ChildProcess;
+    dataDir: string;
+    url: string;
+    log: () => string;
+  };
   let managed: Gateway;
   let browserUse: Gateway;
   let camofox: Gateway;
@@ -144,7 +149,7 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     provider: string,
     config: Record<string, unknown>,
     secrets: Record<string, string>,
-  ): Promise<{ dataDir: string; url: string; log: () => string }> {
+  ): Promise<Gateway> {
     const dataDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-browser-plugins-e2e-'),
     );
@@ -187,7 +192,7 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     });
     gateways.push({ child, log: () => log });
     await waitFor(() => fetch(`${url}/health`).then((res) => res.ok), Boolean);
-    return { dataDir, url, log: () => log };
+    return { child, dataDir, url, log: () => log };
   }
 
   beforeAll(async () => {
@@ -322,10 +327,13 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
       'defaultTenantId',
       'tenant-b',
     ]);
+    expect(poolCalls.map((entry) => entry.call)).toContain(
+      'DELETE /leases/lease-1',
+    );
+    expect(leases()[0]?.body).not.toHaveProperty('ttlSeconds');
     await navigate();
     expect(leases()).toHaveLength(2);
     expect(leases()[1]?.body).toMatchObject({ tenantId: 'tenant-b' });
-    expect(poolCalls.map((entry) => entry.call)).toContain('DELETE /leases/lease-1');
   });
 
   test.each([
@@ -408,5 +416,51 @@ describe.skipIf(!ENABLED)('browser provider plugins in a real gateway', { timeou
     expect(browserUseCalls[0]?.body).not.toHaveProperty('timeout');
     expect(browserUseCalls[0]?.body).not.toHaveProperty('browserScreenWidth');
     expect(browserUseCalls[0]?.body).not.toHaveProperty('browserScreenHeight');
+  });
+
+  test('plugin reload stops an open browser-use-cloud session immediately', async () => {
+    const beforePatches = browserUseCalls.filter(
+      (entry) => entry.call === 'PATCH /browsers/bu-1',
+    ).length;
+    const navigated = await waitFor(
+      () => browserTool(browserUse.url, 'browser_navigate', { url: pageUrl }),
+      (result) => result.success === true,
+    );
+    expect(navigated).toMatchObject({ url: pageUrl, title: 'Plugin E2E' });
+
+    await gatewayCommand(browserUse.url, ['plugin', 'reload']);
+
+    const afterPatches = browserUseCalls.filter(
+      (entry) =>
+        entry.call === 'PATCH /browsers/bu-1' &&
+        entry.body.action === 'stop',
+    ).length;
+    expect(afterPatches).toBe(beforePatches + 1);
+  });
+
+  test('SIGTERM stops an open browser-use-cloud session before gateway exit', async () => {
+    const beforePatches = browserUseCalls.filter(
+      (entry) =>
+        entry.call === 'PATCH /browsers/bu-1' &&
+        entry.body.action === 'stop',
+    ).length;
+    const navigated = await waitFor(
+      () => browserTool(browserUse.url, 'browser_navigate', { url: pageUrl }),
+      (result) => result.success === true,
+    );
+    expect(navigated).toMatchObject({ url: pageUrl, title: 'Plugin E2E' });
+
+    const exitCode = await new Promise<number | null>((resolve) => {
+      browserUse.child.once('exit', (code) => resolve(code));
+      browserUse.child.kill('SIGTERM');
+    });
+    expect(exitCode).toBe(0);
+
+    const afterPatches = browserUseCalls.filter(
+      (entry) =>
+        entry.call === 'PATCH /browsers/bu-1' &&
+        entry.body.action === 'stop',
+    ).length;
+    expect(afterPatches).toBe(beforePatches + 1);
   });
 });

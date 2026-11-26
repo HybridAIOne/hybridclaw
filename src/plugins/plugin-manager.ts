@@ -25,6 +25,7 @@ import {
   restoreBrowserProviders,
   snapshotBrowserProviders,
 } from '../browser/provider-factory.js';
+import { closePluginBrowserSessions } from '../browser/session-registry.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
   listChannels,
@@ -923,20 +924,14 @@ export class PluginManager {
 
   async shutdown(): Promise<void> {
     if (!this.initialized && !this.initializing) {
-      for (const entry of [...this.channelTransports].reverse()) {
-        unregisterChannelTransport(entry.transport.kind);
-      }
-      this.channelTransports = [];
-      clearChannelPluginLoadFailures();
-      clearEmbeddingProviders();
-      clearBrowserProviders();
-      clearLocalClassifiers();
-      this.cleanupImportSnapshots();
+      await closePluginBrowserSessions();
+      this.clearRuntimeRegistrations();
       return;
     }
     if (this.initializing) {
       await this.initializing.catch(() => {});
     }
+    await closePluginBrowserSessions();
     const startedAt = this.gatewayStartedAt || new Date().toISOString();
     await this.dispatchHook('gateway_stop', { startedAt });
 
@@ -964,6 +959,10 @@ export class PluginManager {
       }
     }
 
+    this.clearRuntimeRegistrations();
+  }
+
+  private clearRuntimeRegistrations(): void {
     for (const entry of [...this.channelTransports].reverse()) {
       unregisterChannelTransport(entry.transport.kind);
     }
@@ -972,7 +971,6 @@ export class PluginManager {
     clearEmbeddingProviders();
     clearBrowserProviders();
     clearLocalClassifiers();
-
     this.cleanupImportSnapshots();
   }
 
