@@ -11463,6 +11463,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiConfigReload(res);
             return;
           }
+          if (pathname === '/api/msteams/relay' && method === 'POST') {
+            const { handleMSTeamsRelayActivity } = await import(
+              '../channels/msteams/runtime.js'
+            );
+            await handleMSTeamsRelayActivity(req, res);
+            return;
+          }
           if (
             pathname === '/api/connector-approvals/decision' &&
             method === 'POST'

@@ -1,3 +1,4 @@
+import { resolveMSTeamsRelay } from '../../channels/msteams/relay.js';
 import { checkPluginChannels } from '../../channels/plugin-channel/status.js';
 import {
   DISCORD_TOKEN,
@@ -61,11 +62,12 @@ export async function checkChannels(): Promise<DiagResult[]> {
   }
 
   if (config.msteams.enabled) {
-    if (
-      String(MSTEAMS_APP_ID || '').trim() &&
-      String(MSTEAMS_APP_PASSWORD || '').trim()
-    ) {
+    const appId = String(MSTEAMS_APP_ID || '').trim();
+    const password = String(MSTEAMS_APP_PASSWORD || '').trim();
+    if (appId && password) {
       segments.push('Teams configured');
+    } else if (!appId && !password && resolveMSTeamsRelay()) {
+      segments.push('Teams relayed through HybridAI');
     } else {
       segments.push('Teams credentials incomplete');
       severities.push('error');

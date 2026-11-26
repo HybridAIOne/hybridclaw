@@ -54,6 +54,7 @@ import {
   recordMSTeamsRatingTargets,
   resolveMSTeamsRatingTarget,
 } from './reactions.js';
+import { resolveMSTeamsRelay } from './relay.js';
 
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
@@ -414,7 +415,7 @@ export async function startMSTeamsIntegration(): Promise<boolean> {
       }
     },
   );
-  if (!hasCredentials) {
+  if (!hasCredentials && !resolveMSTeamsRelay()) {
     logger.info(
       'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
     );
