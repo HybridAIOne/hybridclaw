@@ -428,9 +428,10 @@ To use it, set `msteams.enabled` and leave `msteams.appId`,
 then reports `Teams relayed through HybridAI`. `dmPolicy` and the allowlists
 still apply on the gateway.
 
-Not carried by the relay yet: inline images that Teams serves only to the
-bot's own token (files attached in a direct chat arrive through their
-pre-authenticated download link and work), and file uploads into channels.
+Images that Teams serves only to the bot arrive as links below the relay and
+are downloaded there with the same key. An image uploaded for a group chat or
+channel is linked below the relay as well; the relay hands Microsoft its own
+address.
 
 ## CLI alternative
 

@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   getAvailablePort,
@@ -25,6 +26,11 @@ const RELAY_PATH = '/teams-relay/app-1';
 const CONVERSATION = 'a:1personal-erika';
 const STARTUP_TIMEOUT_MS = 45_000;
 const TURN_TIMEOUT_MS = 30_000;
+// A 1x1 PNG.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 interface ConnectorCall {
   method: string;
@@ -42,6 +48,7 @@ let baseUrl = '';
 let platformUrl = '';
 let strangerUrl = '';
 let strangerCalls = 0;
+let dataDir = '';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -76,7 +83,7 @@ function platform(
   if (url.startsWith(`${RELAY_PATH}/v3/`)) {
     // The relay carries only what a turn needs, below a conversation.
     if (
-      !/\/v3\/conversations\/[^/?]+\/(activities(\/[^/?]+)?|members\/[^/?]+)$/.test(
+      !/\/v3\/conversations\/[^/?]+\/(activities(\/[^/?]+)?|members\/[^/?]+|attachments\/[^/?]+\/views\/[^/?]+)$/.test(
         url,
       )
     ) {
@@ -88,6 +95,14 @@ function platform(
       authorization: String(req.headers.authorization ?? ''),
       text: (JSON.parse(body || '{}') as { text?: string }).text,
     });
+    if (/\/attachments\//.test(url)) {
+      // A file Teams serves only to the bot, fetched by the relay for the gateway.
+      if (req.headers.authorization !== `Bearer ${PLATFORM_KEY}`) {
+        return json(res, 401, {});
+      }
+      res.writeHead(200, { 'content-type': 'image/png' });
+      return res.end(PNG);
+    }
     if (/\/members\//.test(url)) {
       return json(res, 200, {
         id: '29:1erika-teams-id',
@@ -136,6 +151,7 @@ async function relay(
   serviceUrl: string,
   token: string | null = WEB_API_TOKEN,
   conversationId = CONVERSATION,
+  extra: Record<string, unknown> = {},
 ): Promise<number> {
   activitySeq += 1;
   const response = await fetch(`${baseUrl}/api/msteams/relay`, {
@@ -160,6 +176,7 @@ async function relay(
       recipient: { id: '28:relayed-bot', name: 'Bot' },
       conversation: { id: conversationId, conversationType: 'personal' },
       channelData: { tenant: { id: '72f988bf-86f1-41af-91ab-2d7cd011db47' } },
+      ...extra,
     }),
   });
   return response.status;
@@ -170,7 +187,7 @@ describe.runIf(RUN)('Teams through a relay that owns the bot', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-teams-relay-e2e-'));
     tempDirs.push(root);
     const home = path.join(root, 'home');
-    const dataDir = path.join(root, 'data');
+    dataDir = path.join(root, 'data');
     fs.mkdirSync(home);
     fs.mkdirSync(dataDir);
     platformUrl = await listen(platform);
@@ -268,7 +285,67 @@ describe.runIf(RUN)('Teams through a relay that owns the bot', () => {
         new Set([`Bearer ${PLATFORM_KEY}`]),
       );
       expect(strangerCalls).toBe(0);
+
+      // A pasted image arrives as a link below the relay, and is fetched there
+      // with the platform credential.
+      const image = `${RELAY_PATH}/v3/conversations/${CONVERSATION}/attachments/att-1/views/original`;
+      expect(
+        await relay(`${platformUrl}${RELAY_PATH}/`, WEB_API_TOKEN, CONVERSATION, {
+          attachments: [
+            { contentType: 'image/png', contentUrl: `${platformUrl}${image}` },
+          ],
+        }),
+      ).toBe(202);
+      await expect
+        .poll(() => connectorCalls.find((call) => call.url === image), {
+          timeout: TURN_TIMEOUT_MS,
+          message: gatewayLog.slice(-4000),
+        })
+        .toMatchObject({ method: 'GET', authorization: `Bearer ${PLATFORM_KEY}` });
+
+      // Once the turn is over, a later message for this chat uses the stored
+      // reply address, which is still the relay.
+      await expect
+        .poll(
+          () => connectorCalls.filter((call) => call.text?.includes('fake model')),
+          { timeout: TURN_TIMEOUT_MS },
+        )
+        .toHaveLength(2);
+      const db = new Database(path.join(dataDir, 'data', 'hybridclaw.db'), {
+        readonly: true,
+      });
+      const session = db
+        .prepare(
+          "SELECT id FROM sessions WHERE session_key LIKE '%msteams%' ORDER BY created_at DESC LIMIT 1",
+        )
+        .get() as { id: string };
+      db.close();
+      const sent = await fetch(`${baseUrl}/api/message/action`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${WEB_API_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'send',
+          sessionId: session.id,
+          channelId: 'msteams:current',
+          content: 'Your report is ready.',
+        }),
+      });
+      expect(sent.status, await sent.clone().text()).toBe(200);
+      const later = connectorCalls.find(
+        (call) => call.text === 'Your report is ready.',
+      );
+      expect(later).toMatchObject({
+        method: 'POST',
+        authorization: `Bearer ${PLATFORM_KEY}`,
+      });
+      expect(later?.url).toContain(
+        `${RELAY_PATH}/v3/conversations/${CONVERSATION}/activities`,
+      );
+      expect(strangerCalls).toBe(0);
     },
-    TURN_TIMEOUT_MS + 15_000,
+    3 * TURN_TIMEOUT_MS + 15_000,
   );
 });

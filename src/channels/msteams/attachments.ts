@@ -30,7 +30,9 @@ import {
 } from '../../media/uploaded-media-cache.js';
 import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
+import { isMSTeamsRelayServiceUrl } from './adapter.js';
 import { requireMSTeamsConnectorClient } from './connector.js';
+import { resolveMSTeamsRelay } from './relay.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
@@ -507,7 +509,7 @@ function buildRemoteFallbackMediaItem(params: {
   }
 
   const allowHosts = getEffectiveMediaAllowHosts();
-  if (!isAllowedHost(host, allowHosts)) {
+  if (!relayCredentialFor(url) && !isAllowedHost(host, allowHosts)) {
     logger.debug(
       { host, name: params.filename || null },
       'Skipping Teams attachment from non-allowlisted host',
@@ -600,11 +602,29 @@ async function acquireClientCredentialsToken(
   return accessToken;
 }
 
+/**
+ * A relay that owns the bot rewrites the attachments only the bot may fetch to
+ * its own address. Those are fetched with the relay credential, which goes
+ * nowhere else.
+ */
+function relayCredentialFor(url: string): string | null {
+  const relay = resolveMSTeamsRelay();
+  return relay && isMSTeamsRelayServiceUrl(relay, url) ? relay.token : null;
+}
+
 async function fetchTeamsMediaResponse(
   url: string,
   authToken?: string | null,
 ): Promise<Response> {
   const requestSignal = AbortSignal.timeout(REMOTE_MEDIA_FETCH_TIMEOUT_MS);
+  const relayToken = relayCredentialFor(url);
+  if (relayToken) {
+    return fetchWithTimeout(
+      url,
+      { headers: { Accept: '*/*', Authorization: `Bearer ${relayToken}` } },
+      requestSignal,
+    );
+  }
   const normalizedAuthToken = normalizeValue(authToken);
   if (normalizedAuthToken) {
     const tokenResponse = await fetchWithTimeout(
