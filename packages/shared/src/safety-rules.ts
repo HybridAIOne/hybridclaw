@@ -35,7 +35,8 @@ export const SAFETY_RULES: readonly SafetyRule[] = [
   {
     id: 'format-windows',
     scope: 'bash',
-    pattern: /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/,
+    // Assignments are not command names; do not backtrack across a suffix.
+    pattern: /(^|[;&|]\s*)format(?:\.com|\.exe)?\b(?![.=])/,
     reason: 'format command at segment start (Windows)',
   },
   {

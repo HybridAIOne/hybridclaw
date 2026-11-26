@@ -77,6 +77,10 @@ rule IDs are rejected, and missing settings enable all rules. Admin saves produc
 configuration revisions and `safety.rules_changed` audit events. These pattern
 checks are heuristics, not a complete shell parser or sandbox.
 
+The Windows format matcher distinguishes command names from assignments such as
+`format=json` in URL query parameters. Actual `format`, `format.com`, and
+`format.exe` commands retain their unconditional block.
+
 The `eval` rule ignores lexical Python comments in a single quoted stdin
 program. Bounded syntax inspection never executes the program; unsupported
 shell forms, non-UTF-8 source encodings and failed inspection retain text matching.
