@@ -260,6 +260,8 @@ against the worker state root, independently of its execution directory. Reads,
 vision analysis and attachment validation use the same resolver. The alias
 rejects traversal, links and roots outside the existing allowlist; it grants no
 write access and never searches another state directory or project cache.
+Use these aliases with the supported file tools. To pass a download to a
+shell program, fetch it directly into the execution workspace.
 
 Visual reads retain content-addressed snapshots in the owning state directory.
 When the primary model cannot receive pixels, dispatch offers the existing
