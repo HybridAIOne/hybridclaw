@@ -20,6 +20,8 @@ async function importAttachmentsModule(
   const baseConfig = {
     CONTAINER_SANDBOX_MODE: 'host',
     DATA_DIR: dataDir,
+    HYBRIDAI_API_KEY: '',
+    HYBRIDAI_BASE_URL: '',
     MSTEAMS_APP_ID: 'teams-app-id',
     MSTEAMS_APP_PASSWORD: 'teams-secret',
     MSTEAMS_MEDIA_ALLOW_HOSTS: [
