@@ -4,6 +4,7 @@
  * Path/approval decisions remain with read-path and tools, not this decoder.
  */
 import fs from 'node:fs/promises';
+import { sniffImageMimeType } from '@hybridclaw/shared/image-mime';
 import { saveVisualSnapshot } from '@hybridclaw/shared/visual-snapshots';
 import { readPdfFile } from './pdf-read.js';
 import { WORKSPACE_STATE_ROOT } from './runtime-paths.js';
@@ -29,14 +30,7 @@ export async function readDocumentFile(
     header.subarray(0, 5).toString() === '%PDF-'
   )
     return readPdfFile(filePath, args);
-  // These signatures define the raster formats accepted by this read decoder.
-  const raster =
-    header.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) ||
-    header.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex')) ||
-    /^GIF8[79]a/.test(header.subarray(0, 6).toString()) ||
-    (header.subarray(0, 4).toString() === 'RIFF' &&
-      header.subarray(8, 12).toString() === 'WEBP');
-  if (!raster) {
+  if (!sniffImageMimeType(header)) {
     if (
       header.includes(0) ||
       /\.(png|jpe?g|gif|webp)$/i.test(String(args.path))

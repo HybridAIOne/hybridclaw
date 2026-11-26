@@ -1,5 +1,11 @@
+/**
+ * Native attachments keep their authorized bytes and use recognized raster MIME.
+ * Unlike durable visual snapshots, these are direct attachment reads; callers
+ * still own visual-delivery permission and this module never grants it.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
+import { sniffImageMimeType } from '@hybridclaw/shared/image-mime';
 import {
   isAudioMediaItem,
   isImageMediaItem,
@@ -123,7 +129,9 @@ async function resolveMediaImagePartUrl(
           `[media] skipping ${localPath}: ${image.length}B exceeds native vision max`,
         );
       } else {
-        const mimeType = inferImageMimeType(localPath, item.mimeType);
+        const mimeType =
+          sniffImageMimeType(image) ??
+          inferImageMimeType(localPath, item.mimeType);
         const base64 = image.toString('base64');
         return `data:${mimeType};base64,${base64}`;
       }
