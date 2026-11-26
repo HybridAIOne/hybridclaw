@@ -159,3 +159,67 @@ test('hostRunner gives the stored runtime env at spawn and keeps the host NODE_P
   // Re-applying the stored env in the worker would drop the host entries.
   expect(firstInput(workers[0])).not.toHaveProperty('runtimeEnv');
 });
+
+test('hostRunner links the install node_modules but leaves a real node_modules directory alone', async () => {
+  const { runner } = await startRunner(host);
+  const { resolveInstallRoot } = await import('../src/infra/install-root.js');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const linked = path.join(agentWorkspaceDir('default'), 'node_modules');
+  const ownDir = path.join(agentWorkspaceDir('agent-b'), 'node_modules');
+  fs.mkdirSync(ownDir, { recursive: true });
+  fs.writeFileSync(path.join(ownDir, 'marker.txt'), 'installed by the agent');
+
+  await runner.exec({ ...baseRequest, sessionId: 'session-link' });
+  await runner.exec({
+    ...baseRequest,
+    sessionId: 'session-own-modules',
+    agentId: 'agent-b',
+  });
+
+  expect(fs.readlinkSync(linked)).toBe(
+    path.join(resolveInstallRoot(), 'node_modules'),
+  );
+  expect(fs.lstatSync(ownDir).isDirectory()).toBe(true);
+  expect(fs.readFileSync(path.join(ownDir, 'marker.txt'), 'utf-8')).toBe(
+    'installed by the agent',
+  );
+});
+
+test('hostRunner replaces a node_modules link that points elsewhere', async () => {
+  const { runner } = await startRunner(host);
+  const { resolveInstallRoot } = await import('../src/infra/install-root.js');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const workspace = agentWorkspaceDir('default');
+  const elsewhere = path.join(workspace, 'old-install');
+  fs.mkdirSync(elsewhere, { recursive: true });
+  const link = path.join(workspace, 'node_modules');
+  fs.symlinkSync(elsewhere, link, 'dir');
+
+  await runner.exec({ ...baseRequest, sessionId: 'session-stale-link' });
+
+  expect(fs.readlinkSync(link)).toBe(
+    path.join(resolveInstallRoot(), 'node_modules'),
+  );
+});
+
+test('hostRunner still spawns when the node_modules link cannot be made', async () => {
+  const { runner, workers } = await startRunner(host);
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const link = path.join(agentWorkspaceDir('default'), 'node_modules');
+  const symlink = fs.symlinkSync;
+  vi.spyOn(fs, 'symlinkSync').mockImplementation((target, file, type) => {
+    if (file === link) {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    }
+    return symlink(target, file, type);
+  });
+
+  const output = await runner.exec({
+    ...baseRequest,
+    sessionId: 'session-link-fails',
+  });
+
+  expect(output.status).toBe('success');
+  expect(workers).toHaveLength(1);
+  expect(fs.existsSync(link)).toBe(false);
+});
