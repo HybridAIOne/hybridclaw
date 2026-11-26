@@ -159,3 +159,28 @@ test('hostRunner gives the stored runtime env at spawn and keeps the host NODE_P
   // Re-applying the stored env in the worker would drop the host entries.
   expect(firstInput(workers[0])).not.toHaveProperty('runtimeEnv');
 });
+
+test('hostRunner links the install node_modules but leaves a real node_modules directory alone', async () => {
+  const { runner } = await startRunner(host);
+  const { resolveInstallRoot } = await import('../src/infra/install-root.js');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const linked = path.join(agentWorkspaceDir('default'), 'node_modules');
+  const ownDir = path.join(agentWorkspaceDir('agent-b'), 'node_modules');
+  fs.mkdirSync(ownDir, { recursive: true });
+  fs.writeFileSync(path.join(ownDir, 'marker.txt'), 'installed by the agent');
+
+  await runner.exec({ ...baseRequest, sessionId: 'session-link' });
+  await runner.exec({
+    ...baseRequest,
+    sessionId: 'session-own-modules',
+    agentId: 'agent-b',
+  });
+
+  expect(fs.readlinkSync(linked)).toBe(
+    path.join(resolveInstallRoot(), 'node_modules'),
+  );
+  expect(fs.lstatSync(ownDir).isDirectory()).toBe(true);
+  expect(fs.readFileSync(path.join(ownDir, 'marker.txt'), 'utf-8')).toBe(
+    'installed by the agent',
+  );
+});

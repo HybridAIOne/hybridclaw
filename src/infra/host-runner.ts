@@ -19,6 +19,7 @@ import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
+import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
@@ -70,31 +71,6 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
-function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
-  const packageRoot = resolveInstallRoot();
-  const sourceNodeModules = path.join(packageRoot, 'node_modules');
-  if (!fs.existsSync(sourceNodeModules)) return;
-
-  const targetNodeModules = path.join(workspacePath, 'node_modules');
-
-  try {
-    const stat = fs.lstatSync(targetNodeModules);
-    if (stat.isSymbolicLink()) {
-      const existingTarget = fs.readlinkSync(targetNodeModules);
-      const resolvedExisting = path.resolve(
-        path.dirname(targetNodeModules),
-        existingTarget,
-      );
-      if (resolvedExisting === sourceNodeModules) return;
-    }
-    fs.rmSync(targetNodeModules, { recursive: true, force: true });
-  } catch {
-    // Missing target is fine; we'll create it below.
-  }
-
-  fs.symlinkSync(sourceNodeModules, targetNodeModules, 'dir');
-}
-
 async function readProcessRssBytes(pid: number | undefined): Promise<number> {
   if (!pid) return 0;
   if (process.platform === 'linux') {
@@ -138,7 +114,12 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
   const { sessionId, warm = false } = params;
   const stateRoot = hostWorkspaceStateRoot(params);
   fs.mkdirSync(stateRoot, { recursive: true });
-  ensureWorkspaceNodeModulesLink(stateRoot);
+  // ESM imports in agent scripts resolve the install's packages through it.
+  ensureWorkspaceNodeModulesLink(
+    stateRoot,
+    path.join(resolveInstallRoot(), 'node_modules'),
+    { replaceExistingSymlink: true },
+  );
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
