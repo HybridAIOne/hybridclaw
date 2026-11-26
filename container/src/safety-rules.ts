@@ -1,8 +1,8 @@
 /**
  * Safety settings are a per-turn snapshot of authenticated gateway input.
  * Missing settings reset to all rules enabled; worker memory is never consent.
- * Eval matching distinguishes environment operands and quoted Python comments
- * from executable code; denials retain every independent enabled rule.
+ * Eval matching distinguishes proven data positions from executable code.
+ * Denials retain every independent enabled rule.
  * Unlike approval policy, this module cannot promote or authorize an action.
  */
 import path from 'node:path';
@@ -26,10 +26,30 @@ export function configureSafetyRules(value: unknown): void {
   disabledRuleIds = [];
   disabledRuleIds = normalizeDisabledSafetyRules(value);
 }
-function evalCheckWords(words: string[]): string[] {
+
+const C_COMPILER =
+  /^(?:(?:\/usr)?\/bin\/)?(?:cc|c\+\+|gcc|g\+\+|clang|clang\+\+)$/;
+const COMPILER_LITERAL_PATH = /^(?!-)[\w./+-]+$/;
+const COMPILER_INPUT = /\.(?:c|cc|cpp|cxx|o)$/;
+
+function isSimpleCompilerInvocation([program, ...args]: string[]): boolean {
+  if (!C_COMPILER.test(program)) return false;
+  // Recognize only the operand grammar of a simple compile or link. Options
+  // with opaque argument roles (including plugins and forwarded flags) fail closed.
+  return args.every((arg, index) => {
+    if (args[index - 1] === '-o') return COMPILER_LITERAL_PATH.test(arg);
+    if (arg === '-o') return COMPILER_LITERAL_PATH.test(args[index + 1] ?? '');
+    if (arg === '-c' || /^-O[0-3gsz]?$/.test(arg)) return true;
+    return COMPILER_LITERAL_PATH.test(arg) && COMPILER_INPUT.test(arg);
+  });
+}
+
+function evalCheckWords(words: string[], directCommand: boolean): string[] {
   const command = commandProgram(words);
   const source = codeSource({ words, ...command });
+  const compiler = directCommand && isSimpleCompilerInvocation(words);
   return words.map((word, i) => {
+    if (compiler && i > 0 && word.endsWith('.o')) return '';
     // A direct activation takes one environment operand, never shell source.
     // Unknown flags, wrappers and other subcommands keep conservative matching.
     if (
@@ -57,8 +77,10 @@ function evalCheckWords(words: string[]): string[] {
 
 function evalInspectionInput(value: string): string {
   if (!value.includes('<<')) {
-    return shellCommandsRun(scriptCommands(value))
-      .flatMap(evalCheckWords)
+    const commands = scriptCommands(value);
+    const directWords = new Set(commands.map(({ words }) => words));
+    return shellCommandsRun(commands)
+      .flatMap((words) => evalCheckWords(words, directWords.has(words)))
       .join(' ');
   }
   if (!value.toLowerCase().includes('eval')) return value;
