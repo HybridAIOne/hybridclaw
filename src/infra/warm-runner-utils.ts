@@ -1,6 +1,7 @@
 /**
  * Shared worker health, claiming and eviction obey each worker's lifecycle lease.
- * Host and Docker runners own their processes; these helpers never persist
+ * `worker-runner.ts` owns the pools these helpers act on, and its sandbox
+ * strategy starts and stops the processes; these helpers never persist
  * session state or choose tool permissions.
  */
 import type { ChildProcess } from 'node:child_process';
@@ -310,19 +311,6 @@ export function removeWarmPoolEntry<T extends WarmRunnerEntry>(
   warmPool.delete(entry.id);
   for (const [sessionId, active] of pool) {
     if (active === entry) pool.delete(sessionId);
-  }
-}
-
-export function stopWarmEntries<T extends WarmRunnerEntry>(
-  entries: T[],
-  params: {
-    log: (entry: T) => void;
-    stop: (entry: T) => void;
-  },
-): void {
-  for (const entry of entries) {
-    params.log(entry);
-    params.stop(entry);
   }
 }
 

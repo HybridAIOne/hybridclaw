@@ -3,9 +3,9 @@
  * stops and reports memory. Pooling, capacity and the request lifecycle are
  * `worker-runner.ts`; this module only decides the docker invocation.
  *
- * Every worker runs `--read-only --cap-drop=ALL --security-opt=no-new-privileges`
- * with only its workspace and IPC dir writable; extra binds pass the mount
- * allowlist first. Loopback URLs are rewritten to the host alias. Native MLX
+ * Every worker runs `--read-only --cap-drop=ALL --security-opt=no-new-privileges`;
+ * only its workspace, IPC dir and the shared browser profile dir are mounted
+ * writable, plus extra binds that pass the mount allowlist as read-write. Loopback URLs are rewritten to the host alias. Native MLX
  * credentials remain on the host; each turn receives only a relay capability
  * pinned to its selected model. This is not a general network proxy.
  */
@@ -13,35 +13,23 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
 import {
-  BROWSER_ALLOW_PRIVATE_NETWORK,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
-  GATEWAY_CLIENT_BASE_URL,
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_MODEL,
-  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
-  PROACTIVE_AUTO_RETRY_ENABLED,
-  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
-  PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
-  PROACTIVE_RALPH_MAX_ITERATIONS,
-  WEB_SEARCH_CACHE_TTL_MINUTES,
-  WEB_SEARCH_DEFAULT_COUNT,
-  WEB_SEARCH_FALLBACK_PROVIDERS,
-  WEB_SEARCH_PROVIDER,
-  WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
-import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import type { AdditionalMount } from '../types/security.js';
-import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
+import {
+  CONTAINER_APP_NODE_MODULES,
+  ensureWorkspaceNodeModulesLink,
+} from '../workspace.js';
 import {
   CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
   ensureBehaviorAnomalyTrajectoryStoreDir,
@@ -50,8 +38,7 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
-import { IDLE_TIMEOUT_MS } from './warm-runner-utils.js';
-import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
   resolveBrowserProfileHostDir,
@@ -66,7 +53,6 @@ interface ContainerPathAliasMount {
 }
 
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
-const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
@@ -142,8 +128,8 @@ function readContainerMemoryBytes(
 }
 
 function spawnContainer(spawnRequest: WorkerSpawnRequest) {
-  const { request: params, sessionId, agentId, warm } = spawnRequest;
-  const { ipcPath, workspacePath } = spawnRequest;
+  const { request: params, agentId, ipcPath, workspacePath } = spawnRequest;
+  const { sessionId, warm = false } = params;
   ensureWorkspaceNodeModulesLink(workspacePath, CONTAINER_APP_NODE_MODULES, {
     allowMissingSource: true,
     replaceExistingSymlink: true,
@@ -165,7 +151,6 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
     );
   }
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
-  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
 
   const args = [
     'run',
@@ -199,56 +184,21 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-v',
     `${behaviorAnomalyTrajectoryStoreDir}:${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}:ro`,
-    '-e',
-    `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
-    '-e',
-    `HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR=${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_ID=${agentId}`,
-    '-e',
-    `TZ=${resolveEffectiveTimezone()}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
-    '-e',
-    `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
-    '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${resolveWorkerRuntimeToken(params.runtimeScope)}`,
-    '-e',
-    `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
-    '-e',
-    `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
-    '-e',
-    `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_ENABLED=${PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false'}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
-    '-e',
-    `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
-    '-e',
-    `BROWSER_ALLOW_PRIVATE_NETWORK=${BROWSER_ALLOW_PRIVATE_NETWORK ? 'true' : 'false'}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS=${WEB_SEARCH_FALLBACK_PROVIDERS.join(',')}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT=${WEB_SEARCH_DEFAULT_COUNT}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES=${WEB_SEARCH_CACHE_TTL_MINUTES}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH=${WEB_SEARCH_TAVILY_SEARCH_DEPTH}`,
-    '-e',
-    `SEARXNG_BASE_URL=${webSearchRuntime.searxngBaseUrl}`,
-    '-e',
-    'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
-    '-e',
-    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
+    ...Object.entries({
+      BROWSER_SHARED_PROFILE_DIR: CONTAINER_BROWSER_PROFILE_PATH,
+      HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
+        CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
+      TZ: resolveEffectiveTimezone(),
+      HYBRIDCLAW_AGENT_WORKSPACE_ROOT: CONTAINER_WORKSPACE_ROOT,
+      ...buildWorkerEnv({
+        agentId,
+        runtimeScope: params.runtimeScope,
+        displayRoot: params.workspaceDisplayRootOverride,
+        mode: 'container',
+        mapHostUrl: remapHostBaseUrlForContainer,
+      }),
+      PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright',
+    }).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
   ];
 
   // Run as host user so bind-mount file ownership matches

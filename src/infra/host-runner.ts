@@ -13,36 +13,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
-import type { ExecutorRequest } from '../agent/executor-types.js';
-import {
-  BROWSER_ALLOW_PRIVATE_NETWORK,
-  CONTAINER_BINDS,
-  GATEWAY_CLIENT_BASE_URL,
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_MODEL,
-  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
-  PROACTIVE_AUTO_RETRY_ENABLED,
-  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
-  PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
-  PROACTIVE_RALPH_MAX_ITERATIONS,
-  WEB_SEARCH_CACHE_TTL_MINUTES,
-  WEB_SEARCH_DEFAULT_COUNT,
-  WEB_SEARCH_FALLBACK_PROVIDERS,
-  WEB_SEARCH_PROVIDER,
-  WEB_SEARCH_TAVILY_SEARCH_DEPTH,
-} from '../config/config.js';
+import { CONTAINER_BINDS } from '../config/config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
-import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
-import { IDLE_TIMEOUT_MS } from './warm-runner-utils.js';
-import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
   resolveBrowserProfileHostDir,
@@ -87,15 +68,6 @@ function resolveHostAgentBrowserBinary(): string | undefined {
     if (fs.existsSync(candidate)) return candidate;
   }
   return undefined;
-}
-
-function buildHostGatewayRuntimeEnv(
-  runtimeScope: ExecutorRequest['runtimeScope'],
-): Record<string, string> {
-  return {
-    HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
-    HYBRIDCLAW_GATEWAY_TOKEN: resolveWorkerRuntimeToken(runtimeScope),
-  };
 }
 
 function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
@@ -162,8 +134,8 @@ async function readProcessRssBytes(pid: number | undefined): Promise<number> {
 }
 
 function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
-  const { request: params, sessionId, agentId, warm } = spawnRequest;
-  const { ipcPath, workspacePath } = spawnRequest;
+  const { request: params, agentId, ipcPath, workspacePath } = spawnRequest;
+  const { sessionId, warm = false } = params;
   const stateRoot = hostWorkspaceStateRoot(params);
   fs.mkdirSync(stateRoot, { recursive: true });
   ensureWorkspaceNodeModulesLink(stateRoot);
@@ -180,43 +152,24 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
     throw new Error('Host runtime unexpectedly unavailable.');
   }
   const agentBrowserBin = resolveHostAgentBrowserBinary();
-  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
   const storedRuntimeEnv = readStoredRuntimeEnv();
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
-    ...buildHostGatewayRuntimeEnv(params.runtimeScope),
+    ...buildWorkerEnv({
+      agentId,
+      runtimeScope: params.runtimeScope,
+      displayRoot: params.workspaceDisplayRootOverride,
+      mode: 'host',
+      mapHostUrl: (url) => url,
+    }),
     NODE_PATH: hostAgentNodePath(
       storedRuntimeEnv.NODE_PATH || process.env.NODE_PATH,
     ),
-    HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
-    HYBRIDAI_BASE_URL,
-    HYBRIDAI_MODEL,
-    CONTAINER_IDLE_TIMEOUT: String(IDLE_TIMEOUT_MS),
-    HYBRIDCLAW_RETRY_ENABLED: PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false',
-    HYBRIDCLAW_RETRY_MAX_ATTEMPTS: String(PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS),
-    HYBRIDCLAW_RETRY_BASE_DELAY_MS: String(PROACTIVE_AUTO_RETRY_BASE_DELAY_MS),
-    HYBRIDCLAW_RETRY_MAX_DELAY_MS: String(PROACTIVE_AUTO_RETRY_MAX_DELAY_MS),
-    HYBRIDCLAW_RALPH_MAX_ITERATIONS: String(PROACTIVE_RALPH_MAX_ITERATIONS),
-    BROWSER_ALLOW_PRIVATE_NETWORK: BROWSER_ALLOW_PRIVATE_NETWORK
-      ? 'true'
-      : 'false',
-    HYBRIDCLAW_WEB_SEARCH_PROVIDER: WEB_SEARCH_PROVIDER,
-    HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS:
-      WEB_SEARCH_FALLBACK_PROVIDERS.join(','),
-    HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT: String(WEB_SEARCH_DEFAULT_COUNT),
-    HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES: String(
-      WEB_SEARCH_CACHE_TTL_MINUTES,
-    ),
-    HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
-    SEARXNG_BASE_URL: webSearchRuntime.searxngBaseUrl,
-    HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
       ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_STATE_ROOT: stateRoot,
-    HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
-      params.workspaceDisplayRootOverride?.trim() || '/workspace',
     HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(
       buildHostAllowedRoots([workspacePath, stateRoot]),
     ),

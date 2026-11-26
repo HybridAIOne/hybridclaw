@@ -5,8 +5,9 @@
  * Everything that changes what a running worker was started with (provider,
  * credentials, gateway token, workspace, bash proxy, stored runtime env when
  * it travels with the request) is in the signature, so a change restarts the
- * worker instead of reusing it. Pure: resolves nothing asynchronous and
- * starts no process; the runner supplies model runtime and MCP servers.
+ * worker instead of reusing it. Synchronous: it reads current config but
+ * resolves nothing asynchronous and starts no process; the runner supplies
+ * model runtime and MCP servers.
  */
 import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import type { ExecutorRequest } from '../agent/executor-types.js';

@@ -291,13 +291,15 @@ the user, steering and assistant messages with their semantic memory atomically.
 ### Worker lifecycle ownership
 
 Both sandbox modes share one pool, capacity and request implementation
-(`src/infra/worker-runner.ts`); `container-runner.ts` and `host-runner.ts` only
-define how a worker starts, stops, reports memory and sees host URLs. They use
-`WorkerLifecycle` for spare/session ownership and request leases. Stop and exit are terminal for reuse; a late readiness marker
-or request finalizer cannot revive a stopped process or release a newer request.
-These are gateway process handles, not durable session state. Gateway runtime
-token or web-search configuration changes invalidate worker reuse on the next
-turn, so process-cached credentials are refreshed.
+(`src/infra/worker-runner.ts`), which uses `WorkerLifecycle` for spare/session
+ownership and request leases. `container-runner.ts` and `host-runner.ts` only
+define how a worker starts, stops, reports memory and sees host URLs; the env
+both modes give a worker is built once in `src/infra/worker-env.ts`. Stop and
+exit are terminal for reuse; a late readiness marker or request finalizer
+cannot revive a stopped process or release a newer request. These are gateway
+process handles, not durable session state. Gateway runtime token or
+web-search configuration changes invalidate worker reuse on the next turn, so
+process-cached credentials are refreshed.
 
 ### Interrupted Turns
 

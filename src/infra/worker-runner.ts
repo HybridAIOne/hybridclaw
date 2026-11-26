@@ -67,7 +67,6 @@ import {
   processLimitForRun,
   removeWarmPoolEntry,
   sendWarmWorkerFrame,
-  stopWarmEntries as stopWarmPoolEntries,
   type WarmRunnerMode,
 } from './warm-runner-utils.js';
 import { remapOutputArtifacts } from './worker-artifacts.js';
@@ -85,7 +84,7 @@ import {
 
 const CAPACITY_POLL_MS = 100;
 
-export type WorkerSpawnParams = Pick<
+type WorkerSpawnParams = Pick<
   ExecutorRequest,
   | 'sessionId'
   | 'agentId'
@@ -97,9 +96,7 @@ export type WorkerSpawnParams = Pick<
 
 export interface WorkerSpawnRequest {
   request: WorkerSpawnParams;
-  sessionId: string;
   agentId: string;
-  warm: boolean;
   ipcPath: string;
   workspacePath: string;
 }
@@ -141,11 +138,6 @@ export interface WorkerStrategy {
   }): { stop(): void } | undefined;
 }
 
-export interface WorkerRunner extends Executor {
-  getWarmColdStartP95Ms(): number | null;
-  isWarmColdStartWithinBudget(): boolean;
-}
-
 export function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
 }
@@ -165,7 +157,7 @@ function resolveWorkspacePath(params: {
   return workspacePath;
 }
 
-export function createWorkerRunner(strategy: WorkerStrategy): WorkerRunner {
+export function createWorkerRunner(strategy: WorkerStrategy): Executor {
   const worker = strategy.noun.one;
   const Worker = capitalize(worker);
   const pool = new Map<string, WorkerEntry>();
@@ -190,14 +182,13 @@ export function createWorkerRunner(strategy: WorkerStrategy): WorkerRunner {
   }
 
   function stopWarmEntries(entries: WorkerEntry[]): void {
-    stopWarmPoolEntries(entries, {
-      log: (entry) =>
-        logger.info(
-          { agentId: entry.agentId, ...strategy.logFields(entry) },
-          `Evicting warm ${worker}`,
-        ),
-      stop: stopEntry,
-    });
+    for (const entry of entries) {
+      logger.info(
+        { agentId: entry.agentId, ...strategy.logFields(entry) },
+        `Evicting warm ${worker}`,
+      );
+      stopEntry(entry);
+    }
   }
 
   onConfigChange((config) => {
@@ -306,9 +297,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): WorkerRunner {
     fs.mkdirSync(workspacePath, { recursive: true });
     const spawned = strategy.spawn({
       request: params,
-      sessionId,
       agentId,
-      warm: Boolean(params.warm),
       ipcPath,
       workspacePath,
     });
@@ -756,7 +745,5 @@ export function createWorkerRunner(strategy: WorkerStrategy): WorkerRunner {
         left.sessionId.localeCompare(right.sessionId),
       );
     },
-    getWarmColdStartP95Ms: () => warmPool.coldStartP95Ms(),
-    isWarmColdStartWithinBudget: () => warmPool.isWithinColdStartBudget(),
   };
 }

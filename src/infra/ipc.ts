@@ -16,7 +16,7 @@
  * later request. Replies must be bounded, regular files opened without following
  * links, and their reply shapes are validated before use. An interrupted read
  * keeps validated tool history and known usage flushed during shutdown.
- * Host-runner and container-runner own worker startup and shutdown.
+ * `worker-runner.ts` and its sandbox strategies own worker startup and shutdown.
  */
 
 import fs from 'node:fs';
