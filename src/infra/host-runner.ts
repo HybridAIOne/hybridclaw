@@ -74,15 +74,9 @@ import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { parseApprovalProgress } from './approval-progress.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
-  type BrowserFrameSink,
   collectConfiguredDiscordChannelIds,
-  remapOutputArtifacts,
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
-  stashBrowserFrameLine,
-  stashSlideSamplesLine,
-  takeBrowserFrame,
-  takeSlideSamples,
 } from './container-runner.js';
 import { beginFileWriteReviewContext } from './file-write-review-context.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
@@ -138,6 +132,14 @@ import {
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
+import {
+  type BrowserFrameSink,
+  remapOutputArtifacts,
+  stashBrowserFrameLine,
+  stashSlideSamplesLine,
+  takeBrowserFrame,
+  takeSlideSamples,
+} from './worker-artifacts.js';
 import { WorkerLifecycle } from './worker-lifecycle.js';
 import {
   recoverWorkerFailure,

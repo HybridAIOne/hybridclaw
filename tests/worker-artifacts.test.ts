@@ -11,7 +11,7 @@ import {
   stashSlideSamplesLine,
   takeBrowserFrame,
   takeSlideSamples,
-} from '../src/infra/container-runner.js';
+} from '../src/infra/worker-artifacts.js';
 import type { ContainerOutput } from '../src/types/container.js';
 
 test('remaps artifact paths that use a custom workspace display root', () => {
