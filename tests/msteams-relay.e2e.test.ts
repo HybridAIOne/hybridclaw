@@ -22,7 +22,7 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 const CLI = path.join(REPO, 'dist', 'cli.js');
 const WEB_API_TOKEN = 'e2e-teams-relay-token';
 const PLATFORM_KEY = 'hai-relay-e2e-key';
-const RELAY_PATH = '/teams-relay/app-1';
+const RELAY_PATH = '/api/hybridclaw/msteams/app-1';
 const CONVERSATION = 'a:1personal-erika';
 const STARTUP_TIMEOUT_MS = 45_000;
 const TURN_TIMEOUT_MS = 30_000;
@@ -48,6 +48,7 @@ let baseUrl = '';
 let platformUrl = '';
 let strangerUrl = '';
 let strangerCalls = 0;
+const refusedCalls: string[] = [];
 let dataDir = '';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -82,11 +83,16 @@ function platform(
   const url = req.url ?? '';
   if (url.startsWith(`${RELAY_PATH}/v3/`)) {
     // The relay carries only what a turn needs, below a conversation.
+    const allowedMethod = /\/attachments\/|\/members\//.test(url)
+      ? req.method === 'GET'
+      : ['POST', 'PUT', 'DELETE'].includes(req.method ?? '');
     if (
+      !allowedMethod ||
       !/\/v3\/conversations\/[^/?]+\/(activities(\/[^/?]+)?|members\/[^/?]+|attachments\/[^/?]+\/views\/[^/?]+)$/.test(
         url,
       )
     ) {
+      refusedCalls.push(`${req.method} ${url}`);
       return json(res, 403, {});
     }
     connectorCalls.push({
@@ -265,6 +271,22 @@ describe.runIf(RUN)('Teams through a relay that owns the bot', () => {
       expect(await relay(`${platformUrl}${RELAY_PATH}/`, WEB_API_TOKEN, 'a/../x')).toBe(
         400,
       );
+      // Only the relay's own surface of the platform counts as the relay.
+      for (const elsewhere of [
+        `${platformUrl}/v1/`,
+        `${platformUrl}${RELAY_PATH}/../../../v1/`,
+        `${platformUrl}${RELAY_PATH}/?x=1`,
+      ]) {
+        expect(await relay(elsewhere), elsewhere).toBe(400);
+      }
+      for (const id of ['..', 'x/y', 'x?y']) {
+        expect(
+          await relay(`${platformUrl}${RELAY_PATH}/`, WEB_API_TOKEN, CONVERSATION, {
+            replyToId: id,
+          }),
+          id,
+        ).toBe(400);
+      }
 
       expect(await relay(`${platformUrl}${RELAY_PATH}/`)).toBe(202);
       await expect
@@ -345,6 +367,7 @@ describe.runIf(RUN)('Teams through a relay that owns the bot', () => {
         `${RELAY_PATH}/v3/conversations/${CONVERSATION}/activities`,
       );
       expect(strangerCalls).toBe(0);
+      expect(refusedCalls).toEqual([]);
     },
     3 * TURN_TIMEOUT_MS + 15_000,
   );

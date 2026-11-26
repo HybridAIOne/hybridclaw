@@ -40,6 +40,7 @@ import {
   authorizeMSTeamsWebhook,
   createMSTeamsAdapter,
   createMSTeamsRelayAdapter,
+  isMSTeamsPathId,
   isMSTeamsRelayServiceUrl,
 } from './adapter.js';
 import {
@@ -961,17 +962,25 @@ export async function handleMSTeamsRelayActivity(
     });
     return;
   }
-  // The conversation id becomes a path on the relay, called with the relay credential.
-  const conversationId = isRecord(request.body?.conversation)
-    ? request.body.conversation.id
-    : undefined;
+  // These ids become path segments on the relay, called with the relay credential.
+  const body = request.body ?? {};
+  const record = (value: unknown) => (isRecord(value) ? value : {});
+  const teamId = record(record(body.channelData).team).id;
+  const pathIds = [
+    body.id,
+    body.replyToId,
+    record(body.from).id,
+    record(body.recipient).id,
+    teamId,
+  ];
   if (
-    typeof conversationId !== 'string' ||
-    !/^[A-Za-z0-9:@._;=-]{1,255}$/.test(conversationId)
+    !isMSTeamsPathId(record(body.conversation).id) ||
+    pathIds.some((id) => id !== undefined && !isMSTeamsPathId(id))
   ) {
-    sendWebhookJson(res, 400, { error: 'Invalid conversation id.' });
+    sendWebhookJson(res, 400, { error: 'Invalid Teams id in activity.' });
     return;
   }
+  const activeAdapter = relayedAdapter();
   sendWebhookJson(res, 202, {});
   const discarded: WebResponse = {
     headersSent: false,
@@ -981,7 +990,7 @@ export async function handleMSTeamsRelayActivity(
     send: () => discarded,
     end: () => discarded,
   };
-  void relayedAdapter()
+  void activeAdapter
     .process(request, discarded, handleTeamsTurn)
     .catch((error) => {
       logger.error({ error }, 'Relayed Teams activity failed');

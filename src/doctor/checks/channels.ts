@@ -1,11 +1,9 @@
-import { resolveMSTeamsRelay } from '../../channels/msteams/relay.js';
+import { resolveMSTeamsMode } from '../../channels/msteams/relay.js';
 import { checkPluginChannels } from '../../channels/plugin-channel/status.js';
 import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   getConfigSnapshot,
-  MSTEAMS_APP_ID,
-  MSTEAMS_APP_PASSWORD,
   TELEGRAM_BOT_TOKEN,
   THREEMA_GATEWAY_SECRET,
 } from '../../config/config.js';
@@ -62,12 +60,11 @@ export async function checkChannels(): Promise<DiagResult[]> {
   }
 
   if (config.msteams.enabled) {
-    const appId = String(MSTEAMS_APP_ID || '').trim();
-    const password = String(MSTEAMS_APP_PASSWORD || '').trim();
-    if (appId && password) {
+    const mode = resolveMSTeamsMode();
+    if (mode === 'credentials') {
       segments.push('Teams configured');
-    } else if (!appId && !password && resolveMSTeamsRelay()) {
-      segments.push('Teams relayed through HybridAI');
+    } else if (mode === 'relay') {
+      segments.push('Teams relayed through HybridAI (no bot credentials here)');
     } else {
       segments.push('Teams credentials incomplete');
       severities.push('error');

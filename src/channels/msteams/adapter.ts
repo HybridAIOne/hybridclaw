@@ -96,13 +96,46 @@ export interface MSTeamsRelay {
   token: string;
 }
 
+/** The relay's Bot Connector surface on the platform. */
+const MSTEAMS_RELAY_PATH = '/api/hybridclaw/msteams/';
+
+/**
+ * True for an address on the relay's own surface of the platform: same
+ * origin, below the relay path, and written exactly as it parses, so nothing
+ * like `..`, a query or a fragment can point the relay credential at another
+ * platform route.
+ */
 export function isMSTeamsRelayServiceUrl(
   relay: MSTeamsRelay,
   serviceUrl: unknown,
 ): boolean {
+  if (typeof serviceUrl !== 'string') return false;
+  let url: URL;
+  let base: URL;
+  try {
+    url = new URL(serviceUrl);
+    base = new URL(relay.baseUrl);
+  } catch {
+    return false;
+  }
+  const relayPath = `${base.pathname.replace(/\/+$/, '')}${MSTEAMS_RELAY_PATH}`;
   return (
-    typeof serviceUrl === 'string' &&
-    serviceUrl.startsWith(`${relay.baseUrl.replace(/\/+$/, '')}/`)
+    url.origin === base.origin &&
+    url.href === serviceUrl &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash &&
+    url.pathname.startsWith(relayPath)
+  );
+}
+
+/** A Teams id that is safe as one segment of a relay path. */
+export function isMSTeamsPathId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9:@._;=-]{1,255}$/.test(value) &&
+    !/^\.+$/.test(value)
   );
 }
 

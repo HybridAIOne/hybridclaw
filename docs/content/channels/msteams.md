@@ -423,8 +423,13 @@ gateway's HybridAI key. The relay adds the bot credentials. An activity whose
 `serviceUrl` is not under `hybridai.baseUrl` is refused, so the key never
 leaves the platform.
 
+The route takes the gateway's API token or a full API token; a console session
+cannot call it. Only an address on the relay's own path of the platform
+(`<hybridai.baseUrl>/api/hybridclaw/msteams/…`) counts as the relay.
+
 To use it, set `msteams.enabled` and leave `msteams.appId`,
-`msteams.tenantId` and `MSTEAMS_APP_PASSWORD` unset. `hybridclaw doctor`
+`msteams.tenantId` and `MSTEAMS_APP_PASSWORD` unset. With no tenant set the
+gateway checks no tenant itself: the relay did that before it delivered. `hybridclaw doctor`
 then reports `Teams relayed through HybridAI`. `dmPolicy` and the allowlists
 still apply on the gateway.
 

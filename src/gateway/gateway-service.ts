@@ -124,6 +124,7 @@ import {
   normalizeDiscordWebhookTargetName,
   normalizeDiscordWebhookUrl,
 } from '../channels/discord-webhook/target.js';
+import { resolveMSTeamsMode } from '../channels/msteams/relay.js';
 import { getPluginChannelGatewayStatuses } from '../channels/plugin-channel/status.js';
 import {
   getSignalCliAvailability,
@@ -3361,6 +3362,9 @@ function buildMSTeamsAuthStatusLines(): string[] {
   const tenantId = MSTEAMS_TENANT_ID;
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
+    ...(resolveMSTeamsMode() === 'relay'
+      ? ['Mode: relayed through HybridAI, which holds the bot credentials']
+      : []),
     ...(credential.source ? [`Source: ${credential.source}`] : []),
     ...(credential.value ? ['App password: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
