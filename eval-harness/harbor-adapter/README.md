@@ -26,6 +26,8 @@ OpenEnv 0.7.0.
   interrupts an active shell call and reports the memory failure to the agent.
   The unattended trial denies operations that need a human and lets the agent
   continue with permitted alternatives, up to three times per turn.
+  The task prompt asks the agent to validate the saved deliverables against
+  the task's stated requirements before reporting completion.
 - Running `hybridclaw_harbor.py` as a script registers the seam and then hands
   over to the stock `openenv` CLI.
 
