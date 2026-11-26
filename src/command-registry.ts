@@ -2016,7 +2016,7 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'yes',
               description:
-                'Optional --yes override to approve npm registry downloads and dependency installs',
+                'Optional --yes override to approve plugin downloads (npm or URL) and dependency installs',
               choices: [{ name: '--yes', value: '--yes' }],
             },
           ],
@@ -2042,7 +2042,7 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'yes',
               description:
-                'Optional --yes override to approve npm registry downloads and dependency installs',
+                'Optional --yes override to approve plugin downloads (npm or URL) and dependency installs',
               choices: [{ name: '--yes', value: '--yes' }],
             },
           ],

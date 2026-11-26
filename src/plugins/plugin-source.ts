@@ -41,7 +41,7 @@ export class PluginNpmInstallApprovalRequiredError extends Error {
 
   constructor(spec: string) {
     super(
-      `Installing plugin "${spec}" from the npm registry requires explicit approval. Plugins run in-process in the gateway.`,
+      `Downloading plugin "${spec}" from the npm registry or a remote URL requires explicit approval. Plugins run in-process in the gateway.`,
     );
     this.name = 'PluginNpmInstallApprovalRequiredError';
     this.spec = spec;

@@ -150,28 +150,35 @@ describe('PluginsPage', () => {
     }
   });
 
-  it('aborts npm: source install when confirmation is declined', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    try {
-      renderWithProviders(<PluginsPage />);
-      await screen.findByText('Memory Store');
+  it.each([
+    'npm:some-community-plugin',
+    'https://example.com/plugin.tgz',
+    'git+https://example.com/plugin.git',
+  ])(
+    'aborts %s source install when confirmation is declined',
+    async (source) => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      try {
+        renderWithProviders(<PluginsPage />);
+        await screen.findByText('Memory Store');
 
-      fireEvent.change(screen.getByLabelText('Plugin source'), {
-        target: { value: 'npm:some-community-plugin' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+        fireEvent.change(screen.getByLabelText('Plugin source'), {
+          target: { value: source },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
 
-      expect(confirmSpy).toHaveBeenCalledWith(
-        expect.stringContaining('npm:some-community-plugin'),
-      );
-      expect(installPluginMock).not.toHaveBeenCalled();
-      expect(
-        (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
-      ).toBe('npm:some-community-plugin');
-    } finally {
-      confirmSpy.mockRestore();
-    }
-  });
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringContaining(source),
+        );
+        expect(installPluginMock).not.toHaveBeenCalled();
+        expect(
+          (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
+        ).toBe(source);
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    },
+  );
 
   it('surfaces source install errors and keeps the source for correction without npm confirmation for local paths', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);

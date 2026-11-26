@@ -125,8 +125,8 @@ test('gateway npm registry install requires one-time approval and carries it acr
   });
 
   expect(npmApproval.kind).toBe('info');
+  expect(npmApproval).toMatchObject({ title: 'Pending Approval' });
   expect(npmApproval.text).toContain('community-plugin');
-  expect(npmApproval.text).toContain('npm registry');
   expect(npmApproval.text).toContain(
     'Reply `yes for session` is unavailable for this approval.',
   );
@@ -225,6 +225,9 @@ test('denying dependency approval does not leave npm fetch pre-approved', async 
     username: 'local-user',
     args: ['plugin', 'install', 'npm:community-plugin'],
   });
-  expect(secondAttempt.kind).toBe('info');
-  expect(secondAttempt.text).toContain('npm registry');
+  expect(secondAttempt).toMatchObject({
+    kind: 'info',
+    title: 'Pending Approval',
+  });
+  expect(secondAttempt.text).toContain('community-plugin');
 });

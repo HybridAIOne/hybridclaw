@@ -1194,7 +1194,7 @@ test('handleGatewayCommand installs a registered on-demand plugin when enabling 
 
   expect(installPluginMock).toHaveBeenCalledWith(
     getChannelPluginCatalogEntry('whatsapp')?.installSource,
-    { approveDependencyInstall: false },
+    { approveNpmInstall: true, approveDependencyInstall: false },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
   expect(reloadPluginManagerMock).toHaveBeenCalled();
@@ -1283,7 +1283,7 @@ test('handleTextChannelApprovalCommand approves install-on-demand plugin enable 
   expect(installPluginMock).toHaveBeenNthCalledWith(
     3,
     getChannelPluginCatalogEntry('whatsapp')?.installSource,
-    { approveDependencyInstall: true },
+    { approveNpmInstall: true, approveDependencyInstall: true },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
   expect(reloadPluginManagerMock).toHaveBeenCalled();

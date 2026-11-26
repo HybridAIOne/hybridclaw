@@ -8,8 +8,8 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 // Bare plugin ids must never fall through to the public npm registry:
 // bundled plugins missing from a trimmed install, externally hosted channel
 // plugins (like WhatsApp), and unknown/typo bare ids must fail fast without
-// contacting npm. Only an explicit `npm:<pkg>` (or scoped `@scope/<pkg>`)
-// reaches npm, and only after explicit approval.
+// contacting npm. Only an explicit `npm:<pkg>` (or scoped `@scope/<pkg>`) or
+// a remote URL is downloaded, and only after explicit approval.
 const packageRoot = vi.hoisted(() => ({ dir: '' }));
 vi.mock('../src/infra/install-root.js', async (importOriginal) => {
   const actual =
@@ -115,6 +115,9 @@ async function runInstallFixture(params: {
   };
 }
 
+const REMOTE_ARCHIVE_URL =
+  'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.2.0/hybridaione-hybridclaw-whatsapp-0.2.0.tgz';
+
 const SCENARIOS = [
   {
     name: 'bundled id present enables the bundled copy without touching npm',
@@ -188,6 +191,27 @@ const SCENARIOS = [
     expectedPluginId: 'some-community-plugin',
     expectNpmSpec: 'some-community-plugin',
   },
+  {
+    name: 'remote archive URL without approval requires confirmation and does not fetch',
+    source: REMOTE_ARCHIVE_URL,
+    bundledPresent: [],
+    cwdPlugins: [],
+    approveNpmInstall: false,
+    expectOk: false,
+    expectNpmApprovalRequired: true,
+    expectNpmSpec: null,
+  },
+  {
+    name: 'remote archive URL with approval fetches the archive',
+    source: REMOTE_ARCHIVE_URL,
+    bundledPresent: [],
+    cwdPlugins: [],
+    approveNpmInstall: true,
+    mockNpmFetchPluginId: 'whatsapp',
+    expectOk: true,
+    expectedPluginId: 'whatsapp',
+    expectNpmSpec: REMOTE_ARCHIVE_URL,
+  },
 ] as const;
 
 const MATRIX = (['install', 'reinstall'] as const).flatMap((verb) =>
@@ -237,11 +261,14 @@ it.each(MATRIX)('$verb: $name', async (scenario) => {
         args: expect.arrayContaining([scenario.expectNpmSpec]),
       }),
     );
-    expect(
-      runCommand.mock.calls.every(
-        ([call]) => !(call as { args: string[] }).args.includes(scenario.source),
-      ),
-    ).toBe(true);
+    if (scenario.source !== scenario.expectNpmSpec) {
+      expect(
+        runCommand.mock.calls.every(
+          ([call]) =>
+            !(call as { args: string[] }).args.includes(scenario.source),
+        ),
+      ).toBe(true);
+    }
   } else {
     expect(runCommand).not.toHaveBeenCalled();
   }
@@ -272,25 +299,6 @@ test.each([
     expect(runCommand).not.toHaveBeenCalled();
   },
 );
-
-test('remote archive URLs (such as the official WhatsApp release tarball) still fetch without requiring npm:', async () => {
-  const url =
-    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.2.0/hybridaione-hybridclaw-whatsapp-0.2.0.tgz';
-  const { promise, runCommand } = await runInstallFixture({
-    source: url,
-    approveNpmInstall: false,
-    mockNpmFetchPluginId: 'whatsapp',
-  });
-
-  const result = await promise;
-  expect(result.pluginId).toBe('whatsapp');
-  expect(runCommand).toHaveBeenCalledWith(
-    expect.objectContaining({
-      command: 'npm',
-      args: expect.arrayContaining([url]),
-    }),
-  );
-});
 
 test('CLI plugin install npm:<pkg> refuses non-interactive runs without --yes', async () => {
   packageRoot.dir = makeTempDir();

@@ -737,7 +737,10 @@ export async function handlePluginGatewayCommand(params: {
           const installAndEnable = async (
             approveDependencyInstall: boolean,
           ): Promise<GatewayCommandResult> => {
+            // Registered install sources are pinned in code, so their
+            // download needs no prompt; dependency installs still do.
             const result = await installPlugin(installSource, {
+              approveNpmInstall: true,
               approveDependencyInstall,
             });
             await setPluginEnabled(pluginId, true);
@@ -889,8 +892,12 @@ export async function handlePluginGatewayCommand(params: {
       approveDependencyInstall: boolean;
       includeSatisfiedCallback: boolean;
     }) => {
+      // Official catalog sources are pinned in code, so their download needs
+      // no prompt; dependency installs still do.
       const options = {
-        ...(params.approveNpmInstall ? { approveNpmInstall: true } : {}),
+        ...(params.approveNpmInstall || officialOnly
+          ? { approveNpmInstall: true }
+          : {}),
         approveDependencyInstall: params.approveDependencyInstall,
         ...(params.includeSatisfiedCallback
           ? { onDependenciesAlreadySatisfied }
@@ -953,9 +960,9 @@ export async function handlePluginGatewayCommand(params: {
           const approvalId = randomUUID();
           const prompt = buildPluginDependencyApprovalPrompt({
             approvalId,
-            intent: `download and ${verb} plugin \`${error.spec}\` from the npm registry`,
+            intent: `download and ${verb} plugin \`${error.spec}\``,
             reason:
-              'plugins run in-process in the gateway; downloading an npm package executes third-party plugin code',
+              'plugins run in-process in the gateway; downloading a plugin from npm or a URL executes third-party plugin code',
             consequenceIfDenied: `plugin ${verb} will be cancelled.`,
             allowSession: false,
             allowAgent: false,

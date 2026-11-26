@@ -45,8 +45,8 @@ async function confirmPrompt(params: {
 
 async function confirmNpmInstall(spec: string): Promise<boolean> {
   return confirmPrompt({
-    question: `Download and install plugin "${spec}" from the npm registry? Plugins run in-process in the gateway. [y/N] `,
-    nonInteractiveMessage: `Installing plugin "${spec}" from the npm registry requires an interactive terminal. Re-run with --yes to approve.`,
+    question: `Download and install plugin "${spec}"? Plugins run in-process in the gateway. [y/N] `,
+    nonInteractiveMessage: `Downloading plugin "${spec}" requires an interactive terminal. Re-run with --yes to approve.`,
   });
 }
 
@@ -497,8 +497,13 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
           `Plugin \`${pluginId}\` was not found and has no registered install source.`,
         );
       }
-      const installedPlugin = await installPluginWithApproval(
-        installSource,
+      const { installPlugin } = await import('../plugins/plugin-install.js');
+      // Registered install sources are pinned in code, so their download
+      // needs no prompt; dependency installs still do.
+      const installedPlugin = await runPluginInstallWithApproval(
+        'install',
+        (options) =>
+          installPlugin(installSource, { ...options, approveNpmInstall: true }),
         yes === '--yes',
       );
       if (!installedPlugin) return;

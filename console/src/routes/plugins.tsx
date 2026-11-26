@@ -160,9 +160,9 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
     const source = installSource.trim();
     if (!source) return;
     if (
-      (source.startsWith('npm:') || source.startsWith('@')) &&
+      /^(?:npm:|@|https?:\/\/|git\+|git:\/\/|file:)/i.test(source) &&
       !window.confirm(
-        `Download and install "${source}" from the npm registry? Plugins run in-process in the gateway.`,
+        `Download and install "${source}"? Plugins run in-process in the gateway.`,
       )
     ) {
       return;

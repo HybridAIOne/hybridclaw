@@ -101,8 +101,10 @@ contacting npm. To install an unscoped package from npm, pass the explicit
 `npm:<package>` form (for example
 `hybridclaw plugin install npm:hybridclaw-plugin-example`); scoped packages
 (`@scope/<package>`) check local plugin catalogs first before contacting npm.
-Installing from the npm registry asks for confirmation unless `--yes` is
-passed.
+Installing from the npm registry or a remote URL (`https://`, `git+…`,
+`file:`) asks for confirmation unless `--yes` is passed. `plugin enable` skips
+that prompt for plugins whose install source is registered in HybridClaw, such
+as the pinned WhatsApp release archive.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/extensions?tab=plugins` for browser-based inspection.
 

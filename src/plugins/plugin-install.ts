@@ -305,7 +305,10 @@ function preparePluginSource(
       cleanupDirs: [],
     };
   }
-  if (sourceRef.kind === 'npm-registry' && !approveNpmInstall) {
+  if (
+    (sourceRef.kind === 'npm-registry' || sourceRef.kind === 'remote-url') &&
+    !approveNpmInstall
+  ) {
     throw new PluginNpmInstallApprovalRequiredError(sourceRef.spec);
   }
 
