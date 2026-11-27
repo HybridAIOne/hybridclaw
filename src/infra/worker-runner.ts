@@ -113,10 +113,6 @@ export interface WorkerStrategy {
   spawn(request: WorkerSpawnRequest): { process: ChildProcess; name?: string };
   /** Ends the worker; called once, after its lifecycle accepted the stop. */
   stop(entry: WorkerEntry): void;
-  /** Drop the entry on abort instead of on exit (the stop is asynchronous). */
-  dropsEntryOnAbort: boolean;
-  /** Handle stdin write failures after the worker died as an interrupt. */
-  guardsStdinErrors: boolean;
   memoryKey(entry: WorkerEntry): string | null;
   readMemoryBytes(keys: string[]): Promise<number>;
   logFields(entry: WorkerEntry): Record<string, unknown>;
@@ -144,6 +140,15 @@ export function resolveDiscordMediaCacheHostDir(): string {
 
 export function resolveBrowserProfileHostDir(): string {
   return path.resolve(getBrowserProfileDir(DATA_DIR));
+}
+
+/** Whether a pooled worker can take its session's next request. */
+function isLive(entry: WorkerEntry): boolean {
+  return (
+    entry.lifecycle.reusable &&
+    !entry.process.killed &&
+    entry.process.exitCode === null
+  );
 }
 
 function resolveWorkspacePath(params: {
@@ -273,11 +278,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     const sessionId = params.sessionId;
     const agentId = params.agentId || DEFAULT_AGENT_ID;
     const existing = params.warm ? null : pool.get(sessionId);
-    if (
-      existing?.lifecycle.reusable &&
-      !existing.process.killed &&
-      existing.process.exitCode === null
-    ) {
+    if (existing && isLive(existing)) {
       logger.debug(
         { sessionId, ...strategy.logFields(existing) },
         `Reusing ${worker}`,
@@ -464,8 +465,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     }
 
     const current = pool.get(sessionId);
-    const isNewWorker =
-      !current || current.process.killed || current.process.exitCode !== null;
+    const isNewWorker = !current || !isLive(current);
     const spawnParams = {
       sessionId,
       agentId,
@@ -538,7 +538,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
         `Interrupt requested, stopping ${worker}`,
       );
       stopEntry(entry);
-      if (strategy.dropsEntryOnAbort) removeEntry(entry);
+      removeEntry(entry);
     };
     if (abortSignal) {
       abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -562,10 +562,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
             `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
           );
         } catch (err) {
-          if (
-            strategy.guardsStdinErrors &&
-            isStdinWriteInterrupt(err, entry.process, abortSignal)
-          ) {
+          if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
             logger.info(
               { sessionId, error: err },
               `${Worker} input write interrupted by process shutdown`,

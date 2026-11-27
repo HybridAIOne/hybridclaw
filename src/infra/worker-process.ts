@@ -277,20 +277,20 @@ export function createWorkerEntry(params: {
     logger.info({ ...fields, code, signal }, `${capitalize(worker)} exited`);
   });
 
-  if (strategy.guardsStdinErrors) {
-    proc.stdin?.on('error', (err) => {
-      if (isStdinWriteInterrupt(err, proc)) {
-        logger.debug(
-          { ...fields, error: err },
-          `Ignoring ${worker} stdin error after process shutdown`,
-        );
-        return;
-      }
-      logger.error(
+  // A write to a dead worker fails asynchronously on the pipe; unhandled, it
+  // would crash the gateway.
+  proc.stdin?.on('error', (err) => {
+    if (isStdinWriteInterrupt(err, proc)) {
+      logger.debug(
         { ...fields, error: err },
-        `${capitalize(worker)} stdin error`,
+        `Ignoring ${worker} stdin error after process shutdown`,
       );
-    });
-  }
+      return;
+    }
+    logger.error(
+      { ...fields, error: err },
+      `${capitalize(worker)} stdin error`,
+    );
+  });
   return entry;
 }

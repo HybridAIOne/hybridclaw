@@ -299,7 +299,8 @@ exit are terminal for reuse; a late readiness marker or request finalizer
 cannot revive a stopped process or release a newer request. These are gateway
 process handles, not durable session state. Gateway runtime token or
 web-search configuration changes invalidate worker reuse on the next turn, so
-process-cached credentials are refreshed.
+process-cached credentials are refreshed. An interrupted turn stops its worker
+and removes it from the pool at once; the next turn starts a new worker.
 
 ### Interrupted Turns
 
