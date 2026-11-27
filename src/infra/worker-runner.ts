@@ -19,11 +19,9 @@ import path from 'node:path';
 import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
 import type { Executor, ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { getBrowserProfileDir } from '../browser/browser-login.js';
 import {
   CONTAINER_TIMEOUT,
   CONTAINER_WARM_POOL,
-  DATA_DIR,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
@@ -141,14 +139,6 @@ export interface WorkerStrategy {
     model: string;
     task: string;
   }): { stop(): void } | undefined;
-}
-
-export function resolveDiscordMediaCacheHostDir(): string {
-  return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
-}
-
-export function resolveBrowserProfileHostDir(): string {
-  return path.resolve(getBrowserProfileDir(DATA_DIR));
 }
 
 /** Whether a pooled worker can take its session's next request. */
