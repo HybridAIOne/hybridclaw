@@ -349,12 +349,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     return entry;
   }
 
-  function maintainWarm(params: {
-    agentId: string;
-    workspacePathOverride?: string;
-    workspaceDisplayRootOverride?: string;
-    bashProxy?: ExecutorRequest['bashProxy'];
-  }): void {
+  function maintainWarm(params: WorkerSpawnParams & { agentId: string }): void {
     maintainWarmPool({
       pool,
       warmPool,
@@ -498,6 +493,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       workspacePathOverride: params.workspacePathOverride,
       workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
       bashProxy: params.bashProxy,
+      runtimeScope: params.runtimeScope,
     };
 
     let entry: WorkerEntry;
@@ -536,8 +532,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
                   `Claimed warm ${worker}`,
                 ),
             })
-          : null) ||
-        getOrSpawn({ ...spawnParams, runtimeScope: params.runtimeScope });
+          : null) || getOrSpawn(spawnParams);
     } catch (err) {
       return {
         status: 'error',

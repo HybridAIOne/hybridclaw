@@ -110,7 +110,14 @@ test('claims an existing warming entry instead of forcing another spawn', () => 
   expect(logClaim).toHaveBeenCalledWith(warming);
 });
 
-test('skips warm claim when request eligibility is not pool-safe', () => {
+test.each([
+  { workspacePathOverride: '/custom/workspace' },
+  { workspaceDisplayRootOverride: '/display' },
+  { bashProxy: { mode: 'docker-exec' } },
+  { runtimeScope: { agentId: 'agent_a', scopeId: 'scope-1' } },
+])('skips warm claim when request eligibility is not pool-safe: %o', (
+  eligibility,
+) => {
   const active = new Map<string, WarmRunnerEntry>();
   const warmPool = makeWarmPool({});
   const warm = makeEntry('warm-1');
@@ -121,7 +128,7 @@ test('skips warm claim when request eligibility is not pool-safe', () => {
     warmPool,
     sessionId: 'request-1',
     agentId: 'agent_a',
-    eligibility: { workspacePathOverride: '/custom/workspace' },
+    eligibility,
     isCurrent: () => true,
     discard: vi.fn(),
     logClaim: vi.fn(),

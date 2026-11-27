@@ -662,6 +662,35 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(warmWorker?.stdin.write).toHaveBeenCalledTimes(1);
   });
 
+  test('a scoped request without a workspace override spawns its own worker with the scoped token', async () => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    const run = await startRunner(mode, { warmPool: true });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-unscoped' });
+    const spare = run.workers[1];
+    expect(spare).toBeDefined();
+    const runtimeScope = { agentId: 'default', scopeId: 's_0123456789ab' };
+
+    const output = await run.runner.exec({
+      ...baseRequest,
+      sessionId: 'session-scoped',
+      runtimeScope,
+    });
+
+    expect(output.status).toBe('success');
+
+    expect(spare?.stdin.write).not.toHaveBeenCalled();
+    expect(run.workers).toHaveLength(3);
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    const scopedToken = resolveWorkerRuntimeToken(runtimeScope);
+    expect(scopedToken).not.toBe(resolveWorkerRuntimeToken(undefined));
+    expect(mode.spawnEnvValue(run, 2, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      scopedToken,
+    );
+    expect(firstInput(run.workers[2]).gatewayApiToken).toBe(scopedToken);
+  });
+
   test('a claimed warm worker runs on the stored runtime env saved after its spawn', async () => {
     const run = await startRunner(mode, { warmPool: true });
     const { saveNamedRuntimeEnv } = await import(

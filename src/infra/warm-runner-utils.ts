@@ -60,6 +60,8 @@ export interface WarmPoolEligibilityParams {
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?: unknown;
+  /** Spares hold the unscoped runtime token, so a scoped run never uses one. */
+  runtimeScope?: unknown;
 }
 
 export interface MemorySample {
@@ -265,7 +267,8 @@ export function canUseWarmPool(
     warmPool.enabled &&
     !params.workspacePathOverride?.trim() &&
     !params.workspaceDisplayRootOverride?.trim() &&
-    !params.bashProxy
+    !params.bashProxy &&
+    !params.runtimeScope
   );
 }
 
