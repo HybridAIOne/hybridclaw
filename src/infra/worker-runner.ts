@@ -471,22 +471,6 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       mapHostUrl: strategy.mapHostUrl,
     });
 
-    if (existingEntry && existingEntry.workerSignature !== workerSignature) {
-      logger.info(
-        {
-          sessionId,
-          ...strategy.logFields(existingEntry),
-          agentId,
-          provider: input.provider,
-        },
-        `Worker routing changed; restarting ${worker}`,
-      );
-      stopEntry(existingEntry);
-      removeEntry(existingEntry);
-    }
-
-    const current = pool.get(sessionId);
-    const isNewWorker = !current || !isLive(current);
     const spawnParams = {
       sessionId,
       agentId,
@@ -495,6 +479,28 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       bashProxy: params.bashProxy,
       runtimeScope: params.runtimeScope,
     };
+    // Compared in memory only, never logged: it holds the runtime token.
+    const currentEnv = JSON.stringify(spawnEnv(spawnParams, agentId));
+    if (
+      existingEntry &&
+      (existingEntry.workerSignature !== workerSignature ||
+        existingEntry.spawnEnv !== currentEnv)
+    ) {
+      logger.info(
+        {
+          sessionId,
+          ...strategy.logFields(existingEntry),
+          agentId,
+          provider: input.provider,
+        },
+        `Worker routing or env changed; restarting ${worker}`,
+      );
+      stopEntry(existingEntry);
+      removeEntry(existingEntry);
+    }
+
+    const current = pool.get(sessionId);
+    const isNewWorker = !current || !isLive(current);
 
     let entry: WorkerEntry;
     try {
@@ -506,14 +512,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
               sessionId,
               agentId,
               eligibility: spawnParams,
-              isCurrent: (spare) =>
-                spare.spawnEnv ===
-                JSON.stringify(
-                  spawnEnv(
-                    { sessionId: spare.ipcSessionId, warm: true },
-                    agentId,
-                  ),
-                ),
+              isCurrent: (spare) => spare.spawnEnv === currentEnv,
               discard: (spare) => {
                 logger.info(
                   { agentId, ...strategy.logFields(spare) },

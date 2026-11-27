@@ -750,6 +750,58 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     );
   });
 
+  test.each([
+    { name: 'unscoped', runtimeScope: undefined },
+    {
+      name: 'scoped',
+      runtimeScope: { agentId: 'default', scopeId: 's_0123456789ab' },
+    },
+  ])('restarts a $name session worker once when its spawn env goes stale', async ({
+    runtimeScope,
+  }) => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    let gatewayUrl = 'http://gateway-a.example.com:9090';
+    const run = await startRunner(mode, {
+      config: {
+        get GATEWAY_CLIENT_BASE_URL() {
+          return gatewayUrl;
+        },
+      },
+    });
+    const request = {
+      ...baseRequest,
+      sessionId: 'session-env-stale',
+      runtimeScope,
+    };
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(run.workers[0].stdin.write).toHaveBeenCalledTimes(1);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(false);
+
+    gatewayUrl = 'http://gateway-b.example.com:9090';
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.wasStopped(run.workers[1], run)).toBe(false);
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_URL')).toContain(
+      'gateway-b.example.com',
+    );
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      resolveWorkerRuntimeToken(runtimeScope),
+    );
+    const logged = JSON.stringify(
+      Object.values(run.logger).flatMap((log) => log.mock.calls),
+    );
+    expect(logged).not.toContain(resolveWorkerRuntimeToken(runtimeScope));
+  });
+
   test('turns an exception after dispatch into terminal journal evidence', async () => {
     const params = {
       sessionId: 'session-a',
