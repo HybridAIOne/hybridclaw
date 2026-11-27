@@ -352,6 +352,7 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
 
   test('stops and respawns a timed out pooled worker', async () => {
     const run = await startRunner(mode, {
+      warmPool: true,
       readOutput: vi
         .fn()
         .mockResolvedValueOnce({
@@ -376,11 +377,15 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(firstOutput.status).toBe('error');
     expect(mode.stopCount(run)).toBe(1);
     expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    // A timed-out turn does not refill the warm pool.
+    expect(run.workers).toHaveLength(1);
 
     const secondOutput = await run.runner.exec(request);
 
     expect(secondOutput.status).toBe('success');
-    expect(run.workers).toHaveLength(2);
+    expect(firstInput(run.workers[1]).sessionId).toBe('heartbeat:main');
+    expect(run.workers).toHaveLength(3);
+    expect(run.workers[2].stdin.write).not.toHaveBeenCalled();
     expect(mode.stopCount(run)).toBe(1);
   });
 
