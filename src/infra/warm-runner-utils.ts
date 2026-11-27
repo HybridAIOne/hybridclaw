@@ -385,10 +385,17 @@ export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
   sessionId: string;
   agentId: string;
   eligibility: WarmPoolEligibilityParams;
+  /** False for a spare whose spawn-time state has changed since. */
+  isCurrent: (entry: T) => boolean;
+  discard: (entry: T) => void;
   logClaim: (entry: T) => void;
 }): T | null {
   if (!canUseWarmPool(params.warmPool, params.eligibility)) return null;
-  const entry = params.warmPool.claim(params.agentId);
+  let entry = params.warmPool.claim(params.agentId);
+  while (entry && !params.isCurrent(entry)) {
+    params.discard(entry);
+    entry = params.warmPool.claim(params.agentId);
+  }
   if (!entry) return null;
   if (!entry.lifecycle.reusable) return null;
   entry.lifecycle.claim(params.sessionId);

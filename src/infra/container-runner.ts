@@ -38,7 +38,6 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
-import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
   resolveBrowserProfileHostDir,
@@ -190,13 +189,7 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
         CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
       TZ: resolveEffectiveTimezone(),
       HYBRIDCLAW_AGENT_WORKSPACE_ROOT: CONTAINER_WORKSPACE_ROOT,
-      ...buildWorkerEnv({
-        agentId,
-        runtimeScope: params.runtimeScope,
-        displayRoot: params.workspaceDisplayRootOverride,
-        mode: 'container',
-        mapHostUrl: remapHostBaseUrlForContainer,
-      }),
+      ...spawnRequest.workerEnv,
       PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright',
     }).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
   ];

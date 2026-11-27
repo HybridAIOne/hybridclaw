@@ -60,6 +60,11 @@ export interface WorkerEntry extends WarmRunnerEntry, BrowserFrameSink {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  /**
+   * What `spawn` was given, as canonical JSON: a warm claim compares it with
+   * what a spawn would get now. Holds credentials; never log it.
+   */
+  spawnEnv: string;
   /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
   ipcAuthSecret: string;
   onTextDelta?: (delta: string) => void;
@@ -194,6 +199,7 @@ export function createWorkerEntry(params: {
   spawned: { process: ChildProcess; name?: string };
   sessionId: string;
   agentId: string;
+  spawnEnv: string;
   warm: boolean;
   warmPool: WarmProcessPool<WorkerEntry>;
   stop: (entry: WorkerEntry) => void;
@@ -221,6 +227,7 @@ export function createWorkerEntry(params: {
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    spawnEnv: params.spawnEnv,
     ipcAuthSecret: generateIpcAuthSecret(),
     isReady() {
       return entry.lifecycle.phase === 'idle';
