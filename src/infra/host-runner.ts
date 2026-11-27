@@ -5,8 +5,7 @@
  *
  * The child gets a sanitized copy of the gateway env, the stored runtime env
  * and the allowed roots its path guard enforces; host mode has no OS-level
- * isolation. Unlike container-runner, a full pool waits for capacity instead
- * of failing at once.
+ * isolation.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -29,10 +28,6 @@ import {
   createWorkerRunner,
   type WorkerSpawnRequest,
 } from './worker-runner.js';
-
-const HOST_CAPACITY_WAIT_MS = 15_000;
-// Nobody watches a background run, so it can queue behind user turns longer.
-const BACKGROUND_HOST_CAPACITY_WAIT_MS = 300_000;
 
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
@@ -205,6 +200,4 @@ export const hostRunner = createWorkerRunner({
   runtimeEnvAtSpawn: true,
   mapHostUrl: (url) => url,
   stateRoot: (request) => hostWorkspaceStateRoot(request),
-  capacityWaitMs: (background) =>
-    background ? BACKGROUND_HOST_CAPACITY_WAIT_MS : HOST_CAPACITY_WAIT_MS,
 });

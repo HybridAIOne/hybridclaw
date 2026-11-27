@@ -511,7 +511,7 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(results.every((result) => result.status === 'success')).toBe(true);
   });
 
-  test('a full pool fails as busy, after its capacity wait where the mode has one', async () => {
+  test('a full pool waits for capacity, then fails as busy', async () => {
     const { finish, readOutput } = pendingOutputs();
     const { runner, workers } = await startRunner(mode, { readOutput });
     const running = ['sess-1', 'sess-2', 'sess-3', 'sess-4', 'sess-5'].map(
@@ -527,13 +527,13 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
         settled = true;
       });
       await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(settled).toBe(!mode.expected.fullPoolWaits);
+      expect(settled).toBe(false);
 
       vi.setSystemTime(Date.now() + 16_000);
       await expect(overflow).resolves.toMatchObject({
         status: 'error',
         errorCode: 'busy',
-        error: expect.stringMatching(mode.expected.busyError),
+        error: expect.stringMatching(mode.busyError),
       });
       expect(workers).toHaveLength(5);
     } finally {
