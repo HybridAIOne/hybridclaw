@@ -40,6 +40,7 @@ import {
 import { isSteerInboxEntryName } from '@hybridclaw/shared/steer-inbox';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
+import { mlxRelayHeaders } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
@@ -73,7 +74,9 @@ function agentDir(agentId: string): string {
 // rebuilding from the rest, rather than spreading the source and overwriting.
 // The follow-up file the agent verifies then carries no credential values at
 // all — the agent reuses the ones it received on stdin — which also keeps
-// credentials out of the input that `writeInput` authenticates.
+// credentials out of the input that `writeInput` authenticates. The one
+// exception is a per-turn MLX relay id (`mlxRelayHeaders`): it is new every
+// turn, so the worker cannot reuse the one it got on stdin.
 
 function redactTaskModelSecrets(
   taskModels: ContainerInput['taskModels'],
@@ -87,7 +90,11 @@ function redactTaskModelSecrets(
       requestHeaders: _requestHeaders,
       ...routing
     } = taskModel;
-    redacted[key] = { ...routing, apiKey: '', requestHeaders: {} };
+    redacted[key] = {
+      ...routing,
+      apiKey: '',
+      requestHeaders: mlxRelayHeaders(taskModel),
+    };
   }
   return Object.keys(redacted).length > 0 ? redacted : undefined;
 }
@@ -122,7 +129,7 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
   return {
     ...rest,
     apiKey: '',
-    requestHeaders: {},
+    requestHeaders: mlxRelayHeaders(input),
     taskModels: redactTaskModelSecrets(taskModels),
     webSearch: redactWebSearchSecrets(webSearch),
   };

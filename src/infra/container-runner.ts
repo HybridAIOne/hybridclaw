@@ -22,7 +22,7 @@ import {
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
 } from '../config/config.js';
-import { startMlxRelay } from '../inference/mlx-relay.js';
+import { mlxRelayEntry, startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
 import { resolveDiscordMediaCacheHostDir } from '../media/media-host-path.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -283,11 +283,7 @@ export const containerRunner = createWorkerRunner({
         task,
       });
       relays.push(relay);
-      return {
-        baseUrl: 'http://mlx.invalid/v1',
-        apiKey: '',
-        requestHeaders: { 'X-HybridClaw-Relay': relay.id },
-      };
+      return mlxRelayEntry(relay.id);
     };
     if (modelRuntime.provider === 'mlx') {
       Object.assign(

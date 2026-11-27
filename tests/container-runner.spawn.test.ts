@@ -5,6 +5,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   baseRequest,
   firstInput,
+  okOutput,
   RUNNER_MODES,
   testCredentials,
   useRunnerModes,
@@ -85,15 +86,20 @@ afterEach(() => {
 });
 
 function trackRelays() {
-  const relays: Array<{ model: string; stop: ReturnType<typeof vi.fn> }> = [];
+  const relays: Array<{
+    id: string;
+    model: string;
+    stop: ReturnType<typeof vi.fn>;
+  }> = [];
   vi.doMock('../src/inference/mlx-relay.js', async (importOriginal) => {
     const actual =
       await importOriginal<typeof import('../src/inference/mlx-relay.js')>();
     return {
+      ...actual,
       startMlxRelay: (options: Parameters<typeof actual.startMlxRelay>[0]) => {
         const relay = actual.startMlxRelay(options);
         const stop = vi.fn(() => relay.stop());
-        relays.push({ model: options.model, stop });
+        relays.push({ id: relay.id, model: options.model, stop });
         return { id: relay.id, stop };
       },
     };
@@ -240,13 +246,31 @@ test('containerRunner fails an MLX task model closed when its relay cannot start
   expect(relays[0]?.stop).toHaveBeenCalledTimes(1);
 });
 
-test('containerRunner keeps the worker across MLX turns although relay ids change', async () => {
-  const { runner, workers, writeInput } = await startRunner(container, {
+test('containerRunner hands a reused worker the running relays of its current turn', async () => {
+  const relays = trackRelays();
+  const sessionId = 'session-mlx-reuse';
+  let followUp = '';
+  let runningDuringFollowUp: string[] = [];
+  let turn = 0;
+  const { runner, workers } = await startRunner(container, {
     credentials: async () => mlxCredentials,
+    taskModels: () => ({ vision: mlxTaskModel('mlx/vision-model') }),
+    readOutput: async () => {
+      turn += 1;
+      if (turn === 2) {
+        const { getSessionPaths } = await import('../src/infra/ipc.js');
+        const { ipcPath } = getSessionPaths(sessionId, 'default');
+        followUp = fs.readFileSync(path.join(ipcPath, 'input.json'), 'utf-8');
+        runningDuringFollowUp = relays
+          .filter((relay) => relay.stop.mock.calls.length === 0)
+          .map((relay) => relay.id);
+      }
+      return okOutput();
+    },
   });
   const request = {
     ...baseRequest,
-    sessionId: 'session-mlx-reuse',
+    sessionId,
     chatbotId: '',
     model: 'mlx/test-model',
   };
@@ -255,9 +279,24 @@ test('containerRunner keeps the worker across MLX turns although relay ids chang
   await runner.exec(request);
 
   expect(workers).toHaveLength(1);
-  const first = relayIds(firstInput(workers[0]));
-  const second = relayIds(writeInput.mock.calls[0]?.[1]);
-  expect(second).toHaveLength(first.length);
-  expect(second.some((id) => first.includes(id))).toBe(false);
-  expect(JSON.stringify(writeInput.mock.calls[0]?.[1])).not.toContain(MLX_KEY);
+  const first = firstInput(workers[0]);
+  const { decodeAuthenticatedInput } = await import(
+    '@hybridclaw/shared/ipc-input-auth'
+  );
+  const decoded = decodeAuthenticatedInput(
+    String(first.ipcAuthSecret),
+    followUp,
+  );
+  if (decoded.status !== 'ok') throw new Error('expected authentic input');
+  const second = JSON.parse(decoded.body) as Record<string, unknown>;
+  expect(second).toMatchObject({
+    ...RELAY,
+    taskModels: { vision: { ...RELAY, provider: 'mlx' } },
+  });
+  const secondIds = relayIds(second);
+  expect(secondIds).toHaveLength(2);
+  expect(secondIds.some((id) => relayIds(first).includes(id))).toBe(false);
+  expect(runningDuringFollowUp).toEqual(secondIds);
+  expect(decoded.body).not.toContain(MLX_KEY);
+  expect(decoded.body).not.toContain('127.0.0.1:8080');
 });
