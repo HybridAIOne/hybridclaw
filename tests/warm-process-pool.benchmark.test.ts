@@ -185,12 +185,10 @@ async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
     },
   }));
 
-  const {
-    HostExecutor,
-    getWarmHostColdStartP95Ms,
-    isWarmHostColdStartWithinBudget,
-  } = await import('../src/infra/host-runner.js');
-  const executor = new HostExecutor();
+  const { WarmProcessPool } = await import('../src/infra/warm-process-pool.js');
+  const recordRequest = vi.spyOn(WarmProcessPool.prototype, 'recordRequest');
+  const { hostRunner } = await import('../src/infra/host-runner.js');
+  const executor = hostRunner;
 
   for (let index = 0; index < 20; index += 1) {
     const sessionId = `bench-${index}`;
@@ -207,10 +205,13 @@ async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
     await Promise.resolve();
   }
 
+  const warmPool = recordRequest.mock.contexts[0] as InstanceType<
+    typeof WarmProcessPool
+  >;
   return {
-    coldStartP95Ms: getWarmHostColdStartP95Ms(),
+    coldStartP95Ms: warmPool.coldStartP95Ms(),
     coldStartSamples,
-    withinBudget: isWarmHostColdStartWithinBudget(),
+    withinBudget: warmPool.isWithinColdStartBudget(),
     warmClaims: loggerInfo.mock.calls.filter(
       (call) => call[1] === 'Claimed warm host agent process',
     ).length,

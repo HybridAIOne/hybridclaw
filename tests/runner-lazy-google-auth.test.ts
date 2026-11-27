@@ -75,10 +75,8 @@ test.each(['host', 'container'])(
     resolveGoogle.mockClear();
     const executor =
       mode === 'host'
-        ? new (await import('../src/infra/host-runner.js')).HostExecutor()
-        : new (
-            await import('../src/infra/container-runner.js')
-          ).ContainerExecutor();
+        ? (await import('../src/infra/host-runner.js')).hostRunner
+        : (await import('../src/infra/container-runner.js')).containerRunner;
     try {
       for (let turn = 0; turn < 2; turn++) {
         const output = await executor.exec({

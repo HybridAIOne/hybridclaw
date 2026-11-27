@@ -1,6 +1,6 @@
 /**
  * Executor selection applies a run override before the configured sandbox mode.
- * Unlike the runners, this module owns selection and the initialized registry;
+ * Unlike the runners, this module owns selection and the cross-mode totals;
  * selecting an executor never starts a worker or grants workspace access.
  */
 import {
@@ -14,8 +14,8 @@ import {
   getSandboxAutoDetectionState,
   MOUNT_ALLOWLIST_PATH,
 } from '../config/config.js';
-import { ContainerExecutor } from '../infra/container-runner.js';
-import { HostExecutor } from '../infra/host-runner.js';
+import { containerRunner } from '../infra/container-runner.js';
+import { hostRunner } from '../infra/host-runner.js';
 import { parseBindSpecs } from '../security/mount-config.js';
 import type {
   Executor,
@@ -39,18 +39,7 @@ export interface SandboxDiagnostics {
   warning: string | null;
 }
 
-let containerExecutor: ContainerExecutor | null = null;
-let hostExecutor: HostExecutor | null = null;
-
-function getContainerExecutor(): ContainerExecutor {
-  containerExecutor ??= new ContainerExecutor();
-  return containerExecutor;
-}
-
-function getHostExecutor(): HostExecutor {
-  hostExecutor ??= new HostExecutor();
-  return hostExecutor;
-}
+const EXECUTORS: Executor[] = [containerRunner, hostRunner];
 
 export function resolveExecutorMode(
   override?: 'host' | 'container',
@@ -60,14 +49,8 @@ export function resolveExecutorMode(
 
 export function getExecutor(override?: 'host' | 'container'): Executor {
   return resolveExecutorMode(override) === 'host'
-    ? getHostExecutor()
-    : getContainerExecutor();
-}
-
-function initializedExecutors(): Executor[] {
-  return [containerExecutor, hostExecutor].filter((value): value is Executor =>
-    Boolean(value),
-  );
+    ? hostRunner
+    : containerRunner;
 }
 
 function parseAdditionalMountsCount(): number {
@@ -75,52 +58,43 @@ function parseAdditionalMountsCount(): number {
 }
 
 export function getActiveExecutorCount(): number {
-  const executors = initializedExecutors();
-  if (executors.length === 0) return getExecutor().getActiveSessionCount();
-  return executors.reduce(
+  return EXECUTORS.reduce(
     (sum, executor) => sum + executor.getActiveSessionCount(),
     0,
   );
 }
 
 export function getInFlightExecutorCount(): number {
-  const executors = initializedExecutors();
-  if (executors.length === 0) return getExecutor().getInFlightSessionCount();
-  return executors.reduce(
+  return EXECUTORS.reduce(
     (sum, executor) => sum + executor.getInFlightSessionCount(),
     0,
   );
 }
 
-export function getActiveExecutorSessionIds(): string[] {
-  const executors = initializedExecutors();
-  const active = (executors.length === 0 ? [getExecutor()] : executors).flatMap(
-    (executor) => executor.getActiveSessionIds(),
-  );
-  return Array.from(new Set(active)).sort((left, right) =>
+function sortedUnique(ids: string[]): string[] {
+  return Array.from(new Set(ids)).sort((left, right) =>
     left.localeCompare(right),
+  );
+}
+
+export function getActiveExecutorSessionIds(): string[] {
+  return sortedUnique(
+    EXECUTORS.flatMap((executor) => executor.getActiveSessionIds()),
   );
 }
 
 /** Sessions with a turn executing right now, not merely a warm worker. */
 export function getInFlightExecutorSessionIds(): string[] {
-  const executors = initializedExecutors();
-  const inFlight = (
-    executors.length === 0 ? [getExecutor()] : executors
-  ).flatMap((executor) => executor.getInFlightSessionIds());
-  return Array.from(new Set(inFlight)).sort((left, right) =>
-    left.localeCompare(right),
+  return sortedUnique(
+    EXECUTORS.flatMap((executor) => executor.getInFlightSessionIds()),
   );
 }
 
 export async function getExecutorSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
-  const executors = initializedExecutors();
   const snapshots = await Promise.all(
-    (executors.length === 0 ? [getExecutor()] : executors).map((executor) =>
-      executor.getSessionHealthSnapshots(),
-    ),
+    EXECUTORS.map((executor) => executor.getSessionHealthSnapshots()),
   );
   return snapshots
     .flat()
@@ -129,20 +103,14 @@ export async function getExecutorSessionHealthSnapshots(): Promise<
 
 export function stopSessionExecution(sessionId: string): boolean {
   let stopped = false;
-  for (const executor of initializedExecutors()) {
+  for (const executor of EXECUTORS) {
     stopped = executor.stopSession(sessionId) || stopped;
   }
-  if (stopped) return true;
-  return getExecutor().stopSession(sessionId);
+  return stopped;
 }
 
 export function stopAllExecutions(): void {
-  for (const executor of initializedExecutors()) {
-    executor.stopAll();
-  }
-  if (initializedExecutors().length === 0) {
-    getExecutor().stopAll();
-  }
+  for (const executor of EXECUTORS) executor.stopAll();
 }
 
 export function getSandboxDiagnostics(): SandboxDiagnostics {

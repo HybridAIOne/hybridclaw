@@ -55,10 +55,10 @@ const RUNNERS = [
     // `docker stop` is a separate process; the `docker run` client stays alive.
     isAgentSpawn: (args: string[]) => args[0] === 'run',
     createExecutor: async () => {
-      const { ContainerExecutor } = await import(
+      const { containerRunner } = await import(
         '../src/infra/container-runner.js'
       );
-      return new ContainerExecutor();
+      return containerRunner;
     },
   },
   {
@@ -71,8 +71,8 @@ const RUNNERS = [
           args: ['agent.js'],
         }),
       }));
-      const { HostExecutor } = await import('../src/infra/host-runner.js');
-      return new HostExecutor();
+      const { hostRunner } = await import('../src/infra/host-runner.js');
+      return hostRunner;
     },
   },
 ];

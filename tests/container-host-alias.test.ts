@@ -115,10 +115,10 @@ async function spawnArgsFor(params: {
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   }));
 
-  const { ContainerExecutor } = await import(
+  const { containerRunner } = await import(
     '../src/infra/container-runner.js'
   );
-  await new ContainerExecutor().exec({
+  await containerRunner.exec({
     sessionId: `session-host-alias-${params.platform}-${params.network}`,
     messages: [{ role: 'user', content: 'hello' }],
     chatbotId: '',

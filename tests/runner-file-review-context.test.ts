@@ -115,10 +115,8 @@ test.each(['host', 'container'] as const)(
     });
     const executor =
       mode === 'host'
-        ? new (await import('../src/infra/host-runner.js')).HostExecutor()
-        : new (
-            await import('../src/infra/container-runner.js')
-          ).ContainerExecutor();
+        ? (await import('../src/infra/host-runner.js')).hostRunner
+        : (await import('../src/infra/container-runner.js')).containerRunner;
     const params = {
       sessionId: 'review-worker',
       messages: [{ role: 'user' as const, content: 'yes' }],

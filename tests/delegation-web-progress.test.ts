@@ -8,7 +8,7 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 const { runAgent } = vi.hoisted(() => ({ runAgent: vi.fn() }));
 vi.mock('../src/agent/agent.js', () => ({ runAgent }));
 vi.mock('../src/infra/host-runner.js', () => ({
-  stopSessionHostProcess: vi.fn(),
+  hostRunner: { stopSession: vi.fn() },
 }));
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-delegate-progress-',

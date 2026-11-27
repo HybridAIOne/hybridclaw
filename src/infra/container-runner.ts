@@ -1,101 +1,35 @@
 /**
- * Docker workers keep one session owner and one bounded request lease per process.
- * Lifecycle transitions reject reuse after stop; host spawning stays in
- * host-runner. This module does not own durable conversation state.
+ * Container worker strategy — how a Docker-sandboxed agent worker starts,
+ * stops and reports memory. Pooling, capacity and the request lifecycle are
+ * `worker-runner.ts`; this module only decides the docker invocation.
+ *
+ * Every worker runs `--read-only --cap-drop=ALL --security-opt=no-new-privileges`;
+ * only its workspace, IPC dir and the shared browser profile dir are mounted
+ * writable, plus extra binds that pass the mount allowlist as read-write. Loopback URLs are rewritten to the host alias. Native MLX
+ * credentials remain on the host; each turn receives only a relay capability
+ * pinned to its selected model. This is not a general network proxy.
  */
-/**
- * Container Runner — manages a pool of persistent containers.
- * Containers stay alive between requests and exit after an idle timeout.
- * Native MLX credentials remain on the host; each turn receives only a relay
- * capability pinned to its selected model. This is not a general network proxy.
- */
-import { type ChildProcess, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
-import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
-import { generateIpcAuthSecret } from '@hybridclaw/shared/ipc-input-auth';
-import { resolveProviderRequestMaxTokens } from '@hybridclaw/shared/request-max-tokens';
 import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
-import type {
-  ExecutorRequest,
-  ExecutorSessionHealthSnapshot,
-} from '../agent/executor-types.js';
 import {
-  resolveLocalStarterTools,
-  resolveLocalToolMode,
-  resolveMcpToolMode,
-} from '../agent/local-tool-config.js';
-import { mergeAllowedToolNames } from '../agent/tool-policy.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { getBrowserProfileDir } from '../browser/browser-login.js';
-import { resolveEmailSenderAddress } from '../channels/email/sender-address.js';
-import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
-import {
-  BROWSER_ALLOW_PRIVATE_NETWORK,
-  BROWSER_PROVIDER,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
-  CONTAINER_PERSIST_BASH_STATE,
-  CONTAINER_TIMEOUT,
-  CONTAINER_WARM_POOL,
-  CONTEXT_GUARD_COMPACTION_RATIO,
-  CONTEXT_GUARD_ENABLED,
-  CONTEXT_GUARD_MAX_RETRIES,
-  CONTEXT_GUARD_OVERFLOW_RATIO,
-  DATA_DIR,
-  DISCORD_FREE_RESPONSE_CHANNELS,
-  DISCORD_GUILDS,
-  DISCORD_SEND_ALLOWED_CHANNEL_IDS,
-  GATEWAY_CLIENT_BASE_URL,
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_MODEL,
-  MAX_CONCURRENT_CONTAINERS,
-  MCP_SERVERS,
-  onConfigChange,
-  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
-  PROACTIVE_AUTO_RETRY_ENABLED,
-  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
-  PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
-  PROACTIVE_RALPH_MAX_ITERATIONS,
-  WEB_SEARCH_CACHE_TTL_MINUTES,
-  WEB_SEARCH_DEFAULT_COUNT,
-  WEB_SEARCH_FALLBACK_PROVIDERS,
-  WEB_SEARCH_PROVIDER,
-  WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
-import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
-import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
-import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
-import { withSpan } from '../observability/otel.js';
-import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveSupportedReasoningEffort } from '../providers/model-catalog.js';
-import { resolveTaskModelPolicies } from '../providers/task-routing.js';
-import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
-import { redactCredentialSecrets } from '../security/redact.js';
-import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  BrowserFrame,
-  PendingApproval,
-  SlideSamples,
-  ToolProgressEvent,
-} from '../types/execution.js';
 import type { AdditionalMount } from '../types/security.js';
-import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
-import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
-import { parseApprovalProgress } from './approval-progress.js';
+import {
+  CONTAINER_APP_NODE_MODULES,
+  ensureWorkspaceNodeModulesLink,
+} from '../workspace.js';
 import {
   CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
   ensureBehaviorAnomalyTrajectoryStoreDir,
@@ -104,99 +38,13 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
-import { beginFileWriteReviewContext } from './file-write-review-context.js';
+import { buildWorkerEnv } from './worker-env.js';
 import {
-  agentWorkspaceDir,
-  cleanupIpc,
-  createActivityTracker,
-  ensureAgentDirs,
-  ensureSessionDirs,
-  getSessionPaths,
-  interruptedAgentOutput,
-  readOutput,
-  removeUnclaimedWarmSessionDir,
-  writeInput,
-} from './ipc.js';
-import {
-  consumeModelResponseDebugFileLine,
-  isModelResponseDebugEnabled,
-} from './model-response-debug.js';
-import {
-  consumeCollapsedStreamDebugLine,
-  createStreamDebugState,
-  decodeStreamDelta,
-  decodeThinkingDelta,
-  flushCollapsedStreamDebugSummary,
-  isStreamActivityLine,
-  isThinkingDeltaLine,
-  type StreamDebugState,
-} from './stream-debug.js';
-import {
-  parseBrowserFrameLine,
-  parseSlideSamplesLine,
-  parseToolProgressLine,
-} from './tool-progress-parser.js';
-import { WarmProcessPool } from './warm-process-pool.js';
-import {
-  claimWarmEntry,
-  collectIdleSessionEvictions,
-  enforceWarmPoolPressure,
-  formatWarmRunnerTerminalError,
-  getCachedObservedMemoryBytes,
-  getTotalWarmProcessCount,
-  IDLE_TIMEOUT_MS,
-  isTimedOutAgentOutput,
-  type MemorySample,
-  maintainWarmPool,
-  normalizeWarmProcessPoolRuntimeConfig,
-  observeAgentLifecycleLine,
-  pingWarmRunnerHealthEntry,
-  processLimitForRun,
-  rememberStderrLine,
-  removeWarmPoolEntry,
-  sendWarmWorkerFrame,
-  stopWarmEntries as stopWarmPoolEntries,
-  type WarmRunnerEntry,
-} from './warm-runner-utils.js';
-import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
-import { WorkerLifecycle } from './worker-lifecycle.js';
-import {
-  recoverWorkerFailure,
-  recoverWorkerOutput,
-} from './worker-recovery.js';
-import { computeWorkerSignature } from './worker-signature.js';
-
-function resolveExecutorMaxTokens(params: {
-  model: string;
-  discoveredMaxTokens?: number;
-}): number | undefined {
-  return resolveProviderRequestMaxTokens({
-    model: params.model,
-    discoveredMaxTokens: params.discoveredMaxTokens,
-  });
-}
-
-interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
-  process: ChildProcess;
-  containerName: string;
-  sessionId: string;
-  ipcSessionId: string;
-  agentId: string;
-  startedAt: number;
-  lastUsedAt: number;
-  pendingColdStartProbeStartedAt: number | null;
-  stderrBuffer: string;
-  stderrHistory: string[];
-  streamDebug: StreamDebugState;
-  workerSignature: string;
-  /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
-  ipcAuthSecret: string;
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
-}
+  createWorkerRunner,
+  resolveBrowserProfileHostDir,
+  resolveDiscordMediaCacheHostDir,
+  type WorkerSpawnRequest,
+} from './worker-runner.js';
 
 interface ContainerPathAliasMount {
   hostPaths: string[];
@@ -204,227 +52,10 @@ interface ContainerPathAliasMount {
   readonly: boolean;
 }
 
-const pool = new Map<string, PoolEntry>();
-const containerSessionQueue = new KeyedSerialQueue();
-const warmPool = new WarmProcessPool<PoolEntry>(
-  normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
-  (entries) => stopWarmEntries(entries),
-);
-let containerMemorySample: MemorySample | null = null;
-let containerMemoryRefreshInFlight = false;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
-const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
-
-export function collectConfiguredDiscordChannelIds(
-  currentChannelId: string,
-): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (value: string | undefined | null) => {
-    const id = String(value || '').trim();
-    if (!/^\d{16,22}$/.test(id)) return;
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(id);
-  };
-
-  add(currentChannelId);
-  for (const id of DISCORD_SEND_ALLOWED_CHANNEL_IDS) add(id);
-  for (const id of DISCORD_FREE_RESPONSE_CHANNELS) add(id);
-  for (const guildConfig of Object.values(DISCORD_GUILDS)) {
-    for (const channelId of Object.keys(guildConfig.channels || {}))
-      add(channelId);
-  }
-  return out;
-}
-
-export function resolveDiscordMediaCacheHostDir(): string {
-  return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
-}
-
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
-
-export function resolveBrowserProfileHostDir(): string {
-  return path.resolve(getBrowserProfileDir(DATA_DIR));
-}
-
-function emitTextDelta(entry: PoolEntry, line: string): void {
-  const callback = entry.onTextDelta;
-  if (!callback) return;
-  const delta = decodeStreamDelta(line);
-  if (delta == null) return;
-
-  try {
-    if (!delta) return;
-    callback(redactCredentialSecrets(delta));
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Text delta callback failed',
-    );
-  }
-}
-
-function emitThinkingDelta(entry: PoolEntry, line: string): void {
-  const callback = entry.onThinkingDelta;
-  if (!callback) return;
-  const delta = decodeThinkingDelta(line);
-  if (delta == null) return;
-
-  try {
-    if (!delta) return;
-    callback(redactCredentialSecrets(delta));
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Thinking delta callback failed',
-    );
-  }
-}
-
-function emitToolProgress(entry: PoolEntry, line: string): void {
-  const callback = entry.onToolProgress;
-  if (!callback) return;
-  if (stashBrowserFrameLine(entry, line)) return;
-  if (stashSlideSamplesLine(entry, line)) return;
-  const parsed = parseToolProgressLine(line);
-  if (!parsed) return;
-  const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
-  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
-
-  try {
-    callback({
-      sessionId: entry.sessionId,
-      ...parsed,
-      preview: redactCredentialSecrets(parsed.preview || ''),
-      ...(browser ? { browser } : {}),
-      ...(slideSamples ? { slideSamples } : {}),
-    });
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Tool progress callback failed',
-    );
-  }
-}
-
-function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
-  const approval = parseApprovalProgress(line);
-  if (!approval) return false;
-  if (!entry.onApprovalProgress) return true;
-  try {
-    entry.onApprovalProgress(approval);
-  } catch (err) {
-    logger.debug(
-      { sessionId: entry.sessionId, err },
-      'Approval progress callback failed',
-    );
-  }
-  return true;
-}
-
-export function getActiveContainerCount(): number {
-  return pool.size;
-}
-
-export function getInFlightContainerCount(): number {
-  let count = 0;
-  for (const entry of pool.values()) {
-    if (entry.lifecycle.activity) count += 1;
-  }
-  return count;
-}
-
-export function getActiveContainerSessionIds(): string[] {
-  return Array.from(pool.keys()).sort((left, right) =>
-    left.localeCompare(right),
-  );
-}
-
-export function getInFlightContainerSessionIds(): string[] {
-  return Array.from(pool.entries())
-    .filter(([, entry]) => Boolean(entry.lifecycle.activity))
-    .map(([sessionId]) => sessionId)
-    .sort((left, right) => left.localeCompare(right));
-}
-
-export async function getActiveContainerSessionHealthSnapshots(): Promise<
-  ExecutorSessionHealthSnapshot[]
-> {
-  const snapshots = await Promise.all(
-    Array.from(pool.values()).map((entry) =>
-      pingWarmRunnerHealthEntry('container', entry),
-    ),
-  );
-  return snapshots.sort((left, right) =>
-    left.sessionId.localeCompare(right.sessionId),
-  );
-}
-
-export function getWarmContainerColdStartP95Ms(): number | null {
-  return warmPool.coldStartP95Ms();
-}
-
-export function isWarmContainerColdStartWithinBudget(): boolean {
-  return warmPool.isWithinColdStartBudget();
-}
-
-// Runs past their capacity check whose container is not in the pool yet. They
-// count, or runs that start together all pass the check and overshoot it.
-let startingContainerProcesses = 0;
-
-function getTotalContainerProcessCount(): number {
-  return getTotalWarmProcessCount(pool, warmPool) + startingContainerProcesses;
-}
-
-function removePoolEntry(entry: PoolEntry): void {
-  removeWarmPoolEntry(pool, warmPool, entry);
-}
-
-export function stopSessionContainer(sessionId: string): boolean {
-  const entry = pool.get(sessionId);
-  if (!entry) return false;
-  logger.info(
-    { sessionId, containerName: entry.containerName },
-    'Stopping session container',
-  );
-  stopPoolEntry(entry);
-  removePoolEntry(entry);
-  return true;
-}
-
-function stopContainer(containerName: string): void {
-  const proc = spawn('docker', ['stop', containerName], { stdio: 'ignore' });
-  proc.on('error', (err) => {
-    logger.debug({ containerName, err }, 'Failed to stop container');
-  });
-}
-
-function stopPoolEntry(entry: PoolEntry): void {
-  if (entry.lifecycle.stop()) stopContainer(entry.containerName);
-}
-
-function stopWarmEntries(entries: PoolEntry[]): void {
-  stopWarmPoolEntries(entries, {
-    log: (entry) =>
-      logger.info(
-        { agentId: entry.agentId, containerName: entry.containerName },
-        'Evicting warm container',
-      ),
-    stop: stopPoolEntry,
-  });
-}
-
-onConfigChange((config) => {
-  stopWarmEntries(
-    warmPool.reconfigure(
-      normalizeWarmProcessPoolRuntimeConfig(config.container.warmPool),
-    ),
-  );
-  containerMemorySample = null;
-});
 
 function parseMemoryBytes(raw: string): number | null {
   const match = raw.trim().match(/^([\d.]+)\s*([kmgt]?i?b)?/i);
@@ -496,311 +127,9 @@ function readContainerMemoryBytes(
   });
 }
 
-function getObservedContainerMemoryBytes(): number {
-  return getCachedObservedMemoryBytes({
-    cache: containerMemorySample,
-    setCache: (sample) => {
-      containerMemorySample = sample;
-    },
-    isRefreshInFlight: () => containerMemoryRefreshInFlight,
-    setRefreshInFlight: (value) => {
-      containerMemoryRefreshInFlight = value;
-    },
-    activeEntries: Array.from(pool.values()),
-    warmEntries: warmPool.values(),
-    memoryPressureEnabled: warmPool.memoryPressureEnabled,
-    keyForEntry: (entry) => entry.containerName,
-    refreshTotalBytes: async (containerNames) => {
-      const memoryByContainer = await readContainerMemoryBytes(containerNames);
-      let total = 0;
-      for (const containerName of containerNames) {
-        total += memoryByContainer.get(containerName) || 0;
-      }
-      return total;
-    },
-  });
-}
-
-function enforceWarmContainerPressure(): void {
-  enforceWarmPoolPressure({
-    pool,
-    warmPool,
-    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-    getObservedMemoryBytes: getObservedContainerMemoryBytes,
-    stopEntries: stopWarmEntries,
-  });
-}
-
-function claimWarmContainer(params: {
-  sessionId: string;
-  agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): PoolEntry | null {
-  return claimWarmEntry({
-    pool,
-    warmPool,
-    sessionId: params.sessionId,
-    agentId: params.agentId,
-    eligibility: params,
-    logClaim: (entry) =>
-      logger.info(
-        {
-          sessionId: params.sessionId,
-          ipcSessionId: entry.ipcSessionId,
-          agentId: params.agentId,
-          containerName: entry.containerName,
-        },
-        'Claimed warm container',
-      ),
-  });
-}
-
-function maintainWarmContainerPool(params: {
-  agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): void {
-  maintainWarmPool({
-    pool,
-    warmPool,
-    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-    agentId: params.agentId,
-    eligibility: params,
-    stopEntries: stopWarmEntries,
-    spawnWarm: (sessionId, agentId) => {
-      const entry = getOrSpawnContainer({ sessionId, agentId, warm: true });
-      void sendWarmWorkerFrame(entry, resolveContainerMcpServers);
-    },
-  });
-}
-
-function isWithinResolvedRoot(candidate: string, root: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
-}
-
-function resolveArtifactHostPath(
-  rawPath: string,
-  workspacePath: string,
-  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
-): string | null {
-  const input = String(rawPath || '').trim();
-  if (!input) return null;
-  const normalized = input.replace(/\\/g, '/');
-  const workspaceRoot = path.resolve(workspacePath);
-  const displayRoot = path.posix.normalize(
-    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
-  );
-
-  if (path.posix.isAbsolute(normalized)) {
-    const resolvedActual = path.resolve(normalized);
-    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
-      return resolvedActual;
-    }
-
-    const cleanAbs = path.posix.normalize(normalized);
-    const allowedRoots =
-      displayRoot === CONTAINER_WORKSPACE_ROOT
-        ? [CONTAINER_WORKSPACE_ROOT]
-        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
-            (left, right) => right.length - left.length,
-          );
-    const matchedRoot =
-      allowedRoots.find(
-        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
-      ) ?? null;
-    if (!matchedRoot) {
-      return null;
-    }
-    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
-    const resolved = path.resolve(workspaceRoot, rel);
-    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
-      return resolved;
-    }
-    return null;
-  }
-
-  const cleanRel = path.posix.normalize(normalized);
-  if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
-  const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
-    return resolved;
-  }
-  return null;
-}
-
-export function remapOutputArtifacts(
-  output: ContainerOutput,
-  workspacePath: string,
-  workspaceDisplayRoot?: string,
-): void {
-  if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
-  const mapped: ArtifactMetadata[] = [];
-  for (const artifact of output.artifacts) {
-    const raw = artifact as Partial<ArtifactMetadata>;
-    const hostPath = resolveArtifactHostPath(
-      String(raw.path || ''),
-      workspacePath,
-      workspaceDisplayRoot,
-    );
-    if (!hostPath) continue;
-    const filename =
-      String(raw.filename || '').trim() || path.basename(hostPath);
-    const mimeType =
-      String(raw.mimeType || '').trim() || 'application/octet-stream';
-    mapped.push({ path: hostPath, filename, mimeType });
-  }
-  if (mapped.length === 0) {
-    delete output.artifacts;
-    return;
-  }
-  output.artifacts = mapped;
-}
-
-/** Pool-entry state for the side lines (`[browser-frame]`, `[slide-samples]`) that precede a result. */
-export interface BrowserFrameSink {
-  pendingBrowserFrame?: BrowserFrame;
-  pendingSlideSamples?: SlideSamples;
-  browserFrameWorkspace?: { path: string; displayRoot?: string };
-}
-
-/** Keep a `[browser-frame]` line for the next browser result; true if it was one. */
-export function stashBrowserFrameLine(
-  entry: BrowserFrameSink,
-  line: string,
-): boolean {
-  const frame = parseBrowserFrameLine(line);
-  if (!frame) return false;
-  const workspace = entry.browserFrameWorkspace;
-  const hostPath =
-    frame.frame && workspace
-      ? resolveArtifactHostPath(
-          frame.frame,
-          workspace.path,
-          workspace.displayRoot,
-        )
-      : null;
-  entry.pendingBrowserFrame = {
-    url: redactCredentialSecrets(frame.url),
-    title: redactCredentialSecrets(frame.title),
-    ...(hostPath ? { frame: hostPath } : {}),
-    ...(frame.signIn ? { signIn: frame.signIn } : {}),
-    ...(frame.paymentCard ? { paymentCard: frame.paymentCard } : {}),
-  };
-  return true;
-}
-
-/** Keep a `[slide-samples]` line for the tool's result; true if it was one. */
-export function stashSlideSamplesLine(
-  entry: BrowserFrameSink,
-  line: string,
-): boolean {
-  const samples = parseSlideSamplesLine(line);
-  if (!samples) return false;
-  const workspace = entry.browserFrameWorkspace;
-  const looks = workspace
-    ? samples.looks.flatMap((look) => {
-        const image = resolveArtifactHostPath(
-          look.image,
-          workspace.path,
-          workspace.displayRoot,
-        );
-        return image ? [{ ...look, image }] : [];
-      })
-    : [];
-  // A picture that doesn't resolve would leave a look the user can't see.
-  entry.pendingSlideSamples =
-    looks.length === samples.looks.length ? { ...samples, looks } : undefined;
-  return true;
-}
-
-export function takeSlideSamples(
-  entry: BrowserFrameSink,
-  toolName: string,
-  phase: 'start' | 'finish',
-): SlideSamples | undefined {
-  if (phase !== 'finish' || toolName !== 'show_slide_samples') return undefined;
-  const samples = entry.pendingSlideSamples;
-  entry.pendingSlideSamples = undefined;
-  return samples;
-}
-
-export function takeBrowserFrame(
-  entry: BrowserFrameSink,
-  toolName: string,
-  phase: 'start' | 'finish',
-): BrowserFrame | undefined {
-  if (phase !== 'finish' || !toolName.startsWith('browser_')) return undefined;
-  const frame = entry.pendingBrowserFrame;
-  entry.pendingBrowserFrame = undefined;
-  return frame;
-}
-
-function getContainerWorkspacePath(params: {
-  sessionId: string;
-  agentId: string;
-  workspacePathOverride?: string;
-}): string {
-  const trimmed = params.workspacePathOverride?.trim();
-  if (trimmed) return path.resolve(trimmed);
-  const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
-  return workspacePath;
-}
-
-function resolveContainerMcpServers() {
-  return resolveMcpServersForRuntime(
-    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS, {
-      mapUrl: remapHostBaseUrlForContainer,
-    }),
-  );
-}
-
-/**
- * Get or spawn a persistent container for a session.
- */
-function getOrSpawnContainer(
-  params: Pick<
-    ExecutorRequest,
-    | 'sessionId'
-    | 'agentId'
-    | 'workspacePathOverride'
-    | 'workspaceDisplayRootOverride'
-    | 'runtimeScope'
-    | 'bashProxy'
-  > & { ipcSessionId?: string; warm?: boolean },
-): PoolEntry {
-  const sessionId = params.sessionId;
-  const ipcSessionId = params.ipcSessionId || sessionId;
-  const agentId = params.agentId || DEFAULT_AGENT_ID;
-  const existing = params.warm ? null : pool.get(sessionId);
-  if (
-    existing &&
-    existing.lifecycle.reusable &&
-    !existing.process.killed &&
-    existing.process.exitCode === null
-  ) {
-    logger.debug(
-      { sessionId, containerName: existing.containerName },
-      'Reusing container',
-    );
-    return existing;
-  }
-
-  if (existing) {
-    pool.delete(sessionId);
-  }
-
-  ensureSessionDirs(ipcSessionId);
-  ensureAgentDirs(agentId);
-  const { ipcPath } = getSessionPaths(ipcSessionId, agentId);
-  const workspacePath = getContainerWorkspacePath({
-    sessionId,
-    agentId,
-    workspacePathOverride: params.workspacePathOverride,
-  });
-  fs.mkdirSync(workspacePath, { recursive: true });
+function spawnContainer(spawnRequest: WorkerSpawnRequest) {
+  const { request: params, agentId, ipcPath, workspacePath } = spawnRequest;
+  const { sessionId, warm = false } = params;
   ensureWorkspaceNodeModulesLink(workspacePath, CONTAINER_APP_NODE_MODULES, {
     allowMissingSource: true,
     replaceExistingSymlink: true,
@@ -821,8 +150,7 @@ function getOrSpawnContainer(
       'Failed to set permissions on browser profile directory',
     );
   }
-  const containerName = `hybridclaw-${ipcSessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
-  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
     'run',
@@ -856,56 +184,21 @@ function getOrSpawnContainer(
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-v',
     `${behaviorAnomalyTrajectoryStoreDir}:${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}:ro`,
-    '-e',
-    `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
-    '-e',
-    `HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR=${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_ID=${agentId}`,
-    '-e',
-    `TZ=${resolveEffectiveTimezone()}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
-    '-e',
-    `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
-    '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${resolveWorkerRuntimeToken(params.runtimeScope)}`,
-    '-e',
-    `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
-    '-e',
-    `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
-    '-e',
-    `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_ENABLED=${PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false'}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
-    '-e',
-    `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
-    '-e',
-    `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
-    '-e',
-    `BROWSER_ALLOW_PRIVATE_NETWORK=${BROWSER_ALLOW_PRIVATE_NETWORK ? 'true' : 'false'}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS=${WEB_SEARCH_FALLBACK_PROVIDERS.join(',')}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT=${WEB_SEARCH_DEFAULT_COUNT}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES=${WEB_SEARCH_CACHE_TTL_MINUTES}`,
-    '-e',
-    `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH=${WEB_SEARCH_TAVILY_SEARCH_DEPTH}`,
-    '-e',
-    `SEARXNG_BASE_URL=${webSearchRuntime.searxngBaseUrl}`,
-    '-e',
-    'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
-    '-e',
-    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
+    ...Object.entries({
+      BROWSER_SHARED_PROFILE_DIR: CONTAINER_BROWSER_PROFILE_PATH,
+      HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
+        CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
+      TZ: resolveEffectiveTimezone(),
+      HYBRIDCLAW_AGENT_WORKSPACE_ROOT: CONTAINER_WORKSPACE_ROOT,
+      ...buildWorkerEnv({
+        agentId,
+        runtimeScope: params.runtimeScope,
+        displayRoot: params.workspaceDisplayRootOverride,
+        mode: 'container',
+        mapHostUrl: remapHostBaseUrlForContainer,
+      }),
+      PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright',
+    }).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
   ];
 
   // Run as host user so bind-mount file ownership matches
@@ -950,685 +243,62 @@ function getOrSpawnContainer(
   args.push(CONTAINER_IMAGE);
 
   logger.info(
-    { sessionId, ipcSessionId, agentId, containerName, warm: params.warm },
+    { sessionId, ipcSessionId: sessionId, agentId, containerName, warm },
     'Spawning persistent container',
   );
-
-  const proc = spawn('docker', args, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  const entry: PoolEntry = {
-    id: ipcSessionId,
-    process: proc,
-    containerName,
-    get sessionId() {
-      return entry.lifecycle.owner.kind === 'session'
-        ? entry.lifecycle.owner.sessionId
-        : ipcSessionId;
-    },
-    ipcSessionId,
-    agentId,
-    startedAt: Date.now(),
-    lastUsedAt: Date.now(),
-    lifecycle: new WorkerLifecycle(params.warm ? null : sessionId),
-    pendingColdStartProbeStartedAt: null,
-    stderrBuffer: '',
-    stderrHistory: [],
-    streamDebug: createStreamDebugState(),
-    workerSignature: '',
-    ipcAuthSecret: generateIpcAuthSecret(),
-    isReady() {
-      return entry.lifecycle.phase === 'idle';
-    },
-    stop() {
-      stopPoolEntry(entry);
-    },
+  return {
+    process: spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] }),
+    name: containerName,
   };
+}
 
-  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
-  // without stdio and emits 'error' next tick, fatal if nobody listens.
+function stopContainer(containerName: string): void {
+  const proc = spawn('docker', ['stop', containerName], { stdio: 'ignore' });
   proc.on('error', (err) => {
-    entry.lifecycle.exit(
-      `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    removePoolEntry(entry);
-    logger.error({ sessionId, containerName, error: err }, 'Container error');
+    logger.debug({ containerName, err }, 'Failed to stop container');
   });
-  if (!proc.stderr) {
-    throw new Error('stdio pipes not created (out of file descriptors)');
-  }
+}
 
-  // One decoder per pipe: a chunk can end inside a multi-byte character.
-  const stderrDecoder = new StringDecoder('utf8');
-  proc.stderr.on('data', (data) => {
-    entry.stderrBuffer += stderrDecoder.write(data);
-    const lines = entry.stderrBuffer.split('\n');
-    entry.stderrBuffer = lines.pop() || '';
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
-      if (consumeModelResponseDebugFileLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (isStreamActivityLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      rememberStderrLine(entry, line);
-      emitTextDelta(entry, line);
-      emitThinkingDelta(entry, line);
-      if (isThinkingDeltaLine(line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (
-        consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
-          logger.debug({ container: containerName }, message);
-        })
-      ) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      if (emitApprovalProgress(entry, line)) {
-        entry.lifecycle.activity?.notify();
-        continue;
-      }
-      logger.debug({ container: containerName }, line);
-      emitToolProgress(entry, line);
-      entry.lifecycle.activity?.notify();
+export const containerRunner = createWorkerRunner({
+  mode: 'container',
+  noun: { one: 'container', many: 'containers' },
+  runtimeLabel: 'Container runtime',
+  spawnErrorLabel: 'Container spawn error',
+  // The sandbox image bakes its own node_modules; the host-side bootstrap
+  // script cannot repair it.
+  repairHint:
+    'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
+  spawn: spawnContainer,
+  stop: (entry) => stopContainer(entry.name || ''),
+  // `docker stop` keeps the `docker run` client alive until the container
+  // exits; drop the entry so the next turn cannot reuse a dying container.
+  dropsEntryOnAbort: true,
+  guardsStdinErrors: false,
+  memoryKey: (entry) => entry.name || null,
+  readMemoryBytes: async (containerNames) => {
+    const memoryByContainer = await readContainerMemoryBytes(containerNames);
+    let total = 0;
+    for (const containerName of containerNames) {
+      total += memoryByContainer.get(containerName) || 0;
     }
-  });
-
-  proc.on('close', (code, signal) => {
-    const tail = entry.stderrBuffer.trim();
-    if (tail) {
-      if (observeAgentLifecycleLine(entry, tail, warmPool)) {
-        entry.stderrBuffer = '';
-      } else if (consumeModelResponseDebugFileLine(tail)) {
-        entry.lifecycle.activity?.notify();
-        entry.stderrBuffer = '';
-      } else if (isStreamActivityLine(tail)) {
-        entry.lifecycle.activity?.notify();
-        entry.stderrBuffer = '';
-      } else {
-        rememberStderrLine(entry, tail);
-        emitTextDelta(entry, tail);
-        emitThinkingDelta(entry, tail);
-        if (isThinkingDeltaLine(tail)) {
-          entry.lifecycle.activity?.notify();
-        } else if (
-          !consumeCollapsedStreamDebugLine(
-            tail,
-            entry.streamDebug,
-            (message) => {
-              logger.debug({ container: containerName }, message);
-            },
-          )
-        ) {
-          if (!emitApprovalProgress(entry, tail)) {
-            logger.debug({ container: containerName }, tail);
-            emitToolProgress(entry, tail);
-          }
-        }
-        entry.stderrBuffer = '';
-      }
-    }
-    entry.lifecycle.exit(
-      formatWarmRunnerTerminalError(entry, 'Container runtime', {
-        code,
-        signal,
-        // The sandbox image bakes its own node_modules; the host-side
-        // bootstrap script cannot repair it.
-        repairHint:
-          'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
-      }),
-    );
-    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
-      logger.debug({ container: containerName }, message);
+    return total;
+  },
+  logFields: (entry) => ({ containerName: entry.name }),
+  mapHostUrl: remapHostBaseUrlForContainer,
+  stateRoot: (_request, workspacePath) => workspacePath,
+  sendsRuntimeEnv: true,
+  startModelRelay: ({ input, modelRuntime, ipcPath, model, task }) => {
+    if (modelRuntime.provider !== 'mlx') return undefined;
+    const relay = startMlxRelay({
+      ipcPath,
+      baseUrl: modelRuntime.baseUrl,
+      apiKey: modelRuntime.apiKey,
+      model: model.replace(/^mlx\//, ''),
+      task,
     });
-    removePoolEntry(entry);
-    if (entry.lifecycle.isSpare)
-      removeUnclaimedWarmSessionDir(entry.ipcSessionId);
-    logger.info({ sessionId, containerName, code, signal }, 'Container exited');
-  });
-
-  if (entry.lifecycle.isSpare) {
-    warmPool.add(entry);
-    getObservedContainerMemoryBytes();
-  } else {
-    pool.set(sessionId, entry);
-  }
-  return entry;
-}
-
-/**
- * Send a request to a persistent container and wait for the response.
- */
-export async function runContainer(
-  params: ExecutorRequest,
-): Promise<ContainerOutput> {
-  return containerSessionQueue.run(params.sessionId, () =>
-    withSpan(
-      'hybridclaw.container.execute',
-      {
-        'hybridclaw.session_id': params.sessionId,
-        'hybridclaw.agent_id': params.agentId || '',
-        'hybridclaw.model': params.model || '',
-      },
-      async () => runContainerInner(params),
-    ),
-  );
-}
-
-async function runContainerInner(
-  params: ExecutorRequest,
-): Promise<ContainerOutput> {
-  const {
-    sessionId,
-    messages,
-    chatbotId,
-    enableRag,
-    model = HYBRIDAI_MODEL,
-    agentId = DEFAULT_AGENT_ID,
-    addressEnvelope,
-    channelId = '',
-    ralphMaxIterations,
-    approvalMode,
-    dryRun,
-    approvalUserText = null,
-    approvalUserId,
-    approvalUserIsBot,
-    approvalReplyDecision,
-    fullAutoNeverApproveTools,
-    scheduleSideEffectsEnabled,
-    skipContainerSystemPrompt,
-    allowedTools,
-    blockedTools,
-    onTextDelta,
-    onThinkingDelta,
-    onToolProgress,
-    onApprovalProgress,
-    abortSignal,
-    media,
-    readableMediaPaths,
-    visualMediaAllowed,
-    primaryModelSupportsVisualMedia,
-    audioTranscriptsPrepended,
-    pluginTools,
-    escalationTarget,
-    maxWallClockMs,
-    inactivityTimeoutMs,
-  } = params;
-  const executionDeadlineAtMs = resolveExecutionDeadline(
-    maxWallClockMs,
-    params.executionDeadlineAtMs,
-  );
-  const effectiveAllowedTools = mergeAllowedToolNames({
-    agentId,
-    explicit: allowedTools,
-  });
-  const workspacePath = getContainerWorkspacePath({
-    sessionId,
-    agentId,
-    workspacePathOverride: params.workspacePathOverride,
-  });
-  const modelRuntime = await resolveModelRuntimeCredentials({
-    model,
-    chatbotId,
-    enableRag,
-    agentId,
-  });
-  const taskModels = await resolveTaskModelPolicies({
-    agentId,
-    chatbotId: modelRuntime.chatbotId,
-    sessionModel: modelRuntime.model || model,
-  });
-  const runtimeModel = modelRuntime.model || model;
-  const storedRuntimeEnv = readStoredRuntimeEnv();
-  enforceWarmContainerPressure();
-  const processLimit = processLimitForRun(
-    MAX_CONCURRENT_CONTAINERS,
-    params.background,
-  );
-  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
-    stopWarmEntries(
-      warmPool.evictForPressure({
-        totalProcessCount: getTotalContainerProcessCount() + 1,
-        maxProcessCount: processLimit,
-      }),
-    );
-  }
-  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
-    for (const entry of collectIdleSessionEvictions({
-      pool,
-      warmPool,
-      maxProcessCount: processLimit,
-    })) {
-      logger.info(
-        { sessionId: entry.sessionId, agentId: entry.agentId },
-        'Evicting idle container agent process to free capacity',
-      );
-      stopPoolEntry(entry);
-      removePoolEntry(entry);
-    }
-  }
-  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Too many active containers (${getTotalContainerProcessCount()}/${processLimit}). Try again later.`,
-      errorCode: 'busy',
-    };
-  }
-
-  const startTime = Date.now();
-  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  // The container is spawned without another await after this one.
-  const starting = pool.has(sessionId) ? 0 : 1;
-  startingContainerProcesses += starting;
-  let mcpServers: Awaited<ReturnType<typeof resolveContainerMcpServers>>;
-  try {
-    mcpServers = await resolveContainerMcpServers();
-  } finally {
-    startingContainerProcesses -= starting;
-  }
-  const existingEntry = pool.get(sessionId);
-  const requestId = randomUUID();
-
-  const input: ContainerInput = {
-    sessionId,
-    executionDeadlineAtMs,
-    fileWriteGuardSessionId: params.fileWriteGuardSessionId,
-    fileWriteGuardUserPrompt: params.fileWriteGuardUserPrompt,
-    runId: params.runId,
-    toolCallLimits: params.toolCallLimits,
-    requestId,
-    agentId,
-    messages,
-    chatbotId: modelRuntime.chatbotId,
-    enableRag: modelRuntime.enableRag,
-    apiKey: modelRuntime.apiKey,
-    baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
-    provider: modelRuntime.provider,
-    addressEnvelope,
-    providerMethod: modelRuntime.providerMethod,
-    requestHeaders: modelRuntime.requestHeaders,
-    isLocal: modelRuntime.isLocal,
-    contextWindow: modelRuntime.contextWindow,
-    modelBehavior: modelRuntime.modelBehavior,
-    thinkingFormat: modelRuntime.thinkingFormat,
-    gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
-    gatewayApiToken: resolveWorkerRuntimeToken(params.runtimeScope),
-    browserProvider: params.browserProvider || BROWSER_PROVIDER,
-    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    model: runtimeModel,
-    reasoningEffort: resolveSupportedReasoningEffort(
-      modelRuntime.provider,
-      runtimeModel,
-      params.reasoningEffort,
-    ),
-    ralphMaxIterations,
-    disabledSafetyRules: getRuntimeConfig().security.disabledSafetyRules,
-    approvalMode,
-    dryRun,
-    approvalUserText,
-    approvalUserId,
-    approvalUserIsBot,
-    approvalReplyDecision,
-    fullAutoNeverApproveTools,
-    scheduleSideEffectsEnabled,
-    skipContainerSystemPrompt,
-    streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: isModelResponseDebugEnabled(),
-    maxTokens: resolveExecutorMaxTokens({
-      model: runtimeModel,
-      discoveredMaxTokens: modelRuntime.maxTokens,
-    }),
-    channelId,
-    client: params.client,
-    configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    activeMessageChannels: collectActiveMessageToolChannelKinds(),
-    emailSender: resolveEmailSenderAddress(agentId),
-    skillCatalog: params.skillCatalog,
-    localToolMode: modelRuntime.isLocal
-      ? resolveLocalToolMode(agentId)
-      : undefined,
-    localStarterTools: modelRuntime.isLocal
-      ? resolveLocalStarterTools(agentId)
-      : undefined,
-    mcpToolMode: modelRuntime.isLocal ? undefined : resolveMcpToolMode(agentId),
-    allowedTools: effectiveAllowedTools,
-    blockedTools,
-    media,
-    readableMediaPaths,
-    visualMediaAllowed,
-    primaryModelSupportsVisualMedia,
-    audioTranscriptsPrepended,
-    pluginTools,
-    mcpServers,
-    taskModels,
-    runtimeEnv: storedRuntimeEnv,
-    contextGuard: {
-      enabled: CONTEXT_GUARD_ENABLED,
-      compactionRatio: CONTEXT_GUARD_COMPACTION_RATIO,
-      overflowRatio: CONTEXT_GUARD_OVERFLOW_RATIO,
-      maxRetries: CONTEXT_GUARD_MAX_RETRIES,
-    },
-    webSearch: webSearchRuntime,
-    persistBashState: CONTAINER_PERSIST_BASH_STATE,
-    escalationTarget,
-  };
-  const workerSignature = computeWorkerSignature({
-    agentId,
-    gatewayApiToken: input.gatewayApiToken,
-    webSearch: input.webSearch,
-    provider: input.provider,
-    providerMethod: input.providerMethod,
-    baseUrl: input.baseUrl,
-    apiKey: input.apiKey,
-    requestHeaders: input.requestHeaders,
-    modelBehavior: input.modelBehavior,
-    thinkingFormat: input.thinkingFormat,
-    browserProvider: params.browserProvider || BROWSER_PROVIDER,
-    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    taskModels: input.taskModels,
-    runtimeEnv: storedRuntimeEnv,
-    workspacePathOverride: params.workspacePathOverride,
-    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-    bashProxy: params.bashProxy,
-  });
-
-  if (existingEntry && existingEntry.workerSignature !== workerSignature) {
-    logger.info(
-      {
-        sessionId,
-        containerName: existingEntry.containerName,
-        agentId,
-        provider: input.provider,
-      },
-      'Worker routing changed; restarting persistent container',
-    );
-    stopPoolEntry(existingEntry);
-    removePoolEntry(existingEntry);
-  }
-
-  const isNewContainer =
-    !pool.has(sessionId) ||
-    pool.get(sessionId)?.process.killed ||
-    pool.get(sessionId)?.process.exitCode !== null;
-
-  let entry: PoolEntry;
-  try {
-    entry =
-      (isNewContainer
-        ? claimWarmContainer({
-            sessionId,
-            agentId,
-            workspacePathOverride: params.workspacePathOverride,
-            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-            bashProxy: params.bashProxy,
-          })
-        : null) ||
-      getOrSpawnContainer({
-        sessionId,
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        runtimeScope: params.runtimeScope,
-        bashProxy: params.bashProxy,
-      });
-  } catch (err) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Container spawn error: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-  cleanupIpc(entry.ipcSessionId);
-  ensureSessionDirs(entry.ipcSessionId);
-  params.steerInbox?.open({
-    ipcDir: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
-    requestId,
-    authSecret: entry.ipcAuthSecret,
-  });
-  const mlxRelay =
-    modelRuntime.provider === 'mlx'
-      ? startMlxRelay({
-          ipcPath: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
-          baseUrl: modelRuntime.baseUrl,
-          apiKey: modelRuntime.apiKey,
-          model: (modelRuntime.model || model).replace(/^mlx\//, ''),
-          task: `${agentId}:${sessionId}`,
-        })
-      : undefined;
-  if (mlxRelay) {
     input.baseUrl = 'http://mlx.invalid/v1';
     input.apiKey = '';
-    input.requestHeaders = { 'X-HybridClaw-Relay': mlxRelay.id };
-  }
-  const activity = createActivityTracker();
-  entry.workerSignature = workerSignature;
-  entry.onTextDelta = onTextDelta;
-  entry.onThinkingDelta = onThinkingDelta;
-  entry.onToolProgress = onToolProgress;
-  entry.pendingBrowserFrame = undefined;
-  entry.browserFrameWorkspace = {
-    path: workspacePath,
-    displayRoot: params.workspaceDisplayRootOverride,
-  };
-  entry.onApprovalProgress = onApprovalProgress;
-  entry.lifecycle.begin(requestId, activity);
-  const onAbort = () => {
-    logger.info(
-      { sessionId, containerName: entry.containerName },
-      'Interrupt requested, stopping container',
-    );
-    stopPoolEntry(entry);
-    // `docker stop` keeps the `docker run` client alive until the container
-    // exits; drop the entry so the next turn cannot reuse a dying container.
-    removePoolEntry(entry);
-  };
-  if (abortSignal) {
-    abortSignal.addEventListener('abort', onAbort, { once: true });
-    if (abortSignal.aborted) onAbort();
-  }
-
-  const reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
-  try {
-    if (abortSignal?.aborted) return interruptedAgentOutput(abortSignal.reason);
-    if (isNewContainer) {
-      entry.pendingColdStartProbeStartedAt = Date.now();
-      // First request: send full input (including apiKey and the per-worker IPC
-      // auth secret) via stdin — no file on disk. Write JSON on a single line
-      // followed by newline as delimiter. Do NOT end stdin — closing stdin can
-      // cause docker -i to terminate the container.
-      entry.process.stdin?.write(
-        `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
-      );
-    } else {
-      // Follow-up requests: write to IPC file (credentials dropped, reused from
-      // stdin) authenticated with the secret the agent received on stdin.
-      writeInput(entry.ipcSessionId, input, {
-        authSecret: entry.ipcAuthSecret,
-      });
-    }
-
-    let output = await readOutput(
-      entry.ipcSessionId,
-      requestId,
-      inactivityTimeoutMs === undefined
-        ? CONTAINER_TIMEOUT
-        : inactivityTimeoutMs,
-      {
-        signal: abortSignal,
-        activity,
-        maxWallClockMs,
-        executionDeadlineAtMs,
-        terminalError: () => entry.lifecycle.terminalError,
-      },
-    );
-    // Before anything else can run: a note from here on is refused.
-    params.steerInbox?.close();
-    const timedOut = isTimedOutAgentOutput(output);
-    if (timedOut) {
-      logger.warn(
-        { sessionId, containerName: entry.containerName },
-        'Agent output timed out; stopping stuck container',
-      );
-      stopSessionContainer(sessionId);
-    }
-    output = recoverWorkerOutput(
-      output,
-      workspacePath,
-      sessionId,
-      input.runId || input.requestId,
-      Boolean(
-        timedOut || abortSignal?.aborted || entry.lifecycle.terminalError,
-      ),
-    );
-    output = reviewContext.finish(output);
-    remapOutputArtifacts(
-      output,
-      workspacePath,
-      params.workspaceDisplayRootOverride,
-    );
-    if (typeof output.result === 'string') {
-      output.result = redactCredentialSecrets(output.result);
-    }
-    if (typeof output.error === 'string') {
-      output.error = redactCredentialSecrets(output.error);
-    }
-    if (output.pendingApproval) {
-      output.pendingApproval = {
-        ...output.pendingApproval,
-        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
-        intent: redactCredentialSecrets(output.pendingApproval.intent),
-        reason: redactCredentialSecrets(output.pendingApproval.reason),
-      };
-    }
-    const duration = Date.now() - startTime;
-    if (!timedOut) {
-      entry.lastUsedAt = Date.now();
-      warmPool.recordRequest(agentId, duration);
-      if (params.client === 'mobile') warmPool.recordPhoneUser(agentId);
-      // Best-effort: a failed refill must not discard the finished turn.
-      try {
-        maintainWarmContainerPool({
-          agentId,
-          workspacePathOverride: params.workspacePathOverride,
-          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-          bashProxy: params.bashProxy,
-        });
-      } catch (err) {
-        logger.warn({ agentId, err }, 'Warm container refill failed');
-      }
-    }
-
-    logger.info(
-      {
-        sessionId,
-        containerName: entry.containerName,
-        duration,
-        status: output.status,
-        toolsUsed: output.toolsUsed,
-      },
-      'Request completed',
-    );
-
-    return output;
-  } catch (error) {
-    stopSessionContainer(sessionId);
-    return recoverWorkerFailure(
-      error,
-      workspacePath,
-      sessionId,
-      input.runId || input.requestId,
-    );
-  } finally {
-    reviewContext.close();
-    params.steerInbox?.close();
-    mlxRelay?.stop();
-    abortSignal?.removeEventListener('abort', onAbort);
-    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
-      logger.debug({ container: entry.containerName }, message);
-    });
-    if (entry.onTextDelta === onTextDelta) {
-      entry.onTextDelta = undefined;
-    }
-    if (entry.onThinkingDelta === onThinkingDelta) {
-      entry.onThinkingDelta = undefined;
-    }
-    if (entry.onToolProgress === onToolProgress) {
-      entry.onToolProgress = undefined;
-    }
-    if (entry.onApprovalProgress === onApprovalProgress) {
-      entry.onApprovalProgress = undefined;
-    }
-    entry.lifecycle.finish(requestId);
-  }
-}
-
-/**
- * Stop all containers (for graceful shutdown).
- */
-export function stopAllContainers(): void {
-  for (const [sessionId, entry] of pool) {
-    logger.info(
-      { sessionId, containerName: entry.containerName },
-      'Stopping container (shutdown)',
-    );
-    stopPoolEntry(entry);
-  }
-  pool.clear();
-  for (const entry of warmPool.clear()) {
-    logger.info(
-      { agentId: entry.agentId, containerName: entry.containerName },
-      'Stopping warm container (shutdown)',
-    );
-    stopPoolEntry(entry);
-  }
-}
-
-export class ContainerExecutor {
-  exec(params: ExecutorRequest): Promise<ContainerOutput> {
-    return runContainer(params);
-  }
-
-  getWorkspacePath(agentId: string): string {
-    ensureAgentDirs(agentId);
-    return path.resolve(agentWorkspaceDir(agentId));
-  }
-
-  stopSession(sessionId: string): boolean {
-    return stopSessionContainer(sessionId);
-  }
-
-  stopAll(): void {
-    stopAllContainers();
-  }
-
-  getActiveSessionCount(): number {
-    return getActiveContainerCount();
-  }
-
-  getInFlightSessionCount(): number {
-    return getInFlightContainerCount();
-  }
-
-  getActiveSessionIds(): string[] {
-    return getActiveContainerSessionIds();
-  }
-
-  getInFlightSessionIds(): string[] {
-    return getInFlightContainerSessionIds();
-  }
-
-  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
-    return getActiveContainerSessionHealthSnapshots();
-  }
-}
+    input.requestHeaders = { 'X-HybridClaw-Relay': relay.id };
+    return relay;
+  },
+});

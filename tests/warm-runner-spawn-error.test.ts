@@ -22,10 +22,10 @@ const RUNNERS = [
   {
     runner: 'ContainerExecutor',
     createExecutor: async () => {
-      const { ContainerExecutor } = await import(
+      const { containerRunner } = await import(
         '../src/infra/container-runner.js'
       );
-      return new ContainerExecutor();
+      return containerRunner;
     },
   },
   {
@@ -37,8 +37,8 @@ const RUNNERS = [
           args: ['/tmp/container/dist/index.js'],
         }),
       }));
-      const { HostExecutor } = await import('../src/infra/host-runner.js');
-      return new HostExecutor();
+      const { hostRunner } = await import('../src/infra/host-runner.js');
+      return hostRunner;
     },
   },
 ];

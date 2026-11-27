@@ -65,9 +65,9 @@ test('host workers execute in the task directory and keep their node modules and
       model: 'test-model',
     }),
   }));
-  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const { hostRunner } = await import('../src/infra/host-runner.js');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
-  const executor = new HostExecutor();
+  const executor = hostRunner;
   stop = () => executor.stopAll();
   const result = await executor.exec({
     sessionId: 'isolated-task',

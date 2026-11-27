@@ -95,7 +95,7 @@ export const WORKSPACE_CONTEXT_FILE_MAX_CHARS = 20_000;
  * resolution to walk up into this directory; Node's ESM loader ignores
  * NODE_PATH, so we symlink `<workspace>/node_modules` at bootstrap time.
  */
-const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
+export const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 
 export interface ContextFile {
   name: string;

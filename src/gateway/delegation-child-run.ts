@@ -25,7 +25,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
 } from '../config/config.js';
-import { stopSessionHostProcess } from '../infra/host-runner.js';
+import { hostRunner } from '../infra/host-runner.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -416,7 +416,7 @@ export async function runDelegationTaskWithRetry(
         lastTool.approvalDecision === 'denied';
       // Approval prompts and terminal refusals are blockers, not child results.
       if (output.pendingApproval || terminalPolicyDenial) {
-        stopSessionHostProcess(sessionId);
+        hostRunner.stopSession(sessionId);
         const approval = output.pendingApproval;
         return {
           status: 'blocked',
@@ -437,7 +437,7 @@ export async function runDelegationTaskWithRetry(
       }
 
       if (output.status === 'success' && output.result?.trim()) {
-        stopSessionHostProcess(sessionId);
+        hostRunner.stopSession(sessionId);
         return {
           status: 'completed',
           sessionId,
@@ -520,7 +520,7 @@ export async function runDelegationTaskWithRetry(
     }
   }
 
-  stopSessionHostProcess(sessionId);
+  hostRunner.stopSession(sessionId);
   return {
     status: lastStatus,
     sessionId,
