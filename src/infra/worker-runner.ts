@@ -70,7 +70,7 @@ import {
   sendWarmWorkerFrame,
   type WarmRunnerMode,
 } from './warm-runner-utils.js';
-import { remapOutputArtifacts } from './worker-artifacts.js';
+import { redactOutputText, remapOutputArtifacts } from './worker-artifacts.js';
 import { buildWorkerEnv } from './worker-env.js';
 import { buildWorkerInput, type ModelRuntime } from './worker-input.js';
 import {
@@ -550,30 +550,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     const ipcPath = getSessionPaths(entry.ipcSessionId, agentId).ipcPath;
     cleanupIpc(entry.ipcSessionId);
     ensureSessionDirs(entry.ipcSessionId);
-    params.steerInbox?.open({
-      ipcDir: ipcPath,
-      requestId,
-      authSecret: entry.ipcAuthSecret,
-    });
-    const relay = strategy.startModelRelay?.({
-      input,
-      modelRuntime,
-      ipcPath,
-      model: modelRuntime.model || model,
-      task: `${agentId}:${sessionId}`,
-    });
     const activity = createActivityTracker();
-    entry.workerSignature = workerSignature;
-    entry.onTextDelta = onTextDelta;
-    entry.onThinkingDelta = onThinkingDelta;
-    entry.onToolProgress = onToolProgress;
-    entry.pendingBrowserFrame = undefined;
-    entry.browserFrameWorkspace = {
-      path: workspacePath,
-      displayRoot: params.workspaceDisplayRootOverride,
-    };
-    entry.onApprovalProgress = onApprovalProgress;
-    entry.lifecycle.begin(requestId, activity);
     const onAbort = () => {
       logger.info(
         { sessionId, ...strategy.logFields(entry) },
@@ -582,18 +559,43 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       stopEntry(entry);
       removeEntry(entry);
     };
-    if (abortSignal) {
-      abortSignal.addEventListener('abort', onAbort, { once: true });
-      if (abortSignal.aborted) onAbort();
-    }
-
-    const reviewContext = beginFileWriteReviewContext(
-      input,
-      entry.ipcAuthSecret,
-    );
+    let relay: { stop(): void } | undefined;
+    let reviewContext:
+      | ReturnType<typeof beginFileWriteReviewContext>
+      | undefined;
+    let dispatched = false;
     try {
+      params.steerInbox?.open({
+        ipcDir: ipcPath,
+        requestId,
+        authSecret: entry.ipcAuthSecret,
+      });
+      relay = strategy.startModelRelay?.({
+        input,
+        modelRuntime,
+        ipcPath,
+        model: modelRuntime.model || model,
+        task: `${agentId}:${sessionId}`,
+      });
+      entry.workerSignature = workerSignature;
+      entry.onTextDelta = onTextDelta;
+      entry.onThinkingDelta = onThinkingDelta;
+      entry.onToolProgress = onToolProgress;
+      entry.pendingBrowserFrame = undefined;
+      entry.browserFrameWorkspace = {
+        path: workspacePath,
+        displayRoot: params.workspaceDisplayRootOverride,
+      };
+      entry.onApprovalProgress = onApprovalProgress;
+      entry.lifecycle.begin(requestId, activity);
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+        if (abortSignal.aborted) onAbort();
+      }
+      reviewContext = beginFileWriteReviewContext(input, entry.ipcAuthSecret);
       if (abortSignal?.aborted)
         return interruptedAgentOutput(abortSignal.reason);
+      dispatched = true;
       if (isNewWorker) {
         entry.pendingColdStartProbeStartedAt = Date.now();
         // First request: full input (apiKey, per-worker IPC auth secret) on
@@ -660,20 +662,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
         workspacePath,
         params.workspaceDisplayRootOverride,
       );
-      if (typeof output.result === 'string') {
-        output.result = redactCredentialSecrets(output.result);
-      }
-      if (typeof output.error === 'string') {
-        output.error = redactCredentialSecrets(output.error);
-      }
-      if (output.pendingApproval) {
-        output.pendingApproval = {
-          ...output.pendingApproval,
-          prompt: redactCredentialSecrets(output.pendingApproval.prompt),
-          intent: redactCredentialSecrets(output.pendingApproval.intent),
-          reason: redactCredentialSecrets(output.pendingApproval.reason),
-        };
-      }
+      redactOutputText(output);
       const duration = Date.now() - startTime;
       if (!timedOut) {
         entry.lastUsedAt = Date.now();
@@ -700,6 +689,15 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       return output;
     } catch (error) {
       stopSession(sessionId);
+      if (!dispatched)
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: redactCredentialSecrets(
+            error instanceof Error ? error.message : String(error),
+          ),
+        };
       return recoverWorkerFailure(
         error,
         strategy.stateRoot(params, workspacePath),
@@ -707,7 +705,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
         input.runId || input.requestId,
       );
     } finally {
-      reviewContext.close();
+      reviewContext?.close();
       params.steerInbox?.close();
       relay?.stop();
       abortSignal?.removeEventListener('abort', onAbort);

@@ -300,3 +300,48 @@ test('containerRunner hands a reused worker the running relays of its current tu
   expect(decoded.body).not.toContain(MLX_KEY);
   expect(decoded.body).not.toContain('127.0.0.1:8080');
 });
+
+test('containerRunner returns an error when the turn model relay cannot start and recovers next turn', async () => {
+  const relays = trackRelays();
+  let baseUrl = 'http://10.0.0.5:8080/v1';
+  const { runner, workers, logger } = await startRunner(container, {
+    credentials: async () => ({ ...mlxCredentials, baseUrl }),
+    taskModels: () => ({ vision: mlxTaskModel('mlx/vision-model') }),
+  });
+  const { SteerInbox } = await import('../src/infra/steer-inbox.js');
+  const steerInbox = new SteerInbox();
+  const controller = new AbortController();
+  const request = {
+    ...baseRequest,
+    sessionId: 'session-mlx-relay-start',
+    chatbotId: '',
+    model: 'mlx/test-model',
+  };
+
+  const failed = await runner.exec({
+    ...request,
+    steerInbox,
+    abortSignal: controller.signal,
+  });
+
+  expect(failed).toMatchObject({ status: 'error', result: null });
+  expect(failed.error).not.toContain('Worker recovery');
+  expect(steerInbox.deliver('note')).toBe(false);
+  expect(relays).toHaveLength(0);
+  expect(workers[0]?.stdin.write).not.toHaveBeenCalled();
+  expect(runner.getActiveSessionIds()).toEqual([]);
+  controller.abort();
+  expect(logger.info).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.stringMatching(/^Interrupt requested/),
+  );
+
+  baseUrl = MLX_URL;
+  const next = await runner.exec(request);
+
+  expect(next.status).toBe('success');
+  expect(workers).toHaveLength(2);
+  expect(firstInput(workers[1])).toMatchObject(RELAY);
+  expect(relays).toHaveLength(2);
+  for (const relay of relays) expect(relay.stop).toHaveBeenCalledTimes(1);
+});

@@ -1,6 +1,7 @@
 /**
  * Worker output paths — maps paths a worker reports (artifacts, browser
- * frames, slide-sample images) to host paths inside its workspace.
+ * frames, slide-sample images) to host paths inside its workspace, and
+ * redacts credentials from the text a finished turn hands back.
  *
  * A path that resolves outside the workspace is dropped, never passed on, so a
  * worker cannot point the gateway at other host files. Workers report either
@@ -103,6 +104,20 @@ export function remapOutputArtifacts(
     return;
   }
   output.artifacts = mapped;
+}
+
+export function redactOutputText(output: ContainerOutput): void {
+  if (typeof output.result === 'string')
+    output.result = redactCredentialSecrets(output.result);
+  if (typeof output.error === 'string')
+    output.error = redactCredentialSecrets(output.error);
+  if (output.pendingApproval)
+    output.pendingApproval = {
+      ...output.pendingApproval,
+      prompt: redactCredentialSecrets(output.pendingApproval.prompt),
+      intent: redactCredentialSecrets(output.pendingApproval.intent),
+      reason: redactCredentialSecrets(output.pendingApproval.reason),
+    };
 }
 
 /** Pool-entry state for the side lines (`[browser-frame]`, `[slide-samples]`) that precede a result. */
