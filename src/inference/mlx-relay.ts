@@ -3,6 +3,10 @@
  * Unlike a network proxy, workers cannot choose a URL, credentials or headers.
  * Fixed files live directly in the existing IPC mount; symlinks are rejected.
  * Native request activity refreshes the idle deadline without a duration cap.
+ *
+ * A relay id is a capability for this worker's own IPC dir, not a provider
+ * credential: `mlxRelayHeaders` is the one rule that lets it through follow-up
+ * input redaction, and only on an entry `mlxRelayEntry` could have built.
  */
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -12,6 +16,34 @@ import {
   MLX_MAX_RESPONSE_BYTES,
 } from '@hybridclaw/shared/mlx-http';
 import { assertMlxEndpoint } from './mlx-endpoint.js';
+
+const MLX_RELAY_BASE_URL = 'http://mlx.invalid/v1';
+const MLX_RELAY_HEADER = 'X-HybridClaw-Relay';
+const MLX_RELAY_ID = /^[a-f0-9]{32}$/;
+
+/** The model routing a worker gets in place of a native MLX endpoint. */
+export function mlxRelayEntry(id: string) {
+  return {
+    baseUrl: MLX_RELAY_BASE_URL,
+    apiKey: '',
+    requestHeaders: { [MLX_RELAY_HEADER]: id },
+  };
+}
+
+/** The relay header of an entry shaped exactly like `mlxRelayEntry`, else `{}`. */
+export function mlxRelayHeaders(entry: {
+  baseUrl?: string;
+  requestHeaders?: Record<string, string>;
+}): Record<string, string> {
+  const headers = entry.requestHeaders || {};
+  const id = headers[MLX_RELAY_HEADER];
+  return entry.baseUrl === MLX_RELAY_BASE_URL &&
+    Object.keys(headers).length === 1 &&
+    typeof id === 'string' &&
+    MLX_RELAY_ID.test(id)
+    ? { [MLX_RELAY_HEADER]: id }
+    : {};
+}
 
 export function startMlxRelay(options: {
   ipcPath: string;

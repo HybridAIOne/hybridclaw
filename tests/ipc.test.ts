@@ -158,6 +158,80 @@ test('writeInput omits auth material from IPC files', async () => {
   expect(input.webSearch.braveApiKey).toBe('brave-secret');
 });
 
+const RELAY_ID = '0123456789abcdef0123456789abcdef';
+const RELAY_URL = 'http://mlx.invalid/v1';
+
+test.each([
+  {
+    name: 'a relay entry keeps its relay id',
+    entry: { baseUrl: RELAY_URL, headers: { 'X-HybridClaw-Relay': RELAY_ID } },
+    expected: { 'X-HybridClaw-Relay': RELAY_ID },
+  },
+  {
+    name: 'a non-relay entry with the relay header keeps nothing',
+    entry: {
+      baseUrl: 'https://example.com/v1',
+      headers: { 'X-HybridClaw-Relay': RELAY_ID },
+    },
+    expected: {},
+  },
+  {
+    name: 'a relay entry with another header keeps nothing',
+    entry: {
+      baseUrl: RELAY_URL,
+      headers: { 'X-HybridClaw-Relay': RELAY_ID, Authorization: 'Bearer x' },
+    },
+    expected: {},
+  },
+  {
+    name: 'a relay entry with a malformed id keeps nothing',
+    entry: { baseUrl: RELAY_URL, headers: { 'X-HybridClaw-Relay': 'abc' } },
+    expected: {},
+  },
+  {
+    name: 'a relay entry with only another header keeps nothing',
+    entry: { baseUrl: RELAY_URL, headers: { Authorization: 'Bearer x' } },
+    expected: {},
+  },
+])('writeInput redaction: $name', async ({ entry, expected }) => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const { ensureSessionDirs, writeInput } = await import('../src/infra/ipc.ts');
+  const routing = {
+    provider: 'mlx' as const,
+    baseUrl: entry.baseUrl,
+    apiKey: 'mlx-secret',
+    requestHeaders: entry.headers,
+    model: 'mlx/test-model',
+  };
+  ensureSessionDirs('session-relay');
+  const filePath = writeInput(
+    'session-relay',
+    {
+      sessionId: 'session-relay',
+      messages: [{ role: 'user', content: 'hello' }],
+      chatbotId: '',
+      enableRag: false,
+      channelId: 'channel-1',
+      ...routing,
+      taskModels: { vision: routing },
+    },
+    { authSecret: 'worker-secret' },
+  );
+
+  const decoded = decodeAuthenticatedInput(
+    'worker-secret',
+    fs.readFileSync(filePath, 'utf-8'),
+  );
+  if (decoded.status !== 'ok') throw new Error('expected authentic input');
+  const written = JSON.parse(decoded.body);
+  expect(written.requestHeaders).toEqual(expected);
+  expect(written.taskModels.vision.requestHeaders).toEqual(expected);
+  expect(decoded.body).not.toContain('mlx-secret');
+  expect(decoded.body).not.toContain('Bearer');
+});
+
 test('readOutput enforces a hard deadline despite repeated activity', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
