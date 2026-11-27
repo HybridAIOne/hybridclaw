@@ -16,7 +16,10 @@ import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
+import {
+  ExecutionDeadlineError,
+  resolveExecutionDeadline,
+} from '@hybridclaw/shared/execution-deadline';
 import type { Executor, ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -82,6 +85,13 @@ import {
 } from './worker-recovery.js';
 
 const CAPACITY_POLL_MS = 100;
+// 15 s for a user turn, 5 min for a background run that nobody watches, so it
+// can queue behind user turns. Both modes (decided 2026-11-27, delegated by
+// the owner): no caller retries on `busy`, so a short wait that usually ends
+// in an idle-worker eviction beats an immediate failure, and one behaviour
+// drops the last per-mode flag. Retrying on `busy` is deferred.
+const CAPACITY_WAIT_MS = 15_000;
+const BACKGROUND_CAPACITY_WAIT_MS = 300_000;
 
 type WorkerSpawnParams = Pick<
   ExecutorRequest,
@@ -129,8 +139,6 @@ export interface WorkerStrategy {
   mapHostUrl(url: string): string;
   /** Root for turn-checkpoint recovery evidence. */
   stateRoot(request: ExecutorRequest, workspacePath: string): string;
-  /** Waits this long for a free worker; without it a full pool fails at once. */
-  capacityWaitMs?(background: boolean | undefined): number;
   /** Rewrites `input` to go through a gateway-side relay for this turn. */
   startModelRelay?(params: {
     input: ContainerInput;
@@ -258,10 +266,13 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     sessionId: string,
     limit: number,
     waitMs: number,
+    executionDeadlineAtMs: number | undefined,
     abortSignal?: AbortSignal,
-  ): Promise<'available' | 'aborted' | 'timed_out'> {
+  ): Promise<'available' | 'aborted' | 'timed_out' | 'deadline'> {
     const deadline = Date.now() + waitMs;
     while (totalProcessCount() >= limit && !pool.has(sessionId)) {
+      if (Date.now() >= (executionDeadlineAtMs ?? Number.POSITIVE_INFINITY))
+        return 'deadline';
       if (freeCapacity(limit)) break;
       if (abortSignal?.aborted) return 'aborted';
       const remainingMs = deadline - Date.now();
@@ -415,23 +426,29 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       params.background,
     );
     if (totalProcessCount() >= processLimit && !pool.has(sessionId)) {
-      const waitMs = strategy.capacityWaitMs?.(params.background);
-      const capacity =
-        waitMs === undefined
-          ? freeCapacity(processLimit)
-            ? 'available'
-            : 'timed_out'
-          : await waitForCapacity(sessionId, processLimit, waitMs, abortSignal);
+      const waitMs = params.background
+        ? BACKGROUND_CAPACITY_WAIT_MS
+        : CAPACITY_WAIT_MS;
+      const capacity = await waitForCapacity(
+        sessionId,
+        processLimit,
+        waitMs,
+        executionDeadlineAtMs,
+        abortSignal,
+      );
       if (capacity === 'aborted') {
         return interruptedAgentOutput(abortSignal?.reason);
       }
+      // As when the gateway aborts the turn at its deadline.
+      if (capacity === 'deadline') {
+        return interruptedAgentOutput(new ExecutionDeadlineError());
+      }
       if (capacity === 'timed_out') {
-        const waited = waitMs === undefined ? '' : ` after waiting ${waitMs}ms`;
         return {
           status: 'error',
           result: null,
           toolsUsed: [],
-          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit})${waited}. Try again later.`,
+          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit}) after waiting ${waitMs}ms. Try again later.`,
           errorCode: 'busy',
         };
       }

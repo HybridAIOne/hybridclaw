@@ -305,7 +305,12 @@ turn stops it and starts a new worker. Gateway runtime token,
 web-search configuration or stored runtime env changes invalidate worker reuse
 on the next turn in both modes, so process-cached credentials and env are
 refreshed. An interrupted turn stops its worker and removes it from the pool
-at once; the next turn starts a new worker.
+at once; the next turn starts a new worker. When the pool is full, a turn
+waits up to 15 seconds for a worker to free up (5 minutes for a background
+run) before it fails as busy, in both modes. The wait never outlasts the
+turn's own deadline: a turn whose deadline passes while it waits ends with the
+same deadline error as a turn the gateway stops at its deadline, and no worker
+is started for it.
 
 ### Interrupted Turns
 
