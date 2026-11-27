@@ -103,14 +103,12 @@ async function loadRunner(params: {
       return { process: child as never, name: `worker-${children.length}` };
     }),
     stop: vi.fn(),
-    dropsEntryOnAbort: false,
-    guardsStdinErrors: false,
     memoryKey: (entry) => entry.name ?? null,
     readMemoryBytes: async () => 0,
     logFields: (entry) => ({ workerName: entry.name }),
+    runtimeEnvAtSpawn: false,
     mapHostUrl: (url) => url.replace('localhost', 'gateway.example.com'),
     stateRoot: (_request, workspacePath) => workspacePath,
-    sendsRuntimeEnv: false,
     ...params.strategy,
   };
   const { createWorkerRunner } = await import('../src/infra/worker-runner.js');
@@ -140,13 +138,8 @@ function firstStdinInput(child: FakeChild): ContainerInput {
 }
 
 describe('createWorkerRunner strategy seam', () => {
-  it.each([
-    true,
-    false,
-  ])('sends stored runtime env only when the strategy asks (%s), and maps host URLs', async (sendsRuntimeEnv) => {
-    const { runner, children } = await loadRunner({
-      strategy: { sendsRuntimeEnv },
-    });
+  it('sends the stored runtime env and maps host URLs', async () => {
+    const { runner, children } = await loadRunner({});
 
     await expect(runner.exec(request('session-a'))).resolves.toMatchObject(
       success,
@@ -155,7 +148,7 @@ describe('createWorkerRunner strategy seam', () => {
     const input = firstStdinInput(children[0]);
     expect(input.baseUrl).toBe('http://gateway.example.com:4000/v1');
     expect(input.gatewayBaseUrl).not.toContain('localhost');
-    expect('runtimeEnv' in input).toBe(sendsRuntimeEnv);
+    expect(input.runtimeEnv).toEqual({});
     expect(input).toHaveProperty('ipcAuthSecret');
   });
 
@@ -188,24 +181,10 @@ describe('createWorkerRunner strategy seam', () => {
     expect(runner.getActiveSessionCount()).toBe(0);
   });
 
-  it.each([
-    {
-      capacityWaitMs: undefined,
-      error: 'Too many active test workers (1/1). Try again later.',
-    },
-    {
-      capacityWaitMs: () => 30,
-      error:
-        'Too many active test workers (1/1) after waiting 30ms. Try again later.',
-    },
-  ])('refuses a run over capacity without spawning (wait $capacityWaitMs)', async ({
-    capacityWaitMs,
-    error,
-  }) => {
+  it('refuses a run over capacity without spawning once the wait runs out', async () => {
     const { runner, strategy } = await loadRunner({
       maxConcurrent: 1,
       readOutput: onAbortOutput(),
-      strategy: { capacityWaitMs },
     });
     const controller = new AbortController();
     const busy = runner.exec(
@@ -213,24 +192,31 @@ describe('createWorkerRunner strategy seam', () => {
     );
     await vi.waitFor(() => expect(runner.getInFlightSessionCount()).toBe(1));
 
-    await expect(runner.exec(request('session-b'))).resolves.toEqual({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error,
-      errorCode: 'busy',
-    });
-    expect(strategy.spawn).toHaveBeenCalledOnce();
-
-    controller.abort();
-    await busy;
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const refused = runner.exec(request('session-b'));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      vi.setSystemTime(Date.now() + 15_001);
+      await expect(refused).resolves.toEqual({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error:
+          'Too many active test workers (1/1) after waiting 15000ms. Try again later.',
+        errorCode: 'busy',
+      });
+      expect(strategy.spawn).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      controller.abort();
+      await busy;
+    }
   });
 
   it('returns an interrupt, not busy, when aborted while waiting for capacity', async () => {
     const { runner, strategy } = await loadRunner({
       maxConcurrent: 1,
       readOutput: onAbortOutput(),
-      strategy: { capacityWaitMs: () => 60_000 },
     });
     const holder = new AbortController();
     const busy = runner.exec(
@@ -253,13 +239,9 @@ describe('createWorkerRunner strategy seam', () => {
     await busy;
   });
 
-  it.each([
-    true,
-    false,
-  ])('stops an aborted worker once and drops it on abort only when asked (%s)', async (dropsEntryOnAbort) => {
+  it('stops an aborted worker once and drops it at once', async () => {
     const { runner, strategy, children } = await loadRunner({
       readOutput: onAbortOutput(),
-      strategy: { dropsEntryOnAbort },
     });
     const controller = new AbortController();
     const run = runner.exec(
@@ -270,23 +252,15 @@ describe('createWorkerRunner strategy seam', () => {
     controller.abort();
     await run;
 
-    expect(runner.getActiveSessionCount()).toBe(dropsEntryOnAbort ? 0 : 1);
-    runner.stopSession('session-a');
-    expect(strategy.stop).toHaveBeenCalledOnce();
-    children[0].emit('close', null, 'SIGTERM');
     expect(runner.getActiveSessionCount()).toBe(0);
+    expect(runner.stopSession('session-a')).toBe(false);
+    children[0].emit('close', null, 'SIGTERM');
+    expect(strategy.stop).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    { guardsStdinErrors: true, error: 'Interrupted by user.' },
-    { guardsStdinErrors: false, error: expect.stringContaining('write EPIPE') },
-  ])('handles a stdin write to a dead worker per strategy (guards $guardsStdinErrors)', async ({
-    guardsStdinErrors,
-    error,
-  }) => {
+  it('treats a stdin write to a dead worker as an interrupt', async () => {
     const { runner, strategy, readOutput } = await loadRunner({
       strategy: {
-        guardsStdinErrors,
         spawn: () => {
           const child = makeFakeChildProcess();
           child.stdin.write.mockImplementation(() => {
@@ -300,10 +274,10 @@ describe('createWorkerRunner strategy seam', () => {
 
     await expect(runner.exec(request('session-a'))).resolves.toMatchObject({
       status: 'error',
-      error,
+      error: 'Interrupted by user.',
     });
     expect(readOutput).not.toHaveBeenCalled();
-    expect(strategy.stop).toHaveBeenCalledTimes(guardsStdinErrors ? 0 : 1);
+    expect(strategy.stop).not.toHaveBeenCalled();
   });
 
   it('routes a turn through the strategy relay and always stops it', async () => {

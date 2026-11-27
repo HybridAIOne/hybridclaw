@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveEffectiveTimezone } from '@hybridclaw/shared/workspace-time';
+import { ensureBrowserProfileHostDir } from '../browser/profile-dir.js';
 import {
   CONTAINER_BINDS,
   CONTAINER_CPUS,
@@ -22,6 +23,7 @@ import {
 } from '../config/config.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
+import { resolveDiscordMediaCacheHostDir } from '../media/media-host-path.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
@@ -38,11 +40,8 @@ import {
   containerHostAliasArgs,
   remapHostBaseUrlForContainer,
 } from './container-host-alias.js';
-import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
-  resolveBrowserProfileHostDir,
-  resolveDiscordMediaCacheHostDir,
   type WorkerSpawnRequest,
 } from './worker-runner.js';
 
@@ -138,18 +137,9 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
-  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  const browserProfileHostPath = ensureBrowserProfileHostDir();
   const behaviorAnomalyTrajectoryStoreDir =
     ensureBehaviorAnomalyTrajectoryStoreDir();
-  fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
-  try {
-    fs.chmodSync(browserProfileHostPath, 0o700);
-  } catch (err) {
-    logger.warn(
-      { err, dir: browserProfileHostPath },
-      'Failed to set permissions on browser profile directory',
-    );
-  }
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
@@ -190,13 +180,7 @@ function spawnContainer(spawnRequest: WorkerSpawnRequest) {
         CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
       TZ: resolveEffectiveTimezone(),
       HYBRIDCLAW_AGENT_WORKSPACE_ROOT: CONTAINER_WORKSPACE_ROOT,
-      ...buildWorkerEnv({
-        agentId,
-        runtimeScope: params.runtimeScope,
-        displayRoot: params.workspaceDisplayRootOverride,
-        mode: 'container',
-        mapHostUrl: remapHostBaseUrlForContainer,
-      }),
+      ...spawnRequest.workerEnv,
       PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright',
     }).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
   ];
@@ -270,10 +254,6 @@ export const containerRunner = createWorkerRunner({
     'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
   spawn: spawnContainer,
   stop: (entry) => stopContainer(entry.name || ''),
-  // `docker stop` keeps the `docker run` client alive until the container
-  // exits; drop the entry so the next turn cannot reuse a dying container.
-  dropsEntryOnAbort: true,
-  guardsStdinErrors: false,
   memoryKey: (entry) => entry.name || null,
   readMemoryBytes: async (containerNames) => {
     const memoryByContainer = await readContainerMemoryBytes(containerNames);
@@ -284,9 +264,9 @@ export const containerRunner = createWorkerRunner({
     return total;
   },
   logFields: (entry) => ({ containerName: entry.name }),
+  runtimeEnvAtSpawn: false,
   mapHostUrl: remapHostBaseUrlForContainer,
   stateRoot: (_request, workspacePath) => workspacePath,
-  sendsRuntimeEnv: true,
   startModelRelay: ({ input, modelRuntime, ipcPath, model, task }) => {
     if (modelRuntime.provider !== 'mlx') return undefined;
     const relay = startMlxRelay({

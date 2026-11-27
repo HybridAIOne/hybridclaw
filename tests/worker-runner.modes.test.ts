@@ -1,8 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
 import {
   baseRequest,
+  type FakeWorker,
   firstInput,
   makeFakeWorker,
   okOutput,
@@ -25,6 +27,14 @@ function pendingOutputs() {
       finish.push(() => resolve(okOutput()));
     });
   return { finish, readOutput };
+}
+
+function servingWorker(workers: FakeWorker[], sessionId: string): number {
+  return workers.findIndex(
+    (worker) =>
+      worker.stdin.write.mock.calls.length > 0 &&
+      firstInput(worker).sessionId === sessionId,
+  );
 }
 
 describe.each(RUNNER_MODES)('$mode runner', (mode) => {
@@ -352,6 +362,7 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
 
   test('stops and respawns a timed out pooled worker', async () => {
     const run = await startRunner(mode, {
+      warmPool: true,
       readOutput: vi
         .fn()
         .mockResolvedValueOnce({
@@ -376,11 +387,15 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(firstOutput.status).toBe('error');
     expect(mode.stopCount(run)).toBe(1);
     expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    // A timed-out turn does not refill the warm pool.
+    expect(run.workers).toHaveLength(1);
 
     const secondOutput = await run.runner.exec(request);
 
     expect(secondOutput.status).toBe('success');
-    expect(run.workers).toHaveLength(2);
+    expect(firstInput(run.workers[1]).sessionId).toBe('heartbeat:main');
+    expect(run.workers).toHaveLength(3);
+    expect(run.workers[2].stdin.write).not.toHaveBeenCalled();
     expect(mode.stopCount(run)).toBe(1);
   });
 
@@ -440,6 +455,46 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     );
   });
 
+  test('respawns the pooled worker when the stored runtime env changes', async () => {
+    const run = await startRunner(mode);
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.js'
+    );
+    const request = { ...baseRequest, sessionId: 'session-runtime-env' };
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-a' });
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(mode.storedEnvValue(run, 0, 'EXAMPLE_REGION')).toBe('region-a');
+
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-b' });
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.storedEnvValue(run, 1, 'EXAMPLE_REGION')).toBe('region-b');
+    const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
+    expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
+  test.runIf(process.platform !== 'win32')('creates the shared browser profile dir owner-only before spawn', async () => {
+    const run = await startRunner(mode);
+    const profileDir = path.join(
+      run.homeDir,
+      '.hybridclaw',
+      'data',
+      'browser-profiles',
+    );
+    fs.mkdirSync(profileDir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(profileDir, 0o755);
+
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-profile' });
+
+    expect(run.workers).toHaveLength(1);
+    expect(fs.statSync(profileDir).mode & 0o777).toBe(0o700);
+  });
+
   test('runs as many concurrent sessions as the pool holds', async () => {
     const { runner, workers } = await startRunner(mode, {
       readOutput: () =>
@@ -456,7 +511,7 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     expect(results.every((result) => result.status === 'success')).toBe(true);
   });
 
-  test('a full pool fails as busy, after its capacity wait where the mode has one', async () => {
+  test('a full pool waits for capacity, then fails as busy', async () => {
     const { finish, readOutput } = pendingOutputs();
     const { runner, workers } = await startRunner(mode, { readOutput });
     const running = ['sess-1', 'sess-2', 'sess-3', 'sess-4', 'sess-5'].map(
@@ -472,14 +527,52 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
         settled = true;
       });
       await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(settled).toBe(!mode.expected.fullPoolWaits);
+      expect(settled).toBe(false);
 
       vi.setSystemTime(Date.now() + 16_000);
       await expect(overflow).resolves.toMatchObject({
         status: 'error',
         errorCode: 'busy',
-        error: expect.stringMatching(mode.expected.busyError),
+        error: expect.stringMatching(mode.busyError),
       });
+      expect(workers).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+      for (const done of finish) done();
+      await Promise.all(running);
+      runner.stopAll();
+    }
+  });
+
+  test('a full pool stops waiting at the turn deadline without spawning', async () => {
+    const { finish, readOutput } = pendingOutputs();
+    const { runner, workers } = await startRunner(mode, { readOutput });
+    const running = ['sess-1', 'sess-2', 'sess-3', 'sess-4', 'sess-5'].map(
+      (sessionId) => runner.exec({ ...baseRequest, sessionId }),
+    );
+    await vi.waitFor(() => expect(workers).toHaveLength(5));
+
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      let settled = false;
+      const overflow = runner.exec({
+        ...baseRequest,
+        sessionId: 'sess-6',
+        maxWallClockMs: 2_000,
+      });
+      void overflow.then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+
+      vi.setSystemTime(Date.now() + 2_500);
+      const output = await overflow;
+      expect(output).toMatchObject({
+        status: 'error',
+        error: 'Execution deadline exceeded.',
+      });
+      expect(output.errorCode).toBeUndefined();
       expect(workers).toHaveLength(5);
     } finally {
       vi.useRealTimers();
@@ -524,42 +617,53 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     }
   });
 
-  test('an abort stops the worker; the session leaves the pool when the mode drops it', async () => {
-    const { runner, workers, readOutput } = await startRunner(mode, {
-      readOutput: (
-        _sessionId: string,
-        _requestId: string,
-        _timeoutMs: number,
-        opts?: { signal?: AbortSignal },
-      ) =>
-        new Promise((resolve) => {
-          opts?.signal?.addEventListener('abort', () =>
-            resolve({
-              status: 'error' as const,
-              result: null,
-              toolsUsed: [],
-              error: 'Interrupted by user.',
-            }),
-          );
-        }),
+  test('an abort stops the worker once and the next turn gets a new one', async () => {
+    const interruptible = (
+      _sessionId: string,
+      _requestId: string,
+      _timeoutMs: number,
+      opts?: { signal?: AbortSignal },
+    ) =>
+      new Promise((resolve) => {
+        opts?.signal?.addEventListener('abort', () =>
+          resolve({
+            status: 'error' as const,
+            result: null,
+            toolsUsed: [],
+            error: 'Interrupted by user.',
+          }),
+        );
+      });
+    const run = await startRunner(mode, {
+      readOutput: vi
+        .fn()
+        .mockImplementationOnce(interruptible)
+        .mockResolvedValue(okOutput()),
     });
     const controller = new AbortController();
-    const pending = runner.exec({
+    const pending = run.runner.exec({
       ...baseRequest,
       sessionId: 'session-abort',
       abortSignal: controller.signal,
     });
-    await vi.waitFor(() => expect(readOutput).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(run.readOutput).toHaveBeenCalledTimes(1));
 
     controller.abort();
     await expect(pending).resolves.toMatchObject({ status: 'error' });
+    // The stopped worker has not exited yet; it already left the pool.
+    expect(run.runner.getActiveSessionCount()).toBe(0);
 
-    expect(runner.getActiveSessionCount()).toBe(
-      mode.expected.activeSessionsAfterAbort,
-    );
-    workers[0].exitCode = 0;
-    workers[0].emit('close', 0, 'SIGTERM');
-    expect(runner.getActiveSessionCount()).toBe(0);
+    await expect(
+      run.runner.exec({ ...baseRequest, sessionId: 'session-abort' }),
+    ).resolves.toMatchObject({ status: 'success' });
+    expect(run.workers).toHaveLength(2);
+    expect(run.workers[0].stdin.write).toHaveBeenCalledTimes(1);
+    expect(run.workers[1].stdin.write).toHaveBeenCalledTimes(1);
+    expect(run.writeInput).not.toHaveBeenCalled();
+    run.workers[0].exitCode = 0;
+    run.workers[0].emit('close', 0, 'SIGTERM');
+    expect(mode.stopCount(run)).toBe(1);
+    expect(run.runner.getActiveSessionIds()).toEqual(['session-abort']);
   });
 
   test('gives the worker the browser a run asks for, else the configured one', async () => {
@@ -612,6 +716,146 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
       mode.claimedWarm.message,
     );
     expect(warmWorker?.stdin.write).toHaveBeenCalledTimes(1);
+  });
+
+  test('a scoped request without a workspace override spawns its own worker with the scoped token', async () => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    const run = await startRunner(mode, { warmPool: true });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-unscoped' });
+    const spare = run.workers[1];
+    expect(spare).toBeDefined();
+    const runtimeScope = { agentId: 'default', scopeId: 's_0123456789ab' };
+
+    const output = await run.runner.exec({
+      ...baseRequest,
+      sessionId: 'session-scoped',
+      runtimeScope,
+    });
+
+    expect(output.status).toBe('success');
+
+    expect(spare?.stdin.write).not.toHaveBeenCalled();
+    expect(run.workers).toHaveLength(3);
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    const scopedToken = resolveWorkerRuntimeToken(runtimeScope);
+    expect(scopedToken).not.toBe(resolveWorkerRuntimeToken(undefined));
+    expect(mode.spawnEnvValue(run, 2, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      scopedToken,
+    );
+    expect(firstInput(run.workers[2]).gatewayApiToken).toBe(scopedToken);
+  });
+
+  test('a claimed warm worker runs on the stored runtime env saved after its spawn', async () => {
+    const run = await startRunner(mode, { warmPool: true });
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.js'
+    );
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-a' });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-env-a' });
+    const spare = run.workers[1];
+    expect(spare).toBeDefined();
+
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-b' });
+    const sessionB = { ...baseRequest, sessionId: 'session-env-b' };
+    await run.runner.exec(sessionB);
+    await run.runner.exec(sessionB);
+
+    const serving = servingWorker(run.workers, 'session-env-b');
+    expect(mode.storedEnvValue(run, serving, 'EXAMPLE_REGION')).toBe(
+      'region-b',
+    );
+    expect(run.workers[serving].stdin.write).toHaveBeenCalledTimes(1);
+    expect(mode.wasStopped(run.workers[serving], run)).toBe(false);
+    expect(serving === 1).toBe(!mode.runtimeEnvAtSpawn);
+    expect(mode.wasStopped(spare, run)).toBe(mode.runtimeEnvAtSpawn);
+    const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
+    expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
+  test('replaces a warm worker spawned with an outdated worker env', async () => {
+    let gatewayUrl = 'http://gateway-a.example.com:9090';
+    const run = await startRunner(mode, {
+      warmPool: true,
+      config: {
+        get GATEWAY_CLIENT_BASE_URL() {
+          return gatewayUrl;
+        },
+      },
+    });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-url-a' });
+    const spare = run.workers[1];
+    expect(
+      mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_URL'),
+    ).toContain('gateway-a.example.com');
+
+    gatewayUrl = 'http://gateway-b.example.com:9090';
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-url-b' });
+
+    expect(mode.wasStopped(spare, run)).toBe(true);
+    expect(spare.stdin.write).not.toHaveBeenCalled();
+    const serving = servingWorker(run.workers, 'session-url-b');
+    expect(serving).toBeGreaterThan(1);
+    expect(
+      mode.spawnEnvValue(run, serving, 'HYBRIDCLAW_GATEWAY_URL'),
+    ).toContain('gateway-b.example.com');
+    expect(run.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'default' }),
+      expect.stringMatching(/^Discarding warm .* outdated env$/),
+    );
+  });
+
+  test.each([
+    { name: 'unscoped', runtimeScope: undefined },
+    {
+      name: 'scoped',
+      runtimeScope: { agentId: 'default', scopeId: 's_0123456789ab' },
+    },
+  ])('restarts a $name session worker once when its spawn env goes stale', async ({
+    runtimeScope,
+  }) => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    let gatewayUrl = 'http://gateway-a.example.com:9090';
+    const run = await startRunner(mode, {
+      config: {
+        get GATEWAY_CLIENT_BASE_URL() {
+          return gatewayUrl;
+        },
+      },
+    });
+    const request = {
+      ...baseRequest,
+      sessionId: 'session-env-stale',
+      runtimeScope,
+    };
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(run.workers[0].stdin.write).toHaveBeenCalledTimes(1);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(false);
+
+    gatewayUrl = 'http://gateway-b.example.com:9090';
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.wasStopped(run.workers[1], run)).toBe(false);
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_URL')).toContain(
+      'gateway-b.example.com',
+    );
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      resolveWorkerRuntimeToken(runtimeScope),
+    );
+    const logged = JSON.stringify(
+      Object.values(run.logger).flatMap((log) => log.mock.calls),
+    );
+    expect(logged).not.toContain(resolveWorkerRuntimeToken(runtimeScope));
   });
 
   test('turns an exception after dispatch into terminal journal evidence', async () => {
@@ -672,7 +916,59 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
   });
 });
 
-describe.each(RUNNER_MODES.filter((mode) => mode.mode === 'host'))('$mode runner stdin guard', (mode) => {
+describe.each(RUNNER_MODES)('$mode runner stdin guard', (mode) => {
+  test('an EPIPE on stdin after the worker died is not an unhandled error', async () => {
+    const escaped: unknown[] = [];
+    const run = await startRunner(mode, {
+      makeWorker: () => {
+        const proc = makeFakeWorker();
+        proc.stdin.write.mockImplementation(() => {
+          proc.exitCode = 1;
+          proc.emit('close', 1, null);
+          // A destroyed stream reports the failed write asynchronously.
+          setImmediate(() => {
+            try {
+              proc.stdin.emit(
+                'error',
+                Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }),
+              );
+            } catch (err) {
+              escaped.push(err);
+            }
+          });
+          return true;
+        });
+        return proc;
+      },
+      readOutput: async (
+        _sessionId: string,
+        _requestId: string,
+        _timeoutMs: number,
+        opts?: ReadOutputOptions,
+      ) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return {
+          status: 'error' as const,
+          result: null,
+          toolsUsed: [],
+          error: opts?.terminalError?.() || 'missing terminal error',
+        };
+      },
+    });
+
+    const output = await run.runner.exec({
+      ...baseRequest,
+      sessionId: 'session-stdin-epipe',
+    });
+
+    expect(escaped).toEqual([]);
+    expect(output).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(`${mode.runtimeLabel} exited`),
+    });
+    expect(run.runner.getActiveSessionCount()).toBe(0);
+  });
+
   test('treats an interrupted stdin EPIPE as a user interrupt', async () => {
     const controller = new AbortController();
     const { runner, readOutput } = await startRunner(mode, {

@@ -297,9 +297,20 @@ define how a worker starts, stops, reports memory and sees host URLs; the env
 both modes give a worker is built once in `src/infra/worker-env.ts`. Stop and
 exit are terminal for reuse; a late readiness marker or request finalizer
 cannot revive a stopped process or release a newer request. These are gateway
-process handles, not durable session state. Gateway runtime token or
-web-search configuration changes invalidate worker reuse on the next turn, so
-process-cached credentials are refreshed.
+process handles, not durable session state. A warm spare is claimed, and a
+session's own worker reused, only while the env it was spawned with (the
+shared worker env and, in host mode, the stored runtime env) still matches what
+a new spawn for that request and its runtime scope would get; otherwise the
+turn stops it and starts a new worker. Gateway runtime token,
+web-search configuration or stored runtime env changes invalidate worker reuse
+on the next turn in both modes, so process-cached credentials and env are
+refreshed. An interrupted turn stops its worker and removes it from the pool
+at once; the next turn starts a new worker. When the pool is full, a turn
+waits up to 15 seconds for a worker to free up (5 minutes for a background
+run) before it fails as busy, in both modes. The wait never outlasts the
+turn's own deadline: a turn whose deadline passes while it waits ends with the
+same deadline error as a turn the gateway stops at its deadline, and no worker
+is started for it.
 
 ### Interrupted Turns
 

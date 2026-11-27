@@ -5,35 +5,29 @@
  *
  * The child gets a sanitized copy of the gateway env, the stored runtime env
  * and the allowed roots its path guard enforces; host mode has no OS-level
- * isolation. Unlike container-runner, a full pool waits for capacity instead
- * of failing at once.
+ * isolation.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
+import { ensureBrowserProfileHostDir } from '../browser/profile-dir.js';
 import { CONTAINER_BINDS } from '../config/config.js';
-import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
+import { resolveDiscordMediaCacheHostDir } from '../media/media-host-path.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
+import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
-import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
-  resolveBrowserProfileHostDir,
-  resolveDiscordMediaCacheHostDir,
   type WorkerSpawnRequest,
 } from './worker-runner.js';
-
-const HOST_CAPACITY_WAIT_MS = 15_000;
-// Nobody watches a background run, so it can queue behind user turns longer.
-const BACKGROUND_HOST_CAPACITY_WAIT_MS = 300_000;
 
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
@@ -68,31 +62,6 @@ function resolveHostAgentBrowserBinary(): string | undefined {
     if (fs.existsSync(candidate)) return candidate;
   }
   return undefined;
-}
-
-function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
-  const packageRoot = resolveInstallRoot();
-  const sourceNodeModules = path.join(packageRoot, 'node_modules');
-  if (!fs.existsSync(sourceNodeModules)) return;
-
-  const targetNodeModules = path.join(workspacePath, 'node_modules');
-
-  try {
-    const stat = fs.lstatSync(targetNodeModules);
-    if (stat.isSymbolicLink()) {
-      const existingTarget = fs.readlinkSync(targetNodeModules);
-      const resolvedExisting = path.resolve(
-        path.dirname(targetNodeModules),
-        existingTarget,
-      );
-      if (resolvedExisting === sourceNodeModules) return;
-    }
-    fs.rmSync(targetNodeModules, { recursive: true, force: true });
-  } catch {
-    // Missing target is fine; we'll create it below.
-  }
-
-  fs.symlinkSync(sourceNodeModules, targetNodeModules, 'dir');
 }
 
 async function readProcessRssBytes(pid: number | undefined): Promise<number> {
@@ -138,7 +107,12 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
   const { sessionId, warm = false } = params;
   const stateRoot = hostWorkspaceStateRoot(params);
   fs.mkdirSync(stateRoot, { recursive: true });
-  ensureWorkspaceNodeModulesLink(stateRoot);
+  // ESM imports in agent scripts resolve the install's packages through it.
+  ensureWorkspaceNodeModulesLink(
+    stateRoot,
+    path.join(resolveInstallRoot(), 'node_modules'),
+    { replaceExistingSymlink: true },
+  );
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
@@ -152,17 +126,11 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
     throw new Error('Host runtime unexpectedly unavailable.');
   }
   const agentBrowserBin = resolveHostAgentBrowserBinary();
-  const storedRuntimeEnv = readStoredRuntimeEnv();
+  const storedRuntimeEnv = spawnRequest.runtimeEnv ?? {};
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
-    ...buildWorkerEnv({
-      agentId,
-      runtimeScope: params.runtimeScope,
-      displayRoot: params.workspaceDisplayRootOverride,
-      mode: 'host',
-      mapHostUrl: (url) => url,
-    }),
+    ...spawnRequest.workerEnv,
     NODE_PATH: hostAgentNodePath(
       storedRuntimeEnv.NODE_PATH || process.env.NODE_PATH,
     ),
@@ -176,7 +144,7 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
-    BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
+    BROWSER_SHARED_PROFILE_DIR: ensureBrowserProfileHostDir(),
     AGENT_BROWSER_BIN: agentBrowserBin,
   };
   if (params.bashProxy?.mode === 'docker-exec') {
@@ -220,8 +188,6 @@ export const hostRunner = createWorkerRunner({
       );
     }
   },
-  dropsEntryOnAbort: false,
-  guardsStdinErrors: true,
   memoryKey: (entry) =>
     typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
   readMemoryBytes: async (pids) => {
@@ -231,9 +197,7 @@ export const hostRunner = createWorkerRunner({
     return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
   },
   logFields: () => ({}),
+  runtimeEnvAtSpawn: true,
   mapHostUrl: (url) => url,
   stateRoot: (request) => hostWorkspaceStateRoot(request),
-  sendsRuntimeEnv: false,
-  capacityWaitMs: (background) =>
-    background ? BACKGROUND_HOST_CAPACITY_WAIT_MS : HOST_CAPACITY_WAIT_MS,
 });

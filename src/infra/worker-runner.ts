@@ -16,14 +16,15 @@ import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
+import {
+  ExecutionDeadlineError,
+  resolveExecutionDeadline,
+} from '@hybridclaw/shared/execution-deadline';
 import type { Executor, ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { getBrowserProfileDir } from '../browser/browser-login.js';
 import {
   CONTAINER_TIMEOUT,
   CONTAINER_WARM_POOL,
-  DATA_DIR,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
@@ -70,6 +71,7 @@ import {
   type WarmRunnerMode,
 } from './warm-runner-utils.js';
 import { remapOutputArtifacts } from './worker-artifacts.js';
+import { buildWorkerEnv } from './worker-env.js';
 import { buildWorkerInput, type ModelRuntime } from './worker-input.js';
 import {
   capitalize,
@@ -83,6 +85,13 @@ import {
 } from './worker-recovery.js';
 
 const CAPACITY_POLL_MS = 100;
+// 15 s for a user turn, 5 min for a background run that nobody watches, so it
+// can queue behind user turns. Both modes (decided 2026-11-27, delegated by
+// the owner): no caller retries on `busy`, so a short wait that usually ends
+// in an idle-worker eviction beats an immediate failure, and one behaviour
+// drops the last per-mode flag. Retrying on `busy` is deferred.
+const CAPACITY_WAIT_MS = 15_000;
+const BACKGROUND_CAPACITY_WAIT_MS = 300_000;
 
 type WorkerSpawnParams = Pick<
   ExecutorRequest,
@@ -99,6 +108,10 @@ export interface WorkerSpawnRequest {
   agentId: string;
   ipcPath: string;
   workspacePath: string;
+  /** The `buildWorkerEnv` contract, URLs already mapped for this mode. */
+  workerEnv: Record<string, string>;
+  /** Stored runtime env; set only when `runtimeEnvAtSpawn`. */
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface WorkerStrategy {
@@ -113,21 +126,19 @@ export interface WorkerStrategy {
   spawn(request: WorkerSpawnRequest): { process: ChildProcess; name?: string };
   /** Ends the worker; called once, after its lifecycle accepted the stop. */
   stop(entry: WorkerEntry): void;
-  /** Drop the entry on abort instead of on exit (the stop is asynchronous). */
-  dropsEntryOnAbort: boolean;
-  /** Handle stdin write failures after the worker died as an interrupt. */
-  guardsStdinErrors: boolean;
   memoryKey(entry: WorkerEntry): string | null;
   readMemoryBytes(keys: string[]): Promise<number>;
   logFields(entry: WorkerEntry): Record<string, unknown>;
+  /**
+   * The worker gets the stored runtime env in its process env at spawn, so
+   * requests leave it out: re-applying it in the worker would replace the
+   * host-built NODE_PATH. It is part of the signature either way.
+   */
+  runtimeEnvAtSpawn: boolean;
   /** Rewrites a gateway-side URL into one the worker can reach. */
   mapHostUrl(url: string): string;
   /** Root for turn-checkpoint recovery evidence. */
   stateRoot(request: ExecutorRequest, workspacePath: string): string;
-  /** Sends the stored runtime env with each request (part of its signature). */
-  sendsRuntimeEnv: boolean;
-  /** Waits this long for a free worker; without it a full pool fails at once. */
-  capacityWaitMs?(background: boolean | undefined): number;
   /** Rewrites `input` to go through a gateway-side relay for this turn. */
   startModelRelay?(params: {
     input: ContainerInput;
@@ -138,12 +149,13 @@ export interface WorkerStrategy {
   }): { stop(): void } | undefined;
 }
 
-export function resolveDiscordMediaCacheHostDir(): string {
-  return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
-}
-
-export function resolveBrowserProfileHostDir(): string {
-  return path.resolve(getBrowserProfileDir(DATA_DIR));
+/** Whether a pooled worker can take its session's next request. */
+function isLive(entry: WorkerEntry): boolean {
+  return (
+    entry.lifecycle.reusable &&
+    !entry.process.killed &&
+    entry.process.exitCode === null
+  );
 }
 
 function resolveWorkspacePath(params: {
@@ -254,10 +266,13 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     sessionId: string,
     limit: number,
     waitMs: number,
+    executionDeadlineAtMs: number | undefined,
     abortSignal?: AbortSignal,
-  ): Promise<'available' | 'aborted' | 'timed_out'> {
+  ): Promise<'available' | 'aborted' | 'timed_out' | 'deadline'> {
     const deadline = Date.now() + waitMs;
     while (totalProcessCount() >= limit && !pool.has(sessionId)) {
+      if (Date.now() >= (executionDeadlineAtMs ?? Number.POSITIVE_INFINITY))
+        return 'deadline';
       if (freeCapacity(limit)) break;
       if (abortSignal?.aborted) return 'aborted';
       const remainingMs = deadline - Date.now();
@@ -269,15 +284,26 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     return abortSignal?.aborted ? 'aborted' : 'available';
   }
 
+  function spawnEnv(params: WorkerSpawnParams, agentId: string) {
+    return {
+      workerEnv: buildWorkerEnv({
+        agentId,
+        runtimeScope: params.runtimeScope,
+        displayRoot: params.workspaceDisplayRootOverride,
+        mode: strategy.mode,
+        mapHostUrl: strategy.mapHostUrl,
+      }),
+      ...(strategy.runtimeEnvAtSpawn
+        ? { runtimeEnv: readStoredRuntimeEnv() }
+        : {}),
+    };
+  }
+
   function getOrSpawn(params: WorkerSpawnParams): WorkerEntry {
     const sessionId = params.sessionId;
     const agentId = params.agentId || DEFAULT_AGENT_ID;
     const existing = params.warm ? null : pool.get(sessionId);
-    if (
-      existing?.lifecycle.reusable &&
-      !existing.process.killed &&
-      existing.process.exitCode === null
-    ) {
+    if (existing && isLive(existing)) {
       logger.debug(
         { sessionId, ...strategy.logFields(existing) },
         `Reusing ${worker}`,
@@ -295,17 +321,20 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       workspacePathOverride: params.workspacePathOverride,
     });
     fs.mkdirSync(workspacePath, { recursive: true });
+    const env = spawnEnv(params, agentId);
     const spawned = strategy.spawn({
       request: params,
       agentId,
       ipcPath,
       workspacePath,
+      ...env,
     });
     const entry = createWorkerEntry({
       strategy,
       spawned,
       sessionId,
       agentId,
+      spawnEnv: JSON.stringify(env),
       warm: Boolean(params.warm),
       warmPool,
       stop: stopEntry,
@@ -321,12 +350,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     return entry;
   }
 
-  function maintainWarm(params: {
-    agentId: string;
-    workspacePathOverride?: string;
-    workspaceDisplayRootOverride?: string;
-    bashProxy?: ExecutorRequest['bashProxy'];
-  }): void {
+  function maintainWarm(params: WorkerSpawnParams & { agentId: string }): void {
     maintainWarmPool({
       pool,
       warmPool,
@@ -388,9 +412,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       chatbotId: modelRuntime.chatbotId,
       sessionModel: modelRuntime.model || model,
     });
-    const runtimeEnv = strategy.sendsRuntimeEnv
-      ? readStoredRuntimeEnv()
-      : undefined;
+    const runtimeEnv = readStoredRuntimeEnv();
 
     enforceWarmPoolPressure({
       pool,
@@ -404,23 +426,29 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       params.background,
     );
     if (totalProcessCount() >= processLimit && !pool.has(sessionId)) {
-      const waitMs = strategy.capacityWaitMs?.(params.background);
-      const capacity =
-        waitMs === undefined
-          ? freeCapacity(processLimit)
-            ? 'available'
-            : 'timed_out'
-          : await waitForCapacity(sessionId, processLimit, waitMs, abortSignal);
+      const waitMs = params.background
+        ? BACKGROUND_CAPACITY_WAIT_MS
+        : CAPACITY_WAIT_MS;
+      const capacity = await waitForCapacity(
+        sessionId,
+        processLimit,
+        waitMs,
+        executionDeadlineAtMs,
+        abortSignal,
+      );
       if (capacity === 'aborted') {
         return interruptedAgentOutput(abortSignal?.reason);
       }
+      // As when the gateway aborts the turn at its deadline.
+      if (capacity === 'deadline') {
+        return interruptedAgentOutput(new ExecutionDeadlineError());
+      }
       if (capacity === 'timed_out') {
-        const waited = waitMs === undefined ? '' : ` after waiting ${waitMs}ms`;
         return {
           status: 'error',
           result: null,
           toolsUsed: [],
-          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit})${waited}. Try again later.`,
+          error: `Too many active ${strategy.noun.many} (${totalProcessCount()}/${processLimit}) after waiting ${waitMs}ms. Try again later.`,
           errorCode: 'busy',
         };
       }
@@ -446,10 +474,25 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       taskModels,
       mcpServers,
       runtimeEnv,
+      runtimeEnvAtSpawn: strategy.runtimeEnvAtSpawn,
       mapHostUrl: strategy.mapHostUrl,
     });
 
-    if (existingEntry && existingEntry.workerSignature !== workerSignature) {
+    const spawnParams = {
+      sessionId,
+      agentId,
+      workspacePathOverride: params.workspacePathOverride,
+      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+      bashProxy: params.bashProxy,
+      runtimeScope: params.runtimeScope,
+    };
+    // Compared in memory only, never logged: it holds the runtime token.
+    const currentEnv = JSON.stringify(spawnEnv(spawnParams, agentId));
+    if (
+      existingEntry &&
+      (existingEntry.workerSignature !== workerSignature ||
+        existingEntry.spawnEnv !== currentEnv)
+    ) {
       logger.info(
         {
           sessionId,
@@ -457,22 +500,14 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
           agentId,
           provider: input.provider,
         },
-        `Worker routing changed; restarting ${worker}`,
+        `Worker routing or env changed; restarting ${worker}`,
       );
       stopEntry(existingEntry);
       removeEntry(existingEntry);
     }
 
     const current = pool.get(sessionId);
-    const isNewWorker =
-      !current || current.process.killed || current.process.exitCode !== null;
-    const spawnParams = {
-      sessionId,
-      agentId,
-      workspacePathOverride: params.workspacePathOverride,
-      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-      bashProxy: params.bashProxy,
-    };
+    const isNewWorker = !current || !isLive(current);
 
     let entry: WorkerEntry;
     try {
@@ -484,6 +519,14 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
               sessionId,
               agentId,
               eligibility: spawnParams,
+              isCurrent: (spare) => spare.spawnEnv === currentEnv,
+              discard: (spare) => {
+                logger.info(
+                  { agentId, ...strategy.logFields(spare) },
+                  `Discarding warm ${worker} spawned with an outdated env`,
+                );
+                stopEntry(spare);
+              },
               logClaim: (claimed) =>
                 logger.info(
                   {
@@ -495,8 +538,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
                   `Claimed warm ${worker}`,
                 ),
             })
-          : null) ||
-        getOrSpawn({ ...spawnParams, runtimeScope: params.runtimeScope });
+          : null) || getOrSpawn(spawnParams);
     } catch (err) {
       return {
         status: 'error',
@@ -538,7 +580,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
         `Interrupt requested, stopping ${worker}`,
       );
       stopEntry(entry);
-      if (strategy.dropsEntryOnAbort) removeEntry(entry);
+      removeEntry(entry);
     };
     if (abortSignal) {
       abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -562,10 +604,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
             `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
           );
         } catch (err) {
-          if (
-            strategy.guardsStdinErrors &&
-            isStdinWriteInterrupt(err, entry.process, abortSignal)
-          ) {
+          if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
             logger.info(
               { sessionId, error: err },
               `${Worker} input write interrupted by process shutdown`,

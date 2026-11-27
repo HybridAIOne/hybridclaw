@@ -19,13 +19,13 @@ useCleanMocks({
 function makeFakeChildProcess() {
   const proc = new EventEmitter() as EventEmitter & {
     stderr: EventEmitter;
-    stdin: { write: ReturnType<typeof vi.fn> };
+    stdin: EventEmitter & { write: ReturnType<typeof vi.fn> };
     kill: ReturnType<typeof vi.fn>;
     killed: boolean;
     exitCode: number | null;
   };
   proc.stderr = new EventEmitter();
-  proc.stdin = { write: vi.fn() };
+  proc.stdin = Object.assign(new EventEmitter(), { write: vi.fn() });
   proc.killed = false;
   proc.exitCode = null;
   proc.kill = vi.fn(() => {
@@ -110,24 +110,46 @@ async function loadRuntime(readOutput: () => Promise<ContainerOutput>) {
   };
 }
 
+// Left to the idle timeout, the first call over the cap waits until an idle
+// worker is old enough to evict (10 s), within its 15 s capacity wait; by then
+// the other idle workers are too, so the next call evicts one at once. Each
+// call over the cap stops at least one idle worker. Released at hangup, a call
+// over the cap finds a free slot without waiting.
 test.each([
-  ['released at hangup', true, 0],
-  ['left to the idle timeout', false, 2],
+  ['released at hangup', true, 7, 0, 5_000],
+  ['left to the idle timeout', false, 2, 10_000, Number.POSITIVE_INFINITY],
 ])(
   'calls in a row past the container cap with workers %s',
-  async (_label, releaseAtHangup, expectedBusy) => {
+  async (_label, releaseAtHangup, minStops, minWaitMs, maxWaitMs) => {
     const runtime = await loadRuntime(async () => SUCCESS);
     const outputs: ContainerOutput[] = [];
-    for (let call = 0; call < runtime.capacity + 2; call += 1) {
-      const sessionId = `voice-call-${call}`;
-      outputs.push(await runtime.runTurn(sessionId));
-      if (releaseAtHangup) await runtime.releaseSessionWorker(sessionId);
+    const overCapWaits: number[] = [];
+    // Step the clock through capacity waits instead of sleeping; a call that
+    // does not wait sees at most a step or two.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const stepClock = setInterval(() => vi.setSystemTime(Date.now() + 500), 20);
+    let stops = 0;
+    try {
+      for (let call = 0; call < runtime.capacity + 2; call += 1) {
+        const sessionId = `voice-call-${call}`;
+        const startedAt = Date.now();
+        outputs.push(await runtime.runTurn(sessionId));
+        if (call >= runtime.capacity) overCapWaits.push(Date.now() - startedAt);
+        if (releaseAtHangup) await runtime.releaseSessionWorker(sessionId);
+      }
+      stops = runtime.dockerStops();
+    } finally {
+      clearInterval(stepClock);
+      vi.useRealTimers();
+      runtime.stopAllExecutions();
     }
-    runtime.stopAllExecutions();
 
-    expect(outputs.filter((output) => output.errorCode === 'busy')).toHaveLength(
-      expectedBusy,
-    );
+    expect(outputs.filter((output) => output.errorCode === 'busy')).toEqual([]);
+    expect(stops).toBeGreaterThanOrEqual(minStops);
+    expect(overCapWaits).toHaveLength(2);
+    const waited = overCapWaits[0] + overCapWaits[1];
+    expect(waited).toBeGreaterThanOrEqual(minWaitMs);
+    expect(waited).toBeLessThan(maxWaitMs);
   },
 );
 
