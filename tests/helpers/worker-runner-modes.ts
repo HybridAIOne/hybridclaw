@@ -69,7 +69,6 @@ export interface RunnerMode {
   expected: {
     busyError: RegExp;
     fullPoolWaits: boolean;
-    activeSessionsAfterAbort: number;
   };
 }
 
@@ -99,7 +98,6 @@ export const RUNNER_MODES: RunnerMode[] = [
     expected: {
       busyError: /^Too many active containers \(5\/5\)\. Try again later\.$/,
       fullPoolWaits: false,
-      activeSessionsAfterAbort: 0,
     },
   },
   {
@@ -126,7 +124,6 @@ export const RUNNER_MODES: RunnerMode[] = [
       busyError:
         /^Too many active host agent processes \(5\/5\) after waiting 15000ms\. Try again later\.$/,
       fullPoolWaits: true,
-      activeSessionsAfterAbort: 1,
     },
   },
 ];
@@ -149,6 +146,7 @@ export interface StartedRunner {
   workerCalls: SpawnCall[];
   spawn: Mock<(...args: SpawnCall) => FakeWorker>;
   readOutput: Mock;
+  writeInput: Mock;
   logger: Record<'debug' | 'info' | 'warn' | 'error', Mock>;
 }
 
@@ -210,10 +208,13 @@ export function useRunnerModes(prefix: string) {
       ...(await importOriginal<typeof import('node:child_process')>()),
       spawn,
     }));
-    vi.doMock('../../src/infra/ipc.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../../src/infra/ipc.js')>()),
-      readOutput,
-    }));
+    const writeInput = vi.fn();
+    vi.doMock('../../src/infra/ipc.js', async (importOriginal) => {
+      const ipc =
+        await importOriginal<typeof import('../../src/infra/ipc.js')>();
+      writeInput.mockImplementation(ipc.writeInput);
+      return { ...ipc, readOutput, writeInput };
+    });
     vi.doMock('../../src/providers/factory.js', async (importOriginal) => ({
       ...(await importOriginal<
         typeof import('../../src/providers/factory.js')
@@ -235,7 +236,16 @@ export function useRunnerModes(prefix: string) {
     vi.doMock('../../src/logger.js', () => ({ logger }));
 
     const runner = await mode.loadRunner();
-    return { runner, homeDir, workers, workerCalls, spawn, readOutput, logger };
+    return {
+      runner,
+      homeDir,
+      workers,
+      workerCalls,
+      spawn,
+      readOutput,
+      writeInput,
+      logger,
+    };
   };
 }
 

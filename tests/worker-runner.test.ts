@@ -103,7 +103,6 @@ async function loadRunner(params: {
       return { process: child as never, name: `worker-${children.length}` };
     }),
     stop: vi.fn(),
-    dropsEntryOnAbort: false,
     guardsStdinErrors: false,
     memoryKey: (entry) => entry.name ?? null,
     readMemoryBytes: async () => 0,
@@ -253,13 +252,9 @@ describe('createWorkerRunner strategy seam', () => {
     await busy;
   });
 
-  it.each([
-    true,
-    false,
-  ])('stops an aborted worker once and drops it on abort only when asked (%s)', async (dropsEntryOnAbort) => {
+  it('stops an aborted worker once and drops it at once', async () => {
     const { runner, strategy, children } = await loadRunner({
       readOutput: onAbortOutput(),
-      strategy: { dropsEntryOnAbort },
     });
     const controller = new AbortController();
     const run = runner.exec(
@@ -270,11 +265,10 @@ describe('createWorkerRunner strategy seam', () => {
     controller.abort();
     await run;
 
-    expect(runner.getActiveSessionCount()).toBe(dropsEntryOnAbort ? 0 : 1);
-    runner.stopSession('session-a');
-    expect(strategy.stop).toHaveBeenCalledOnce();
-    children[0].emit('close', null, 'SIGTERM');
     expect(runner.getActiveSessionCount()).toBe(0);
+    expect(runner.stopSession('session-a')).toBe(false);
+    children[0].emit('close', null, 'SIGTERM');
+    expect(strategy.stop).toHaveBeenCalledOnce();
   });
 
   it.each([

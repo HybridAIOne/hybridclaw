@@ -524,42 +524,53 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     }
   });
 
-  test('an abort stops the worker; the session leaves the pool when the mode drops it', async () => {
-    const { runner, workers, readOutput } = await startRunner(mode, {
-      readOutput: (
-        _sessionId: string,
-        _requestId: string,
-        _timeoutMs: number,
-        opts?: { signal?: AbortSignal },
-      ) =>
-        new Promise((resolve) => {
-          opts?.signal?.addEventListener('abort', () =>
-            resolve({
-              status: 'error' as const,
-              result: null,
-              toolsUsed: [],
-              error: 'Interrupted by user.',
-            }),
-          );
-        }),
+  test('an abort stops the worker once and the next turn gets a new one', async () => {
+    const interruptible = (
+      _sessionId: string,
+      _requestId: string,
+      _timeoutMs: number,
+      opts?: { signal?: AbortSignal },
+    ) =>
+      new Promise((resolve) => {
+        opts?.signal?.addEventListener('abort', () =>
+          resolve({
+            status: 'error' as const,
+            result: null,
+            toolsUsed: [],
+            error: 'Interrupted by user.',
+          }),
+        );
+      });
+    const run = await startRunner(mode, {
+      readOutput: vi
+        .fn()
+        .mockImplementationOnce(interruptible)
+        .mockResolvedValue(okOutput()),
     });
     const controller = new AbortController();
-    const pending = runner.exec({
+    const pending = run.runner.exec({
       ...baseRequest,
       sessionId: 'session-abort',
       abortSignal: controller.signal,
     });
-    await vi.waitFor(() => expect(readOutput).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(run.readOutput).toHaveBeenCalledTimes(1));
 
     controller.abort();
     await expect(pending).resolves.toMatchObject({ status: 'error' });
+    // The stopped worker has not exited yet; it already left the pool.
+    expect(run.runner.getActiveSessionCount()).toBe(0);
 
-    expect(runner.getActiveSessionCount()).toBe(
-      mode.expected.activeSessionsAfterAbort,
-    );
-    workers[0].exitCode = 0;
-    workers[0].emit('close', 0, 'SIGTERM');
-    expect(runner.getActiveSessionCount()).toBe(0);
+    await expect(
+      run.runner.exec({ ...baseRequest, sessionId: 'session-abort' }),
+    ).resolves.toMatchObject({ status: 'success' });
+    expect(run.workers).toHaveLength(2);
+    expect(run.workers[0].stdin.write).toHaveBeenCalledTimes(1);
+    expect(run.workers[1].stdin.write).toHaveBeenCalledTimes(1);
+    expect(run.writeInput).not.toHaveBeenCalled();
+    run.workers[0].exitCode = 0;
+    run.workers[0].emit('close', 0, 'SIGTERM');
+    expect(mode.stopCount(run)).toBe(1);
+    expect(run.runner.getActiveSessionIds()).toEqual(['session-abort']);
   });
 
   test('gives the worker the browser a run asks for, else the configured one', async () => {

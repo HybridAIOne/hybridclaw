@@ -270,9 +270,6 @@ export const containerRunner = createWorkerRunner({
     'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
   spawn: spawnContainer,
   stop: (entry) => stopContainer(entry.name || ''),
-  // `docker stop` keeps the `docker run` client alive until the container
-  // exits; drop the entry so the next turn cannot reuse a dying container.
-  dropsEntryOnAbort: true,
   guardsStdinErrors: false,
   memoryKey: (entry) => entry.name || null,
   readMemoryBytes: async (containerNames) => {
