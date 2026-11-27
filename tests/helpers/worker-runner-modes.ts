@@ -142,6 +142,8 @@ export const RUNNER_MODES: RunnerMode[] = [
 export interface StartOptions {
   readOutput?: (...args: never[]) => unknown;
   credentials?: (...args: never[]) => unknown;
+  /** Replaces task-model resolution; real resolution when unset. */
+  taskModels?: () => unknown;
   warmPool?: boolean;
   /** Config overrides; getters are read on each access, not once. */
   config?: Record<string, unknown>;
@@ -179,6 +181,7 @@ export function useRunnerModes(prefix: string) {
       '../src/infra/ipc.js',
       '../src/logger.js',
       '../src/providers/factory.js',
+      '../src/providers/task-routing.js',
     ],
   });
 
@@ -233,6 +236,18 @@ export function useRunnerModes(prefix: string) {
       >()),
       resolveModelRuntimeCredentials: credentials,
     }));
+    const { taskModels } = options;
+    if (taskModels) {
+      vi.doMock(
+        '../../src/providers/task-routing.js',
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import('../../src/providers/task-routing.js')
+          >()),
+          resolveTaskModelPolicies: vi.fn(async () => taskModels()),
+        }),
+      );
+    }
     vi.doMock('../../src/config/config.js', async (importOriginal) => {
       const actual =
         await importOriginal<typeof import('../../src/config/config.js')>();

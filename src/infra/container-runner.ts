@@ -6,8 +6,9 @@
  * Every worker runs `--read-only --cap-drop=ALL --security-opt=no-new-privileges`;
  * only its workspace, IPC dir and the shared browser profile dir are mounted
  * writable, plus extra binds that pass the mount allowlist as read-write. Loopback URLs are rewritten to the host alias. Native MLX
- * credentials remain on the host; each turn receives only a relay capability
- * pinned to its selected model. This is not a general network proxy.
+ * credentials and URLs remain on the host: the turn's model and each MLX task
+ * model receive only their own relay capability, pinned to that model. This is
+ * not a general network proxy.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -268,17 +269,71 @@ export const containerRunner = createWorkerRunner({
   mapHostUrl: remapHostBaseUrlForContainer,
   stateRoot: (_request, workspacePath) => workspacePath,
   startModelRelay: ({ input, modelRuntime, ipcPath, model, task }) => {
-    if (modelRuntime.provider !== 'mlx') return undefined;
-    const relay = startMlxRelay({
-      ipcPath,
-      baseUrl: modelRuntime.baseUrl,
-      apiKey: modelRuntime.apiKey,
-      model: model.replace(/^mlx\//, ''),
-      task,
-    });
-    input.baseUrl = 'http://mlx.invalid/v1';
-    input.apiKey = '';
-    input.requestHeaders = { 'X-HybridClaw-Relay': relay.id };
-    return relay;
+    const relays: Array<{ stop(): void }> = [];
+    const relayTarget = (target: {
+      baseUrl: string;
+      apiKey: string;
+      model: string;
+    }) => {
+      const relay = startMlxRelay({
+        ipcPath,
+        baseUrl: target.baseUrl,
+        apiKey: target.apiKey,
+        model: target.model.replace(/^mlx\//, ''),
+        task,
+      });
+      relays.push(relay);
+      return {
+        baseUrl: 'http://mlx.invalid/v1',
+        apiKey: '',
+        requestHeaders: { 'X-HybridClaw-Relay': relay.id },
+      };
+    };
+    if (modelRuntime.provider === 'mlx') {
+      Object.assign(
+        input,
+        relayTarget({
+          baseUrl: modelRuntime.baseUrl,
+          apiKey: modelRuntime.apiKey,
+          model,
+        }),
+      );
+    }
+    if (input.taskModels) {
+      input.taskModels = Object.fromEntries(
+        Object.entries(input.taskModels).map(([key, policy]) => {
+          if (policy?.provider !== 'mlx' || policy.error) return [key, policy];
+          try {
+            return [
+              key,
+              {
+                ...policy,
+                ...relayTarget({
+                  baseUrl: policy.baseUrl || '',
+                  apiKey: policy.apiKey || '',
+                  model: policy.model,
+                }),
+              },
+            ];
+          } catch (error) {
+            return [
+              key,
+              {
+                provider: policy.provider,
+                model: policy.model,
+                maxTokens: policy.maxTokens,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            ];
+          }
+        }),
+      );
+    }
+    if (relays.length === 0) return undefined;
+    return {
+      stop: () => {
+        for (const relay of relays) relay.stop();
+      },
+    };
   },
 });
