@@ -9,6 +9,8 @@
  *
  * NOT the container-side resolver (`container/src/runtime-paths.ts`), which
  * enforces the same roots for tool calls inside the sandbox.
+ * `resolveDiscordMediaCacheHostDir` is the same cache root as worker spawns
+ * hand it to the agent, read from the current data dir.
  */
 import path from 'node:path';
 import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from '@hybridclaw/shared/managed-temp-media';
@@ -28,9 +30,9 @@ import {
 
 export const WORKSPACE_ROOT_DISPLAY = '/workspace';
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
-const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
+export function resolveDiscordMediaCacheHostDir(): string {
+  return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
+}
 
 /** Mount aliases are validated once per resolver, not once per path. */
 export function createMediaHostPathResolver(
@@ -43,7 +45,7 @@ export function createMediaHostPathResolver(
       rawPath,
       workspaceRoot,
       workspaceRootDisplay: WORKSPACE_ROOT_DISPLAY,
-      mediaCacheRoot: DISCORD_MEDIA_CACHE_ROOT,
+      mediaCacheRoot: resolveDiscordMediaCacheHostDir(),
       mediaCacheRootDisplay: DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
       uploadedMediaRoot,
       uploadedMediaRootDisplay: UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,

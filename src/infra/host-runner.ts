@@ -13,8 +13,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
+import { ensureBrowserProfileHostDir } from '../browser/profile-dir.js';
 import { CONTAINER_BINDS } from '../config/config.js';
 import { logger } from '../logger.js';
+import { resolveDiscordMediaCacheHostDir } from '../media/media-host-path.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
@@ -25,8 +27,6 @@ import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
   createWorkerRunner,
-  resolveBrowserProfileHostDir,
-  resolveDiscordMediaCacheHostDir,
   type WorkerSpawnRequest,
 } from './worker-runner.js';
 
@@ -149,7 +149,7 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
-    BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
+    BROWSER_SHARED_PROFILE_DIR: ensureBrowserProfileHostDir(),
     AGENT_BROWSER_BIN: agentBrowserBin,
   };
   if (params.bashProxy?.mode === 'docker-exec') {
