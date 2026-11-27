@@ -16,7 +16,10 @@ import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveExecutionDeadline } from '@hybridclaw/shared/execution-deadline';
+import {
+  ExecutionDeadlineError,
+  resolveExecutionDeadline,
+} from '@hybridclaw/shared/execution-deadline';
 import type { Executor, ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -263,10 +266,13 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     sessionId: string,
     limit: number,
     waitMs: number,
+    executionDeadlineAtMs: number | undefined,
     abortSignal?: AbortSignal,
-  ): Promise<'available' | 'aborted' | 'timed_out'> {
+  ): Promise<'available' | 'aborted' | 'timed_out' | 'deadline'> {
     const deadline = Date.now() + waitMs;
     while (totalProcessCount() >= limit && !pool.has(sessionId)) {
+      if (Date.now() >= (executionDeadlineAtMs ?? Number.POSITIVE_INFINITY))
+        return 'deadline';
       if (freeCapacity(limit)) break;
       if (abortSignal?.aborted) return 'aborted';
       const remainingMs = deadline - Date.now();
@@ -427,10 +433,15 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
         sessionId,
         processLimit,
         waitMs,
+        executionDeadlineAtMs,
         abortSignal,
       );
       if (capacity === 'aborted') {
         return interruptedAgentOutput(abortSignal?.reason);
+      }
+      // As when the gateway aborts the turn at its deadline.
+      if (capacity === 'deadline') {
+        return interruptedAgentOutput(new ExecutionDeadlineError());
       }
       if (capacity === 'timed_out') {
         return {

@@ -544,6 +544,44 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     }
   });
 
+  test('a full pool stops waiting at the turn deadline without spawning', async () => {
+    const { finish, readOutput } = pendingOutputs();
+    const { runner, workers } = await startRunner(mode, { readOutput });
+    const running = ['sess-1', 'sess-2', 'sess-3', 'sess-4', 'sess-5'].map(
+      (sessionId) => runner.exec({ ...baseRequest, sessionId }),
+    );
+    await vi.waitFor(() => expect(workers).toHaveLength(5));
+
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      let settled = false;
+      const overflow = runner.exec({
+        ...baseRequest,
+        sessionId: 'sess-6',
+        maxWallClockMs: 2_000,
+      });
+      void overflow.then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+
+      vi.setSystemTime(Date.now() + 2_500);
+      const output = await overflow;
+      expect(output).toMatchObject({
+        status: 'error',
+        error: 'Execution deadline exceeded.',
+      });
+      expect(output.errorCode).toBeUndefined();
+      expect(workers).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+      for (const done of finish) done();
+      await Promise.all(running);
+      runner.stopAll();
+    }
+  });
+
   test('keeps the last worker for a user turn while background runs fill the rest', async () => {
     const { finish, readOutput } = pendingOutputs();
     const { runner, workers } = await startRunner(mode, { readOutput });
