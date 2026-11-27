@@ -70,6 +70,7 @@ import {
   type WarmRunnerMode,
 } from './warm-runner-utils.js';
 import { remapOutputArtifacts } from './worker-artifacts.js';
+import { buildWorkerEnv } from './worker-env.js';
 import { buildWorkerInput, type ModelRuntime } from './worker-input.js';
 import {
   capitalize,
@@ -99,6 +100,10 @@ export interface WorkerSpawnRequest {
   agentId: string;
   ipcPath: string;
   workspacePath: string;
+  /** The `buildWorkerEnv` contract, URLs already mapped for this mode. */
+  workerEnv: Record<string, string>;
+  /** Stored runtime env; set only when `runtimeEnvAtSpawn`. */
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface WorkerStrategy {
@@ -116,12 +121,16 @@ export interface WorkerStrategy {
   memoryKey(entry: WorkerEntry): string | null;
   readMemoryBytes(keys: string[]): Promise<number>;
   logFields(entry: WorkerEntry): Record<string, unknown>;
+  /**
+   * The worker gets the stored runtime env in its process env at spawn, so
+   * requests leave it out: re-applying it in the worker would replace the
+   * host-built NODE_PATH. It is part of the signature either way.
+   */
+  runtimeEnvAtSpawn: boolean;
   /** Rewrites a gateway-side URL into one the worker can reach. */
   mapHostUrl(url: string): string;
   /** Root for turn-checkpoint recovery evidence. */
   stateRoot(request: ExecutorRequest, workspacePath: string): string;
-  /** Sends the stored runtime env with each request (part of its signature). */
-  sendsRuntimeEnv: boolean;
   /** Waits this long for a free worker; without it a full pool fails at once. */
   capacityWaitMs?(background: boolean | undefined): number;
   /** Rewrites `input` to go through a gateway-side relay for this turn. */
@@ -274,6 +283,21 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     return abortSignal?.aborted ? 'aborted' : 'available';
   }
 
+  function spawnEnv(params: WorkerSpawnParams, agentId: string) {
+    return {
+      workerEnv: buildWorkerEnv({
+        agentId,
+        runtimeScope: params.runtimeScope,
+        displayRoot: params.workspaceDisplayRootOverride,
+        mode: strategy.mode,
+        mapHostUrl: strategy.mapHostUrl,
+      }),
+      ...(strategy.runtimeEnvAtSpawn
+        ? { runtimeEnv: readStoredRuntimeEnv() }
+        : {}),
+    };
+  }
+
   function getOrSpawn(params: WorkerSpawnParams): WorkerEntry {
     const sessionId = params.sessionId;
     const agentId = params.agentId || DEFAULT_AGENT_ID;
@@ -296,17 +320,20 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       workspacePathOverride: params.workspacePathOverride,
     });
     fs.mkdirSync(workspacePath, { recursive: true });
+    const env = spawnEnv(params, agentId);
     const spawned = strategy.spawn({
       request: params,
       agentId,
       ipcPath,
       workspacePath,
+      ...env,
     });
     const entry = createWorkerEntry({
       strategy,
       spawned,
       sessionId,
       agentId,
+      spawnEnv: JSON.stringify(env),
       warm: Boolean(params.warm),
       warmPool,
       stop: stopEntry,
@@ -322,12 +349,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
     return entry;
   }
 
-  function maintainWarm(params: {
-    agentId: string;
-    workspacePathOverride?: string;
-    workspaceDisplayRootOverride?: string;
-    bashProxy?: ExecutorRequest['bashProxy'];
-  }): void {
+  function maintainWarm(params: WorkerSpawnParams & { agentId: string }): void {
     maintainWarmPool({
       pool,
       warmPool,
@@ -389,9 +411,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       chatbotId: modelRuntime.chatbotId,
       sessionModel: modelRuntime.model || model,
     });
-    const runtimeEnv = strategy.sendsRuntimeEnv
-      ? readStoredRuntimeEnv()
-      : undefined;
+    const runtimeEnv = readStoredRuntimeEnv();
 
     enforceWarmPoolPressure({
       pool,
@@ -447,10 +467,25 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       taskModels,
       mcpServers,
       runtimeEnv,
+      runtimeEnvAtSpawn: strategy.runtimeEnvAtSpawn,
       mapHostUrl: strategy.mapHostUrl,
     });
 
-    if (existingEntry && existingEntry.workerSignature !== workerSignature) {
+    const spawnParams = {
+      sessionId,
+      agentId,
+      workspacePathOverride: params.workspacePathOverride,
+      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+      bashProxy: params.bashProxy,
+      runtimeScope: params.runtimeScope,
+    };
+    // Compared in memory only, never logged: it holds the runtime token.
+    const currentEnv = JSON.stringify(spawnEnv(spawnParams, agentId));
+    if (
+      existingEntry &&
+      (existingEntry.workerSignature !== workerSignature ||
+        existingEntry.spawnEnv !== currentEnv)
+    ) {
       logger.info(
         {
           sessionId,
@@ -458,7 +493,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
           agentId,
           provider: input.provider,
         },
-        `Worker routing changed; restarting ${worker}`,
+        `Worker routing or env changed; restarting ${worker}`,
       );
       stopEntry(existingEntry);
       removeEntry(existingEntry);
@@ -466,13 +501,6 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
 
     const current = pool.get(sessionId);
     const isNewWorker = !current || !isLive(current);
-    const spawnParams = {
-      sessionId,
-      agentId,
-      workspacePathOverride: params.workspacePathOverride,
-      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-      bashProxy: params.bashProxy,
-    };
 
     let entry: WorkerEntry;
     try {
@@ -484,6 +512,14 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
               sessionId,
               agentId,
               eligibility: spawnParams,
+              isCurrent: (spare) => spare.spawnEnv === currentEnv,
+              discard: (spare) => {
+                logger.info(
+                  { agentId, ...strategy.logFields(spare) },
+                  `Discarding warm ${worker} spawned with an outdated env`,
+                );
+                stopEntry(spare);
+              },
               logClaim: (claimed) =>
                 logger.info(
                   {
@@ -495,8 +531,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
                   `Claimed warm ${worker}`,
                 ),
             })
-          : null) ||
-        getOrSpawn({ ...spawnParams, runtimeScope: params.runtimeScope });
+          : null) || getOrSpawn(spawnParams);
     } catch (err) {
       return {
         status: 'error',

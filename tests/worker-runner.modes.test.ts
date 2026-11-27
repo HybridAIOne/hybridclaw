@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import {
   baseRequest,
+  type FakeWorker,
   firstInput,
   makeFakeWorker,
   okOutput,
@@ -25,6 +26,14 @@ function pendingOutputs() {
       finish.push(() => resolve(okOutput()));
     });
   return { finish, readOutput };
+}
+
+function servingWorker(workers: FakeWorker[], sessionId: string): number {
+  return workers.findIndex(
+    (worker) =>
+      worker.stdin.write.mock.calls.length > 0 &&
+      firstInput(worker).sessionId === sessionId,
+  );
 }
 
 describe.each(RUNNER_MODES)('$mode runner', (mode) => {
@@ -445,6 +454,29 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
     );
   });
 
+  test('respawns the pooled worker when the stored runtime env changes', async () => {
+    const run = await startRunner(mode);
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.js'
+    );
+    const request = { ...baseRequest, sessionId: 'session-runtime-env' };
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-a' });
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(mode.storedEnvValue(run, 0, 'EXAMPLE_REGION')).toBe('region-a');
+
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-b' });
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.storedEnvValue(run, 1, 'EXAMPLE_REGION')).toBe('region-b');
+    const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
+    expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
   test('runs as many concurrent sessions as the pool holds', async () => {
     const { runner, workers } = await startRunner(mode, {
       readOutput: () =>
@@ -628,6 +660,146 @@ describe.each(RUNNER_MODES)('$mode runner', (mode) => {
       mode.claimedWarm.message,
     );
     expect(warmWorker?.stdin.write).toHaveBeenCalledTimes(1);
+  });
+
+  test('a scoped request without a workspace override spawns its own worker with the scoped token', async () => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    const run = await startRunner(mode, { warmPool: true });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-unscoped' });
+    const spare = run.workers[1];
+    expect(spare).toBeDefined();
+    const runtimeScope = { agentId: 'default', scopeId: 's_0123456789ab' };
+
+    const output = await run.runner.exec({
+      ...baseRequest,
+      sessionId: 'session-scoped',
+      runtimeScope,
+    });
+
+    expect(output.status).toBe('success');
+
+    expect(spare?.stdin.write).not.toHaveBeenCalled();
+    expect(run.workers).toHaveLength(3);
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    const scopedToken = resolveWorkerRuntimeToken(runtimeScope);
+    expect(scopedToken).not.toBe(resolveWorkerRuntimeToken(undefined));
+    expect(mode.spawnEnvValue(run, 2, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      scopedToken,
+    );
+    expect(firstInput(run.workers[2]).gatewayApiToken).toBe(scopedToken);
+  });
+
+  test('a claimed warm worker runs on the stored runtime env saved after its spawn', async () => {
+    const run = await startRunner(mode, { warmPool: true });
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.js'
+    );
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-a' });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-env-a' });
+    const spare = run.workers[1];
+    expect(spare).toBeDefined();
+
+    saveNamedRuntimeEnv({ EXAMPLE_REGION: 'region-b' });
+    const sessionB = { ...baseRequest, sessionId: 'session-env-b' };
+    await run.runner.exec(sessionB);
+    await run.runner.exec(sessionB);
+
+    const serving = servingWorker(run.workers, 'session-env-b');
+    expect(mode.storedEnvValue(run, serving, 'EXAMPLE_REGION')).toBe(
+      'region-b',
+    );
+    expect(run.workers[serving].stdin.write).toHaveBeenCalledTimes(1);
+    expect(mode.wasStopped(run.workers[serving], run)).toBe(false);
+    expect(serving === 1).toBe(!mode.runtimeEnvAtSpawn);
+    expect(mode.wasStopped(spare, run)).toBe(mode.runtimeEnvAtSpawn);
+    const logged = Object.values(run.logger).flatMap((log) => log.mock.calls);
+    expect(JSON.stringify(logged)).not.toContain('region-');
+  });
+
+  test('replaces a warm worker spawned with an outdated worker env', async () => {
+    let gatewayUrl = 'http://gateway-a.example.com:9090';
+    const run = await startRunner(mode, {
+      warmPool: true,
+      config: {
+        get GATEWAY_CLIENT_BASE_URL() {
+          return gatewayUrl;
+        },
+      },
+    });
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-url-a' });
+    const spare = run.workers[1];
+    expect(
+      mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_URL'),
+    ).toContain('gateway-a.example.com');
+
+    gatewayUrl = 'http://gateway-b.example.com:9090';
+    await run.runner.exec({ ...baseRequest, sessionId: 'session-url-b' });
+
+    expect(mode.wasStopped(spare, run)).toBe(true);
+    expect(spare.stdin.write).not.toHaveBeenCalled();
+    const serving = servingWorker(run.workers, 'session-url-b');
+    expect(serving).toBeGreaterThan(1);
+    expect(
+      mode.spawnEnvValue(run, serving, 'HYBRIDCLAW_GATEWAY_URL'),
+    ).toContain('gateway-b.example.com');
+    expect(run.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'default' }),
+      expect.stringMatching(/^Discarding warm .* outdated env$/),
+    );
+  });
+
+  test.each([
+    { name: 'unscoped', runtimeScope: undefined },
+    {
+      name: 'scoped',
+      runtimeScope: { agentId: 'default', scopeId: 's_0123456789ab' },
+    },
+  ])('restarts a $name session worker once when its spawn env goes stale', async ({
+    runtimeScope,
+  }) => {
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
+    let gatewayUrl = 'http://gateway-a.example.com:9090';
+    const run = await startRunner(mode, {
+      config: {
+        get GATEWAY_CLIENT_BASE_URL() {
+          return gatewayUrl;
+        },
+      },
+    });
+    const request = {
+      ...baseRequest,
+      sessionId: 'session-env-stale',
+      runtimeScope,
+    };
+
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+    expect(run.workers).toHaveLength(1);
+    expect(run.workers[0].stdin.write).toHaveBeenCalledTimes(1);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(false);
+
+    gatewayUrl = 'http://gateway-b.example.com:9090';
+    await run.runner.exec(request);
+    await run.runner.exec(request);
+
+    expect(run.workers).toHaveLength(2);
+    expect(mode.wasStopped(run.workers[0], run)).toBe(true);
+    expect(mode.wasStopped(run.workers[1], run)).toBe(false);
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_URL')).toContain(
+      'gateway-b.example.com',
+    );
+    const { resolveWorkerRuntimeToken } = await import(
+      '../src/security/agent-runtime-token.js'
+    );
+    expect(mode.spawnEnvValue(run, 1, 'HYBRIDCLAW_GATEWAY_TOKEN')).toBe(
+      resolveWorkerRuntimeToken(runtimeScope),
+    );
+    const logged = JSON.stringify(
+      Object.values(run.logger).flatMap((log) => log.mock.calls),
+    );
+    expect(logged).not.toContain(resolveWorkerRuntimeToken(runtimeScope));
   });
 
   test('turns an exception after dispatch into terminal journal evidence', async () => {

@@ -62,6 +62,12 @@ export interface RunnerMode {
   /** How many times the runner asked a worker to stop. */
   stopCount(run: StartedRunner): number;
   wasStopped(worker: FakeWorker, run: StartedRunner): boolean;
+  /** A stored runtime env value as the worker at `index` received it. */
+  storedEnvValue(run: StartedRunner, index: number, name: string): unknown;
+  /** An env value the worker at `index` was spawned with. */
+  spawnEnvValue(run: StartedRunner, index: number, name: string): unknown;
+  /** The stored runtime env reaches the worker at spawn, not with a request. */
+  runtimeEnvAtSpawn: boolean;
   runtimeLabel: string;
   repairHint: string;
   claimedWarm: { message: string; fields: Record<string, unknown> };
@@ -89,6 +95,15 @@ export const RUNNER_MODES: RunnerMode[] = [
       run.spawn.mock.calls.some(
         ([, args]) => args?.[0] === 'stop' && args[1] === worker.name,
       ),
+    storedEnvValue: (run, index, name) =>
+      (firstInput(run.workers[index]).runtimeEnv as Record<string, string>)?.[
+        name
+      ],
+    spawnEnvValue: (run, index, name) =>
+      run.workerCalls[index]?.[1]
+        .find((arg) => arg.startsWith(`${name}=`))
+        ?.slice(name.length + 1),
+    runtimeEnvAtSpawn: false,
     runtimeLabel: 'Container runtime',
     repairHint: 'npm run build:container',
     claimedWarm: {
@@ -117,6 +132,11 @@ export const RUNNER_MODES: RunnerMode[] = [
       run.workers.reduce((sum, worker) => sum + worker.kill.mock.calls.length, 0),
     wasStopped: (worker) =>
       worker.kill.mock.calls.some(([signal]) => signal === 'SIGTERM'),
+    storedEnvValue: (run, index, name) =>
+      run.workerCalls[index]?.[2]?.env?.[name],
+    spawnEnvValue: (run, index, name) =>
+      run.workerCalls[index]?.[2]?.env?.[name],
+    runtimeEnvAtSpawn: true,
     runtimeLabel: 'Host agent process',
     repairHint: 'postinstall-container.mjs',
     claimedWarm: { message: 'Claimed warm host agent process', fields: {} },
@@ -132,6 +152,7 @@ export interface StartOptions {
   readOutput?: (...args: never[]) => unknown;
   credentials?: (...args: never[]) => unknown;
   warmPool?: boolean;
+  /** Config overrides; getters are read on each access, not once. */
   config?: Record<string, unknown>;
   makeWorker?: () => FakeWorker;
   /** Runs with the fresh HOME before any runner module loads. */
@@ -224,14 +245,16 @@ export function useRunnerModes(prefix: string) {
     vi.doMock('../../src/config/config.js', async (importOriginal) => {
       const actual =
         await importOriginal<typeof import('../../src/config/config.js')>();
-      return {
-        ...actual,
-        CONTAINER_WARM_POOL: {
-          ...actual.CONTAINER_WARM_POOL,
-          enabled: options.warmPool ?? false,
+      return Object.defineProperties(
+        {
+          ...actual,
+          CONTAINER_WARM_POOL: {
+            ...actual.CONTAINER_WARM_POOL,
+            enabled: options.warmPool ?? false,
+          },
         },
-        ...options.config,
-      };
+        Object.getOwnPropertyDescriptors(options.config ?? {}),
+      );
     });
     vi.doMock('../../src/logger.js', () => ({ logger }));
 

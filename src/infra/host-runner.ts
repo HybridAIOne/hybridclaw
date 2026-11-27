@@ -14,7 +14,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '@hybridclaw/shared/sensitive-env';
 import { CONTAINER_BINDS } from '../config/config.js';
-import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -23,7 +22,6 @@ import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runt
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { hostWorkspaceStateRoot } from './host-workspace.js';
 import { resolveInstallRoot } from './install-root.js';
-import { buildWorkerEnv } from './worker-env.js';
 import {
   createWorkerRunner,
   resolveBrowserProfileHostDir,
@@ -152,17 +150,11 @@ function spawnHostProcess(spawnRequest: WorkerSpawnRequest) {
     throw new Error('Host runtime unexpectedly unavailable.');
   }
   const agentBrowserBin = resolveHostAgentBrowserBinary();
-  const storedRuntimeEnv = readStoredRuntimeEnv();
+  const storedRuntimeEnv = spawnRequest.runtimeEnv ?? {};
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
-    ...buildWorkerEnv({
-      agentId,
-      runtimeScope: params.runtimeScope,
-      displayRoot: params.workspaceDisplayRootOverride,
-      mode: 'host',
-      mapHostUrl: (url) => url,
-    }),
+    ...spawnRequest.workerEnv,
     NODE_PATH: hostAgentNodePath(
       storedRuntimeEnv.NODE_PATH || process.env.NODE_PATH,
     ),
@@ -229,9 +221,9 @@ export const hostRunner = createWorkerRunner({
     return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
   },
   logFields: () => ({}),
+  runtimeEnvAtSpawn: true,
   mapHostUrl: (url) => url,
   stateRoot: (request) => hostWorkspaceStateRoot(request),
-  sendsRuntimeEnv: false,
   capacityWaitMs: (background) =>
     background ? BACKGROUND_HOST_CAPACITY_WAIT_MS : HOST_CAPACITY_WAIT_MS,
 });

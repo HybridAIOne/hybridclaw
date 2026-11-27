@@ -97,6 +97,8 @@ test('claims an existing warming entry instead of forcing another spawn', () => 
     sessionId: 'request-1',
     agentId: 'agent_a',
     eligibility: {},
+    isCurrent: () => true,
+    discard: vi.fn(),
     logClaim,
   });
 
@@ -108,7 +110,14 @@ test('claims an existing warming entry instead of forcing another spawn', () => 
   expect(logClaim).toHaveBeenCalledWith(warming);
 });
 
-test('skips warm claim when request eligibility is not pool-safe', () => {
+test.each([
+  { workspacePathOverride: '/custom/workspace' },
+  { workspaceDisplayRootOverride: '/display' },
+  { bashProxy: { mode: 'docker-exec' } },
+  { runtimeScope: { agentId: 'agent_a', scopeId: 'scope-1' } },
+])('skips warm claim when request eligibility is not pool-safe: %o', (
+  eligibility,
+) => {
   const active = new Map<string, WarmRunnerEntry>();
   const warmPool = makeWarmPool({});
   const warm = makeEntry('warm-1');
@@ -119,13 +128,66 @@ test('skips warm claim when request eligibility is not pool-safe', () => {
     warmPool,
     sessionId: 'request-1',
     agentId: 'agent_a',
-    eligibility: { workspacePathOverride: '/custom/workspace' },
+    eligibility,
+    isCurrent: () => true,
+    discard: vi.fn(),
     logClaim: vi.fn(),
   });
 
   expect(claimed).toBeNull();
   expect(active.size).toBe(0);
   expect(warmPool.size).toBe(1);
+});
+
+test('discards outdated spares until one is current', () => {
+  const active = new Map<string, WarmRunnerEntry>();
+  const warmPool = makeWarmPool({});
+  const stale = makeEntry('warm-stale');
+  const current = makeEntry('warm-current');
+  stale.lastUsedAt = 2;
+  current.lastUsedAt = 1;
+  warmPool.add(stale);
+  warmPool.add(current);
+  const discard = vi.fn();
+
+  const claimed = claimWarmEntry({
+    pool: active,
+    warmPool,
+    sessionId: 'request-1',
+    agentId: 'agent_a',
+    eligibility: {},
+    isCurrent: (entry) => entry === current,
+    discard,
+    logClaim: vi.fn(),
+  });
+
+  expect(claimed).toBe(current);
+  expect(discard.mock.calls).toEqual([[stale]]);
+  expect(warmPool.size).toBe(0);
+});
+
+test('claims nothing when every spare is outdated', () => {
+  const active = new Map<string, WarmRunnerEntry>();
+  const warmPool = makeWarmPool({});
+  const stale = makeEntry('warm-stale');
+  warmPool.add(stale);
+  const discard = vi.fn();
+
+  const claimed = claimWarmEntry({
+    pool: active,
+    warmPool,
+    sessionId: 'request-1',
+    agentId: 'agent_a',
+    eligibility: {},
+    isCurrent: () => false,
+    discard,
+    logClaim: vi.fn(),
+  });
+
+  expect(claimed).toBeNull();
+  expect(discard).toHaveBeenCalledWith(stale);
+  expect(active.size).toBe(0);
+  expect(warmPool.size).toBe(0);
 });
 
 test('observes readiness and records cold-start from agent request start', () => {
