@@ -3,8 +3,8 @@
  * decides whether a session's live worker can take it.
  *
  * Everything that changes what a running worker was started with (provider,
- * credentials, gateway token, workspace, bash proxy, stored runtime env when
- * it travels with the request) is in the signature, so a change restarts the
+ * credentials, gateway token, workspace, bash proxy, stored runtime env) is
+ * in the signature, so a change restarts the
  * worker instead of reusing it. Synchronous: it reads current config but
  * resolves nothing asynchronous and starts no process; the runner supplies
  * model runtime and MCP servers.
@@ -80,7 +80,8 @@ export function buildWorkerInput(
     modelRuntime: ModelRuntime;
     taskModels: Awaited<ReturnType<typeof resolveTaskModelPolicies>>;
     mcpServers: Record<string, McpServerConfig>;
-    runtimeEnv?: Record<string, string>;
+    runtimeEnv: Record<string, string>;
+    runtimeEnvAtSpawn: boolean;
     mapHostUrl: (url: string) => string;
   },
 ): { input: ContainerInput; workerSignature: string } {
@@ -177,7 +178,7 @@ export function buildWorkerInput(
     pluginTools: params.pluginTools,
     mcpServers,
     taskModels,
-    ...(runtimeEnv ? { runtimeEnv } : {}),
+    ...(context.runtimeEnvAtSpawn ? {} : { runtimeEnv }),
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       compactionRatio: CONTEXT_GUARD_COMPACTION_RATIO,

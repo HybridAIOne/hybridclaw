@@ -280,9 +280,9 @@ export const containerRunner = createWorkerRunner({
     return total;
   },
   logFields: (entry) => ({ containerName: entry.name }),
+  runtimeEnvAtSpawn: false,
   mapHostUrl: remapHostBaseUrlForContainer,
   stateRoot: (_request, workspacePath) => workspacePath,
-  sendsRuntimeEnv: true,
   startModelRelay: ({ input, modelRuntime, ipcPath, model, task }) => {
     if (modelRuntime.provider !== 'mlx') return undefined;
     const relay = startMlxRelay({

@@ -140,3 +140,22 @@ test.each(['nested', 'hoisted'] as const)('hostRunner exposes the %s agent-brows
 
   expect(spawnEnv(workerCalls[0])?.AGENT_BROWSER_BIN).toBe(expected);
 });
+
+test('hostRunner gives the stored runtime env at spawn and keeps the host NODE_PATH', async () => {
+  const { runner, workers, workerCalls } = await startRunner(host);
+  const { saveNamedRuntimeEnv } = await import('../src/config/runtime-env.js');
+  saveNamedRuntimeEnv({
+    EXAMPLE_REGION: 'region-a',
+    NODE_PATH: '/opt/example/node_modules',
+  });
+
+  await runner.exec({ ...baseRequest, sessionId: 'session-stored-env' });
+
+  const env = spawnEnv(workerCalls[0]);
+  expect(env?.EXAMPLE_REGION).toBe('region-a');
+  const nodePath = String(env?.NODE_PATH).split(path.delimiter);
+  expect(nodePath.at(-1)).toBe('/opt/example/node_modules');
+  expect(nodePath.length).toBeGreaterThan(1);
+  // Re-applying the stored env in the worker would drop the host entries.
+  expect(firstInput(workers[0])).not.toHaveProperty('runtimeEnv');
+});

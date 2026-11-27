@@ -116,12 +116,16 @@ export interface WorkerStrategy {
   memoryKey(entry: WorkerEntry): string | null;
   readMemoryBytes(keys: string[]): Promise<number>;
   logFields(entry: WorkerEntry): Record<string, unknown>;
+  /**
+   * The worker gets the stored runtime env in its process env at spawn, so
+   * requests leave it out: re-applying it in the worker would replace the
+   * host-built NODE_PATH. It is part of the signature either way.
+   */
+  runtimeEnvAtSpawn: boolean;
   /** Rewrites a gateway-side URL into one the worker can reach. */
   mapHostUrl(url: string): string;
   /** Root for turn-checkpoint recovery evidence. */
   stateRoot(request: ExecutorRequest, workspacePath: string): string;
-  /** Sends the stored runtime env with each request (part of its signature). */
-  sendsRuntimeEnv: boolean;
   /** Waits this long for a free worker; without it a full pool fails at once. */
   capacityWaitMs?(background: boolean | undefined): number;
   /** Rewrites `input` to go through a gateway-side relay for this turn. */
@@ -389,9 +393,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       chatbotId: modelRuntime.chatbotId,
       sessionModel: modelRuntime.model || model,
     });
-    const runtimeEnv = strategy.sendsRuntimeEnv
-      ? readStoredRuntimeEnv()
-      : undefined;
+    const runtimeEnv = readStoredRuntimeEnv();
 
     enforceWarmPoolPressure({
       pool,
@@ -447,6 +449,7 @@ export function createWorkerRunner(strategy: WorkerStrategy): Executor {
       taskModels,
       mcpServers,
       runtimeEnv,
+      runtimeEnvAtSpawn: strategy.runtimeEnvAtSpawn,
       mapHostUrl: strategy.mapHostUrl,
     });
 
