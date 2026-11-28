@@ -2,9 +2,11 @@
  * Executes one stored task at a time, retaining the scheduler's run history.
  * Managed editions are claimed durably; a retry delivers saved output only.
  * Interrupted one-shots are paused for review rather than replayed blindly.
+ * A task in an app's data chat skips its runs while nobody reads them.
  * This module never chooses a routine's schedule or policy.
  */
 import { logger } from '../logger.js';
+import { isAppDataChat } from '../memory/agent-main-session.js';
 import {
   deleteJob,
   disableJobWithError,
@@ -14,6 +16,7 @@ import {
   markJobRunStarted,
   markJobSuccess,
 } from '../memory/jobs.js';
+import { getSessionById } from '../memory/sessions.js';
 import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { isConnectorEventCurrent } from './connector-events.js';
@@ -25,6 +28,7 @@ import {
   pendingEdition,
   resumeEdition,
 } from './routine-editions.js';
+import { parseSchedulerTimestampMs } from './schedule-time.js';
 import {
   dbTaskLabel,
   type SchedulerDispatchRequest,
@@ -33,7 +37,20 @@ import {
 import { finishTaskRun, noteTaskRun, startTaskRun } from './task-runs.js';
 
 const MAX_CONSECUTIVE_FAILURES = 5;
+const UNREAD_FOR_MS = 7 * 86_400_000;
 const active = new Set<number>();
+
+// Only the app reads a data chat, with `/schedule results` when it opens: a run
+// nobody read for a week is spent on an app nobody uses. An alert rings the phone,
+// so it runs regardless.
+function nobodyReads(task: ScheduledTask): boolean {
+  const chat = getSessionById(task.session_id);
+  if (task.alert || !chat || !isAppDataChat(chat.session_key)) return false;
+  const read = parseSchedulerTimestampMs(
+    task.results_read_at ?? task.created_at,
+  );
+  return read !== null && Date.now() - read > UNREAD_FOR_MS;
+}
 async function dispatchDbTask(
   task: ScheduledTask,
   runner: (request: SchedulerDispatchRequest) => Promise<void>,
@@ -42,6 +59,7 @@ async function dispatchDbTask(
   // A reminder of a todo that is already done has nothing to say.
   if (
     isTodoReminderSettled(task.id) ||
+    nobodyReads(task) ||
     !isConnectorEventCurrent(task) ||
     !isTriggerRunCurrent(task)
   ) {

@@ -14,7 +14,8 @@
  * app can let a background check write into the conversation itself.
  *
  * `runs` lists when each run was due and how it ended, missed due times
- * included (`task-runs.ts`); it is read like `results`.
+ * included (`task-runs.ts`); it is read like `results`. Either read is what
+ * keeps a task in an app's data chat running (`db-task-runner.ts`).
  *
  * `update --json` validates a complete revision-bound editor payload before
  * writing. It preserves creation and delivery metadata; model, effort and
@@ -39,6 +40,7 @@ import {
   createJob,
   deleteJob,
   getJob,
+  markTaskResultsRead,
   setJobEnabled,
   updateScheduledTask,
 } from '../memory/jobs.js';
@@ -747,6 +749,7 @@ export function handleScheduleCommand(
     const task = taskId ? getJob(taskId, { kind: 'scheduled_task' }) : null;
     if (!task || !canReadScheduledTaskResults(task, session, req.userId))
       return notFound(taskId);
+    markTaskResultsRead(task.id);
     return sub === 'runs' ? runs(task, options) : results(task, options);
   }
 

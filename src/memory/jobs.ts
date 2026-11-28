@@ -88,6 +88,7 @@ interface JobRow {
   last_status: string | null;
   last_error: string | null;
   consecutive_errors: number;
+  results_read_at: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -304,6 +305,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
         : null,
     last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
+    results_read_at: row.results_read_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
     alert: options.alert ?? null,
@@ -323,7 +325,7 @@ function rowSelectClause(): string {
   return `SELECT id, kind, legacy_task_id, session_id, channel_id, name, description,
                  agent_id, board_status, max_retries, schedule, action, delivery,
                  enabled, last_run, last_status, last_error, consecutive_errors,
-                 sort_order, created_at, updated_at
+                 results_read_at, sort_order, created_at, updated_at
           FROM jobs`;
 }
 
@@ -766,6 +768,15 @@ export function markJobRunStarted(jobId: string | number): void {
         "UPDATE jobs SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
       )
       .run(normalizeJobId(jobId));
+  });
+}
+
+// The scheduler's clock, not SQLite's: it is compared with a run's due time.
+export function markTaskResultsRead(taskId: number): void {
+  withMemoryDatabase((database) => {
+    database
+      .prepare('UPDATE jobs SET results_read_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), normalizeJobId(taskId));
   });
 }
 

@@ -34,7 +34,7 @@ import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createProactiveClaimSchema } from '../proactive-queue-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 81;
+export const DATABASE_SCHEMA_VERSION = 82;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4080,6 +4080,16 @@ export function runMigrations(
       81,
       'Lease proactive pulls until client acknowledgement',
     );
+  }
+  if (currentVersion < 82) {
+    addColumnIfMissing({
+      database,
+      table: 'jobs',
+      column: 'results_read_at',
+      ddl: 'results_read_at TEXT',
+      quiet,
+    });
+    recordMigration(database, 82, 'Remember when task results were last read');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

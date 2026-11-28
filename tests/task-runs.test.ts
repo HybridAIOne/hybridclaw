@@ -47,18 +47,18 @@ async function setup() {
   initDatabase({ quiet: true });
   jobs.replaceJobs([]);
   const session = memoryService.getOrCreateSession('web-chat', null, 'web');
-  const command = (args: string[]) =>
+  const command = (args: string[], chat = session) =>
     JSON.parse(
       handleScheduleCommand(
-        { sessionId: session.id, guildId: null, channelId: 'web', args },
-        session,
+        { sessionId: chat.id, guildId: null, channelId: 'web', args },
+        chat,
       ).text,
     );
   const notices = () =>
     getRecentMessages(session.id, 50).filter((message) =>
       message.source?.startsWith('schedule-notice'),
     );
-  return { jobs, scheduler, runs, session, command, notices };
+  return { jobs, scheduler, runs, session, command, notices, memoryService };
 }
 
 test('due times the scheduler never ran are recorded as missed and told once', async () => {
@@ -120,6 +120,41 @@ test('due times the scheduler never ran are recorded as missed and told once', a
   expect(notices()[0]?.content).toContain(
     'Your routine “Summarize my inbox” missed 2 runs',
   );
+});
+
+test('a task in an app data chat skips its runs while nobody reads them', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(BASE + 30_000));
+  const { jobs, scheduler, session, command, memoryService } = await setup();
+  const ideas = memoryService.getOrCreateSession('ideas-1', null, 'web');
+  const task = (sessionId: string, alert?: string) =>
+    jobs.createJob({
+      kind: 'scheduled_task',
+      sessionId,
+      channelId: 'web',
+      cronExpr: '0 * * * *',
+      prompt: 'Write ideas',
+      ...(alert ? { alert } : {}),
+    });
+  const unread = task(ideas.id);
+  const alerting = task(ideas.id, 'reminder');
+  const chat = task(session.id);
+  command(['schedule', 'results', String(unread), '--json'], ideas);
+
+  // Eight days later nobody has opened the app since.
+  vi.setSystemTime(new Date(BASE + 8 * 24 * HOUR + 10 * 60_000));
+  const runner = vi.fn(async (_request: { taskId?: number }) => {});
+  scheduler.startScheduler(runner);
+  await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+  const ran = () => runner.mock.calls.map(([request]) => request.taskId);
+  expect(ran().sort()).toEqual([alerting, chat].sort());
+
+  // The app opens: its read shows the skipped run, and the next one runs.
+  const answer = command(['schedule', 'runs', String(unread), '--json'], ideas);
+  expect(answer.runs[0].outcome).toBe('skipped');
+  await vi.advanceTimersByTimeAsync(HOUR);
+  scheduler.stopScheduler();
+  expect(ran()).toContain(unread);
 });
 
 test('due times while a task was paused do not count as missed', async () => {
