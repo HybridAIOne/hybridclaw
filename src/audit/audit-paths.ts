@@ -1,5 +1,7 @@
 /**
  * Audit writers and per-session lookups share one exact, hashed directory.
+ * A legacy directory every record of which names the session moves there on
+ * first use; any other legacy log stays where it is.
  * Unlike audit-trail, this module neither appends nor verifies hash chains.
  */
 import fs from 'node:fs';
@@ -13,7 +15,49 @@ export function getAuditSessionDir(
   sessionId: string,
   dataDir = DATA_DIR,
 ): string {
-  return path.join(dataDir, 'audit', sessionDirectoryName(sessionId));
+  const root = path.join(dataDir, 'audit');
+  const target = path.join(root, sessionDirectoryName(sessionId));
+  if (!fs.existsSync(target)) adoptLegacyAuditDir(root, sessionId, target);
+  return target;
+}
+
+// Installs can skip the release that moved these logs. A fresh chain beside an
+// old one restarts at seq 1, and mirrors keyed by (session, seq) drop it.
+function adoptLegacyAuditDir(
+  root: string,
+  sessionId: string,
+  target: string,
+): void {
+  const legacy = path.join(
+    root,
+    sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session',
+  );
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path.join(legacy, 'wire.jsonl'), 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ENAMETOOLONG')
+      return;
+    throw error;
+  }
+  const lines = raw.split('\n').filter((line) => line.trim());
+  const owned =
+    lines.length > 0 &&
+    lines.every((line) => {
+      try {
+        const record = JSON.parse(line) as { sessionId?: unknown } | null;
+        return record?.sessionId === sessionId;
+      } catch {
+        return false;
+      }
+    });
+  if (!owned) return;
+  try {
+    fs.renameSync(legacy, target);
+  } catch (error) {
+    if (!fs.existsSync(target)) throw error;
+  }
 }
 
 export function getAuditWirePath(
