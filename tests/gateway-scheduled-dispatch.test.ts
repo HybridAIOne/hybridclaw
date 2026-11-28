@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, expect, onTestFinished, test, vi } from 'vitest';
 import type { SchedulerDispatchRequest } from '../src/scheduler/scheduler.js';
 import { runScheduledTask } from '../src/gateway/gateway-scheduled-dispatch.js';
 import { resetOutOfCreditNotices } from '../src/scheduler/out-of-credit.js';
@@ -73,6 +73,9 @@ test('a failed run tells its delivery target in one line and still fails', async
 });
 
 test('runs refused for lack of credit tell each chat once, with the way to add credit', async () => {
+  // A notice lasts until the reset; a reset already past would notify every run.
+  vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-27T12:00:00Z') });
+  onTestFinished(() => vi.useRealTimers());
   mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, _onResult, onError) => {
     onError(new Error('Provider API error 429: Free usage limit reached; add credits or try again after 2026-11-28 05:00 UTC.'));
   });
