@@ -20,6 +20,8 @@ export interface ScheduledTask {
   last_status: string | null;
   last_error: string | null;
   consecutive_errors: number;
+  /** When a chat last read what its runs answered (`/schedule results` or `runs`). */
+  results_read_at?: string | null;
   created_at: string;
   /** Last change of any kind, a run's start or a pause included. */
   updated_at?: string;

@@ -574,7 +574,10 @@ apart, as with `--reply-only`, and its reply is posted to the main chat and
 rings its phones. The main chat is looked up at each run, so tasks follow a new
 one. Tasks of agents without a main chat, tasks of messaging channels, and
 tasks of the apps' hidden data chats (`feed-…`, `ideas-…`, whose replies are
-JSON for the app) reply in the chat that created them.
+JSON for the app) reply in the chat that created them. The app reads those
+replies with `schedule results` or `runs` when it opens, so a data-chat task
+nobody read for 7 days skips its runs (`skipped`) until the next read; one
+with `--alert` keeps running, because it rings the phone.
 
 Output sent to a bare `web` target that has no chat of its own (an admin
 scheduler job, heartbeat, or a recently used web channel) goes to the agent's
