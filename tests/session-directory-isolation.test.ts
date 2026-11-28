@@ -44,19 +44,33 @@ test('colliding legacy names have independent IPC files and audit chains', async
   }
 });
 
-test('a per-session read or append leaves a legacy wire log untouched', async () => {
-  const sessionId = 'session.test';
-  const legacy = path.join(dataDir, 'audit', 'session_test');
-  fs.mkdirSync(legacy, { recursive: true });
+async function legacyLog(sessionId: string) {
+  await audit.appendAuditEvent({ sessionId, runId: 'run-a', event: { type: 'test' } });
+  audit.forgetAuditSessionState([sessionId]);
+  const legacy = path.join(dataDir, 'audit', sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_'));
+  fs.renameSync(audit.getAuditSessionDir(sessionId), legacy);
+  return legacy;
+}
+
+test('an owned legacy log moves unchanged and its chain continues', async () => {
+  const legacy = await legacyLog('session.test');
+  const before = fs.readFileSync(path.join(legacy, 'wire.jsonl'), 'utf8');
+  const record = await audit.appendAuditEvent({ sessionId: 'session.test', runId: 'run-b', event: { type: 'test' } });
+  expect(record.seq).toBe(2);
+  expect(fs.existsSync(legacy)).toBe(false);
+  expect(fs.readFileSync(audit.getAuditWirePath('session.test'), 'utf8').startsWith(before)).toBe(true);
+  expect(audit.verifyAuditSessionChain('session.test')).toMatchObject({ ok: true, checkedRecords: 2 });
+});
+
+test('a legacy log naming another session stays where it is', async () => {
+  const legacy = await legacyLog('session.test');
   const wire = path.join(legacy, 'wire.jsonl');
-  const bytes = JSON.stringify({ sessionId }) + '\n';
-  fs.writeFileSync(wire, bytes);
-  expect(audit.verifyAuditSessionChain(sessionId).ok).toBe(false);
-  for (const id of [sessionId, 'session_test']) {
-    await audit.appendAuditEvent({ sessionId: id, runId: 'run-a', event: { type: 'test' } });
-    expect(audit.verifyAuditSessionChain(id)).toMatchObject({ ok: true, checkedRecords: 1 });
-  }
-  expect(fs.readFileSync(wire, 'utf8')).toBe(bytes);
+  await audit.appendAuditEvent({ sessionId: 'session_test', runId: 'run-b', event: { type: 'test' } });
+  fs.appendFileSync(wire, `${JSON.stringify({ sessionId: 'session test' })}\n`);
+  const before = fs.readFileSync(wire, 'utf8');
+  await audit.appendAuditEvent({ sessionId: 'session.test', runId: 'run-c', event: { type: 'test' } });
+  expect(fs.readFileSync(wire, 'utf8')).toBe(before);
+  expect(audit.verifyAuditSessionChain('session_test')).toMatchObject({ ok: true, checkedRecords: 1 });
 });
 
 test('leak scanning resolves the exact session ID in a hashed directory', async () => {
